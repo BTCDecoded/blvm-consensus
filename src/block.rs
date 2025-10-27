@@ -173,6 +173,297 @@ fn calculate_tx_id(tx: &Transaction) -> Hash {
     hash
 }
 
+// ============================================================================
+// FORMAL VERIFICATION
+// ============================================================================
+
+/// Mathematical Specification for Block Connection:
+/// ∀ block B, UTXO set US, height h: ConnectBlock(B, US, h) = (valid, US') ⟺
+///   (ValidateHeader(B.header) ∧ 
+///    ∀ tx ∈ B.transactions: CheckTransaction(tx) ∧ CheckTxInputs(tx, US, h) ∧
+///    VerifyScripts(tx, US) ∧
+///    CoinbaseOutput ≤ TotalFees + GetBlockSubsidy(h) ∧
+///    US' = ApplyTransactions(B.transactions, US))
+/// 
+/// Invariants:
+/// - Valid blocks have valid headers and transactions
+/// - UTXO set consistency is preserved
+/// - Coinbase output respects economic rules
+/// - Transaction application is atomic
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Kani proof: apply_transaction preserves UTXO set consistency
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_apply_transaction_consistency() {
+        let tx: Transaction = kani::any();
+        let utxo_set: UtxoSet = kani::any();
+        let height: Natural = kani::any();
+        
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 5);
+        kani::assume(tx.outputs.len() <= 5);
+        
+        let result = apply_transaction(&tx, utxo_set.clone(), height);
+        
+        match result {
+            Ok(new_utxo_set) => {
+                // UTXO set consistency invariants
+                if !is_coinbase(&tx) {
+                    // Non-coinbase transactions must remove spent inputs
+                    for input in &tx.inputs {
+                        assert!(!new_utxo_set.contains_key(&input.prevout), 
+                            "Spent inputs must be removed from UTXO set");
+                    }
+                }
+                
+                // All outputs must be added to UTXO set
+                let tx_id = calculate_tx_id(&tx);
+                for (i, _output) in tx.outputs.iter().enumerate() {
+                    let outpoint = OutPoint {
+                        hash: tx_id,
+                        index: i as Natural,
+                    };
+                    assert!(new_utxo_set.contains_key(&outpoint), 
+                        "All outputs must be added to UTXO set");
+                }
+            },
+            Err(_) => {
+                // Some invalid transactions may fail, which is acceptable
+            }
+        }
+    }
+
+    /// Kani proof: connect_block validates coinbase correctly
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_connect_block_coinbase() {
+        let block: Block = kani::any();
+        let utxo_set: UtxoSet = kani::any();
+        let height: Natural = kani::any();
+        
+        // Bound for tractability
+        kani::assume(block.transactions.len() <= 3);
+        for tx in &block.transactions {
+            kani::assume(tx.inputs.len() <= 3);
+            kani::assume(tx.outputs.len() <= 3);
+        }
+        
+        let result = connect_block(&block, utxo_set, height);
+        
+        match result {
+            Ok((validation_result, _)) => {
+                match validation_result {
+                    ValidationResult::Valid => {
+                        // Valid blocks must have coinbase as first transaction
+                        if !block.transactions.is_empty() {
+                            assert!(is_coinbase(&block.transactions[0]), 
+                                "Valid blocks must have coinbase as first transaction");
+                        }
+                    },
+                    ValidationResult::Invalid(_) => {
+                        // Invalid blocks may violate any rule
+                        // This is acceptable - we're testing the validation logic
+                    }
+                }
+            },
+            Err(_) => {
+                // Some invalid blocks may fail, which is acceptable
+            }
+        }
+    }
+
+    /// Kani proof: calculate_tx_id is deterministic
+    #[kani::proof]
+    fn kani_calculate_tx_id_deterministic() {
+        let tx: Transaction = kani::any();
+        
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 5);
+        kani::assume(tx.outputs.len() <= 5);
+        
+        // Calculate ID twice
+        let id1 = calculate_tx_id(&tx);
+        let id2 = calculate_tx_id(&tx);
+        
+        // Deterministic invariant
+        assert_eq!(id1, id2, "Transaction ID calculation must be deterministic");
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: apply_transaction preserves UTXO set consistency
+    proptest! {
+        #[test]
+        fn prop_apply_transaction_consistency(
+            tx in any::<Transaction>(),
+            utxo_set in any::<UtxoSet>(),
+            height in 0u32..1000u32
+        ) {
+            // Bound for tractability
+            let mut bounded_tx = tx;
+            if bounded_tx.inputs.len() > 5 {
+                bounded_tx.inputs.truncate(5);
+            }
+            if bounded_tx.outputs.len() > 5 {
+                bounded_tx.outputs.truncate(5);
+            }
+            
+            let result = apply_transaction(&bounded_tx, utxo_set.clone(), height);
+            
+            match result {
+                Ok(new_utxo_set) => {
+                    // UTXO set consistency properties
+                    if !is_coinbase(&bounded_tx) {
+                        // Non-coinbase transactions must remove spent inputs
+                        for input in &bounded_tx.inputs {
+                            prop_assert!(!new_utxo_set.contains_key(&input.prevout), 
+                                "Spent inputs must be removed from UTXO set");
+                        }
+                    }
+                    
+                    // All outputs must be added to UTXO set
+                    let tx_id = calculate_tx_id(&bounded_tx);
+                    for (i, _output) in bounded_tx.outputs.iter().enumerate() {
+                        let outpoint = OutPoint {
+                            hash: tx_id,
+                            index: i as Natural,
+                        };
+                        prop_assert!(new_utxo_set.contains_key(&outpoint), 
+                            "All outputs must be added to UTXO set");
+                    }
+                },
+                Err(_) => {
+                    // Some invalid transactions may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Property test: connect_block validates coinbase correctly
+    proptest! {
+        #[test]
+        fn prop_connect_block_coinbase(
+            block in any::<Block>(),
+            utxo_set in any::<UtxoSet>(),
+            height in 0u32..1000u32
+        ) {
+            // Bound for tractability
+            let mut bounded_block = block;
+            if bounded_block.transactions.len() > 3 {
+                bounded_block.transactions.truncate(3);
+            }
+            for tx in &mut bounded_block.transactions {
+                if tx.inputs.len() > 3 {
+                    tx.inputs.truncate(3);
+                }
+                if tx.outputs.len() > 3 {
+                    tx.outputs.truncate(3);
+                }
+            }
+            
+            let result = connect_block(&bounded_block, utxo_set, height);
+            
+            match result {
+                Ok((validation_result, _)) => {
+                    match validation_result {
+                        ValidationResult::Valid => {
+                            // Valid blocks must have coinbase as first transaction
+                            if !bounded_block.transactions.is_empty() {
+                                prop_assert!(is_coinbase(&bounded_block.transactions[0]), 
+                                    "Valid blocks must have coinbase as first transaction");
+                            }
+                        },
+                        ValidationResult::Invalid(_) => {
+                            // Invalid blocks may violate any rule
+                            // This is acceptable - we're testing the validation logic
+                        }
+                    }
+                },
+                Err(_) => {
+                    // Some invalid blocks may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Property test: calculate_tx_id is deterministic
+    proptest! {
+        #[test]
+        fn prop_calculate_tx_id_deterministic(
+            tx in any::<Transaction>()
+        ) {
+            // Bound for tractability
+            let mut bounded_tx = tx;
+            if bounded_tx.inputs.len() > 5 {
+                bounded_tx.inputs.truncate(5);
+            }
+            if bounded_tx.outputs.len() > 5 {
+                bounded_tx.outputs.truncate(5);
+            }
+            
+            // Calculate ID twice
+            let id1 = calculate_tx_id(&bounded_tx);
+            let id2 = calculate_tx_id(&bounded_tx);
+            
+            // Deterministic property
+            prop_assert_eq!(id1, id2, "Transaction ID calculation must be deterministic");
+        }
+    }
+
+    /// Property test: UTXO set operations are consistent
+    proptest! {
+        #[test]
+        fn prop_utxo_set_operations_consistent(
+            utxo_set in any::<UtxoSet>(),
+            outpoint in any::<OutPoint>(),
+            utxo in any::<UTXO>()
+        ) {
+            let mut test_set = utxo_set.clone();
+            
+            // Insert operation
+            test_set.insert(outpoint, utxo.clone());
+            prop_assert!(test_set.contains_key(&outpoint), "Inserted UTXO must be present");
+            
+            // Get operation
+            let retrieved = test_set.get(&outpoint);
+            prop_assert!(retrieved.is_some(), "Inserted UTXO must be retrievable");
+            prop_assert_eq!(retrieved.unwrap().value, utxo.value, "Retrieved UTXO must match inserted value");
+            
+            // Remove operation
+            test_set.remove(&outpoint);
+            prop_assert!(!test_set.contains_key(&outpoint), "Removed UTXO must not be present");
+        }
+    }
+
+    /// Property test: block header validation respects basic rules
+    proptest! {
+        #[test]
+        fn prop_validate_block_header_basic_rules(
+            header in any::<BlockHeader>()
+        ) {
+            let result = validate_block_header(&header).unwrap_or(false);
+            
+            // Basic validation properties
+            if result {
+                // Valid headers must have version >= 1
+                prop_assert!(header.version >= 1, "Valid headers must have version >= 1");
+                
+                // Valid headers must have non-zero bits
+                prop_assert!(header.bits != 0, "Valid headers must have non-zero bits");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

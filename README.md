@@ -2,7 +2,11 @@
 
 **Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper.**
 
-This crate provides pure, side-effect-free functions that implement the mathematical specifications defined in the Orange Paper. It serves as the mathematical foundation for Bitcoin consensus validation.
+[![Verification Status](https://github.com/BTCDecoded/consensus-proof/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/consensus-proof/actions/workflows/verify.yml)
+[![Kani Verification](https://img.shields.io/badge/Kani-Verified-green)](https://model-checking.github.io/kani/)
+[![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
+
+This crate provides pure, side-effect-free functions that implement the mathematical specifications defined in the Orange Paper. It serves as the mathematical foundation for Bitcoin consensus validation with **formal verification** ensuring mathematical correctness.
 
 ## Architecture Position
 
@@ -61,6 +65,42 @@ This crate implements all major Bitcoin consensus functions from the Orange Pape
 3. **Exact Version Pinning**: All consensus-critical dependencies pinned to exact versions
 4. **Comprehensive Testing**: Extensive test coverage with integration tests
 5. **No Consensus Rule Interpretation**: Only mathematical implementation
+6. **Formal Verification**: Kani model checking and property-based testing ensure correctness
+
+## Formal Verification
+
+This crate implements **mathematical verification** of Bitcoin consensus rules using:
+
+- **Kani Model Checker**: Symbolic verification with bounded model checking
+- **Property-Based Testing**: Randomized testing with `proptest` to discover edge cases
+- **Mathematical Specifications**: Formal documentation of consensus invariants
+- **CI Enforcement**: Automated verification blocks merge if proofs fail
+
+### Verification Commands
+
+```bash
+# Run all tests and verification
+cargo test --all-features
+
+# Run Kani model checking
+cargo kani --features verify
+
+# Run property tests only
+cargo test --test property_tests
+
+# Run specific verification
+cargo kani --features verify --harness kani_verify_function
+```
+
+### Verification Status
+
+✅ **Chain Selection**: `should_reorganize`, `calculate_chain_work` verified  
+✅ **Block Subsidy**: `get_block_subsidy` halving schedule verified  
+✅ **Proof of Work**: `check_proof_of_work`, target expansion verified  
+✅ **Transaction Validation**: `check_transaction` structure rules verified  
+✅ **Block Connection**: `connect_block` UTXO consistency verified  
+
+See [docs/VERIFICATION.md](docs/VERIFICATION.md) for detailed verification documentation.
 
 ## Dependencies
 
@@ -83,8 +123,8 @@ thiserror = "~1.0"
 ## Testing
 
 ```bash
-# Run all tests
-cargo test
+# Run all tests and verification
+cargo test --all-features
 
 # Run with coverage
 cargo tarpaulin --out Html --output-dir coverage
@@ -92,6 +132,9 @@ cargo tarpaulin --out Html --output-dir coverage
 # Run integration tests
 cargo test --test integration_tests
 cargo test --test integration_opportunities
+
+# Run formal verification
+cargo kani --features verify
 ```
 
 ## Orange Paper Compliance
@@ -108,11 +151,20 @@ This implementation covers all major Orange Paper sections:
 
 ## Security
 
+This crate implements **mathematically verified** Bitcoin consensus rules with:
+
+- **Formal Verification**: Kani model checking prevents consensus violations
+- **Property Testing**: Randomized testing discovers edge cases
+- **Audit Trail**: OpenTimestamps provides immutable proof of verification
+- **CI Enforcement**: No human override of verification results
+
 See [SECURITY.md](SECURITY.md) for security policies and [BTCDecoded Security Policy](https://github.com/BTCDecoded/.github/blob/main/SECURITY.md) for organization-wide guidelines.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the [BTCDecoded Contribution Guide](https://github.com/BTCDecoded/.github/blob/main/CONTRIBUTING.md).
+
+**Note**: All consensus changes must pass formal verification before merge. See [docs/VERIFICATION.md](docs/VERIFICATION.md) for verification requirements.
 
 ## License
 

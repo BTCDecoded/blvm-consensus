@@ -180,6 +180,187 @@ pub struct ReorganizationResult {
     pub reorganization_depth: usize,
 }
 
+// ============================================================================
+// FORMAL VERIFICATION
+// ============================================================================
+
+/// Mathematical Specification for Chain Selection:
+/// ∀ chains C₁, C₂: work(C₁) > work(C₂) ⇒ select(C₁)
+/// 
+/// Invariants:
+/// - Selected chain has maximum cumulative work
+/// - Work calculation is deterministic
+/// - Empty chains are rejected
+/// - Chain work is always non-negative
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Kani proof: should_reorganize selects chain with maximum work
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_should_reorganize_max_work() {
+        // Generate symbolic chains
+        let new_chain: Vec<Block> = kani::any();
+        let current_chain: Vec<Block> = kani::any();
+        
+        // Assume non-empty chains for meaningful comparison
+        kani::assume(new_chain.len() > 0);
+        kani::assume(current_chain.len() > 0);
+        kani::assume(new_chain.len() <= 5); // Bound for tractability
+        kani::assume(current_chain.len() <= 5);
+        
+        // Calculate work for both chains
+        let new_work = calculate_chain_work(&new_chain).unwrap_or(0);
+        let current_work = calculate_chain_work(&current_chain).unwrap_or(0);
+        
+        // Call should_reorganize
+        let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
+        
+        // Mathematical invariant: reorganize iff new chain has more work
+        if new_work > current_work {
+            assert!(should_reorg, "Must reorganize when new chain has more work");
+        } else {
+            assert!(!should_reorg, "Must not reorganize when new chain has less or equal work");
+        }
+    }
+
+    /// Kani proof: calculate_chain_work is deterministic and non-negative
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_calculate_chain_work_deterministic() {
+        let chain: Vec<Block> = kani::any();
+        kani::assume(chain.len() <= 3); // Bound for tractability
+        
+        // Calculate work twice
+        let work1 = calculate_chain_work(&chain).unwrap_or(0);
+        let work2 = calculate_chain_work(&chain).unwrap_or(0);
+        
+        // Deterministic invariant
+        assert_eq!(work1, work2, "Chain work calculation must be deterministic");
+        
+        // Non-negative invariant
+        assert!(work1 >= 0, "Chain work must be non-negative");
+    }
+
+    /// Kani proof: expand_target handles edge cases correctly
+    #[kani::proof]
+    fn kani_expand_target_edge_cases() {
+        let bits: Natural = kani::any();
+        
+        // Test valid range
+        kani::assume(bits <= 0x1d00ffff); // Genesis difficulty
+        
+        let result = expand_target(bits);
+        
+        // Should not panic and should return reasonable value
+        match result {
+            Ok(target) => {
+                assert!(target > 0, "Valid target must be positive");
+                assert!(target <= u128::MAX, "Target must fit in u128");
+            },
+            Err(_) => {
+                // Some invalid targets may fail, which is acceptable
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: should_reorganize selects chain with maximum work
+    proptest! {
+        #[test]
+        fn prop_should_reorganize_max_work(
+            new_chain in proptest::collection::vec(any::<Block>(), 1..5),
+            current_chain in proptest::collection::vec(any::<Block>(), 1..5)
+        ) {
+            // Calculate work for both chains
+            let new_work = calculate_chain_work(&new_chain).unwrap_or(0);
+            let current_work = calculate_chain_work(&current_chain).unwrap_or(0);
+            
+            // Call should_reorganize
+            let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
+            
+            // Mathematical property: reorganize iff new chain has more work
+            if new_work > current_work {
+                prop_assert!(should_reorg, "Must reorganize when new chain has more work");
+            } else {
+                prop_assert!(!should_reorg, "Must not reorganize when new chain has less or equal work");
+            }
+        }
+    }
+
+    /// Property test: calculate_chain_work is deterministic
+    proptest! {
+        #[test]
+        fn prop_calculate_chain_work_deterministic(
+            chain in proptest::collection::vec(any::<Block>(), 0..10)
+        ) {
+            // Calculate work twice
+            let work1 = calculate_chain_work(&chain).unwrap_or(0);
+            let work2 = calculate_chain_work(&chain).unwrap_or(0);
+            
+            // Deterministic property
+            prop_assert_eq!(work1, work2, "Chain work calculation must be deterministic");
+            
+            // Non-negative property
+            prop_assert!(work1 >= 0, "Chain work must be non-negative");
+        }
+    }
+
+    /// Property test: expand_target handles various difficulty values
+    proptest! {
+        #[test]
+        fn prop_expand_target_valid_range(
+            bits in 0x00000000u32..0x1d00ffffu32
+        ) {
+            let result = expand_target(bits);
+            
+            match result {
+                Ok(target) => {
+                    prop_assert!(target > 0, "Valid target must be positive");
+                    prop_assert!(target <= u128::MAX, "Target must fit in u128");
+                },
+                Err(_) => {
+                    // Some invalid targets may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Property test: should_reorganize with equal length chains compares work
+    proptest! {
+        #[test]
+        fn prop_should_reorganize_equal_length(
+            chain1 in proptest::collection::vec(any::<Block>(), 1..3),
+            chain2 in proptest::collection::vec(any::<Block>(), 1..3)
+        ) {
+            // Ensure equal length
+            let len = chain1.len().min(chain2.len());
+            let chain1 = &chain1[..len];
+            let chain2 = &chain2[..len];
+            
+            let work1 = calculate_chain_work(chain1).unwrap_or(0);
+            let work2 = calculate_chain_work(chain2).unwrap_or(0);
+            
+            let should_reorg = should_reorganize(chain1, chain2).unwrap_or(false);
+            
+            // For equal length chains, reorganize iff chain1 has more work
+            if work1 > work2 {
+                prop_assert!(should_reorg, "Must reorganize when first chain has more work");
+            } else {
+                prop_assert!(!should_reorg, "Must not reorganize when first chain has less or equal work");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

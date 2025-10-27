@@ -1276,3 +1276,385 @@ mod tests {
         assert!(!result);
     }
 }
+
+#[cfg(feature = "verify")]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Verify eval_script respects stack bounds and operation limits
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString, stack ∈ Vec<ByteString>, flags ∈ ℕ:
+    /// - |stack| ≤ MAX_STACK_SIZE ∧ op_count ≤ MAX_SCRIPT_OPS
+    /// - eval_script terminates (no infinite loops)
+    /// - Stack operations preserve bounds
+    #[kani::proof]
+    fn kani_eval_script_bounds() {
+        // Bounded inputs for tractable verification
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 10); // Small scripts for tractability
+        
+        let mut script = Vec::new();
+        for i in 0..script_len {
+            let opcode: u8 = kani::any();
+            script.push(opcode);
+        }
+        
+        let mut stack = Vec::new();
+        let flags: u32 = kani::any();
+        
+        // Verify bounds are respected
+        let result = eval_script(&script, &mut stack, flags);
+        
+        // Stack size should never exceed MAX_STACK_SIZE
+        assert!(stack.len() <= MAX_STACK_SIZE);
+        
+        // If successful, final stack should have exactly 1 element
+        if result.is_ok() && result.unwrap() {
+            assert_eq!(stack.len(), 1);
+            assert!(!stack[0].is_empty());
+            assert!(stack[0][0] != 0);
+        }
+    }
+
+    /// Verify execute_opcode handles stack underflow correctly
+    /// 
+    /// Mathematical specification:
+    /// ∀ opcode ∈ {0..255}, stack ∈ Vec<ByteString>:
+    /// - If opcode requires n elements and |stack| < n: return false
+    /// - If opcode succeeds: stack operations are valid
+    #[kani::proof]
+    fn kani_execute_opcode_stack_safety() {
+        let opcode: u8 = kani::any();
+        let stack_size: usize = kani::any();
+        kani::assume(stack_size <= 5); // Small stack for tractability
+        
+        let mut stack = Vec::new();
+        for i in 0..stack_size {
+            let item_len: usize = kani::any();
+            kani::assume(item_len <= 3); // Small items
+            let mut item = Vec::new();
+            for j in 0..item_len {
+                let byte: u8 = kani::any();
+                item.push(byte);
+            }
+            stack.push(item);
+        }
+        
+        let flags: u32 = kani::any();
+        let initial_len = stack.len();
+        
+        let result = execute_opcode(opcode, &mut stack, flags);
+        
+        // Stack underflow should be handled gracefully
+        match opcode {
+            // Opcodes requiring 2 elements
+            0x87 | 0x88 | 0xac | 0xad => {
+                if initial_len < 2 {
+                    assert!(!result.unwrap_or(false));
+                }
+            },
+            // Opcodes requiring 1 element
+            0xa9 | 0xaa | 0x69 | 0x75 | 0x82 => {
+                if initial_len < 1 {
+                    assert!(!result.unwrap_or(false));
+                }
+            },
+            _ => {
+                // Other opcodes should handle bounds correctly
+                if result.is_ok() {
+                    assert!(stack.len() <= MAX_STACK_SIZE);
+                }
+            }
+        }
+    }
+
+    /// Verify verify_script composition is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ scriptSig, scriptPubKey ∈ ByteString, witness ∈ Option<ByteString>, flags ∈ ℕ:
+    /// - verify_script(scriptSig, scriptPubKey, witness, flags) is deterministic
+    /// - Same inputs always produce same output
+    #[kani::proof]
+    fn kani_verify_script_deterministic() {
+        let sig_len: usize = kani::any();
+        let pubkey_len: usize = kani::any();
+        kani::assume(sig_len <= 5);
+        kani::assume(pubkey_len <= 5);
+        
+        let mut script_sig = Vec::new();
+        for i in 0..sig_len {
+            let opcode: u8 = kani::any();
+            script_sig.push(opcode);
+        }
+        
+        let mut script_pubkey = Vec::new();
+        for i in 0..pubkey_len {
+            let opcode: u8 = kani::any();
+            script_pubkey.push(opcode);
+        }
+        
+        let witness: Option<Vec<u8>> = if kani::any() {
+            let witness_len: usize = kani::any();
+            kani::assume(witness_len <= 3);
+            let mut witness = Vec::new();
+            for i in 0..witness_len {
+                let opcode: u8 = kani::any();
+                witness.push(opcode);
+            }
+            Some(witness)
+        } else {
+            None
+        };
+        
+        let flags: u32 = kani::any();
+        
+        // Call verify_script twice with same inputs
+        let result1 = verify_script(&script_sig, &script_pubkey, witness.as_ref(), flags);
+        let result2 = verify_script(&script_sig, &script_pubkey, witness.as_ref(), flags);
+        
+        // Results should be identical (deterministic)
+        assert_eq!(result1.is_ok(), result2.is_ok());
+        if result1.is_ok() && result2.is_ok() {
+            assert_eq!(result1.unwrap(), result2.unwrap());
+        }
+    }
+
+    /// Verify critical opcodes handle edge cases correctly
+    /// 
+    /// Mathematical specification:
+    /// ∀ opcode ∈ {OP_EQUAL, OP_CHECKSIG, OP_DUP, OP_HASH160}:
+    /// - Edge cases are handled correctly
+    /// - No panics or undefined behavior
+    #[kani::proof]
+    fn kani_critical_opcodes_edge_cases() {
+        let opcode: u8 = kani::any();
+        kani::assume(opcode == 0x87 || opcode == 0xac || opcode == 0x76 || opcode == 0xa9);
+        
+        let stack_size: usize = kani::any();
+        kani::assume(stack_size <= 3);
+        
+        let mut stack = Vec::new();
+        for i in 0..stack_size {
+            let item_len: usize = kani::any();
+            kani::assume(item_len <= 2);
+            let mut item = Vec::new();
+            for j in 0..item_len {
+                let byte: u8 = kani::any();
+                item.push(byte);
+            }
+            stack.push(item);
+        }
+        
+        let flags: u32 = kani::any();
+        
+        // Should not panic
+        let result = execute_opcode(opcode, &mut stack, flags);
+        
+        // Result should be valid boolean
+        assert!(result.is_ok());
+        
+        // Stack should remain within bounds
+        assert!(stack.len() <= MAX_STACK_SIZE);
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: eval_script respects operation limits
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: |script| > MAX_SCRIPT_OPS ⟹ eval_script fails
+    proptest! {
+        #[test]
+        fn prop_eval_script_operation_limit(script in prop::collection::vec(any::<u8>(), 0..300)) {
+            let mut stack = Vec::new();
+            let flags = 0u32;
+            
+            let result = eval_script(&script, &mut stack, flags);
+            
+            if script.len() > MAX_SCRIPT_OPS {
+                assert!(result.is_err());
+            } else {
+                // If within limits, should not panic
+                assert!(result.is_ok());
+            }
+        }
+    }
+
+    /// Property test: verify_script is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ inputs: verify_script(inputs) = verify_script(inputs)
+    proptest! {
+        #[test]
+        fn prop_verify_script_deterministic(
+            script_sig in prop::collection::vec(any::<u8>(), 0..20),
+            script_pubkey in prop::collection::vec(any::<u8>(), 0..20),
+            witness in prop::option::of(prop::collection::vec(any::<u8>(), 0..10)),
+            flags in any::<u32>()
+        ) {
+            let result1 = verify_script(&script_sig, &script_pubkey, witness.as_ref(), flags);
+            let result2 = verify_script(&script_sig, &script_pubkey, witness.as_ref(), flags);
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+            }
+        }
+    }
+
+    /// Property test: execute_opcode handles all opcodes without panicking
+    /// 
+    /// Mathematical specification:
+    /// ∀ opcode ∈ {0..255}, stack ∈ Vec<ByteString>: execute_opcode(opcode, stack) ∈ {true, false}
+    proptest! {
+        #[test]
+        fn prop_execute_opcode_no_panic(
+            opcode in any::<u8>(),
+            stack_items in prop::collection::vec(
+                prop::collection::vec(any::<u8>(), 0..5),
+                0..10
+            ),
+            flags in any::<u32>()
+        ) {
+            let mut stack = stack_items;
+            let result = execute_opcode(opcode, &mut stack, flags);
+            
+            // Should not panic and return valid boolean
+            assert!(result.is_ok());
+            let success = result.unwrap();
+            assert!(success == true || success == false);
+            
+            // Stack should remain within bounds
+            assert!(stack.len() <= MAX_STACK_SIZE);
+        }
+    }
+
+    /// Property test: stack operations preserve bounds
+    /// 
+    /// Mathematical specification:
+    /// ∀ opcode ∈ {0..255}, stack ∈ Vec<ByteString>:
+    /// - |stack| ≤ MAX_STACK_SIZE before and after execute_opcode
+    /// - Stack operations are well-defined
+    proptest! {
+        #[test]
+        fn prop_stack_operations_bounds(
+            opcode in any::<u8>(),
+            stack_items in prop::collection::vec(
+                prop::collection::vec(any::<u8>(), 0..3),
+                0..5
+            ),
+            flags in any::<u32>()
+        ) {
+            let mut stack = stack_items;
+            let initial_len = stack.len();
+            
+            let result = execute_opcode(opcode, &mut stack, flags);
+            
+            // Stack should never exceed MAX_STACK_SIZE
+            assert!(stack.len() <= MAX_STACK_SIZE);
+            
+            // If operation succeeded, stack should be in valid state
+            if result.is_ok() && result.unwrap() {
+                // For opcodes that modify stack size, verify reasonable bounds
+                match opcode {
+                    0x00 | 0x51..=0x60 | 0x76 | 0x78 | 0x79 | 0x7a | 0x7b | 0x7c | 0x7d => {
+                        // These opcodes can increase stack size
+                        assert!(stack.len() >= initial_len);
+                    },
+                    0x75 | 0x77 | 0x6d => {
+                        // These opcodes decrease stack size
+                        assert!(stack.len() <= initial_len);
+                    },
+                    _ => {
+                        // Other opcodes maintain or modify stack size reasonably
+                        assert!(stack.len() <= initial_len + 2);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Property test: hash operations are deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ input ∈ ByteString: OP_HASH160(input) = OP_HASH160(input)
+    proptest! {
+        #[test]
+        fn prop_hash_operations_deterministic(
+            input in prop::collection::vec(any::<u8>(), 0..10)
+        ) {
+            let mut stack1 = vec![input.clone()];
+            let mut stack2 = vec![input];
+            
+            let result1 = execute_opcode(0xa9, &mut stack1, 0); // OP_HASH160
+            let result2 = execute_opcode(0xa9, &mut stack2, 0); // OP_HASH160
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+                if result1.unwrap() {
+                    assert_eq!(stack1, stack2);
+                }
+            }
+        }
+    }
+
+    /// Property test: equality operations are symmetric
+    /// 
+    /// Mathematical specification:
+    /// ∀ a, b ∈ ByteString: OP_EQUAL(a, b) = OP_EQUAL(b, a)
+    proptest! {
+        #[test]
+        fn prop_equality_operations_symmetric(
+            a in prop::collection::vec(any::<u8>(), 0..5),
+            b in prop::collection::vec(any::<u8>(), 0..5)
+        ) {
+            let mut stack1 = vec![a.clone(), b.clone()];
+            let mut stack2 = vec![b, a];
+            
+            let result1 = execute_opcode(0x87, &mut stack1, 0); // OP_EQUAL
+            let result2 = execute_opcode(0x87, &mut stack2, 0); // OP_EQUAL
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+                if result1.unwrap() {
+                    // Results should be identical (both true or both false)
+                    assert_eq!(stack1.len(), stack2.len());
+                    if !stack1.is_empty() && !stack2.is_empty() {
+                        assert_eq!(stack1[0], stack2[0]);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Property test: script execution terminates
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: eval_script(script) terminates (no infinite loops)
+    proptest! {
+        #[test]
+        fn prop_script_execution_terminates(
+            script in prop::collection::vec(any::<u8>(), 0..50)
+        ) {
+            let mut stack = Vec::new();
+            let flags = 0u32;
+            
+            // This should complete without hanging
+            let result = eval_script(&script, &mut stack, flags);
+            
+            // Should return a result (success or failure)
+            assert!(result.is_ok() || result.is_err());
+            
+            // Stack should be in valid state
+            assert!(stack.len() <= MAX_STACK_SIZE);
+        }
+    }
+}

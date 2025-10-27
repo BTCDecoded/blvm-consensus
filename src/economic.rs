@@ -84,6 +84,190 @@ fn is_coinbase(tx: &Transaction) -> bool {
     tx.inputs[0].prevout.index == 0xffffffff
 }
 
+// ============================================================================
+// FORMAL VERIFICATION
+// ============================================================================
+
+/// Mathematical Specification for Block Subsidy:
+/// ∀ h ∈ ℕ: subsidy(h) = 50 * 10^8 * 2^(-⌊h/210000⌋) if ⌊h/210000⌋ < 64 else 0
+/// 
+/// Invariants:
+/// - Subsidy halves every 210,000 blocks
+/// - After 64 halvings, subsidy becomes 0
+/// - Subsidy is always non-negative
+/// - Total supply approaches 21M BTC asymptotically
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Kani proof: get_block_subsidy follows halving schedule
+    #[kani::proof]
+    fn kani_get_block_subsidy_halving_schedule() {
+        let height: Natural = kani::any();
+        
+        // Bound height for tractability
+        kani::assume(height <= HALVING_INTERVAL * 10); // Up to 10 halvings
+        
+        let subsidy = get_block_subsidy(height);
+        let halving_period = height / HALVING_INTERVAL;
+        
+        // Non-negative invariant
+        assert!(subsidy >= 0, "Subsidy must be non-negative");
+        
+        // Halving invariant: subsidy halves every 210,000 blocks
+        if halving_period < 64 {
+            let expected_subsidy = INITIAL_SUBSIDY >> halving_period;
+            assert_eq!(subsidy, expected_subsidy, "Subsidy must follow halving schedule");
+        } else {
+            assert_eq!(subsidy, 0, "Subsidy must be 0 after 64 halvings");
+        }
+    }
+
+    /// Kani proof: total_supply is monotonically increasing
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_total_supply_monotonic() {
+        let height1: Natural = kani::any();
+        let height2: Natural = kani::any();
+        
+        // Bound heights for tractability
+        kani::assume(height1 <= HALVING_INTERVAL * 2);
+        kani::assume(height2 <= HALVING_INTERVAL * 2);
+        kani::assume(height1 <= height2);
+        
+        let supply1 = total_supply(height1);
+        let supply2 = total_supply(height2);
+        
+        // Monotonic invariant
+        assert!(supply2 >= supply1, "Total supply must be monotonically increasing");
+        
+        // Non-negative invariant
+        assert!(supply1 >= 0, "Total supply must be non-negative");
+        assert!(supply2 >= 0, "Total supply must be non-negative");
+    }
+
+    /// Kani proof: supply limit is never exceeded
+    #[kani::proof]
+    fn kani_supply_limit_respected() {
+        let height: Natural = kani::any();
+        
+        // Bound height for tractability
+        kani::assume(height <= HALVING_INTERVAL * 10);
+        
+        let supply = total_supply(height);
+        
+        // Supply limit invariant
+        assert!(supply <= MAX_MONEY, "Total supply must not exceed maximum money");
+        
+        // Non-negative invariant
+        assert!(supply >= 0, "Total supply must be non-negative");
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: get_block_subsidy follows halving schedule
+    proptest! {
+        #[test]
+        fn prop_get_block_subsidy_halving_schedule(
+            height in 0u32..(HALVING_INTERVAL * 10)
+        ) {
+            let subsidy = get_block_subsidy(height);
+            let halving_period = height / HALVING_INTERVAL;
+            
+            // Non-negative property
+            prop_assert!(subsidy >= 0, "Subsidy must be non-negative");
+            
+            // Halving property
+            if halving_period < 64 {
+                let expected_subsidy = INITIAL_SUBSIDY >> halving_period;
+                prop_assert_eq!(subsidy, expected_subsidy, "Subsidy must follow halving schedule");
+            } else {
+                prop_assert_eq!(subsidy, 0, "Subsidy must be 0 after 64 halvings");
+            }
+        }
+    }
+
+    /// Property test: total_supply is monotonically increasing
+    proptest! {
+        #[test]
+        fn prop_total_supply_monotonic(
+            height1 in 0u32..(HALVING_INTERVAL * 2),
+            height2 in 0u32..(HALVING_INTERVAL * 2)
+        ) {
+            // Ensure height1 <= height2
+            let (h1, h2) = if height1 <= height2 { (height1, height2) } else { (height2, height1) };
+            
+            let supply1 = total_supply(h1);
+            let supply2 = total_supply(h2);
+            
+            // Monotonic property
+            prop_assert!(supply2 >= supply1, "Total supply must be monotonically increasing");
+            
+            // Non-negative property
+            prop_assert!(supply1 >= 0, "Total supply must be non-negative");
+            prop_assert!(supply2 >= 0, "Total supply must be non-negative");
+        }
+    }
+
+    /// Property test: supply limit is never exceeded
+    proptest! {
+        #[test]
+        fn prop_supply_limit_respected(
+            height in 0u32..(HALVING_INTERVAL * 10)
+        ) {
+            let supply = total_supply(height);
+            
+            // Supply limit property
+            prop_assert!(supply <= MAX_MONEY, "Total supply must not exceed maximum money");
+            
+            // Non-negative property
+            prop_assert!(supply >= 0, "Total supply must be non-negative");
+        }
+    }
+
+    /// Property test: subsidy decreases with halving periods
+    proptest! {
+        #[test]
+        fn prop_subsidy_decreases_with_halvings(
+            height1 in 0u32..(HALVING_INTERVAL * 5),
+            height2 in 0u32..(HALVING_INTERVAL * 5)
+        ) {
+            let halving1 = height1 / HALVING_INTERVAL;
+            let halving2 = height2 / HALVING_INTERVAL;
+            
+            // If halving1 < halving2, then subsidy1 >= subsidy2
+            if halving1 < halving2 && halving2 < 64 {
+                let subsidy1 = get_block_subsidy(height1);
+                let subsidy2 = get_block_subsidy(height2);
+                prop_assert!(subsidy1 >= subsidy2, "Subsidy must decrease with halving periods");
+            }
+        }
+    }
+
+    /// Property test: calculate_fee handles coinbase correctly
+    proptest! {
+        #[test]
+        fn prop_calculate_fee_coinbase(
+            tx in proptest::collection::vec(any::<Transaction>(), 1..1)
+        ) {
+            if let Some(tx) = tx.first() {
+                let utxo_set = UtxoSet::new();
+                
+                if is_coinbase(tx) {
+                    let fee = calculate_fee(tx, &utxo_set).unwrap_or(-1);
+                    prop_assert_eq!(fee, 0, "Coinbase transactions must have zero fee");
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -28,3 +28,12 @@ serde = { version = "=1.0.193", features = ["derive"] }
 serde_json = "=1.0.108"
 anyhow = "=1.0.93"
 thiserror = "=1.0.69"
+
+[dev-dependencies]
+# Formal verification tools - EXACT VERSIONS for reproducibility
+proptest = "=1.5.0"
+kani-verifier = "=0.41.0"
+
+[features]
+# Enable formal verification tools
+verify = ["kani-verifier"]

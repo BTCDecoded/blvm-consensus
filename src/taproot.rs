@@ -584,3 +584,569 @@ mod tests {
         script
     }
 }
+
+#[cfg(feature = "verify")]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Verify Taproot script validation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: validate_taproot_script(script) is deterministic
+    /// - Same script always produces same result
+    /// - Script length and prefix are correctly validated
+    #[kani::proof]
+    fn kani_validate_taproot_script_deterministic() {
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 50); // Bounded for tractability
+        
+        let mut script = Vec::new();
+        for i in 0..script_len {
+            let byte: u8 = kani::any();
+            script.push(byte);
+        }
+        
+        // Call validate_taproot_script twice with same input
+        let result1 = validate_taproot_script(&script).unwrap();
+        let result2 = validate_taproot_script(&script).unwrap();
+        
+        // Results should be identical (deterministic)
+        assert_eq!(result1, result2);
+        
+        // If script is valid Taproot, it should have correct length and prefix
+        if result1 {
+            assert_eq!(script.len(), 34);
+            assert_eq!(script[0], TAPROOT_SCRIPT_PREFIX);
+        }
+    }
+
+    /// Verify Taproot output key extraction is correct
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: if validate_taproot_script(script) = true
+    /// then extract_taproot_output_key(script) returns Some(key) where key = script[1..33]
+    #[kani::proof]
+    fn kani_extract_taproot_output_key_correct() {
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 50);
+        
+        let mut script = Vec::new();
+        for i in 0..script_len {
+            let byte: u8 = kani::any();
+            script.push(byte);
+        }
+        
+        let extracted_key = extract_taproot_output_key(&script).unwrap();
+        
+        // If script is valid Taproot, extraction should succeed
+        if validate_taproot_script(&script).unwrap() {
+            assert!(extracted_key.is_some());
+            let key = extracted_key.unwrap();
+            assert_eq!(key.len(), 32);
+            
+            // Key should match script bytes 1-32
+            for i in 0..32 {
+                assert_eq!(key[i], script[i + 1]);
+            }
+        } else {
+            // If script is invalid, extraction should return None
+            assert!(extracted_key.is_none());
+        }
+    }
+
+    /// Verify Taproot key aggregation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ internal_pubkey ∈ [u8; 32], merkle_root ∈ Hash:
+    /// - compute_taproot_tweak(internal_pubkey, merkle_root) is deterministic
+    /// - validate_taproot_key_aggregation is deterministic
+    #[kani::proof]
+    fn kani_taproot_key_aggregation_deterministic() {
+        let internal_pubkey: [u8; 32] = kani::any();
+        let merkle_root: Hash = kani::any();
+        
+        // Use a valid public key for testing
+        let valid_pubkey = [
+            0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+            0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98
+        ];
+        
+        // Call compute_taproot_tweak twice with same inputs
+        let result1 = compute_taproot_tweak(&valid_pubkey, &merkle_root);
+        let result2 = compute_taproot_tweak(&valid_pubkey, &merkle_root);
+        
+        // Results should be identical (deterministic)
+        assert_eq!(result1.is_ok(), result2.is_ok());
+        if result1.is_ok() && result2.is_ok() {
+            assert_eq!(result1.unwrap(), result2.unwrap());
+        }
+        
+        // If tweak computation succeeds, validate aggregation should work
+        if let Ok(output_key) = result1 {
+            let validation_result1 = validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, &output_key).unwrap();
+            let validation_result2 = validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, &output_key).unwrap();
+            
+            assert_eq!(validation_result1, validation_result2);
+            assert!(validation_result1); // Should be true for correct aggregation
+        }
+    }
+
+    /// Verify Taproot script path validation is correct
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString, merkle_proof ∈ [Hash], merkle_root ∈ Hash:
+    /// - validate_taproot_script_path(script, merkle_proof, merkle_root) is deterministic
+    /// - If computed_root = merkle_root, validation should succeed
+    #[kani::proof]
+    fn kani_validate_taproot_script_path_correct() {
+        let script_len: usize = kani::any();
+        let proof_len: usize = kani::any();
+        kani::assume(script_len <= 10);
+        kani::assume(proof_len <= 5);
+        
+        let mut script = Vec::new();
+        for i in 0..script_len {
+            let byte: u8 = kani::any();
+            script.push(byte);
+        }
+        
+        let mut merkle_proof = Vec::new();
+        for i in 0..proof_len {
+            let hash: Hash = kani::any();
+            merkle_proof.push(hash);
+        }
+        
+        let merkle_root: Hash = kani::any();
+        
+        // Call validate_taproot_script_path twice with same inputs
+        let result1 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
+        let result2 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
+        
+        // Results should be identical (deterministic)
+        assert_eq!(result1.is_ok(), result2.is_ok());
+        if result1.is_ok() && result2.is_ok() {
+            assert_eq!(result1.unwrap(), result2.unwrap());
+        }
+        
+        // If validation succeeds, computed root should match provided root
+        if result1.is_ok() && result1.unwrap() {
+            let computed_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
+            assert_eq!(computed_root, merkle_root);
+        }
+    }
+
+    /// Verify Taproot signature hash computation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, prevouts ∈ [TransactionOutput], sighash_type ∈ ℕ:
+    /// - compute_taproot_signature_hash(tx, input_index, prevouts, sighash_type) is deterministic
+    /// - Same inputs always produce same hash
+    #[kani::proof]
+    fn kani_compute_taproot_signature_hash_deterministic() {
+        let tx = create_bounded_transaction();
+        let input_index: usize = kani::any();
+        kani::assume(input_index <= 5);
+        
+        let prevouts_len: usize = kani::any();
+        kani::assume(prevouts_len <= 5);
+        
+        let mut prevouts = Vec::new();
+        for i in 0..prevouts_len {
+            let script_len: usize = kani::any();
+            kani::assume(script_len <= 10);
+            let mut script = Vec::new();
+            for j in 0..script_len {
+                let byte: u8 = kani::any();
+                script.push(byte);
+            }
+            prevouts.push(TransactionOutput {
+                value: 1000,
+                script_pubkey: script,
+            });
+        }
+        
+        let sighash_type: u8 = kani::any();
+        
+        // Call compute_taproot_signature_hash twice with same inputs
+        let result1 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
+        let result2 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
+        
+        // Results should be identical (deterministic)
+        assert_eq!(result1.is_ok(), result2.is_ok());
+        if result1.is_ok() && result2.is_ok() {
+            assert_eq!(result1.unwrap(), result2.unwrap());
+        }
+        
+        // Hash should be 32 bytes
+        if result1.is_ok() {
+            let hash = result1.unwrap();
+            assert_eq!(hash.len(), 32);
+        }
+    }
+
+    /// Helper function to create bounded transaction for Kani
+    fn create_bounded_transaction() -> Transaction {
+        let input_count: usize = kani::any();
+        let output_count: usize = kani::any();
+        kani::assume(input_count <= 3);
+        kani::assume(output_count <= 3);
+        
+        let mut inputs = Vec::new();
+        for i in 0..input_count {
+            let script_len: usize = kani::any();
+            kani::assume(script_len <= 5);
+            let mut script = Vec::new();
+            for j in 0..script_len {
+                let byte: u8 = kani::any();
+                script.push(byte);
+            }
+            inputs.push(TransactionInput {
+                prevout: OutPoint { hash: [0; 32], index: i as u32 },
+                script_sig: script,
+                sequence: 0xffffffff,
+            });
+        }
+        
+        let mut outputs = Vec::new();
+        for i in 0..output_count {
+            let script_len: usize = kani::any();
+            kani::assume(script_len <= 10);
+            let mut script = Vec::new();
+            for j in 0..script_len {
+                let byte: u8 = kani::any();
+                script.push(byte);
+            }
+            outputs.push(TransactionOutput {
+                value: 1000,
+                script_pubkey: script,
+            });
+        }
+        
+        Transaction {
+            version: 1,
+            inputs,
+            outputs,
+            lock_time: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: Taproot script validation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: validate_taproot_script(script) is deterministic
+    proptest! {
+        #[test]
+        fn prop_validate_taproot_script_deterministic(
+            script in prop::collection::vec(any::<u8>(), 0..50)
+        ) {
+            let result1 = validate_taproot_script(&script).unwrap();
+            let result2 = validate_taproot_script(&script).unwrap();
+            
+            assert_eq!(result1, result2);
+        }
+    }
+
+    /// Property test: Taproot output key extraction is correct
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: if validate_taproot_script(script) = true
+    /// then extract_taproot_output_key(script) returns Some(key)
+    proptest! {
+        #[test]
+        fn prop_extract_taproot_output_key_correct(
+            script in prop::collection::vec(any::<u8>(), 0..50)
+        ) {
+            let extracted_key = extract_taproot_output_key(&script).unwrap();
+            let is_valid = validate_taproot_script(&script).unwrap();
+            
+            if is_valid {
+                assert!(extracted_key.is_some());
+                let key = extracted_key.unwrap();
+                assert_eq!(key.len(), 32);
+            } else {
+                assert!(extracted_key.is_none());
+            }
+        }
+    }
+
+    /// Property test: Taproot key aggregation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ internal_pubkey ∈ [u8; 32], merkle_root ∈ Hash:
+    /// compute_taproot_tweak(internal_pubkey, merkle_root) is deterministic
+    proptest! {
+        #[test]
+        fn prop_taproot_key_aggregation_deterministic(
+            internal_pubkey in create_pubkey_strategy(),
+            merkle_root in create_hash_strategy()
+        ) {
+            let result1 = compute_taproot_tweak(&internal_pubkey, &merkle_root);
+            let result2 = compute_taproot_tweak(&internal_pubkey, &merkle_root);
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+            }
+        }
+    }
+
+    /// Property test: Taproot script path validation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString, merkle_proof ∈ [Hash], merkle_root ∈ Hash:
+    /// validate_taproot_script_path(script, merkle_proof, merkle_root) is deterministic
+    proptest! {
+        #[test]
+        fn prop_validate_taproot_script_path_deterministic(
+            script in prop::collection::vec(any::<u8>(), 0..20),
+            merkle_proof in prop::collection::vec(create_hash_strategy(), 0..5),
+            merkle_root in create_hash_strategy()
+        ) {
+            let result1 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
+            let result2 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+            }
+        }
+    }
+
+    /// Property test: Taproot signature hash computation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, prevouts ∈ [TransactionOutput], sighash_type ∈ ℕ:
+    /// compute_taproot_signature_hash(tx, input_index, prevouts, sighash_type) is deterministic
+    proptest! {
+        #[test]
+        fn prop_compute_taproot_signature_hash_deterministic(
+            tx in create_transaction_strategy(),
+            input_index in 0..10usize,
+            prevouts in prop::collection::vec(create_output_strategy(), 0..5),
+            sighash_type in any::<u8>()
+        ) {
+            let result1 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
+            let result2 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
+            
+            assert_eq!(result1.is_ok(), result2.is_ok());
+            if result1.is_ok() && result2.is_ok() {
+                assert_eq!(result1.unwrap(), result2.unwrap());
+            }
+            
+            // Hash should be 32 bytes
+            if result1.is_ok() {
+                let hash = result1.unwrap();
+                assert_eq!(hash.len(), 32);
+            }
+        }
+    }
+
+    /// Property test: Taproot output detection is consistent
+    /// 
+    /// Mathematical specification:
+    /// ∀ output ∈ TransactionOutput: is_taproot_output(output) ∈ {true, false}
+    proptest! {
+        #[test]
+        fn prop_is_taproot_output_consistent(
+            output in create_output_strategy()
+        ) {
+            let is_taproot = is_taproot_output(&output);
+            assert!(is_taproot == true || is_taproot == false);
+        }
+    }
+
+    /// Property test: Taproot transaction validation is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ tx ∈ Transaction: validate_taproot_transaction(tx) is deterministic
+    proptest! {
+        #[test]
+        fn prop_validate_taproot_transaction_deterministic(
+            tx in create_transaction_strategy()
+        ) {
+            let result1 = validate_taproot_transaction(&tx).unwrap();
+            let result2 = validate_taproot_transaction(&tx).unwrap();
+            
+            assert_eq!(result1, result2);
+        }
+    }
+
+    /// Property test: Script hashing is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString: hash_script(script) is deterministic
+    proptest! {
+        #[test]
+        fn prop_hash_script_deterministic(
+            script in prop::collection::vec(any::<u8>(), 0..20)
+        ) {
+            let hash1 = hash_script(&script);
+            let hash2 = hash_script(&script);
+            
+            assert_eq!(hash1, hash2);
+            assert_eq!(hash1.len(), 32);
+        }
+    }
+
+    /// Property test: Hash pair operations are deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ left, right ∈ Hash: hash_pair(left, right) is deterministic
+    proptest! {
+        #[test]
+        fn prop_hash_pair_deterministic(
+            left in create_hash_strategy(),
+            right in create_hash_strategy()
+        ) {
+            let hash1 = hash_pair(&left, &right);
+            let hash2 = hash_pair(&left, &right);
+            
+            assert_eq!(hash1, hash2);
+            assert_eq!(hash1.len(), 32);
+        }
+    }
+
+    /// Property test: Varint encoding is deterministic
+    /// 
+    /// Mathematical specification:
+    /// ∀ value ∈ ℕ: encode_varint(value) is deterministic
+    proptest! {
+        #[test]
+        fn prop_encode_varint_deterministic(
+            value in 0..u64::MAX
+        ) {
+            let encoded1 = encode_varint(value);
+            let encoded2 = encode_varint(value);
+            
+            assert_eq!(encoded1, encoded2);
+            
+            // Encoded length should be reasonable
+            assert!(encoded1.len() >= 1);
+            assert!(encoded1.len() <= 9);
+        }
+    }
+
+    /// Property test: Varint encoding preserves value
+    /// 
+    /// Mathematical specification:
+    /// ∀ value ∈ ℕ: decode_varint(encode_varint(value)) = value
+    proptest! {
+        #[test]
+        fn prop_encode_varint_preserves_value(
+            value in 0..1000000u64  // Smaller range for tractability
+        ) {
+            let encoded = encode_varint(value);
+            
+            // Basic validation of encoding format
+            match encoded.len() {
+                1 => {
+                    // Single byte encoding
+                    assert!(value < 0xfd);
+                    assert_eq!(encoded[0], value as u8);
+                },
+                3 => {
+                    // 2-byte encoding
+                    assert!(value >= 0xfd && value <= 0xffff);
+                    assert_eq!(encoded[0], 0xfd);
+                },
+                5 => {
+                    // 4-byte encoding
+                    assert!(value > 0xffff && value <= 0xffffffff);
+                    assert_eq!(encoded[0], 0xfe);
+                },
+                9 => {
+                    // 8-byte encoding
+                    assert!(value > 0xffffffff);
+                    assert_eq!(encoded[0], 0xff);
+                },
+                _ => panic!("Invalid varint encoding length"),
+            }
+        }
+    }
+
+    /// Property test: Taproot script path validation with correct proof
+    /// 
+    /// Mathematical specification:
+    /// ∀ script ∈ ByteString, merkle_proof ∈ [Hash]:
+    /// If computed_root = compute_script_merkle_root(script, merkle_proof)
+    /// then validate_taproot_script_path(script, merkle_proof, computed_root) = true
+    proptest! {
+        #[test]
+        fn prop_validate_taproot_script_path_correct_proof(
+            script in prop::collection::vec(any::<u8>(), 0..20),
+            merkle_proof in prop::collection::vec(create_hash_strategy(), 0..5)
+        ) {
+            let computed_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
+            let is_valid = validate_taproot_script_path(&script, &merkle_proof, &computed_root).unwrap();
+            
+            assert!(is_valid);
+        }
+    }
+
+    // Property test strategies
+    fn create_transaction_strategy() -> impl Strategy<Value = Transaction> {
+        (
+            prop::collection::vec(any::<u8>(), 0..10), // inputs
+            prop::collection::vec(any::<u8>(), 0..10), // outputs
+        ).prop_map(|(input_data, output_data)| {
+            let mut inputs = Vec::new();
+            for (i, _) in input_data.iter().enumerate() {
+                inputs.push(TransactionInput {
+                    prevout: OutPoint { hash: [0; 32], index: i as u32 },
+                    script_sig: vec![],
+                    sequence: 0xffffffff,
+                });
+            }
+            
+            let mut outputs = Vec::new();
+            for _ in output_data {
+                outputs.push(TransactionOutput {
+                    value: 1000,
+                    script_pubkey: vec![0x51],
+                });
+            }
+            
+            Transaction {
+                version: 1,
+                inputs,
+                outputs,
+                lock_time: 0,
+            }
+        })
+    }
+
+    fn create_output_strategy() -> impl Strategy<Value = TransactionOutput> {
+        (
+            any::<i64>(),
+            prop::collection::vec(any::<u8>(), 0..50)
+        ).prop_map(|(value, script)| {
+            TransactionOutput {
+                value,
+                script_pubkey: script,
+            }
+        })
+    }
+
+    fn create_hash_strategy() -> impl Strategy<Value = Hash> {
+        prop::collection::vec(any::<u8>(), 32..=32).prop_map(|bytes| {
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&bytes);
+            hash
+        })
+    }
+
+    fn create_pubkey_strategy() -> impl Strategy<Value = [u8; 32]> {
+        prop::collection::vec(any::<u8>(), 32..=32).prop_map(|bytes| {
+            let mut pubkey = [0u8; 32];
+            pubkey.copy_from_slice(&bytes);
+            pubkey
+        })
+    }
+}

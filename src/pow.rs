@@ -257,6 +257,238 @@ fn u256_from_bytes(bytes: &[u8]) -> u128 {
     value
 }
 
+// ============================================================================
+// FORMAL VERIFICATION
+// ============================================================================
+
+/// Mathematical Specification for Proof of Work:
+/// ∀ header H: CheckProofOfWork(H) = SHA256(SHA256(H)) < ExpandTarget(H.bits)
+/// 
+/// Invariants:
+/// - Hash must be less than target for valid proof of work
+/// - Target expansion handles edge cases correctly
+/// - Difficulty adjustment respects bounds [0.25, 4.0]
+/// - Work calculation is deterministic
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Kani proof: expand_target handles valid ranges correctly
+    #[kani::proof]
+    fn kani_expand_target_valid_range() {
+        let bits: Natural = kani::any();
+        
+        // Bound to valid range for tractability
+        kani::assume(bits >= 0x03000000); // exponent >= 3
+        kani::assume(bits <= 0x1d00ffff); // exponent <= 29
+        
+        let result = expand_target(bits);
+        
+        match result {
+            Ok(target) => {
+                // Non-negative invariant
+                assert!(!target.is_zero() || (bits & 0x00ffffff) == 0, 
+                    "Non-zero mantissa should produce non-zero target");
+                
+                // Bounded invariant
+                assert!(target <= U256::from_u32(0x00ffffff), 
+                    "Target should not exceed maximum valid value");
+            },
+            Err(_) => {
+                // Some invalid targets may fail, which is acceptable
+            }
+        }
+    }
+
+    /// Kani proof: check_proof_of_work is deterministic
+    #[kani::proof]
+    fn kani_check_proof_of_work_deterministic() {
+        let header: BlockHeader = kani::any();
+        
+        // Use valid target to avoid expansion errors
+        kani::assume(header.bits >= 0x03000000);
+        kani::assume(header.bits <= 0x1d00ffff);
+        
+        // Call twice with same header
+        let result1 = check_proof_of_work(&header).unwrap_or(false);
+        let result2 = check_proof_of_work(&header).unwrap_or(false);
+        
+        // Deterministic invariant
+        assert_eq!(result1, result2, "Proof of work check must be deterministic");
+    }
+
+    /// Kani proof: get_next_work_required respects bounds
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_get_next_work_required_bounds() {
+        let current_header: BlockHeader = kani::any();
+        let prev_headers: Vec<BlockHeader> = kani::any();
+        
+        // Bound for tractability
+        kani::assume(prev_headers.len() >= 2);
+        kani::assume(prev_headers.len() <= 5);
+        
+        // Ensure reasonable timestamps
+        kani::assume(current_header.timestamp > prev_headers[0].timestamp);
+        kani::assume(current_header.timestamp - prev_headers[0].timestamp <= 86400 * 365); // Max 1 year
+        
+        let result = get_next_work_required(&current_header, &prev_headers);
+        
+        match result {
+            Ok(work) => {
+                // Bounded invariant
+                assert!(work <= MAX_TARGET as Natural, 
+                    "Next work required must not exceed maximum target");
+                assert!(work > 0, "Next work required must be positive");
+            },
+            Err(_) => {
+                // Some invalid inputs may fail, which is acceptable
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: expand_target handles valid ranges
+    proptest! {
+        #[test]
+        fn prop_expand_target_valid_range(
+            bits in 0x03000000u32..0x1d00ffffu32
+        ) {
+            let result = expand_target(bits);
+            
+            match result {
+                Ok(target) => {
+                    // Non-negative property
+                    prop_assert!(target >= U256::zero(), "Target must be non-negative");
+                    
+                    // Bounded property
+                    prop_assert!(target <= U256::from_u32(0x00ffffff), 
+                        "Target should not exceed maximum valid value");
+                },
+                Err(_) => {
+                    // Some invalid targets may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Property test: check_proof_of_work is deterministic
+    proptest! {
+        #[test]
+        fn prop_check_proof_of_work_deterministic(
+            header in any::<BlockHeader>()
+        ) {
+            // Use valid target to avoid expansion errors
+            let mut valid_header = header;
+            valid_header.bits = 0x1d00ffff; // Valid target
+            
+            // Call twice with same header
+            let result1 = check_proof_of_work(&valid_header).unwrap_or(false);
+            let result2 = check_proof_of_work(&valid_header).unwrap_or(false);
+            
+            // Deterministic property
+            prop_assert_eq!(result1, result2, "Proof of work check must be deterministic");
+        }
+    }
+
+    /// Property test: get_next_work_required respects bounds
+    proptest! {
+        #[test]
+        fn prop_get_next_work_required_bounds(
+            current_header in any::<BlockHeader>(),
+            prev_headers in proptest::collection::vec(any::<BlockHeader>(), 2..6)
+        ) {
+            // Ensure reasonable timestamps
+            let mut valid_headers = prev_headers;
+            if let Some(first_header) = valid_headers.first_mut() {
+                first_header.timestamp = current_header.timestamp - 86400 * 14; // 2 weeks ago
+            }
+            
+            let result = get_next_work_required(&current_header, &valid_headers);
+            
+            match result {
+                Ok(work) => {
+                    // Bounded property
+                    prop_assert!(work <= MAX_TARGET as Natural, 
+                        "Next work required must not exceed maximum target");
+                    prop_assert!(work > 0, "Next work required must be positive");
+                },
+                Err(_) => {
+                    // Some invalid inputs may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Property test: U256 operations are consistent
+    proptest! {
+        #[test]
+        fn prop_u256_operations_consistent(
+            value in 0u32..0xffffffffu32,
+            shift in 0u32..64u32
+        ) {
+            let u256_value = U256::from_u32(value);
+            
+            // Left shift then right shift should preserve value (for small shifts)
+            if shift < 32 {
+                let shifted_left = u256_value.shl(shift);
+                let shifted_back = shifted_left.shr(shift);
+                prop_assert_eq!(shifted_back, u256_value, 
+                    "Left shift then right shift should preserve value");
+            }
+            
+            // Right shift then left shift should preserve value (for small shifts)
+            if shift < 32 {
+                let shifted_right = u256_value.shr(shift);
+                let shifted_back = shifted_right.shl(shift);
+                prop_assert_eq!(shifted_back, u256_value, 
+                    "Right shift then left shift should preserve value");
+            }
+        }
+    }
+
+    /// Property test: U256 ordering is transitive
+    proptest! {
+        #[test]
+        fn prop_u256_ordering_transitive(
+            a in 0u32..0xffffffffu32,
+            b in 0u32..0xffffffffu32,
+            c in 0u32..0xffffffffu32
+        ) {
+            let u256_a = U256::from_u32(a);
+            let u256_b = U256::from_u32(b);
+            let u256_c = U256::from_u32(c);
+            
+            // Transitive property: if a < b and b < c, then a < c
+            if a < b && b < c {
+                prop_assert!(u256_a < u256_b, "U256 ordering must be consistent");
+                prop_assert!(u256_b < u256_c, "U256 ordering must be consistent");
+                prop_assert!(u256_a < u256_c, "U256 ordering must be transitive");
+            }
+        }
+    }
+
+    /// Property test: serialize_header produces consistent length
+    proptest! {
+        #[test]
+        fn prop_serialize_header_consistent_length(
+            header in any::<BlockHeader>()
+        ) {
+            let bytes = serialize_header(&header);
+            
+            // Consistent length property
+            prop_assert_eq!(bytes.len(), 80, "Serialized header must be exactly 80 bytes");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

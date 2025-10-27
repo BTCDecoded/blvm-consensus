@@ -113,6 +113,256 @@ fn calculate_transaction_size(tx: &Transaction) -> usize {
     4 // lock_time
 }
 
+// ============================================================================
+// FORMAL VERIFICATION
+// ============================================================================
+
+/// Mathematical Specification for Transaction Validation:
+/// ∀ tx ∈ 𝒯𝒳: CheckTransaction(tx) = valid ⟺ 
+///   (|tx.inputs| > 0 ∧ |tx.outputs| > 0 ∧ 
+///    ∀o ∈ tx.outputs: 0 ≤ o.value ≤ M_max ∧
+///    |tx.inputs| ≤ M_max_inputs ∧ |tx.outputs| ≤ M_max_outputs ∧
+///    |tx| ≤ M_max_tx_size)
+/// 
+/// Invariants:
+/// - Valid transactions have non-empty inputs and outputs
+/// - Output values are bounded [0, MAX_MONEY]
+/// - Input/output counts respect limits
+/// - Transaction size respects limits
+/// - Coinbase transactions have special validation rules
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use kani::*;
+
+    /// Kani proof: check_transaction validates structure correctly
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_check_transaction_structure() {
+        let tx: Transaction = kani::any();
+        
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 10);
+        kani::assume(tx.outputs.len() <= 10);
+        
+        let result = check_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
+        
+        // Structure invariants
+        match result {
+            ValidationResult::Valid => {
+                // Valid transactions must have non-empty inputs and outputs
+                assert!(!tx.inputs.is_empty(), "Valid transaction must have inputs");
+                assert!(!tx.outputs.is_empty(), "Valid transaction must have outputs");
+                
+                // Valid transactions must respect limits
+                assert!(tx.inputs.len() <= MAX_INPUTS, "Valid transaction must respect input limit");
+                assert!(tx.outputs.len() <= MAX_OUTPUTS, "Valid transaction must respect output limit");
+                
+                // Valid transactions must have valid output values
+                for output in &tx.outputs {
+                    assert!(output.value >= 0, "Valid transaction outputs must be non-negative");
+                    assert!(output.value <= MAX_MONEY, "Valid transaction outputs must not exceed max money");
+                }
+            },
+            ValidationResult::Invalid(_) => {
+                // Invalid transactions may violate any rule
+                // This is acceptable - we're testing the validation logic
+            }
+        }
+    }
+
+    /// Kani proof: check_tx_inputs handles coinbase correctly
+    #[kani::proof]
+    fn kani_check_tx_inputs_coinbase() {
+        let tx: Transaction = kani::any();
+        let utxo_set: UtxoSet = kani::any();
+        let height: Natural = kani::any();
+        
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 5);
+        kani::assume(tx.outputs.len() <= 5);
+        
+        let result = check_tx_inputs(&tx, &utxo_set, height).unwrap_or((ValidationResult::Invalid("Error".to_string()), 0));
+        
+        // Coinbase invariant
+        if is_coinbase(&tx) {
+            assert!(matches!(result.0, ValidationResult::Valid), "Coinbase transactions must be valid");
+            assert_eq!(result.1, 0, "Coinbase transactions must have zero fee");
+        }
+    }
+
+    /// Kani proof: is_coinbase correctly identifies coinbase transactions
+    #[kani::proof]
+    fn kani_is_coinbase_correct() {
+        let tx: Transaction = kani::any();
+        
+        let is_cb = is_coinbase(&tx);
+        
+        // Coinbase identification invariant
+        if is_cb {
+            assert_eq!(tx.inputs.len(), 1, "Coinbase must have exactly one input");
+            assert_eq!(tx.inputs[0].prevout.hash, [0u8; 32], "Coinbase input must have zero hash");
+            assert_eq!(tx.inputs[0].prevout.index, 0xffffffff, "Coinbase input must have max index");
+        }
+    }
+}
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Property test: check_transaction validates structure correctly
+    proptest! {
+        #[test]
+        fn prop_check_transaction_structure(
+            tx in any::<Transaction>()
+        ) {
+            // Bound for tractability
+            let mut bounded_tx = tx;
+            if bounded_tx.inputs.len() > 10 {
+                bounded_tx.inputs.truncate(10);
+            }
+            if bounded_tx.outputs.len() > 10 {
+                bounded_tx.outputs.truncate(10);
+            }
+            
+            let result = check_transaction(&bounded_tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
+            
+            // Structure properties
+            match result {
+                ValidationResult::Valid => {
+                    // Valid transactions must have non-empty inputs and outputs
+                    prop_assert!(!bounded_tx.inputs.is_empty(), "Valid transaction must have inputs");
+                    prop_assert!(!bounded_tx.outputs.is_empty(), "Valid transaction must have outputs");
+                    
+                    // Valid transactions must respect limits
+                    prop_assert!(bounded_tx.inputs.len() <= MAX_INPUTS, "Valid transaction must respect input limit");
+                    prop_assert!(bounded_tx.outputs.len() <= MAX_OUTPUTS, "Valid transaction must respect output limit");
+                    
+                    // Valid transactions must have valid output values
+                    for output in &bounded_tx.outputs {
+                        prop_assert!(output.value >= 0, "Valid transaction outputs must be non-negative");
+                        prop_assert!(output.value <= MAX_MONEY, "Valid transaction outputs must not exceed max money");
+                    }
+                },
+                ValidationResult::Invalid(_) => {
+                    // Invalid transactions may violate any rule
+                    // This is acceptable - we're testing the validation logic
+                }
+            }
+        }
+    }
+
+    /// Property test: check_tx_inputs handles coinbase correctly
+    proptest! {
+        #[test]
+        fn prop_check_tx_inputs_coinbase(
+            tx in any::<Transaction>(),
+            utxo_set in any::<UtxoSet>(),
+            height in 0u32..1000u32
+        ) {
+            // Bound for tractability
+            let mut bounded_tx = tx;
+            if bounded_tx.inputs.len() > 5 {
+                bounded_tx.inputs.truncate(5);
+            }
+            if bounded_tx.outputs.len() > 5 {
+                bounded_tx.outputs.truncate(5);
+            }
+            
+            let result = check_tx_inputs(&bounded_tx, &utxo_set, height).unwrap_or((ValidationResult::Invalid("Error".to_string()), 0));
+            
+            // Coinbase property
+            if is_coinbase(&bounded_tx) {
+                prop_assert!(matches!(result.0, ValidationResult::Valid), "Coinbase transactions must be valid");
+                prop_assert_eq!(result.1, 0, "Coinbase transactions must have zero fee");
+            }
+        }
+    }
+
+    /// Property test: is_coinbase correctly identifies coinbase transactions
+    proptest! {
+        #[test]
+        fn prop_is_coinbase_correct(
+            tx in any::<Transaction>()
+        ) {
+            let is_cb = is_coinbase(&tx);
+            
+            // Coinbase identification property
+            if is_cb {
+                prop_assert_eq!(tx.inputs.len(), 1, "Coinbase must have exactly one input");
+                prop_assert_eq!(tx.inputs[0].prevout.hash, [0u8; 32], "Coinbase input must have zero hash");
+                prop_assert_eq!(tx.inputs[0].prevout.index, 0xffffffff, "Coinbase input must have max index");
+            }
+        }
+    }
+
+    /// Property test: calculate_transaction_size is consistent
+    proptest! {
+        #[test]
+        fn prop_calculate_transaction_size_consistent(
+            tx in any::<Transaction>()
+        ) {
+            // Bound for tractability
+            let mut bounded_tx = tx;
+            if bounded_tx.inputs.len() > 10 {
+                bounded_tx.inputs.truncate(10);
+            }
+            if bounded_tx.outputs.len() > 10 {
+                bounded_tx.outputs.truncate(10);
+            }
+            
+            let size = calculate_transaction_size(&bounded_tx);
+            
+            // Size calculation properties
+            prop_assert!(size >= 8, "Transaction size must be at least 8 bytes (version + lock_time)");
+            prop_assert!(size <= 4 + 10 * 41 + 10 * 9 + 4, "Transaction size must not exceed maximum");
+            
+            // Size should be deterministic
+            let size2 = calculate_transaction_size(&bounded_tx);
+            prop_assert_eq!(size, size2, "Transaction size calculation must be deterministic");
+        }
+    }
+
+    /// Property test: output value bounds are respected
+    proptest! {
+        #[test]
+        fn prop_output_value_bounds(
+            value in 0i64..(MAX_MONEY + 1000)
+        ) {
+            let tx = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint { hash: [0; 32], index: 0 },
+                    script_sig: vec![],
+                    sequence: 0xffffffff,
+                }],
+                outputs: vec![TransactionOutput {
+                    value,
+                    script_pubkey: vec![],
+                }],
+                lock_time: 0,
+            };
+            
+            let result = check_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
+            
+            // Value bounds property
+            if value < 0 || value > MAX_MONEY {
+                prop_assert!(matches!(result, ValidationResult::Invalid(_)), 
+                    "Transactions with invalid output values must be invalid");
+            } else {
+                // Valid values should pass other checks too
+                if !tx.inputs.is_empty() && !tx.outputs.is_empty() {
+                    prop_assert!(matches!(result, ValidationResult::Valid), 
+                        "Transactions with valid output values should be valid");
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
