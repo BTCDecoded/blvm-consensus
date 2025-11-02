@@ -56,6 +56,12 @@ pub mod segwit;
 pub mod taproot;
 pub mod error;
 
+#[cfg(feature = "utxo-commitments")]
+pub mod utxo_commitments;
+
+#[cfg(feature = "production")]
+pub mod optimizations;
+
 // Re-export commonly used types
 pub use types::*;
 pub use constants::*;

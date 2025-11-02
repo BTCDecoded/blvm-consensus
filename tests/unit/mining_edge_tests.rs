@@ -96,3 +96,23 @@ fn test_mine_block_failure() {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

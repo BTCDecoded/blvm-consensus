@@ -19,3 +19,23 @@ fn test_validate_taproot_script_and_extract_key() {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

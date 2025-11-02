@@ -383,3 +383,10 @@ ots verify proof-artifacts.tar.gz.ots
 - [OpenTimestamps Protocol](https://opentimestamps.org/)
 - [BTCDecoded Governance](../governance/GOVERNANCE.md)
 - [Orange Paper](../the-orange-paper/THE_ORANGE_PAPER.md)
+
+
+
+
+
+
+

@@ -29,11 +29,52 @@ serde_json = "=1.0.108"
 anyhow = "=1.0.93"
 thiserror = "=1.0.69"
 
+
 [dev-dependencies]
 # Formal verification tools - EXACT VERSIONS for reproducibility
 proptest = "=1.5.0"
-kani-verifier = "=0.41.0"
+
+[dependencies.kani-verifier]
+version = "=0.41.0"
+optional = true
 
 [features]
 # Enable formal verification tools
 verify = ["kani-verifier"]
+
+# Production performance optimizations
+# This feature enables runtime optimizations like caching and context reuse
+# Keep separate from 'verify' to maintain Kani compatibility
+production = ["lru", "rayon"]
+
+# UTXO commitments module
+# Enables UTXO set commitments and peer consensus sync
+utxo-commitments = ["sparse-merkle-tree"]
+
+# Note: Kani proofs use #[cfg(kani)] which is set by the Kani toolchain, not cargo features
+# To run Kani proofs, use: cargo kani --features utxo-commitments
+
+[dependencies.lru]
+version = "0.12"
+optional = true
+
+[dependencies.rayon]
+version = "1.8"
+optional = true
+
+[dependencies.sparse-merkle-tree]
+version = "0.6"
+optional = true
+
+[profile.release]
+# Aggressive optimizations for production builds
+# Reference: Orange Paper Section 13.1 - Performance Considerations
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Additional optimizations
+[profile.release.package."*"]
+opt-level = 3

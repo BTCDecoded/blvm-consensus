@@ -1,0 +1,25 @@
+{
+  "sync_mode": "PeerConsensus",
+  "verification_level": "Standard",
+  "consensus": {
+    "min_peers": 5,
+    "target_peers": 10,
+    "consensus_threshold": 0.8,
+    "max_peers_per_asn": 2,
+    "safety_margin": 2016
+  },
+  "spam_filter": {
+    "filter_ordinals": true,
+    "filter_dust": true,
+    "filter_brc20": true,
+    "dust_threshold": 546,
+    "min_output_value": 546
+  },
+  "storage": {
+    "keep_filtered_blocks": false,
+    "keep_spam_summary": true,
+    "keep_utxo_history": false,
+    "filtered_blocks_max_age_days": 30
+  }
+}
+

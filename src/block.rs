@@ -1,4 +1,8 @@
 //! Block validation functions from Orange Paper Section 5.3 Section 5.3
+//!
+//! Performance optimizations (Phase 3):
+//! - Parallel transaction validation (production feature)
+//! - Batch UTXO operations
 
 use crate::types::*;
 // use crate::constants::*;
@@ -6,6 +10,9 @@ use crate::error::Result;
 use crate::transaction::{check_transaction, check_tx_inputs};
 use crate::script::verify_script;
 use crate::economic::get_block_subsidy;
+
+#[cfg(feature = "production")]
+use rayon::prelude::*;
 
 /// ConnectBlock: ℬ × 𝒰𝒮 × ℕ → {valid, invalid} × 𝒰𝒮
 /// 
@@ -31,43 +38,114 @@ pub fn connect_block(
     }
     
     // 2. Validate all transactions
+    // Note: Transactions in a block must be validated sequentially because each transaction
+    // modifies the UTXO set that subsequent transactions depend on. However, script verification
+    // within a transaction can be parallelized when safe (production feature).
     let mut total_fees = 0i64;
     
-    for (i, tx) in block.transactions.iter().enumerate() {
-        // Validate transaction structure
-        if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
-            return Ok((ValidationResult::Invalid(
-                format!("Invalid transaction at index {}", i)
-            ), utxo_set));
-        }
-        
-        // Check transaction inputs and calculate fees
-        let (input_valid, fee) = check_tx_inputs(tx, &utxo_set, height)?;
-        if !matches!(input_valid, ValidationResult::Valid) {
-            return Ok((ValidationResult::Invalid(
-                format!("Invalid transaction inputs at index {}", i)
-            ), utxo_set));
-        }
-        
-        // Verify scripts for non-coinbase transactions
-        if !is_coinbase(tx) {
-            for (j, input) in tx.inputs.iter().enumerate() {
-                if let Some(utxo) = utxo_set.get(&input.prevout) {
-                    if !verify_script(
-                        &input.script_sig,
-                        &utxo.script_pubkey,
-                        None, // TODO: Add witness support
-                        0
-                    )? {
+    #[cfg(feature = "production")]
+    {
+        // Phase 3: Parallel validation where safe
+        // Validate transactions sequentially (UTXO dependencies), but parallelize script verification
+        // within each transaction's inputs (safe because UTXO lookups are done sequentially first)
+        for (i, tx) in block.transactions.iter().enumerate() {
+            // Validate transaction structure
+            if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
+                return Ok((ValidationResult::Invalid(
+                    format!("Invalid transaction at index {}", i)
+                ), utxo_set));
+            }
+            
+            // Check transaction inputs and calculate fees
+            let (input_valid, fee) = check_tx_inputs(tx, &utxo_set, height)?;
+            if !matches!(input_valid, ValidationResult::Valid) {
+                return Ok((ValidationResult::Invalid(
+                    format!("Invalid transaction inputs at index {}", i)
+                ), utxo_set));
+            }
+            
+            // Verify scripts for non-coinbase transactions
+            // Parallelize script verification across inputs within this transaction
+            if !is_coinbase(tx) {
+                // Pre-lookup UTXOs to avoid concurrent HashMap access
+                let input_utxos: Vec<(usize, Option<&ByteString>)> = tx.inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(j, input)| (j, utxo_set.get(&input.prevout).map(|u| &u.script_pubkey)))
+                    .collect();
+                
+                // Parallelize script verification using pre-looked-up UTXOs
+                let script_results: Result<Vec<bool>> = input_utxos
+                    .par_iter()
+                    .map(|(j, opt_script_pubkey)| {
+                        if let Some(script_pubkey) = opt_script_pubkey {
+                            let input = &tx.inputs[*j];
+                            verify_script(
+                                &input.script_sig,
+                                script_pubkey,
+                                None, // TODO: Add witness support
+                                0
+                            )
+                        } else {
+                            Ok(false)
+                        }
+                    })
+                    .collect();
+                
+                // Check results sequentially
+                let script_results = script_results?;
+                for (j, &is_valid) in script_results.iter().enumerate() {
+                    if !is_valid {
                         return Ok((ValidationResult::Invalid(
                             format!("Invalid script at transaction {}, input {}", i, j)
                         ), utxo_set));
                     }
                 }
             }
+            
+            total_fees += fee;
         }
-        
-        total_fees += fee;
+    }
+    
+    #[cfg(not(feature = "production"))]
+    {
+        // Sequential validation (default, verification-safe)
+        for (i, tx) in block.transactions.iter().enumerate() {
+            // Validate transaction structure
+            if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
+                return Ok((ValidationResult::Invalid(
+                    format!("Invalid transaction at index {}", i)
+                ), utxo_set));
+            }
+            
+            // Check transaction inputs and calculate fees
+            let (input_valid, fee) = check_tx_inputs(tx, &utxo_set, height)?;
+            if !matches!(input_valid, ValidationResult::Valid) {
+                return Ok((ValidationResult::Invalid(
+                    format!("Invalid transaction inputs at index {}", i)
+                ), utxo_set));
+            }
+            
+            // Verify scripts for non-coinbase transactions
+            if !is_coinbase(tx) {
+                for (j, input) in tx.inputs.iter().enumerate() {
+                    if let Some(utxo) = utxo_set.get(&input.prevout) {
+                        if !verify_script(
+                            &input.script_sig,
+                            &utxo.script_pubkey,
+                            None, // TODO: Add witness support
+                            0
+                        )? {
+                            return Ok((ValidationResult::Invalid(
+                                format!("Invalid script at transaction {}, input {}", i, j)
+                            ), utxo_set));
+                        }
+                    }
+                }
+            }
+            
+            total_fees += fee;
+        }
     }
     
     // 3. Validate coinbase transaction

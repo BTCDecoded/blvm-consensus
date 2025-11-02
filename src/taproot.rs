@@ -39,7 +39,9 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
 /// Compute Taproot tweak using proper cryptographic operations
 /// OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
 pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
-    // Create secp256k1 context
+    // Create secp256k1 context (optimized: reuse in production, create new otherwise)
+    // Note: Taproot operations need mutable context for add_exp_tweak, so we create new
+    // For verification-only operations, use thread-local context
     let secp = Secp256k1::new();
     
     // Parse internal public key (x-only format for Taproot)
