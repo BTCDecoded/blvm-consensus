@@ -7,6 +7,15 @@
 //!
 //! This filter enables 40-60% bandwidth savings by skipping spam transactions
 //! during ongoing sync while maintaining consensus correctness.
+//!
+//! **Critical Design Note**: Spam filtering applies to OUTPUTS only, not entire transactions.
+//! When a spam transaction is processed:
+//! - Its spent INPUTS are still removed from the UTXO tree (maintains consistency)
+//! - Its OUTPUTS are filtered out (bandwidth savings)
+//!
+//! This ensures the UTXO tree remains consistent even when spam transactions spend
+//! non-spam inputs. The `process_filtered_block` function in `initial_sync.rs` implements
+//! this correctly by processing all transactions but only adding non-spam outputs.
 
 #[cfg(feature = "utxo-commitments")]
 use crate::types::{Transaction, TransactionInput, TransactionOutput, ByteString};
@@ -68,6 +77,7 @@ pub struct SpamFilterResult {
 }
 
 /// Spam filter implementation
+#[derive(Clone)]
 pub struct SpamFilter {
     config: SpamFilterConfig,
 }
@@ -272,6 +282,18 @@ impl SpamFilter {
     /// Filter transactions from a block
     ///
     /// Returns filtered transactions (non-spam only) and summary of filtered spam.
+    ///
+    /// **Important**: This function filters entire transactions. For UTXO commitment processing,
+    /// use `process_filtered_block` in `initial_sync.rs` which correctly handles spam
+    /// transactions by removing spent inputs while filtering outputs.
+    ///
+    /// This function is primarily used for:
+    /// - Bandwidth estimation (calculating filtered size)
+    /// - Statistics and reporting
+    /// - Network message filtering (where entire transactions can be dropped)
+    ///
+    /// **Do not use this for UTXO tree updates** - it will cause UTXO set inconsistency
+    /// when spam transactions spend non-spam inputs.
     pub fn filter_block(&self, transactions: &[Transaction]) -> (Vec<Transaction>, SpamSummary) {
         let mut filtered_txs = Vec::new();
         let mut filtered_count = 0u32;

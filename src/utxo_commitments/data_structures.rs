@@ -132,6 +132,8 @@ pub enum UtxoCommitmentError {
     VerificationFailed(String),
     /// Serialization/deserialization error
     SerializationError(String),
+    /// Transaction application error (during UTXO set updates)
+    TransactionApplication(String),
 }
 
 impl std::fmt::Display for UtxoCommitmentError {
@@ -151,6 +153,9 @@ impl std::fmt::Display for UtxoCommitmentError {
             }
             UtxoCommitmentError::SerializationError(msg) => {
                 write!(f, "Serialization error: {}", msg)
+            }
+            UtxoCommitmentError::TransactionApplication(msg) => {
+                write!(f, "Transaction application error: {}", msg)
             }
         }
     }

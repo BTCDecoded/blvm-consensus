@@ -1,0 +1,22 @@
+# Fuzzing build configuration
+# Supports sanitizers for better bug detection
+
+[build]
+rustflags = []
+
+# Sanitizer flags are set via environment variables or RUSTFLAGS
+# For ASAN: RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz build
+# For UBSAN: RUSTFLAGS="-Zsanitizer=undefined" cargo +nightly fuzz build
+# For MSAN: RUSTFLAGS="-Zsanitizer=memory" cargo +nightly fuzz build
+
+[target.'cfg(fuzzing)']
+rustflags = [
+    "-C", "passes=sancov-module",
+    "-C", "llvm-args=-sanitizer-coverage-level=4",
+    "-C", "llvm-args=-sanitizer-coverage-inline-8bit-counters",
+    "-C", "llvm-args=-sanitizer-coverage-pc-table",
+    "-C", "llvm-args=-sanitizer-coverage-trace-compares",
+    "-C", "llvm-args=-sanitizer-coverage-stack-depth",
+]
+
+

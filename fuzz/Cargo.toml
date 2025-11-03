@@ -1,0 +1,105 @@
+[package]
+name = "consensus-proof-fuzz"
+version = "0.0.0"
+authors = ["BTCDecoded Team"]
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies.consensus-proof]
+path = ".."
+features = ["utxo-commitments"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# Prevent warnings in generated code
+[profile.release]
+opt-level = 3
+
+
+[[bin]]
+name = "transaction_validation"
+path = "fuzz_targets/transaction_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "block_validation"
+path = "fuzz_targets/block_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_execution"
+path = "fuzz_targets/script_execution.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compact_block_reconstruction"
+path = "fuzz_targets/compact_block_reconstruction.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mempool_operations"
+path = "fuzz_targets/mempool_operations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "segwit_validation"
+path = "fuzz_targets/segwit_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "utxo_commitments"
+path = "fuzz_targets/utxo_commitments.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pow_validation"
+path = "fuzz_targets/pow_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "economic_validation"
+path = "fuzz_targets/economic_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "serialization"
+path = "fuzz_targets/serialization.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_opcodes"
+path = "fuzz_targets/script_opcodes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential_fuzzing"
+path = "fuzz_targets/differential_fuzzing.rs"
+test = false
+doc = false
+bench = false
