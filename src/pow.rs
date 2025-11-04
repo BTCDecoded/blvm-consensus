@@ -1469,21 +1469,16 @@ mod tests {
             }
             // For most practical targets, they should be equal. If not equal, the difference
             // should only be in lower bits that were truncated (acceptable precision loss).
-            // We check that the most significant words are equal.
-            let words_match = (0..4).rev().all(|i| {
-                if i == 0 {
-                    // Least significant word may differ due to truncation
-                    true
-                } else {
-                    expanded.0[i] == re_expanded.0[i]
-                }
-            });
+            // We check that the most significant words (1, 2, 3) are equal.
+            // Word 0 (least significant) may differ due to truncation - this is acceptable.
+            let words_match = (1..4).rev().all(|i| expanded.0[i] == re_expanded.0[i]);
             if !words_match {
                 panic!(
                     "Round-trip failed for bits 0x{:08x}: significant bits differ (expanded: {:?}, re-expanded: {:?})",
                     bits, expanded.0, re_expanded.0
                 );
             }
+            // Word 0 (least significant) may differ due to truncation - this is acceptable
         }
     }
 
