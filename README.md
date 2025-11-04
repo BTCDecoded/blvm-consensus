@@ -1,4 +1,4 @@
-# BTCDecoded Bitcoin Consensus Proof
+# Bitcoin Commons Consensus Proof
 
 **Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper.**
 
@@ -10,7 +10,7 @@ This crate provides pure, side-effect-free functions that implement the mathemat
 
 ## Architecture Position
 
-This is **Tier 2** of the 5-tier BTCDecoded architecture:
+This is **Tier 2** of the 5-tier Bitcoin Commons architecture (BLLVM technology stack):
 
 ```
 1. Orange Paper (mathematical foundation)
