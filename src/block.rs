@@ -2098,11 +2098,16 @@ mod tests {
             lock_time: 0,
         };
 
+        use crate::mining::calculate_merkle_root;
+
+        // Calculate actual merkle root for the block
+        let merkle_root = calculate_merkle_root(&vec![coinbase_tx.clone()]).unwrap();
+
         let block = Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
+                merkle_root,
                 timestamp: 1231006505, // Genesis timestamp
                 bits: 0x1d00ffff,
                 nonce: 2083236893,
@@ -2354,10 +2359,13 @@ mod tests {
 
     #[test]
     fn test_validate_block_header_valid() {
+        use sha2::{Digest, Sha256};
+
+        // Create a valid header with non-zero merkle root
         let header = BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
             timestamp: 1231006505,
             bits: 0x1d00ffff,
             nonce: 0,
@@ -2516,20 +2524,18 @@ mod tests {
 
         let tx_id = calculate_tx_id(&tx);
 
-        // Should be a 32-byte hash
+        // Should be a 32-byte hash (double SHA256 of serialized transaction)
         assert_eq!(tx_id.len(), 32);
 
-        // First byte should be version (1)
-        assert_eq!(tx_id[0], 1);
+        // Same transaction should produce same ID (deterministic)
+        let tx_id2 = calculate_tx_id(&tx);
+        assert_eq!(tx_id, tx_id2);
 
-        // Second byte should be input count (1)
-        assert_eq!(tx_id[1], 1);
-
-        // Third byte should be output count (1)
-        assert_eq!(tx_id[2], 1);
-
-        // Fourth byte should be lock time (0)
-        assert_eq!(tx_id[3], 0);
+        // Different transaction should produce different ID
+        let mut tx2 = tx.clone();
+        tx2.version = 2;
+        let tx_id3 = calculate_tx_id(&tx2);
+        assert_ne!(tx_id, tx_id3);
     }
 
     #[test]
@@ -2684,34 +2690,42 @@ mod tests {
 
     #[test]
     fn test_validate_block_header_future_timestamp() {
+        use sha2::{Digest, Sha256};
+
+        // Create header with non-zero merkle root (required for validation)
+        // Note: Future timestamp validation would require network time context
+        // For now, we just verify the header structure is valid
         let header = BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 9999999999, // Far future timestamp
+            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
+            timestamp: 9999999999, // Far future timestamp (would need network time check)
             bits: 0x1d00ffff,
             nonce: 0,
         };
 
-        // The simplified implementation doesn't validate timestamps
+        // Header structure is valid (actual future timestamp check needs network context)
         let result = validate_block_header(&header).unwrap();
         assert!(result);
     }
 
     #[test]
     fn test_validate_block_header_zero_timestamp() {
+        use sha2::{Digest, Sha256};
+
+        // Zero timestamp should be rejected by validate_block_header
         let header = BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 0, // Zero timestamp
+            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
+            timestamp: 0, // Zero timestamp (invalid)
             bits: 0x1d00ffff,
             nonce: 0,
         };
 
-        // The simplified implementation doesn't validate timestamps
+        // Zero timestamp should be rejected
         let result = validate_block_header(&header).unwrap();
-        assert!(result);
+        assert!(!result);
     }
 
     #[test]

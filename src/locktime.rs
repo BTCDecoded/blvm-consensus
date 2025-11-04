@@ -149,11 +149,18 @@ mod tests {
 
     #[test]
     fn test_encode_locktime_value() {
-        assert_eq!(encode_locktime_value(100), vec![100, 0, 0, 0]);
+        // Minimal encoding: only include bytes up to highest non-zero byte
+        assert_eq!(encode_locktime_value(100), vec![100]); // 0x64 fits in one byte
         assert_eq!(encode_locktime_value(0), vec![0]);
         assert_eq!(
             encode_locktime_value(0x12345678),
             vec![0x78, 0x56, 0x34, 0x12]
+        );
+        // Test multi-byte values
+        assert_eq!(encode_locktime_value(0x00001234), vec![0x34, 0x12]);
+        assert_eq!(
+            encode_locktime_value(0x12345600),
+            vec![0x00, 0x56, 0x34, 0x12]
         );
     }
 

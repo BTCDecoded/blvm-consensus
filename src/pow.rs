@@ -429,27 +429,38 @@ fn compress_target(target: &U256) -> Result<Natural> {
     // Extract mantissa by shifting right
     let shifted = target.shr(shift);
 
-    // Extract the top 24 bits from the most significant word
-    // Find the most significant non-zero word
+    // Extract the top 24 bits from the shifted value
+    // The mantissa should be in the most significant bits after shifting
+    // Find the most significant non-zero word and extract mantissa from it
     let mut mantissa = 0u32;
+
+    // Find the most significant non-zero word
     for i in (0..4).rev() {
         if shifted.0[i] != 0 {
             let word = shifted.0[i];
-            // Get the top 24 bits from this word
-            mantissa = (word >> 40) as u32; // Top 24 bits of 64-bit word
+            // Extract top 24 bits from this word (bits 40-63 of 64-bit word)
+            mantissa = (word >> 40) as u32;
+            // If we need more bits (less than 24 available in top of word),
+            // check if we can get from this word or need next word
+            if mantissa == 0 {
+                // Top bits are zero, try lower bits in same word
+                // But mantissa should have MSB set, so check if word has enough bits
+                let leading_zeros = word.leading_zeros();
+                if leading_zeros < 40 {
+                    // There are bits in the top 24 positions
+                    mantissa = (word >> (64 - 24)) as u32;
+                }
+            }
             break;
         }
     }
 
-    // If we didn't find any bits, use the least significant word
-    if mantissa == 0 {
-        mantissa = (shifted.0[0] >> 40) as u32;
-        if mantissa == 0 {
-            mantissa = 0x008000; // Minimum normalized mantissa
-        }
+    // If we didn't find any bits, or mantissa is too small, use minimum
+    if mantissa == 0 || mantissa < 0x008000 {
+        mantissa = 0x008000; // Minimum normalized mantissa
     }
 
-    // Clamp mantissa to 24 bits
+    // Clamp mantissa to 24 bits (should already be, but ensure)
     mantissa &= 0x00ffffff;
 
     // Combine exponent and mantissa
