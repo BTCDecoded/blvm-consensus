@@ -1,11 +1,11 @@
 //! Network protocol functions from Orange Paper Section 9.2
 
-use crate::types::*;
 use crate::error::Result;
+use crate::types::*;
 use std::collections::HashMap;
 
 /// NetworkMessage: 𝒯𝒳 × 𝒰𝒮 → {accepted, rejected}
-/// 
+///
 /// Network message types for Bitcoin P2P protocol
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkMessage {
@@ -110,18 +110,10 @@ pub fn process_network_message(
     chain_state: &ChainState,
 ) -> Result<NetworkResponse> {
     match message {
-        NetworkMessage::Version(version) => {
-            process_version_message(version, peer_state)
-        }
-        NetworkMessage::VerAck => {
-            process_verack_message(peer_state)
-        }
-        NetworkMessage::Addr(addr) => {
-            process_addr_message(addr, peer_state)
-        }
-        NetworkMessage::Inv(inv) => {
-            process_inv_message(inv, peer_state, chain_state)
-        }
+        NetworkMessage::Version(version) => process_version_message(version, peer_state),
+        NetworkMessage::VerAck => process_verack_message(peer_state),
+        NetworkMessage::Addr(addr) => process_addr_message(addr, peer_state),
+        NetworkMessage::Inv(inv) => process_inv_message(inv, peer_state, chain_state),
         NetworkMessage::GetData(getdata) => {
             process_getdata_message(getdata, peer_state, chain_state)
         }
@@ -131,24 +123,12 @@ pub fn process_network_message(
         NetworkMessage::Headers(headers) => {
             process_headers_message(headers, peer_state, chain_state)
         }
-        NetworkMessage::Block(block) => {
-            process_block_message(block, peer_state, chain_state)
-        }
-        NetworkMessage::Tx(tx) => {
-            process_tx_message(tx, peer_state, chain_state)
-        }
-        NetworkMessage::Ping(ping) => {
-            process_ping_message(ping, peer_state)
-        }
-        NetworkMessage::Pong(pong) => {
-            process_pong_message(pong, peer_state)
-        }
-        NetworkMessage::MemPool => {
-            process_mempool_message(peer_state, chain_state)
-        }
-        NetworkMessage::FeeFilter(feefilter) => {
-            process_feefilter_message(feefilter, peer_state)
-        }
+        NetworkMessage::Block(block) => process_block_message(block, peer_state, chain_state),
+        NetworkMessage::Tx(tx) => process_tx_message(tx, peer_state, chain_state),
+        NetworkMessage::Ping(ping) => process_ping_message(ping, peer_state),
+        NetworkMessage::Pong(pong) => process_pong_message(pong, peer_state),
+        NetworkMessage::MemPool => process_mempool_message(peer_state, chain_state),
+        NetworkMessage::FeeFilter(feefilter) => process_feefilter_message(feefilter, peer_state),
     }
 }
 
@@ -161,13 +141,13 @@ fn process_version_message(
     if version.version < 70001 {
         return Ok(NetworkResponse::Reject("Version too old".to_string()));
     }
-    
+
     // Update peer state
     peer_state.version = version.version;
     peer_state.services = version.services;
     peer_state.user_agent = version.user_agent.clone();
     peer_state.start_height = version.start_height;
-    
+
     // Send verack response
     Ok(NetworkResponse::SendMessage(NetworkMessage::VerAck))
 }
@@ -179,18 +159,15 @@ fn process_verack_message(peer_state: &mut PeerState) -> Result<NetworkResponse>
 }
 
 /// Process addr message
-fn process_addr_message(
-    addr: &AddrMessage,
-    peer_state: &mut PeerState,
-) -> Result<NetworkResponse> {
+fn process_addr_message(addr: &AddrMessage, peer_state: &mut PeerState) -> Result<NetworkResponse> {
     // Validate address count
     if addr.addresses.len() > 1000 {
         return Ok(NetworkResponse::Reject("Too many addresses".to_string()));
     }
-    
+
     // Store addresses for future use
     peer_state.known_addresses.extend(addr.addresses.clone());
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -202,9 +179,11 @@ fn process_inv_message(
 ) -> Result<NetworkResponse> {
     // Validate inventory count
     if inv.inventory.len() > 50000 {
-        return Ok(NetworkResponse::Reject("Too many inventory items".to_string()));
+        return Ok(NetworkResponse::Reject(
+            "Too many inventory items".to_string(),
+        ));
     }
-    
+
     // Check which items we need
     let mut needed_items = Vec::new();
     for item in &inv.inventory {
@@ -212,14 +191,14 @@ fn process_inv_message(
             needed_items.push(item.clone());
         }
     }
-    
+
     if !needed_items.is_empty() {
         let getdata = NetworkMessage::GetData(GetDataMessage {
             inventory: needed_items,
         });
         return Ok(NetworkResponse::SendMessage(getdata));
     }
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -231,20 +210,24 @@ fn process_getdata_message(
 ) -> Result<NetworkResponse> {
     // Validate request count
     if getdata.inventory.len() > 50000 {
-        return Ok(NetworkResponse::Reject("Too many getdata items".to_string()));
+        return Ok(NetworkResponse::Reject(
+            "Too many getdata items".to_string(),
+        ));
     }
-    
+
     // Send requested objects
     let mut responses = Vec::new();
     for item in &getdata.inventory {
         if let Some(obj) = chain_state.get_object(&item.hash) {
             match item.inv_type {
-                1 => { // MSG_TX
+                1 => {
+                    // MSG_TX
                     if let Some(tx) = obj.as_transaction() {
                         responses.push(NetworkMessage::Tx(tx.clone()));
                     }
                 }
-                2 => { // MSG_BLOCK
+                2 => {
+                    // MSG_BLOCK
                     if let Some(block) = obj.as_block() {
                         responses.push(NetworkMessage::Block(block.clone()));
                     }
@@ -255,7 +238,7 @@ fn process_getdata_message(
             }
         }
     }
-    
+
     Ok(NetworkResponse::SendMessages(responses))
 }
 
@@ -267,7 +250,7 @@ fn process_getheaders_message(
 ) -> Result<NetworkResponse> {
     // Find headers to send
     let headers = chain_state.get_headers(&getheaders.block_locator_hashes, &getheaders.hash_stop);
-    
+
     let headers_msg = NetworkMessage::Headers(HeadersMessage { headers });
     Ok(NetworkResponse::SendMessage(headers_msg))
 }
@@ -282,14 +265,14 @@ fn process_headers_message(
     if headers.headers.len() > 2000 {
         return Ok(NetworkResponse::Reject("Too many headers".to_string()));
     }
-    
+
     // Process each header
     for header in &headers.headers {
         if let Err(e) = chain_state.process_header(header) {
             return Ok(NetworkResponse::Reject(format!("Invalid header: {}", e)));
         }
     }
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -303,7 +286,7 @@ fn process_block_message(
     if let Err(e) = chain_state.process_block(block) {
         return Ok(NetworkResponse::Reject(format!("Invalid block: {}", e)));
     }
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -315,9 +298,12 @@ fn process_tx_message(
 ) -> Result<NetworkResponse> {
     // Validate transaction
     if let Err(e) = chain_state.process_transaction(tx) {
-        return Ok(NetworkResponse::Reject(format!("Invalid transaction: {}", e)));
+        return Ok(NetworkResponse::Reject(format!(
+            "Invalid transaction: {}",
+            e
+        )));
     }
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -326,23 +312,18 @@ fn process_ping_message(
     ping: &PingMessage,
     _peer_state: &mut PeerState,
 ) -> Result<NetworkResponse> {
-    let pong = NetworkMessage::Pong(PongMessage {
-        nonce: ping.nonce,
-    });
+    let pong = NetworkMessage::Pong(PongMessage { nonce: ping.nonce });
     Ok(NetworkResponse::SendMessage(pong))
 }
 
 /// Process pong message
-fn process_pong_message(
-    pong: &PongMessage,
-    peer_state: &mut PeerState,
-) -> Result<NetworkResponse> {
+fn process_pong_message(pong: &PongMessage, peer_state: &mut PeerState) -> Result<NetworkResponse> {
     // Validate pong nonce matches our ping
     if peer_state.ping_nonce == Some(pong.nonce) {
         peer_state.ping_nonce = None;
         peer_state.last_pong = Some(std::time::SystemTime::now());
     }
-    
+
     Ok(NetworkResponse::Ok)
 }
 
@@ -354,11 +335,11 @@ fn process_mempool_message(
     // Send all mempool transactions
     let mempool_txs = chain_state.get_mempool_transactions();
     let mut responses = Vec::new();
-    
+
     for tx in mempool_txs {
         responses.push(NetworkMessage::Tx(tx));
     }
-    
+
     Ok(NetworkResponse::SendMessages(responses))
 }
 
@@ -438,11 +419,11 @@ impl ChainState {
             mempool: Vec::new(),
         }
     }
-    
+
     pub fn has_object(&self, hash: &Hash) -> bool {
         self.blocks.contains_key(hash) || self.transactions.contains_key(hash)
     }
-    
+
     pub fn get_object(&self, hash: &Hash) -> Option<ChainObject> {
         if let Some(block) = self.blocks.get(hash) {
             return Some(ChainObject::Block(block.clone()));
@@ -452,27 +433,27 @@ impl ChainState {
         }
         None
     }
-    
+
     pub fn get_headers(&self, _locator_hashes: &[Hash], _hash_stop: &Hash) -> Vec<BlockHeader> {
         // Simplified: return all headers
         self.headers.values().cloned().collect()
     }
-    
+
     pub fn process_header(&self, _header: &BlockHeader) -> Result<()> {
         // Simplified: always accept
         Ok(())
     }
-    
+
     pub fn process_block(&self, _block: &Block) -> Result<()> {
         // Simplified: always accept
         Ok(())
     }
-    
+
     pub fn process_transaction(&self, _tx: &Transaction) -> Result<()> {
         // Simplified: always accept
         Ok(())
     }
-    
+
     pub fn get_mempool_transactions(&self) -> Vec<Transaction> {
         self.mempool.clone()
     }
@@ -498,7 +479,7 @@ impl ChainObject {
             _ => None,
         }
     }
-    
+
     pub fn as_transaction(&self) -> Option<&Transaction> {
         match self {
             ChainObject::Transaction(tx) => Some(tx),
@@ -510,7 +491,7 @@ impl ChainObject {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_process_version_message() {
         let mut peer_state = PeerState::new();
@@ -533,12 +514,15 @@ mod tests {
             start_height: 100,
             relay: true,
         };
-        
+
         let response = process_version_message(&version, &mut peer_state).unwrap();
-        assert!(matches!(response, NetworkResponse::SendMessage(NetworkMessage::VerAck)));
+        assert!(matches!(
+            response,
+            NetworkResponse::SendMessage(NetworkMessage::VerAck)
+        ));
         assert_eq!(peer_state.version, 70015);
     }
-    
+
     #[test]
     fn test_process_version_message_too_old() {
         let mut peer_state = PeerState::new();
@@ -561,11 +545,11 @@ mod tests {
             start_height: 100,
             relay: true,
         };
-        
+
         let response = process_version_message(&version, &mut peer_state).unwrap();
         assert!(matches!(response, NetworkResponse::Reject(_)));
     }
-    
+
     #[test]
     fn test_process_verack_message() {
         let mut peer_state = PeerState::new();
@@ -573,27 +557,30 @@ mod tests {
         assert!(matches!(response, NetworkResponse::Ok));
         assert!(peer_state.handshake_complete);
     }
-    
+
     #[test]
     fn test_process_ping_message() {
         let mut peer_state = PeerState::new();
         let ping = PingMessage { nonce: 12345 };
-        
+
         let response = process_ping_message(&ping, &mut peer_state).unwrap();
-        assert!(matches!(response, NetworkResponse::SendMessage(NetworkMessage::Pong(_))));
+        assert!(matches!(
+            response,
+            NetworkResponse::SendMessage(NetworkMessage::Pong(_))
+        ));
     }
-    
+
     #[test]
     fn test_process_pong_message() {
         let mut peer_state = PeerState::new();
         peer_state.ping_nonce = Some(12345);
-        
+
         let pong = PongMessage { nonce: 12345 };
         let response = process_pong_message(&pong, &mut peer_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
         assert!(peer_state.ping_nonce.is_none());
     }
-    
+
     #[test]
     fn test_peer_state_new() {
         let peer_state = PeerState::new();
@@ -601,7 +588,7 @@ mod tests {
         assert!(!peer_state.handshake_complete);
         assert!(peer_state.known_addresses.is_empty());
     }
-    
+
     #[test]
     fn test_chain_state_new() {
         let chain_state = ChainState::new();
@@ -610,11 +597,11 @@ mod tests {
         assert!(chain_state.headers.is_empty());
         assert!(chain_state.mempool.is_empty());
     }
-    
+
     // ============================================================================
     // COMPREHENSIVE NETWORK TESTS
     // ============================================================================
-    
+
     #[test]
     fn test_process_network_message_version() {
         let mut peer_state = PeerState::new();
@@ -638,34 +625,40 @@ mod tests {
             start_height: 100,
             relay: true,
         };
-        
+
         let message = NetworkMessage::Version(version);
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
-        assert!(matches!(response, NetworkResponse::SendMessage(NetworkMessage::VerAck)));
+        assert!(matches!(
+            response,
+            NetworkResponse::SendMessage(NetworkMessage::VerAck)
+        ));
     }
-    
+
     #[test]
     fn test_process_network_message_verack() {
         let mut peer_state = PeerState::new();
         let chain_state = ChainState::new();
         let message = NetworkMessage::VerAck;
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
         assert!(peer_state.handshake_complete);
     }
-    
+
     #[test]
     fn test_process_network_message_ping() {
         let mut peer_state = PeerState::new();
         let chain_state = ChainState::new();
         let ping = PingMessage { nonce: 12345 };
         let message = NetworkMessage::Ping(ping);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
-        assert!(matches!(response, NetworkResponse::SendMessage(NetworkMessage::Pong(_))));
+        assert!(matches!(
+            response,
+            NetworkResponse::SendMessage(NetworkMessage::Pong(_))
+        ));
     }
-    
+
     #[test]
     fn test_process_network_message_pong() {
         let mut peer_state = PeerState::new();
@@ -673,12 +666,12 @@ mod tests {
         let chain_state = ChainState::new();
         let pong = PongMessage { nonce: 12345 };
         let message = NetworkMessage::Pong(pong);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
         assert!(peer_state.ping_nonce.is_none());
     }
-    
+
     #[test]
     fn test_process_network_message_addr() {
         let mut peer_state = PeerState::new();
@@ -691,12 +684,12 @@ mod tests {
             }],
         };
         let message = NetworkMessage::Addr(addr);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
         assert_eq!(peer_state.known_addresses.len(), 1);
     }
-    
+
     #[test]
     fn test_process_network_message_inv() {
         let mut peer_state = PeerState::new();
@@ -708,12 +701,12 @@ mod tests {
             }],
         };
         let message = NetworkMessage::Inv(inv);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         // INV message returns SendMessage when requesting objects we don't have
         assert!(matches!(response, NetworkResponse::SendMessage(_)));
     }
-    
+
     #[test]
     fn test_process_network_message_getdata() {
         let mut peer_state = PeerState::new();
@@ -725,12 +718,12 @@ mod tests {
             }],
         };
         let message = NetworkMessage::GetData(getdata);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         // GetData message returns SendMessages (plural) when sending objects
         assert!(matches!(response, NetworkResponse::SendMessages(_)));
     }
-    
+
     #[test]
     fn test_process_network_message_getheaders() {
         let mut peer_state = PeerState::new();
@@ -741,12 +734,12 @@ mod tests {
             hash_stop: [0u8; 32],
         };
         let message = NetworkMessage::GetHeaders(getheaders);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         // GetHeaders message returns SendMessage when sending headers
         assert!(matches!(response, NetworkResponse::SendMessage(_)));
     }
-    
+
     #[test]
     fn test_process_network_message_headers() {
         let mut peer_state = PeerState::new();
@@ -762,11 +755,11 @@ mod tests {
             }],
         };
         let message = NetworkMessage::Headers(headers);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
     }
-    
+
     #[test]
     fn test_process_network_message_block() {
         let mut peer_state = PeerState::new();
@@ -783,11 +776,11 @@ mod tests {
             transactions: vec![],
         };
         let message = NetworkMessage::Block(block);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
     }
-    
+
     #[test]
     fn test_process_network_message_tx() {
         let mut peer_state = PeerState::new();
@@ -802,41 +795,41 @@ mod tests {
             lock_time: 0,
         };
         let message = NetworkMessage::Tx(tx);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
     }
-    
+
     #[test]
     fn test_process_network_message_mempool() {
         let mut peer_state = PeerState::new();
         let chain_state = ChainState::new();
         let message = NetworkMessage::MemPool;
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         // MemPool message returns SendMessages (plural) when sending transactions
         assert!(matches!(response, NetworkResponse::SendMessages(_)));
     }
-    
+
     #[test]
     fn test_process_network_message_feefilter() {
         let mut peer_state = PeerState::new();
         let chain_state = ChainState::new();
         let feefilter = FeeFilterMessage { feerate: 1000 };
         let message = NetworkMessage::FeeFilter(feefilter);
-        
+
         let response = process_network_message(&message, &mut peer_state, &chain_state).unwrap();
         assert!(matches!(response, NetworkResponse::Ok));
     }
-    
+
     #[test]
     fn test_chain_state_has_object() {
         let mut chain_state = ChainState::new();
         let hash = [1u8; 32];
-        
+
         // Initially no objects
         assert!(!chain_state.has_object(&hash));
-        
+
         // Add a block
         let block = Block {
             header: BlockHeader {
@@ -851,7 +844,7 @@ mod tests {
         };
         chain_state.blocks.insert(hash, block);
         assert!(chain_state.has_object(&hash));
-        
+
         // Add a transaction
         let tx_hash = [2u8; 32];
         let tx = Transaction {
@@ -866,15 +859,15 @@ mod tests {
         chain_state.transactions.insert(tx_hash, tx);
         assert!(chain_state.has_object(&tx_hash));
     }
-    
+
     #[test]
     fn test_chain_state_get_object() {
         let mut chain_state = ChainState::new();
         let hash = [1u8; 32];
-        
+
         // Initially no objects
         assert!(chain_state.get_object(&hash).is_none());
-        
+
         // Add a block
         let block = Block {
             header: BlockHeader {
@@ -888,11 +881,11 @@ mod tests {
             transactions: vec![],
         };
         chain_state.blocks.insert(hash, block.clone());
-        
+
         let obj = chain_state.get_object(&hash).unwrap();
         assert!(matches!(obj, ChainObject::Block(_)));
         assert_eq!(obj.as_block().unwrap(), &block);
-        
+
         // Add a transaction
         let tx_hash = [2u8; 32];
         let tx = Transaction {
@@ -905,12 +898,12 @@ mod tests {
             lock_time: 0,
         };
         chain_state.transactions.insert(tx_hash, tx.clone());
-        
+
         let obj = chain_state.get_object(&tx_hash).unwrap();
         assert!(matches!(obj, ChainObject::Transaction(_)));
         assert_eq!(obj.as_transaction().unwrap(), &tx);
     }
-    
+
     #[test]
     fn test_chain_state_get_headers() {
         let mut chain_state = ChainState::new();
@@ -924,12 +917,12 @@ mod tests {
         };
         let hash = [1u8; 32];
         chain_state.headers.insert(hash, header.clone());
-        
+
         let headers = chain_state.get_headers(&[], &[0u8; 32]);
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0], header);
     }
-    
+
     #[test]
     fn test_chain_state_process_header() {
         let chain_state = ChainState::new();
@@ -941,11 +934,11 @@ mod tests {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         // Should always succeed in simplified implementation
         assert!(chain_state.process_header(&header).is_ok());
     }
-    
+
     #[test]
     fn test_chain_state_process_block() {
         let chain_state = ChainState::new();
@@ -960,11 +953,11 @@ mod tests {
             },
             transactions: vec![],
         };
-        
+
         // Should always succeed in simplified implementation
         assert!(chain_state.process_block(&block).is_ok());
     }
-    
+
     #[test]
     fn test_chain_state_process_transaction() {
         let chain_state = ChainState::new();
@@ -977,11 +970,11 @@ mod tests {
             }],
             lock_time: 0,
         };
-        
+
         // Should always succeed in simplified implementation
         assert!(chain_state.process_transaction(&tx).is_ok());
     }
-    
+
     #[test]
     fn test_chain_state_get_mempool_transactions() {
         let mut chain_state = ChainState::new();
@@ -995,12 +988,12 @@ mod tests {
             lock_time: 0,
         };
         chain_state.mempool.push(tx.clone());
-        
+
         let mempool_txs = chain_state.get_mempool_transactions();
         assert_eq!(mempool_txs.len(), 1);
         assert_eq!(mempool_txs[0], tx);
     }
-    
+
     #[test]
     fn test_chain_object_as_block() {
         let block = Block {
@@ -1014,10 +1007,10 @@ mod tests {
             },
             transactions: vec![],
         };
-        
+
         let obj = ChainObject::Block(block.clone());
         assert_eq!(obj.as_block().unwrap(), &block);
-        
+
         let tx_obj = ChainObject::Transaction(Transaction {
             version: 1,
             inputs: vec![],
@@ -1029,7 +1022,7 @@ mod tests {
         });
         assert!(tx_obj.as_block().is_none());
     }
-    
+
     #[test]
     fn test_chain_object_as_transaction() {
         let tx = Transaction {
@@ -1041,10 +1034,10 @@ mod tests {
             }],
             lock_time: 0,
         };
-        
+
         let obj = ChainObject::Transaction(tx.clone());
         assert_eq!(obj.as_transaction().unwrap(), &tx);
-        
+
         let block_obj = ChainObject::Block(Block {
             header: BlockHeader {
                 version: 1,
@@ -1058,24 +1051,24 @@ mod tests {
         });
         assert!(block_obj.as_transaction().is_none());
     }
-    
+
     #[test]
     fn test_pong_message_wrong_nonce() {
         let mut peer_state = PeerState::new();
         peer_state.ping_nonce = Some(12345);
         let pong = PongMessage { nonce: 54321 }; // Wrong nonce
-        
+
         let response = process_pong_message(&pong, &mut peer_state).unwrap();
         // The current implementation accepts any pong message
         assert!(matches!(response, NetworkResponse::Ok));
     }
-    
+
     #[test]
     fn test_pong_message_no_pending_ping() {
         let mut peer_state = PeerState::new();
         peer_state.ping_nonce = None; // No pending ping
         let pong = PongMessage { nonce: 12345 };
-        
+
         let response = process_pong_message(&pong, &mut peer_state).unwrap();
         // The current implementation accepts any pong message
         assert!(matches!(response, NetworkResponse::Ok));

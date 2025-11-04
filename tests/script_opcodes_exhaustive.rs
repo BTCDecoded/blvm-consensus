@@ -43,12 +43,16 @@ fn test_all_opcodes_individual() {
         let script = vec![opcode];
         let mut stack = Vec::new();
         let flags = 0u32;
-        
+
         // Execute opcode - should not panic
         let result = eval_script(&script, &mut stack, flags);
-        
+
         // Result may be Ok or Err, but should not panic
-        assert!(result.is_ok() || result.is_err(), "Opcode 0x{:02x} caused panic", opcode);
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Opcode 0x{:02x} caused panic",
+            opcode
+        );
     }
 }
 
@@ -66,7 +70,7 @@ fn test_common_opcodes_with_flags() {
         0xac, // OP_CHECKSIG
         0x69, // OP_VERIFY
     ];
-    
+
     // Common flag combinations
     let flag_combinations = vec![
         0, // No flags
@@ -77,12 +81,12 @@ fn test_common_opcodes_with_flags() {
         SCRIPT_VERIFY_WITNESS,
         SCRIPT_VERIFY_TAPROOT,
     ];
-    
+
     for opcode in opcodes {
         for flags in &flag_combinations {
             let script = vec![opcode];
             let mut stack = Vec::new();
-            
+
             // Execute with flags - should not panic
             let result = eval_script(&script, &mut stack, *flags);
             assert!(result.is_ok() || result.is_err());
@@ -103,7 +107,7 @@ fn test_opcode_interactions() {
     if result.unwrap() {
         assert_eq!(stack.len(), 2); // Should have two 1s on stack
     }
-    
+
     // OP_1 OP_1 OP_EQUAL - should push 1, push 1, then check equality
     let script = vec![0x51, 0x51, 0x87]; // OP_1, OP_1, OP_EQUAL
     let mut stack = Vec::new();
@@ -113,7 +117,7 @@ fn test_opcode_interactions() {
         assert_eq!(stack.len(), 1);
         assert_eq!(stack[0][0], 1); // Should have 1 (true) on stack
     }
-    
+
     // OP_1 OP_2 OP_EQUAL - should push 1, push 2, then check equality (false)
     let script = vec![0x51, 0x52, 0x87]; // OP_1, OP_2, OP_EQUAL
     let mut stack = Vec::new();
@@ -134,11 +138,11 @@ fn test_script_contexts() {
     // Simple valid script: OP_1
     let script_sig = vec![0x51]; // OP_1
     let script_pubkey = vec![0x51]; // OP_1
-    
+
     // Test as scriptSig + scriptPubKey
     let result = verify_script(&script_sig, &script_pubkey, None, 0);
     assert!(result.is_ok());
-    
+
     // Test with witness (empty witness for non-SegWit)
     let result = verify_script(&script_sig, &script_pubkey, Some(&vec![]), 0);
     assert!(result.is_ok());
@@ -154,14 +158,14 @@ fn test_disabled_opcodes() {
     let disabled_opcodes = vec![
         0xba, // OP_RESERVED
         0xbb, // OP_VER
-        // Add more disabled opcodes as needed
+              // Add more disabled opcodes as needed
     ];
-    
+
     for opcode in disabled_opcodes {
         let script = vec![opcode];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0);
-        
+
         // Disabled opcodes should fail
         // Note: Exact behavior depends on implementation
         assert!(result.is_ok() || result.is_err());
@@ -174,20 +178,20 @@ fn test_disabled_opcodes() {
 #[test]
 fn test_script_size_limits() {
     use consensus_proof::constants::MAX_SCRIPT_SIZE;
-    
+
     // Create a script at the size limit
     let mut script = vec![0x51; MAX_SCRIPT_SIZE];
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0);
-    
+
     // Should handle large scripts (may fail due to operation limit)
     assert!(result.is_ok() || result.is_err());
-    
+
     // Create a script exceeding the size limit
     let mut large_script = vec![0x51; MAX_SCRIPT_SIZE + 1];
     let mut stack = Vec::new();
     let result = eval_script(&large_script, &mut stack, 0);
-    
+
     // Should handle or reject oversized scripts
     assert!(result.is_ok() || result.is_err());
 }
@@ -198,20 +202,20 @@ fn test_script_size_limits() {
 #[test]
 fn test_operation_count_limits() {
     use consensus_proof::constants::MAX_SCRIPT_OPS;
-    
+
     // Create a script at the operation limit
     let script = vec![0x51; MAX_SCRIPT_OPS]; // OP_1 repeated
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0);
-    
+
     // Should handle scripts at the limit (may fail due to operation count)
     assert!(result.is_ok() || result.is_err());
-    
+
     // Create a script exceeding the operation limit
     let large_script = vec![0x51; MAX_SCRIPT_OPS + 1];
     let mut stack = Vec::new();
     let result = eval_script(&large_script, &mut stack, 0);
-    
+
     // Should reject scripts exceeding operation limit
     // Note: Exact behavior depends on when limit is checked
     assert!(result.is_ok() || result.is_err());
@@ -223,17 +227,17 @@ fn test_operation_count_limits() {
 #[test]
 fn test_stack_size_limits() {
     use consensus_proof::constants::MAX_STACK_SIZE;
-    
+
     // Create a script that would exceed stack size
     // Push MAX_STACK_SIZE + 1 items
     let mut script = Vec::new();
     for _ in 0..=MAX_STACK_SIZE {
         script.push(0x51); // OP_1
     }
-    
+
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0);
-    
+
     // Should reject scripts that would exceed stack size
     assert!(result.is_ok() || result.is_err());
     // Stack should not exceed MAX_STACK_SIZE
@@ -246,29 +250,39 @@ fn test_stack_size_limits() {
 /// for comprehensive testing.
 pub fn generate_flag_combinations() -> Vec<u32> {
     let mut combinations = Vec::new();
-    
+
     // Generate all combinations of 5 main flags (32 combinations)
     for i in 0..32 {
         let mut flags = 0u32;
-        if i & 0x01 != 0 { flags |= SCRIPT_VERIFY_P2SH; }
-        if i & 0x02 != 0 { flags |= SCRIPT_VERIFY_STRICTENC; }
-        if i & 0x04 != 0 { flags |= SCRIPT_VERIFY_DERSIG; }
-        if i & 0x08 != 0 { flags |= SCRIPT_VERIFY_WITNESS; }
-        if i & 0x10 != 0 { flags |= SCRIPT_VERIFY_TAPROOT; }
+        if i & 0x01 != 0 {
+            flags |= SCRIPT_VERIFY_P2SH;
+        }
+        if i & 0x02 != 0 {
+            flags |= SCRIPT_VERIFY_STRICTENC;
+        }
+        if i & 0x04 != 0 {
+            flags |= SCRIPT_VERIFY_DERSIG;
+        }
+        if i & 0x08 != 0 {
+            flags |= SCRIPT_VERIFY_WITNESS;
+        }
+        if i & 0x10 != 0 {
+            flags |= SCRIPT_VERIFY_TAPROOT;
+        }
         combinations.push(flags);
     }
-    
+
     combinations
 }
 
 #[test]
 fn test_flag_combinations() {
     let flag_combinations = generate_flag_combinations();
-    
+
     // Test a simple script with all flag combinations
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    
+
     for flags in flag_combinations {
         let result = eval_script(&script, &mut stack, flags);
         // Should not panic with any flag combination
@@ -276,7 +290,3 @@ fn test_flag_combinations() {
         stack.clear(); // Reset stack for next test
     }
 }
-
-
-
-

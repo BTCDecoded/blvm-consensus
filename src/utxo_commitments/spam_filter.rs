@@ -18,7 +18,7 @@
 //! this correctly by processing all transactions but only adding non-spam outputs.
 
 #[cfg(feature = "utxo-commitments")]
-use crate::types::{Transaction, TransactionInput, TransactionOutput, ByteString};
+use crate::types::{ByteString, Transaction, TransactionInput, TransactionOutput};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{UtxoCommitmentError, UtxoCommitmentResult};
 
@@ -98,27 +98,25 @@ impl SpamFilter {
     /// Check if a transaction is spam
     pub fn is_spam(&self, tx: &Transaction) -> SpamFilterResult {
         let mut detected_types = Vec::new();
-        
+
         // Check for Ordinals/Inscriptions
         if self.config.filter_ordinals && self.detect_ordinals(tx) {
             detected_types.push(SpamType::Ordinals);
         }
-        
+
         // Check for dust outputs
         if self.config.filter_dust && self.detect_dust(tx) {
             detected_types.push(SpamType::Dust);
         }
-        
+
         // Check for BRC-20 patterns
         if self.config.filter_brc20 && self.detect_brc20(tx) {
             detected_types.push(SpamType::BRC20);
         }
-        
+
         let is_spam = !detected_types.is_empty();
-        let spam_type = detected_types.first()
-            .cloned()
-            .unwrap_or(SpamType::NotSpam);
-        
+        let spam_type = detected_types.first().cloned().unwrap_or(SpamType::NotSpam);
+
         SpamFilterResult {
             is_spam,
             spam_type,
@@ -152,7 +150,7 @@ impl SpamFilter {
                 return true;
             }
         }
-        
+
         // Check inputs for witness data (Taproot Ordinals)
         for input in &tx.inputs {
             // In a full implementation, we'd check witness data
@@ -161,7 +159,7 @@ impl SpamFilter {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -175,7 +173,7 @@ impl SpamFilter {
         if script.is_empty() {
             return false;
         }
-        
+
         // Check for OP_RETURN (0x6a) - common in Ordinals
         if script[0] == 0x6a {
             // OP_RETURN followed by data suggests Ordinals
@@ -184,7 +182,7 @@ impl SpamFilter {
                 return true;
             }
         }
-        
+
         // Check for envelope protocol pattern
         // Envelope protocol: OP_FALSE OP_IF ... OP_ENDIF
         // This is a simplified check - full implementation would parse script
@@ -193,7 +191,7 @@ impl SpamFilter {
             // More sophisticated check would parse opcodes
             return true;
         }
-        
+
         false
     }
 
@@ -204,13 +202,13 @@ impl SpamFilter {
         if script.len() < 4 {
             return false;
         }
-        
+
         // Check for OP_FALSE OP_IF pattern (common in inscriptions)
         if script[0] == 0x00 && script[1] == 0x63 {
             // Likely envelope protocol
             return true;
         }
-        
+
         false
     }
 
@@ -220,14 +218,14 @@ impl SpamFilter {
     fn detect_dust(&self, tx: &Transaction) -> bool {
         // Check if all outputs are below threshold
         let mut all_dust = true;
-        
+
         for output in &tx.outputs {
             if output.value >= self.config.dust_threshold {
                 all_dust = false;
                 break;
             }
         }
-        
+
         all_dust && !tx.outputs.is_empty()
     }
 
@@ -243,7 +241,7 @@ impl SpamFilter {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -257,25 +255,26 @@ impl SpamFilter {
         if script.len() < 20 {
             return false;
         }
-        
+
         // Check for OP_RETURN
         if script[0] != 0x6a {
             return false;
         }
-        
+
         // Convert to string and check for BRC-20 JSON pattern
         // BRC-20 JSON typically contains "p":"brc-20"
         if let Ok(script_str) = String::from_utf8(script[1..].to_vec()) {
             // Check for BRC-20 markers
-            if script_str.contains("brc-20") || 
-               script_str.contains("\"p\":\"brc-20\"") ||
-               script_str.contains("op\":\"mint") ||
-               script_str.contains("op\":\"transfer") ||
-               script_str.contains("op\":\"deploy") {
+            if script_str.contains("brc-20")
+                || script_str.contains("\"p\":\"brc-20\"")
+                || script_str.contains("op\":\"mint")
+                || script_str.contains("op\":\"transfer")
+                || script_str.contains("op\":\"deploy")
+            {
                 return true;
             }
         }
-        
+
         false
     }
 
@@ -299,34 +298,34 @@ impl SpamFilter {
         let mut filtered_count = 0u32;
         let mut filtered_size = 0u64;
         let mut spam_breakdown = SpamBreakdown::default();
-        
+
         for tx in transactions {
             let result = self.is_spam(tx);
-            
+
             if result.is_spam {
                 filtered_count += 1;
                 filtered_size += estimate_transaction_size(tx);
-                
+
                 // Update breakdown
                 for spam_type in &result.detected_types {
                     match spam_type {
                         SpamType::Ordinals => spam_breakdown.ordinals += 1,
                         SpamType::Dust => spam_breakdown.dust += 1,
                         SpamType::BRC20 => spam_breakdown.brc20 += 1,
-                        SpamType::NotSpam => {},
+                        SpamType::NotSpam => {}
                     }
                 }
             } else {
                 filtered_txs.push(tx.clone());
             }
         }
-        
+
         let summary = SpamSummary {
             filtered_count,
             filtered_size,
             by_type: spam_breakdown,
         };
-        
+
         (filtered_txs, summary)
     }
 }
@@ -366,13 +365,14 @@ fn estimate_transaction_size(tx: &Transaction) -> u64 {
     // - Output count: varint (1-9 bytes, estimate 1)
     // - Per output: ~35 bytes (value + script)
     // - Locktime: 4 bytes
-    
+
     let base_size = 4 + 1 + 1 + 4; // Version + input count + output count + locktime
     let input_size = tx.inputs.len() as u64 * 150;
-    let output_size = tx.outputs.iter()
+    let output_size = tx
+        .outputs
+        .iter()
         .map(|out| 8 + out.script_pubkey.len() as u64)
         .sum::<u64>();
-    
+
     base_size + input_size + output_size
 }
-

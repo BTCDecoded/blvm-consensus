@@ -1,16 +1,16 @@
 //! Mining and block creation functions from Orange Paper Section 10.1
 
-use crate::types::*;
-use crate::error::Result;
-use crate::transaction::check_transaction;
 use crate::economic::get_block_subsidy;
+use crate::error::Result;
 use crate::pow::get_next_work_required;
+use crate::transaction::check_transaction;
+use crate::types::*;
 
 #[cfg(test)]
 use crate::transaction::is_coinbase;
 
 /// CreateNewBlock: 𝒰𝒮 × 𝒯𝒳* → ℬ
-/// 
+///
 /// For UTXO set us and mempool transactions txs:
 /// 1. Create coinbase transaction with appropriate subsidy
 /// 2. Select transactions from mempool based on fee rate
@@ -27,7 +27,7 @@ pub fn create_new_block(
     coinbase_address: &ByteString,
 ) -> Result<Block> {
     use crate::mempool::{accept_to_memory_pool, Mempool, MempoolResult};
-    
+
     // 1. Create coinbase transaction
     let coinbase_tx = create_coinbase_transaction(
         height,
@@ -35,18 +35,18 @@ pub fn create_new_block(
         coinbase_script,
         coinbase_address,
     )?;
-    
+
     // 2. Select transactions from mempool with proper validation
     // Use mempool validation to ensure transactions are valid and properly formatted
     let mut selected_txs = Vec::new();
     let temp_mempool: Mempool = std::collections::HashSet::new(); // Temporary empty mempool for validation
-    
+
     for tx in mempool_txs {
         // First check basic transaction structure
         if check_transaction(tx)? != ValidationResult::Valid {
             continue;
         }
-        
+
         // Then validate through mempool acceptance (includes input validation, script verification, etc.)
         match accept_to_memory_pool(tx, None, utxo_set, &temp_mempool, height)? {
             MempoolResult::Accepted => {
@@ -58,17 +58,17 @@ pub fn create_new_block(
             }
         }
     }
-    
+
     // 3. Build transaction list (coinbase first)
     let mut transactions = vec![coinbase_tx];
     transactions.extend(selected_txs);
-    
+
     // 4. Calculate merkle root
     let merkle_root = calculate_merkle_root(&transactions)?;
-    
+
     // 5. Get next work required
     let next_work = get_next_work_required(prev_header, prev_headers)?;
-    
+
     // 6. Create block header
     let header = BlockHeader {
         version: 1,
@@ -78,38 +78,38 @@ pub fn create_new_block(
         bits: next_work,
         nonce: 0, // Will be set during mining
     };
-    
-    Ok(Block { header, transactions })
+
+    Ok(Block {
+        header,
+        transactions,
+    })
 }
 
 /// MineBlock: ℬ × ℕ → ℬ × {success, failure}
-/// 
+///
 /// Attempt to mine a block by finding a valid nonce:
 /// 1. Try different nonce values
 /// 2. Check if resulting hash meets difficulty target
 /// 3. Return mined block or failure
-pub fn mine_block(
-    mut block: Block,
-    max_attempts: Natural,
-) -> Result<(Block, MiningResult)> {
+pub fn mine_block(mut block: Block, max_attempts: Natural) -> Result<(Block, MiningResult)> {
     let target = expand_target(block.header.bits)?;
-    
+
     for nonce in 0..max_attempts {
         block.header.nonce = nonce;
-        
+
         let block_hash = calculate_block_hash(&block.header);
         let hash_u128 = u128::from_le_bytes(block_hash[..16].try_into().unwrap());
-        
+
         if hash_u128 <= target {
             return Ok((block, MiningResult::Success));
         }
     }
-    
+
     Ok((block, MiningResult::Failure))
 }
 
 /// BlockTemplate: Interface for mining software
-/// 
+///
 /// Provides a template for mining software to work with:
 /// 1. Block header with current difficulty
 /// 2. Coinbase transaction template
@@ -144,9 +144,9 @@ pub fn create_block_template(
         coinbase_script,
         coinbase_address,
     )?;
-    
+
     let target = expand_target(block.header.bits)?;
-    
+
     let header = block.header.clone();
     Ok(BlockTemplate {
         header: block.header,
@@ -185,13 +185,13 @@ fn create_coinbase_transaction(
         script_sig: script.clone(),
         sequence: 0xffffffff,
     };
-    
+
     // Create coinbase output
     let coinbase_output = TransactionOutput {
         value: subsidy,
         script_pubkey: address.clone(),
     };
-    
+
     Ok(Transaction {
         version: 1,
         inputs: vec![coinbase_input],
@@ -204,39 +204,41 @@ fn create_coinbase_transaction(
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
-            "Cannot calculate merkle root for empty transaction list".to_string()
+            "Cannot calculate merkle root for empty transaction list".to_string(),
         ));
     }
-    
+
     // Calculate transaction hashes with batch optimization (if available)
     let mut hashes = {
         #[cfg(feature = "production")]
         {
             use crate::optimizations::simd_vectorization;
-            
+
             // Serialize all transactions in parallel (if rayon available)
             // Then batch hash all serialized forms using double SHA256
             let serialized_txs: Vec<Vec<u8>> = {
                 #[cfg(feature = "rayon")]
                 {
                     use rayon::prelude::*;
-                    transactions.par_iter()
+                    transactions
+                        .par_iter()
                         .map(|tx| serialize_tx_for_hash(tx))
                         .collect()
                 }
                 #[cfg(not(feature = "rayon"))]
                 {
-                    transactions.iter()
+                    transactions
+                        .iter()
                         .map(|tx| serialize_tx_for_hash(tx))
                         .collect()
                 }
             };
-            
+
             // Batch hash all serialized transactions using double SHA256
             let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
             simd_vectorization::batch_double_sha256(&tx_data_refs)
         }
-        
+
         #[cfg(not(feature = "production"))]
         {
             // Sequential fallback for non-production builds
@@ -247,11 +249,11 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
             hashes
         }
     };
-    
+
     // Build Merkle tree bottom-up
     while hashes.len() > 1 {
         let mut next_level = Vec::new();
-        
+
         // Process pairs of hashes
         for chunk in hashes.chunks(2) {
             if chunk.len() == 2 {
@@ -268,26 +270,26 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                 next_level.push(sha256_hash(&combined));
             }
         }
-        
+
         hashes = next_level;
     }
-    
+
     Ok(hashes[0])
 }
 
 /// Serialize transaction for hashing (used for batch hashing optimization)
-/// 
+///
 /// This is the same serialization as calculate_tx_hash but returns the serialized bytes
 /// instead of hashing them, allowing batch hashing to be applied.
 fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
     let mut data = Vec::new();
-    
+
     // Version (4 bytes, little-endian)
     data.extend_from_slice(&(tx.version as u32).to_le_bytes());
-    
+
     // Input count (varint)
     data.extend_from_slice(&encode_varint(tx.inputs.len() as u64));
-    
+
     // Inputs
     for input in &tx.inputs {
         // Previous output hash (32 bytes)
@@ -301,10 +303,10 @@ fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
         // Sequence (4 bytes, little-endian)
         data.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     }
-    
+
     // Output count (varint)
     data.extend_from_slice(&encode_varint(tx.outputs.len() as u64));
-    
+
     // Outputs
     for output in &tx.outputs {
         // Value (8 bytes, little-endian)
@@ -314,15 +316,15 @@ fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
         // Script
         data.extend_from_slice(&output.script_pubkey);
     }
-    
+
     // Lock time (4 bytes, little-endian)
     data.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
-    
+
     data
 }
 
 /// Calculate transaction hash using proper Bitcoin serialization
-/// 
+///
 /// This function computes the double SHA256 hash of the serialized transaction.
 /// For batch operations, use serialize_tx_for_hash + batch_double_sha256 instead.
 fn calculate_tx_hash(tx: &Transaction) -> Hash {
@@ -354,31 +356,31 @@ fn encode_varint(value: u64) -> Vec<u8> {
 /// Calculate block hash using proper Bitcoin header serialization
 fn calculate_block_hash(header: &BlockHeader) -> Hash {
     let mut data = Vec::new();
-    
+
     // Version (4 bytes, little-endian)
     data.extend_from_slice(&(header.version as u32).to_le_bytes());
-    
+
     // Previous block hash (32 bytes)
     data.extend_from_slice(&header.prev_block_hash);
-    
+
     // Merkle root (32 bytes)
     data.extend_from_slice(&header.merkle_root);
-    
+
     // Timestamp (4 bytes, little-endian)
     data.extend_from_slice(&(header.timestamp as u32).to_le_bytes());
-    
+
     // Bits (4 bytes, little-endian)
     data.extend_from_slice(&(header.bits as u32).to_le_bytes());
-    
+
     // Nonce (4 bytes, little-endian)
     data.extend_from_slice(&(header.nonce as u32).to_le_bytes());
-    
+
     sha256_hash(&data)
 }
 
 /// Simple SHA256 hash function
 fn sha256_hash(data: &[u8]) -> Hash {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(data);
     let result = hasher.finalize();
@@ -391,15 +393,16 @@ fn sha256_hash(data: &[u8]) -> Hash {
 fn expand_target(bits: Natural) -> Result<u128> {
     let exponent = (bits >> 24) as u8;
     let mantissa = bits & 0x00ffffff;
-    
+
     if exponent <= 3 {
         let shift = 8 * (3 - exponent);
         Ok((mantissa >> shift) as u128)
     } else {
         let shift = 8 * (exponent - 3);
-        if shift >= 104 { // Allow up to 128-bit values (16 bytes - 3 = 13 bytes * 8 = 104)
+        if shift >= 104 {
+            // Allow up to 128-bit values (16 bytes - 3 = 13 bytes * 8 = 104)
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".to_string()
+                "Target too large".to_string(),
             ));
         }
         Ok((mantissa << shift) as u128)
@@ -416,7 +419,7 @@ fn get_current_timestamp() -> Natural {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_create_new_block() {
         let utxo_set = UtxoSet::new();
@@ -426,7 +429,7 @@ mod tests {
         let prev_headers = vec![prev_header.clone(), prev_header.clone()];
         let coinbase_script = vec![0x51]; // OP_1
         let coinbase_address = vec![0x51]; // OP_1
-        
+
         let block = create_new_block(
             &utxo_set,
             &mempool_txs,
@@ -435,26 +438,30 @@ mod tests {
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert_eq!(block.transactions.len(), 2); // coinbase + 1 mempool tx
         assert!(is_coinbase(&block.transactions[0]));
         assert_eq!(block.header.version, 1);
         assert_eq!(block.header.timestamp, 1231006505);
     }
-    
+
     #[test]
     fn test_mine_block_success() {
         let block = create_test_block();
         let result = mine_block(block, 1000);
-        
+
         // Should succeed now that we fixed the target expansion
         assert!(result.is_ok());
         let (mined_block, mining_result) = result.unwrap();
-        assert!(matches!(mining_result, MiningResult::Success | MiningResult::Failure));
+        assert!(matches!(
+            mining_result,
+            MiningResult::Success | MiningResult::Failure
+        ));
         assert_eq!(mined_block.header.version, 1);
     }
-    
+
     #[test]
     fn test_create_block_template() {
         let utxo_set = UtxoSet::new();
@@ -464,7 +471,7 @@ mod tests {
         let prev_headers = vec![prev_header.clone()];
         let coinbase_script = vec![0x51];
         let coinbase_address = vec![0x51];
-        
+
         // This will fail due to target expansion, but that's expected for now
         let result = create_block_template(
             &utxo_set,
@@ -475,53 +482,45 @@ mod tests {
             &coinbase_script,
             &coinbase_address,
         );
-        
+
         // Expected to fail due to target expansion issues
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_coinbase_transaction() {
         let height = 100;
         let subsidy = get_block_subsidy(height);
         let script = vec![0x51];
         let address = vec![0x51];
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs[0].value, subsidy);
         assert_eq!(coinbase_tx.inputs[0].prevout.hash, [0u8; 32]);
         assert_eq!(coinbase_tx.inputs[0].prevout.index, 0xffffffff);
     }
-    
+
     #[test]
     fn test_merkle_root_calculation() {
-        let txs = vec![
-            create_valid_transaction(),
-            create_valid_transaction(),
-        ];
-        
+        let txs = vec![create_valid_transaction(), create_valid_transaction()];
+
         let merkle_root = calculate_merkle_root(&txs).unwrap();
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_merkle_root_empty() {
         let txs = vec![];
         let result = calculate_merkle_root(&txs);
         assert!(result.is_err());
     }
-    
+
     // ============================================================================
     // COMPREHENSIVE MINING TESTS
     // ============================================================================
-    
+
     #[test]
     fn test_create_block_template_comprehensive() {
         let utxo_set = UtxoSet::new();
@@ -531,7 +530,7 @@ mod tests {
         let prev_headers = vec![prev_header.clone(), prev_header.clone()];
         let coinbase_script = vec![0x51];
         let coinbase_address = vec![0x52];
-        
+
         let result = create_block_template(
             &utxo_set,
             &mempool_txs,
@@ -541,7 +540,7 @@ mod tests {
             &coinbase_script,
             &coinbase_address,
         );
-        
+
         // If get_next_work_required returns a target that's too large, this will fail
         // That's ok for testing the error path
         if let Ok(template) = result {
@@ -554,41 +553,39 @@ mod tests {
             assert!(result.is_err());
         }
     }
-    
+
     #[test]
     fn test_mine_block_attempts() {
         let block = create_test_block();
         let (mined_block, result) = mine_block(block, 1000).unwrap();
-        
+
         // Result depends on whether we found a valid nonce
-        assert!(matches!(result, MiningResult::Success | MiningResult::Failure));
+        assert!(matches!(
+            result,
+            MiningResult::Success | MiningResult::Failure
+        ));
         assert_eq!(mined_block.header.version, 1);
     }
-    
+
     #[test]
     fn test_mine_block_failure() {
         let block = create_test_block();
         let (mined_block, result) = mine_block(block, 0).unwrap();
-        
+
         // With 0 attempts, should always fail
         assert_eq!(result, MiningResult::Failure);
         assert_eq!(mined_block.header.nonce, 0);
     }
-    
+
     #[test]
     fn test_create_coinbase_transaction() {
         let height = 100;
         let subsidy = 5000000000;
         let script = vec![0x51, 0x52];
         let address = vec![0x53, 0x54];
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs.len(), 1);
         assert_eq!(coinbase_tx.outputs[0].value, subsidy);
@@ -597,148 +594,148 @@ mod tests {
         assert_eq!(coinbase_tx.inputs[0].prevout.hash, [0u8; 32]);
         assert_eq!(coinbase_tx.inputs[0].prevout.index, 0xffffffff);
     }
-    
+
     #[test]
     fn test_calculate_tx_hash() {
         let tx = create_valid_transaction();
         let hash = calculate_tx_hash(&tx);
-        
+
         // Should be a 32-byte hash
         assert_eq!(hash.len(), 32);
-        
+
         // Same transaction should produce same hash
         let hash2 = calculate_tx_hash(&tx);
         assert_eq!(hash, hash2);
     }
-    
+
     #[test]
     fn test_calculate_tx_hash_different_txs() {
         let tx1 = create_valid_transaction();
         let mut tx2 = tx1.clone();
         tx2.version = 2; // Different version
-        
+
         let hash1 = calculate_tx_hash(&tx1);
         let hash2 = calculate_tx_hash(&tx2);
-        
+
         // Different transactions should produce different hashes
         assert_ne!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_encode_varint_small() {
         let encoded = encode_varint(0x42);
         assert_eq!(encoded, vec![0x42]);
     }
-    
+
     #[test]
     fn test_encode_varint_medium() {
         let encoded = encode_varint(0x1234);
         assert_eq!(encoded.len(), 3);
         assert_eq!(encoded[0], 0xfd);
     }
-    
+
     #[test]
     fn test_encode_varint_large() {
         let encoded = encode_varint(0x12345678);
         assert_eq!(encoded.len(), 5);
         assert_eq!(encoded[0], 0xfe);
     }
-    
+
     #[test]
     fn test_encode_varint_huge() {
         let encoded = encode_varint(0x123456789abcdef0);
         assert_eq!(encoded.len(), 9);
         assert_eq!(encoded[0], 0xff);
     }
-    
+
     #[test]
     fn test_calculate_block_hash() {
         let header = create_valid_block_header();
         let hash = calculate_block_hash(&header);
-        
+
         // Should be a 32-byte hash
         assert_eq!(hash.len(), 32);
-        
+
         // Same header should produce same hash
         let hash2 = calculate_block_hash(&header);
         assert_eq!(hash, hash2);
     }
-    
+
     #[test]
     fn test_calculate_block_hash_different_headers() {
         let header1 = create_valid_block_header();
         let mut header2 = header1.clone();
         header2.version = 2; // Different version
-        
+
         let hash1 = calculate_block_hash(&header1);
         let hash2 = calculate_block_hash(&header2);
-        
+
         // Different headers should produce different hashes
         assert_ne!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_sha256_hash() {
         let data = b"hello world";
         let hash = sha256_hash(data);
-        
+
         // Should be a 32-byte hash
         assert_eq!(hash.len(), 32);
-        
+
         // Same data should produce same hash
         let hash2 = sha256_hash(data);
         assert_eq!(hash, hash2);
     }
-    
+
     #[test]
     fn test_sha256_hash_different_data() {
         let data1 = b"hello";
         let data2 = b"world";
-        
+
         let hash1 = sha256_hash(data1);
         let hash2 = sha256_hash(data2);
-        
+
         // Different data should produce different hashes
         assert_ne!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_expand_target_small() {
         let bits = 0x0300ffff; // exponent = 3
         let target = expand_target(bits).unwrap();
         assert!(target > 0);
     }
-    
+
     #[test]
     fn test_expand_target_medium() {
         let bits = 0x0600ffff; // exponent = 6 (safe value)
         let target = expand_target(bits).unwrap();
         assert!(target > 0);
     }
-    
+
     #[test]
     fn test_expand_target_too_large() {
         let bits = 0x2000ffff; // exponent = 32, would cause shift >= 104
         let result = expand_target(bits);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_get_current_timestamp() {
         let timestamp = get_current_timestamp();
         assert_eq!(timestamp, 1231006505);
     }
-    
+
     #[test]
     fn test_merkle_root_single_transaction() {
         let txs = vec![create_valid_transaction()];
         let merkle_root = calculate_merkle_root(&txs).unwrap();
-        
+
         // Should be a 32-byte hash
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_merkle_root_three_transactions() {
         let txs = vec![
@@ -747,12 +744,12 @@ mod tests {
             create_valid_transaction(),
         ];
         let merkle_root = calculate_merkle_root(&txs).unwrap();
-        
+
         // Should be a 32-byte hash
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_merkle_root_five_transactions() {
         let txs = vec![
@@ -763,12 +760,12 @@ mod tests {
             create_valid_transaction(),
         ];
         let merkle_root = calculate_merkle_root(&txs).unwrap();
-        
+
         // Should be a 32-byte hash
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_block_template_fields() {
         let utxo_set = UtxoSet::new();
@@ -778,7 +775,7 @@ mod tests {
         let prev_headers = vec![prev_header.clone(), prev_header.clone()];
         let coinbase_script = vec![0x51];
         let coinbase_address = vec![0x52];
-        
+
         let result = create_block_template(
             &utxo_set,
             &mempool_txs,
@@ -788,7 +785,7 @@ mod tests {
             &coinbase_script,
             &coinbase_address,
         );
-        
+
         // If get_next_work_required returns a target that's too large, this will fail
         // That's ok for testing the error path
         if let Ok(template) = result {
@@ -804,13 +801,16 @@ mod tests {
             assert!(result.is_err());
         }
     }
-    
+
     // Helper functions for tests
     fn create_valid_transaction() -> Transaction {
         Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [1; 32], index: 0 },
+                prevout: OutPoint {
+                    hash: [1; 32],
+                    index: 0,
+                },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }],
@@ -821,7 +821,7 @@ mod tests {
             lock_time: 0,
         }
     }
-    
+
     fn create_valid_block_header() -> BlockHeader {
         BlockHeader {
             version: 1,
@@ -832,95 +832,75 @@ mod tests {
             nonce: 0,
         }
     }
-    
+
     fn create_test_block() -> Block {
         Block {
             header: create_valid_block_header(),
             transactions: vec![create_valid_transaction()],
         }
     }
-    
+
     #[test]
     fn test_create_coinbase_transaction_zero_subsidy() {
         let height = 100;
         let subsidy = 0; // Zero subsidy
         let script = vec![0x51];
         let address = vec![0x51];
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs[0].value, 0);
     }
-    
+
     #[test]
     fn test_create_coinbase_transaction_large_subsidy() {
         let height = 100;
         let subsidy = 2100000000000000; // Large subsidy
         let script = vec![0x51];
         let address = vec![0x51];
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs[0].value, subsidy);
     }
-    
+
     #[test]
     fn test_create_coinbase_transaction_empty_script() {
         let height = 100;
         let subsidy = 5000000000;
         let script = vec![]; // Empty script
         let address = vec![0x51];
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs[0].value, subsidy);
     }
-    
+
     #[test]
     fn test_create_coinbase_transaction_empty_address() {
         let height = 100;
         let subsidy = 5000000000;
         let script = vec![0x51];
         let address = vec![]; // Empty address
-        
-        let coinbase_tx = create_coinbase_transaction(
-            height,
-            subsidy,
-            &script,
-            &address,
-        ).unwrap();
-        
+
+        let coinbase_tx = create_coinbase_transaction(height, subsidy, &script, &address).unwrap();
+
         assert!(is_coinbase(&coinbase_tx));
         assert_eq!(coinbase_tx.outputs[0].value, subsidy);
     }
-    
+
     #[test]
     fn test_calculate_merkle_root_single_transaction() {
         let txs = vec![create_valid_transaction()];
         let merkle_root = calculate_merkle_root(&txs).unwrap();
-        
+
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_calculate_merkle_root_three_transactions() {
         let txs = vec![
@@ -928,12 +908,12 @@ mod tests {
             create_valid_transaction(),
             create_valid_transaction(),
         ];
-        
+
         let merkle_root = calculate_merkle_root(&txs).unwrap();
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_calculate_merkle_root_five_transactions() {
         let txs = vec![
@@ -943,29 +923,29 @@ mod tests {
             create_valid_transaction(),
             create_valid_transaction(),
         ];
-        
+
         let merkle_root = calculate_merkle_root(&txs).unwrap();
         assert_eq!(merkle_root.len(), 32);
         assert_ne!(merkle_root, [0u8; 32]);
     }
-    
+
     #[test]
     fn test_calculate_tx_hash_different_transactions() {
         let tx1 = create_valid_transaction();
         let mut tx2 = create_valid_transaction();
         tx2.version = 2; // Different version
-        
+
         let hash1 = calculate_tx_hash(&tx1);
         let hash2 = calculate_tx_hash(&tx2);
-        
+
         assert_ne!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_sha256_hash_empty_data() {
         let data = vec![];
         let hash = sha256_hash(&data);
-        
+
         assert_eq!(hash.len(), 32);
     }
 }
@@ -973,22 +953,22 @@ mod tests {
 #[cfg(kani)]
 mod kani_proofs {
     use super::*;
-    use kani::*;
     use crate::transaction::Transaction;
+    use kani::*;
 
     /// Kani proof: Block hash calculation correctness (Orange Paper Section 7.2)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ header ∈ BlockHeader:
     /// - calculate_block_hash(header) = SHA256(SHA256(serialize_header(header)))
-    /// 
+    ///
     /// This ensures block hash calculation matches Bitcoin Core specification exactly.
     #[kani::proof]
     fn kani_block_hash_calculation_correctness() {
-        use sha2::{Sha256, Digest};
-        
+        use sha2::{Digest, Sha256};
+
         let header: BlockHeader = kani::any();
-        
+
         // Serialize header (same as in calculate_block_hash)
         let mut data = Vec::new();
         data.extend_from_slice(&(header.version as u32).to_le_bytes());
@@ -997,42 +977,44 @@ mod kani_proofs {
         data.extend_from_slice(&(header.timestamp as u32).to_le_bytes());
         data.extend_from_slice(&(header.bits as u32).to_le_bytes());
         data.extend_from_slice(&(header.nonce as u32).to_le_bytes());
-        
+
         // Calculate according to Orange Paper spec: SHA256(SHA256(header))
         let hash1 = Sha256::digest(&data);
         let hash2 = Sha256::digest(hash1);
-        
+
         let mut spec_hash = [0u8; 32];
         spec_hash.copy_from_slice(&hash2);
-        
+
         // Calculate using implementation
         let impl_hash = calculate_block_hash(&header);
-        
+
         // Critical invariant: implementation must match specification
         assert_eq!(impl_hash, spec_hash,
             "Block hash calculation must match Orange Paper specification: SHA256(SHA256(serialize_header(header)))");
     }
 
     /// Kani proof: Block hash determinism (Orange Paper Section 13.3.2)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ header ∈ BlockHeader:
     /// - calculate_block_hash(header) is deterministic (same header → same hash)
     #[kani::proof]
     fn kani_block_hash_determinism() {
         let header: BlockHeader = kani::any();
-        
+
         // Calculate hash twice
         let hash1 = calculate_block_hash(&header);
         let hash2 = calculate_block_hash(&header);
-        
+
         // Critical invariant: same header must produce same hash
-        assert_eq!(hash1, hash2,
-            "Block hash calculation must be deterministic: same header must produce same hash");
+        assert_eq!(
+            hash1, hash2,
+            "Block hash calculation must be deterministic: same header must produce same hash"
+        );
     }
 
     /// Kani proof: Coinbase transaction creation correctness (Orange Paper Section 12.2)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ height ∈ ℕ, subsidy ∈ ℤ, script ∈ ByteString, address ∈ ByteString:
     /// - create_coinbase_transaction(height, subsidy, script, address) = tx ⟹
@@ -1046,50 +1028,65 @@ mod kani_proofs {
         let subsidy: Integer = kani::any();
         let script: Vec<u8> = kani::any();
         let address: Vec<u8> = kani::any();
-        
+
         // Bound for tractability
         kani::assume(subsidy >= 0);
         kani::assume(subsidy <= MAX_MONEY);
-        
+
         let result = create_coinbase_transaction(height, subsidy, &script, &address);
-        
+
         if result.is_ok() {
             let tx = result.unwrap();
-            
+
             // Critical invariant: coinbase must have exactly one input
-            assert_eq!(tx.inputs.len(), 1,
-                "Coinbase transaction creation: must have exactly one input");
-            
+            assert_eq!(
+                tx.inputs.len(),
+                1,
+                "Coinbase transaction creation: must have exactly one input"
+            );
+
             // Critical invariant: coinbase input must have null prevout
-            assert_eq!(tx.inputs[0].prevout.hash, [0u8; 32],
-                "Coinbase transaction creation: input prevout hash must be null");
-            assert_eq!(tx.inputs[0].prevout.index, 0xffffffff,
-                "Coinbase transaction creation: input prevout index must be 0xffffffff");
-            
+            assert_eq!(
+                tx.inputs[0].prevout.hash, [0u8; 32],
+                "Coinbase transaction creation: input prevout hash must be null"
+            );
+            assert_eq!(
+                tx.inputs[0].prevout.index, 0xffffffff,
+                "Coinbase transaction creation: input prevout index must be 0xffffffff"
+            );
+
             // Critical invariant: coinbase script_sig must match provided script
-            assert_eq!(tx.inputs[0].script_sig, script,
-                "Coinbase transaction creation: script_sig must match provided script");
-            
+            assert_eq!(
+                tx.inputs[0].script_sig, script,
+                "Coinbase transaction creation: script_sig must match provided script"
+            );
+
             // Critical invariant: coinbase must have at least one output
-            assert!(!tx.outputs.is_empty(),
-                "Coinbase transaction creation: must have at least one output");
-            
+            assert!(
+                !tx.outputs.is_empty(),
+                "Coinbase transaction creation: must have at least one output"
+            );
+
             // Critical invariant: coinbase output value must match subsidy
-            assert_eq!(tx.outputs[0].value, subsidy,
-                "Coinbase transaction creation: output value must match subsidy");
-            
+            assert_eq!(
+                tx.outputs[0].value, subsidy,
+                "Coinbase transaction creation: output value must match subsidy"
+            );
+
             // Critical invariant: coinbase output script_pubkey must match address
-            assert_eq!(tx.outputs[0].script_pubkey, address,
-                "Coinbase transaction creation: output script_pubkey must match address");
+            assert_eq!(
+                tx.outputs[0].script_pubkey, address,
+                "Coinbase transaction creation: output script_pubkey must match address"
+            );
         }
     }
 
     /// Kani proof: Merkle Tree Integrity (Orange Paper Theorem 8.5)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ txs1, txs2 ∈ [Transaction]:
     /// - txs1 ≠ txs2 ⟹ calculate_merkle_root(txs1) ≠ calculate_merkle_root(txs2)
-    /// 
+    ///
     /// This proves that the merkle root commits to all transactions in the block.
     /// Any change to any transaction results in a different merkle root, assuming
     /// SHA256 is collision-resistant.
@@ -1098,13 +1095,13 @@ mod kani_proofs {
     fn kani_merkle_tree_integrity() {
         let txs1: Vec<Transaction> = kani::any();
         let txs2: Vec<Transaction> = kani::any();
-        
+
         // Bound for tractability
         kani::assume(txs1.len() <= 5);
         kani::assume(txs2.len() <= 5);
         kani::assume(!txs1.is_empty());
         kani::assume(!txs2.is_empty());
-        
+
         for tx in &txs1 {
             kani::assume(tx.inputs.len() <= 3);
             kani::assume(tx.outputs.len() <= 3);
@@ -1113,15 +1110,15 @@ mod kani_proofs {
             kani::assume(tx.inputs.len() <= 3);
             kani::assume(tx.outputs.len() <= 3);
         }
-        
+
         let root1_result = calculate_merkle_root(&txs1);
         let root2_result = calculate_merkle_root(&txs2);
-        
+
         // Both should succeed (non-empty transaction lists)
         if root1_result.is_ok() && root2_result.is_ok() {
             let root1 = root1_result.unwrap();
             let root2 = root2_result.unwrap();
-            
+
             // If transaction lists differ, roots should differ
             // (Assuming SHA256 collision resistance - fundamental cryptographic assumption)
             if txs1.len() != txs2.len() {
@@ -1132,15 +1129,16 @@ mod kani_proofs {
                 // Same length - check if any transaction differs
                 let mut transactions_differ = false;
                 for i in 0..txs1.len() {
-                    if txs1[i].version != txs2[i].version ||
-                       txs1[i].inputs.len() != txs2[i].inputs.len() ||
-                       txs1[i].outputs.len() != txs2[i].outputs.len() ||
-                       txs1[i].lock_time != txs2[i].lock_time {
+                    if txs1[i].version != txs2[i].version
+                        || txs1[i].inputs.len() != txs2[i].inputs.len()
+                        || txs1[i].outputs.len() != txs2[i].outputs.len()
+                        || txs1[i].lock_time != txs2[i].lock_time
+                    {
                         transactions_differ = true;
                         break;
                     }
                 }
-                
+
                 if transactions_differ {
                     // Different transactions should produce different roots
                     // (Full proof requires SHA256 collision resistance assumption)
@@ -1148,42 +1146,46 @@ mod kani_proofs {
                         "Merkle Tree Integrity: different transactions should produce different roots (assuming SHA256 collision resistance)");
                 }
             }
-            
+
             // Same transaction list must produce same root (determinism)
             let root1_repeat = calculate_merkle_root(&txs1).unwrap();
-            assert_eq!(root1, root1_repeat,
-                "Merkle Tree Integrity: same transaction list must produce same root");
+            assert_eq!(
+                root1, root1_repeat,
+                "Merkle Tree Integrity: same transaction list must produce same root"
+            );
         }
     }
 
     /// Kani proof: Merkle root calculation edge cases (Orange Paper Section 8.3)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ txs ∈ [Transaction]:
     /// - Single transaction: calculate_merkle_root([tx]) = SHA256(SHA256(tx))
     /// - Duplicate transactions: calculate_merkle_root([tx, tx]) handles duplicates correctly
     /// - Empty list: calculate_merkle_root([]) returns error
-    /// 
+    ///
     /// This ensures edge cases are handled correctly, including CVE-2012-2459 mitigation.
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_merkle_root_edge_cases() {
         let tx: Transaction = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 3);
         kani::assume(tx.outputs.len() <= 3);
-        
+
         // Edge case 1: Single transaction
         let single_tx_vec = vec![tx.clone()];
         let single_root_result = calculate_merkle_root(&single_tx_vec);
         if single_root_result.is_ok() {
             let single_root = single_root_result.unwrap();
             // Single transaction merkle root should be valid
-            assert!(single_root != [0u8; 32],
-                "Merkle root edge cases: single transaction must produce non-zero root");
+            assert!(
+                single_root != [0u8; 32],
+                "Merkle root edge cases: single transaction must produce non-zero root"
+            );
         }
-        
+
         // Edge case 2: Duplicate transactions (CVE-2012-2459 scenario)
         let duplicate_txs = vec![tx.clone(), tx.clone()];
         let duplicate_root_result = calculate_merkle_root(&duplicate_txs);
@@ -1191,15 +1193,19 @@ mod kani_proofs {
             let duplicate_root = duplicate_root_result.unwrap();
             // Duplicate transactions should produce valid root
             // (CVE-2012-2459 mitigation: implementation should detect and handle duplicates)
-            assert!(duplicate_root != [0u8; 32],
-                "Merkle root edge cases: duplicate transactions must produce valid root");
+            assert!(
+                duplicate_root != [0u8; 32],
+                "Merkle root edge cases: duplicate transactions must produce valid root"
+            );
         }
-        
+
         // Edge case 3: Empty transaction list
         let empty_txs: Vec<Transaction> = vec![];
         let empty_root_result = calculate_merkle_root(&empty_txs);
         // Empty list should return error (cannot compute merkle root of nothing)
-        assert!(empty_root_result.is_err(),
-            "Merkle root edge cases: empty transaction list must return error");
+        assert!(
+            empty_root_result.is_err(),
+            "Merkle root edge cases: empty transaction list must return error"
+        );
     }
 }

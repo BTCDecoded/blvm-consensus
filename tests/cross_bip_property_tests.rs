@@ -3,11 +3,11 @@
 //! Tests that validate combined scenarios across multiple BIPs,
 //! ensuring proper integration between different Bitcoin Improvement Proposals.
 
-use consensus_proof::*;
-use consensus_proof::locktime;
 use consensus_proof::bip113;
+use consensus_proof::locktime;
 use consensus_proof::mempool;
 use consensus_proof::witness;
+use consensus_proof::*;
 use proptest::prelude::*;
 
 /// Property test: BIP65 + BIP112 in same script
@@ -36,20 +36,20 @@ proptest! {
             }],
             lock_time: tx_locktime as u64,
         };
-        
+
         // Build script: <cltv_value> OP_CHECKLOCKTIMEVERIFY <csv_value> OP_CHECKSEQUENCEVERIFY
         let mut script = Vec::new();
-        
+
         // Push CLTV value (minimal encoding)
         let cltv_bytes = locktime::encode_locktime_value(cltv_value);
         script.extend_from_slice(&cltv_bytes);
         script.push(0xb1); // OP_CHECKLOCKTIMEVERIFY
-        
+
         // Push CSV value (minimal encoding)
         let csv_bytes = locktime::encode_locktime_value(csv_value);
         script.extend_from_slice(&csv_bytes);
         script.push(0xb2); // OP_CHECKSEQUENCEVERIFY
-        
+
         // Note: This is a simplified test - full validation would require
         // proper script execution with transaction context, block height, and median time-past
         // The property test verifies that both opcodes can coexist in a script
@@ -80,21 +80,21 @@ proptest! {
                 nonce: 0,
             });
         }
-        
+
         // Calculate median time-past using BIP113
         let calculated_median = bip113::get_median_time_past(&headers);
-        
+
         // Property: Median time-past should be from one of the middle timestamps
         let sorted_timestamps: Vec<u64> = headers.iter()
             .map(|h| h.timestamp)
             .collect();
         let min_timestamp = sorted_timestamps.iter().min().unwrap();
         let max_timestamp = sorted_timestamps.iter().max().unwrap();
-        
+
         // Median should be between min and max
         assert!(*min_timestamp <= calculated_median);
         assert!(calculated_median <= *max_timestamp);
-        
+
         // For CLTV timestamp validation: tx.locktime should be <= median_time_past
         // and tx.locktime should be >= cltv_value
         if tx_locktime as u64 <= calculated_median && tx_locktime >= cltv_value {
@@ -125,18 +125,18 @@ proptest! {
             .take(5)
             .map(|w| w.iter().take(520).cloned().collect()) // MAX_WITNESS_ELEMENT_SIZE
             .collect();
-        
+
         let taproot_bounded: Vec<Vec<u8>> = taproot_witness.iter()
             .take(3)
             .map(|w| w.iter().take(100).cloned().collect())
             .collect();
-        
+
         // Validate SegWit witness structure
         let segwit_valid = witness::validate_segwit_witness_structure(&segwit_bounded).unwrap_or(false);
-        
+
         // Validate Taproot witness structure (assume key path for simplicity)
         let taproot_valid = witness::validate_taproot_witness_structure(&taproot_bounded, false).unwrap_or(false);
-        
+
         // Property: Both witness types should be valid independently
         // This verifies that SegWit and Taproot validation logic doesn't interfere
         // (They would be in different transactions in practice)
@@ -144,7 +144,7 @@ proptest! {
             // Both are valid - verify they use different witness versions
             let segwit_script = vec![0x00, 0x14]; // OP_0 <20-byte-program>
             let taproot_script = vec![0x51, 0x20]; // OP_1 <32-byte-program>
-            
+
             assert_eq!(
                 witness::extract_witness_version(&segwit_script),
                 Some(witness::WitnessVersion::SegWitV0)
@@ -186,7 +186,7 @@ proptest! {
             }],
             lock_time: 0,
         };
-        
+
         let tx2 = Transaction {
             version: 1,
             inputs: tx2_inputs.iter().map(|(hash, index)| TransactionInput {
@@ -200,19 +200,19 @@ proptest! {
             }],
             lock_time: 0,
         };
-        
+
         // Check if transactions conflict (share inputs)
         let has_conflict = tx1.inputs.iter().any(|input1| {
             tx2.inputs.iter().any(|input2| input1.prevout == input2.prevout)
         });
-        
+
         // Property: If transactions conflict and both signal RBF,
         // only one should be accepted (the one with higher fee rate wins)
         if has_conflict {
             // Both signal RBF - conflict detection should identify this
             assert!(mempool::signals_rbf(&tx1));
             assert!(mempool::signals_rbf(&tx2));
-            
+
             // In compact block reconstruction, the block version is authoritative
             // This ensures we get the transaction that won the RBF
         }
@@ -231,13 +231,13 @@ proptest! {
         // Both CLTV and CSV should use the same locktime type detection
         let type1 = locktime::get_locktime_type(locktime1);
         let type2 = locktime::get_locktime_type(locktime2);
-        
+
         // Property: Locktime types should match if and only if
         // both are on the same side of LOCKTIME_THRESHOLD
         let types_match = locktime::locktime_types_match(locktime1, locktime2);
-        
+
         assert_eq!(types_match, type1 == type2);
-        
+
         // Property: Type should be consistent regardless of which function is used
         match type1 {
             locktime::LocktimeType::BlockHeight => {
@@ -265,7 +265,7 @@ proptest! {
             .take(5)
             .map(|w| w.iter().take(100).cloned().collect())
             .collect();
-        
+
         // Property: Empty witness should be identified correctly
         let is_empty = witness::is_witness_empty(&bounded);
         if bounded.is_empty() || bounded.iter().all(|elem| elem.is_empty()) {
@@ -273,11 +273,10 @@ proptest! {
         } else {
             assert!(!is_empty);
         }
-        
+
         // Property: Witness versions should be distinct
         let segwit_v0 = witness::WitnessVersion::SegWitV0;
         let taproot_v1 = witness::WitnessVersion::TaprootV1;
         assert_ne!(segwit_v0 as u8, taproot_v1 as u8);
     }
 }
-

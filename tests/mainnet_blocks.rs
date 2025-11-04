@@ -11,11 +11,11 @@
 //! - Taproot activation (height 709632)
 //! - Post-Taproot (height > 709632)
 
-use consensus_proof::{Block, BlockHeader, UtxoSet, ValidationResult};
 use consensus_proof::block::connect_block;
 use consensus_proof::pow::check_proof_of_work;
-use consensus_proof::serialization::block::deserialize_block_with_witnesses;
 use consensus_proof::segwit::Witness;
+use consensus_proof::serialization::block::deserialize_block_with_witnesses;
+use consensus_proof::{Block, BlockHeader, UtxoSet, ValidationResult};
 use hex;
 
 /// Genesis block (height 0) - the first Bitcoin block
@@ -27,14 +27,14 @@ fn test_genesis_block_validation() {
     // Genesis block hex (simplified - actual block would be full hex)
     // Note: This is a placeholder - actual implementation would load the real genesis block
     let genesis_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c010100000001000000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
-    
+
     let block_bytes = hex::decode(genesis_block_hex).ok();
     if let Some(bytes) = block_bytes {
         if let Ok((block, witnesses)) = deserialize_block_with_witnesses(&bytes) {
             let utxo_set = UtxoSet::new();
             // connect_block expects &[Witness] where Witness is Vec<ByteString> (one per transaction)
             let result = connect_block(&block, &witnesses, utxo_set, 0, None);
-            
+
             // Genesis block should validate (or fail gracefully with missing context)
             assert!(result.is_ok());
             if let Ok((validation_result, _)) = result {
@@ -61,17 +61,19 @@ fn test_genesis_block_validation() {
 #[test]
 fn test_segwit_activation_block() {
     let segwit_activation_height = 481824;
-    
+
     // Try to load block from disk if available
     let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
-    
-    if let Ok((block, witnesses)) = load_mainnet_block_from_disk(&block_dir, segwit_activation_height) {
+
+    if let Ok((block, witnesses)) =
+        load_mainnet_block_from_disk(&block_dir, segwit_activation_height)
+    {
         let utxo_set = UtxoSet::new();
         let result = connect_block(&block, &witnesses, utxo_set, segwit_activation_height, None);
-        
+
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
-        
+
         if let Ok((validation_result, _)) = result {
             match validation_result {
                 ValidationResult::Valid => {
@@ -86,7 +88,10 @@ fn test_segwit_activation_block() {
         }
     } else {
         // Block not available - skip test (not a failure)
-        eprintln!("Block {} not available in test_data/mainnet_blocks, skipping test", segwit_activation_height);
+        eprintln!(
+            "Block {} not available in test_data/mainnet_blocks, skipping test",
+            segwit_activation_height
+        );
     }
 }
 
@@ -97,17 +102,25 @@ fn test_segwit_activation_block() {
 #[test]
 fn test_taproot_activation_block() {
     let taproot_activation_height = 709632;
-    
+
     // Try to load block from disk if available
     let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
-    
-    if let Ok((block, witnesses)) = load_mainnet_block_from_disk(&block_dir, taproot_activation_height) {
+
+    if let Ok((block, witnesses)) =
+        load_mainnet_block_from_disk(&block_dir, taproot_activation_height)
+    {
         let utxo_set = UtxoSet::new();
-        let result = connect_block(&block, &witnesses, utxo_set, taproot_activation_height, None);
-        
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            taproot_activation_height,
+            None,
+        );
+
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
-        
+
         if let Ok((validation_result, _)) = result {
             match validation_result {
                 ValidationResult::Valid => {
@@ -122,7 +135,10 @@ fn test_taproot_activation_block() {
         }
     } else {
         // Block not available - skip test (not a failure)
-        eprintln!("Block {} not available in test_data/mainnet_blocks, skipping test", taproot_activation_height);
+        eprintln!(
+            "Block {} not available in test_data/mainnet_blocks, skipping test",
+            taproot_activation_height
+        );
     }
 }
 
@@ -134,15 +150,18 @@ fn test_taproot_activation_block() {
 /// - Post-Taproot: Coinbase may include Taproot commitment
 #[test]
 fn test_coinbase_transaction_eras() {
-    use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput};
-    use consensus_proof::types::OutPoint;
     use consensus_proof::transaction::check_transaction;
-    
+    use consensus_proof::types::OutPoint;
+    use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput};
+
     // Pre-SegWit coinbase (height < 481824)
     let pre_segwit_coinbase = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
             script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00], // Height encoding
             sequence: 0xffffffff,
         }],
@@ -152,16 +171,19 @@ fn test_coinbase_transaction_eras() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&pre_segwit_coinbase);
     assert!(result.is_ok());
-    
+
     // Post-SegWit coinbase includes witness commitment (height >= 481824)
     // Note: Actual witness commitment would be in the coinbase output
     let post_segwit_coinbase = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
             script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00],
             sequence: 0xffffffff,
         }],
@@ -174,7 +196,7 @@ fn test_coinbase_transaction_eras() {
         ],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&post_segwit_coinbase);
     assert!(result.is_ok());
 }
@@ -185,8 +207,8 @@ fn test_coinbase_transaction_eras() {
 /// maintaining byte-for-byte compatibility with Bitcoin Core.
 #[test]
 fn test_mainnet_block_serialization_roundtrip() {
-    use consensus_proof::serialization::block::{serialize_block_header, deserialize_block_header};
-    
+    use consensus_proof::serialization::block::{deserialize_block_header, serialize_block_header};
+
     // Test with a realistic block header
     let header = BlockHeader {
         version: 0x20000000,
@@ -196,10 +218,10 @@ fn test_mainnet_block_serialization_roundtrip() {
         bits: 0x1d00ffff,
         nonce: 0x12345678,
     };
-    
+
     let serialized = serialize_block_header(&header);
     let deserialized = deserialize_block_header(&serialized).unwrap();
-    
+
     assert_eq!(header.version, deserialized.version);
     assert_eq!(header.prev_block_hash, deserialized.prev_block_hash);
     assert_eq!(header.merkle_root, deserialized.merkle_root);
@@ -218,12 +240,12 @@ fn test_mainnet_block_serialization_roundtrip() {
 #[test]
 fn test_real_world_transaction_patterns() {
     use consensus_proof::transaction::is_coinbase;
-    
+
     let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
     let test_heights = vec![100000, 200000, 300000, 400000, 500000, 600000];
-    
+
     let mut patterns_found = std::collections::HashSet::new();
-    
+
     for height in test_heights {
         if let Ok((block, _witnesses)) = load_mainnet_block_from_disk(&block_dir, height) {
             // Analyze transaction patterns in this block
@@ -231,7 +253,7 @@ fn test_real_world_transaction_patterns() {
                 if is_coinbase(tx) {
                     continue;
                 }
-                
+
                 // Check input patterns
                 for input in &tx.inputs {
                     // Check scriptSig patterns
@@ -241,17 +263,27 @@ fn test_real_world_transaction_patterns() {
                         patterns_found.insert("P2PKH/P2SH");
                     }
                 }
-                
+
                 // Check output patterns
                 for output in &tx.outputs {
                     let script = &output.script_pubkey;
-                    
+
                     // P2PKH: OP_DUP OP_HASH160 <20 bytes> OP_EQUALVERIFY OP_CHECKSIG
-                    if script.len() == 25 && script[0] == 0x76 && script[1] == 0xa9 && script[2] == 0x14 && script[23] == 0x88 && script[24] == 0xac {
+                    if script.len() == 25
+                        && script[0] == 0x76
+                        && script[1] == 0xa9
+                        && script[2] == 0x14
+                        && script[23] == 0x88
+                        && script[24] == 0xac
+                    {
                         patterns_found.insert("P2PKH");
                     }
                     // P2SH: OP_HASH160 <20 bytes> OP_EQUAL
-                    else if script.len() == 23 && script[0] == 0xa9 && script[1] == 0x14 && script[22] == 0x87 {
+                    else if script.len() == 23
+                        && script[0] == 0xa9
+                        && script[1] == 0x14
+                        && script[22] == 0x87
+                    {
                         patterns_found.insert("P2SH");
                     }
                     // P2WPKH: OP_0 <20 bytes>
@@ -270,11 +302,11 @@ fn test_real_world_transaction_patterns() {
             }
         }
     }
-    
+
     // At minimum, we should find some common patterns
     // This test verifies that our deserialization can handle real-world transaction formats
     println!("Transaction patterns found: {:?}", patterns_found);
-    
+
     // Test passes if we can load and analyze blocks (even if no patterns found)
     assert!(true);
 }
@@ -288,23 +320,28 @@ pub fn load_mainnet_block_from_disk(
     height: u64,
 ) -> Result<(Block, Vec<Witness>), Box<dyn std::error::Error>> {
     use std::path::PathBuf;
-    
+
     let bin_path = block_dir.join(format!("block_{}.bin", height));
     let hex_path = block_dir.join(format!("block_{}.hex", height));
-    
+
     let block_data = if bin_path.exists() {
         std::fs::read(&bin_path)?
     } else if hex_path.exists() {
         let hex_content = std::fs::read_to_string(&hex_path)?;
         hex::decode(hex_content.trim())?
     } else {
-        return Err(format!("Block {} not found (checked {}.bin and {}.hex)", 
-            height, bin_path.display(), hex_path.display()).into());
+        return Err(format!(
+            "Block {} not found (checked {}.bin and {}.hex)",
+            height,
+            bin_path.display(),
+            hex_path.display()
+        )
+        .into());
     };
-    
+
     let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
         .map_err(|e| format!("Failed to deserialize block {}: {}", height, e))?;
-    
+
     Ok((block, witnesses))
 }
 
@@ -312,31 +349,30 @@ pub fn load_mainnet_block_from_disk(
 ///
 /// Helper function to load a block from hex and validate it.
 /// This can be used to test specific mainnet blocks.
-pub fn validate_mainnet_block(block_hex: &str, height: u64, prev_utxo_set: UtxoSet) -> Result<(ValidationResult, UtxoSet), Box<dyn std::error::Error>> {
+pub fn validate_mainnet_block(
+    block_hex: &str,
+    height: u64,
+    prev_utxo_set: UtxoSet,
+) -> Result<(ValidationResult, UtxoSet), Box<dyn std::error::Error>> {
     let block_bytes = hex::decode(block_hex)?;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_bytes)?;
-    
-    connect_block(&block, &witnesses, prev_utxo_set, height, None)
-        .map_err(|e| e.into())
+
+    connect_block(&block, &witnesses, prev_utxo_set, height, None).map_err(|e| e.into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validate_mainnet_block_helper() {
         // Test the helper function with a minimal block
         let minimal_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c010100000001000000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
-        
+
         let utxo_set = UtxoSet::new();
         let result = validate_mainnet_block(minimal_block_hex, 0, utxo_set);
-        
+
         // Should parse successfully (may fail validation due to missing context)
         assert!(result.is_ok() || result.is_err());
     }
 }
-
-
-
-

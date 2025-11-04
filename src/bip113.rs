@@ -50,17 +50,14 @@ pub fn get_median_time_past(headers: &[BlockHeader]) -> u64 {
     // Take the last MEDIAN_TIME_BLOCKS headers (or all if fewer available)
     let start_idx = headers.len().saturating_sub(MEDIAN_TIME_BLOCKS);
     let recent_headers = &headers[start_idx..];
-    
+
     // Extract timestamps and sort
-    let mut timestamps: Vec<u64> = recent_headers
-        .iter()
-        .map(|h| h.timestamp)
-        .collect();
-    
+    let mut timestamps: Vec<u64> = recent_headers.iter().map(|h| h.timestamp).collect();
+
     timestamps.sort_unstable();
-    
+
     // Calculate median (middle value)
-    let median = if timestamps.is_empty() {
+    if timestamps.is_empty() {
         0
     } else if timestamps.len() % 2 == 0 {
         // Even number: average of two middle values
@@ -69,9 +66,7 @@ pub fn get_median_time_past(headers: &[BlockHeader]) -> u64 {
     } else {
         // Odd number: middle value
         timestamps[timestamps.len() / 2]
-    };
-    
-    median
+    }
 }
 
 /// Calculate median time-past from a chain of block headers
@@ -94,11 +89,11 @@ pub fn get_median_time_past_reversed(recent_headers: &[BlockHeader]) -> u64 {
 
     // Reverse to get oldest-to-newest order
     let reversed: Vec<BlockHeader> = recent_headers.iter().rev().cloned().collect();
-    
+
     // Take last MEDIAN_TIME_BLOCKS (or all if fewer)
     let start_idx = reversed.len().saturating_sub(MEDIAN_TIME_BLOCKS);
     let headers = &reversed[start_idx..];
-    
+
     get_median_time_past(headers)
 }
 
@@ -155,18 +150,14 @@ mod tests {
 
     #[test]
     fn test_median_time_eleven_blocks() {
-        let headers: Vec<BlockHeader> = (1..=11)
-            .map(|i| create_header(i * 100))
-            .collect();
+        let headers: Vec<BlockHeader> = (1..=11).map(|i| create_header(i * 100)).collect();
         // Median of [100, 200, ..., 1100] = 600
         assert_eq!(get_median_time_past(&headers), 600);
     }
 
     #[test]
     fn test_median_time_more_than_eleven() {
-        let headers: Vec<BlockHeader> = (1..=20)
-            .map(|i| create_header(i * 100))
-            .collect();
+        let headers: Vec<BlockHeader> = (1..=20).map(|i| create_header(i * 100)).collect();
         // Should use last 11: [1000, 1100, ..., 2000]
         // Median = 1500
         assert_eq!(get_median_time_past(&headers), 1500);
@@ -201,12 +192,12 @@ mod tests {
         // Example from BIP113: if last 11 blocks have timestamps
         // [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100]
         // Median = 600 (6th element in sorted list)
-        let headers: Vec<BlockHeader> = vec![
-            100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100
-        ].into_iter()
-            .map(|t| create_header(t))
-            .collect();
-        
+        let headers: Vec<BlockHeader> =
+            vec![100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100]
+                .into_iter()
+                .map(|t| create_header(t))
+                .collect();
+
         assert_eq!(get_median_time_past(&headers), 600);
     }
 }
@@ -214,21 +205,21 @@ mod tests {
 #[cfg(kani)]
 mod kani_proofs {
     use super::*;
-    use kani::*;
     use crate::types::BlockHeader;
-    
+    use kani::*;
+
     /// Kani proof: BIP113 median time-past is always >= minimum block timestamp
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ headers ∈ [BlockHeader]: get_median_time_past(headers) >= min(header.timestamp for header in headers)
     #[kani::proof]
     fn kani_bip113_median_time_ge_minimum() {
         let header_count: usize = kani::any();
         kani::assume(header_count <= 20); // Bounded for tractability
-        
+
         let mut headers = Vec::new();
         let mut min_timestamp = u64::MAX;
-        
+
         for _ in 0..header_count {
             let timestamp: u64 = kani::any();
             kani::assume(timestamp <= 1000000000); // Reasonable timestamp bounds
@@ -244,24 +235,24 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median = get_median_time_past(&headers);
-        
+
         if header_count > 0 && min_timestamp < u64::MAX {
             assert!(median >= min_timestamp || median == 0);
         }
     }
-    
+
     /// Kani proof: BIP113 median time-past calculation is deterministic
-    /// 
+    ///
     /// Mathematical specification:
-    /// ∀ headers ∈ [BlockHeader]: 
+    /// ∀ headers ∈ [BlockHeader]:
     /// get_median_time_past(headers) = get_median_time_past(headers) (deterministic)
     #[kani::proof]
     fn kani_bip113_median_time_deterministic() {
         let header_count: usize = kani::any();
         kani::assume(header_count <= 20);
-        
+
         let mut headers = Vec::new();
         for _ in 0..header_count {
             let timestamp: u64 = kani::any();
@@ -275,23 +266,23 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median1 = get_median_time_past(&headers);
         let median2 = get_median_time_past(&headers);
-        
+
         // Same input should produce same output
         assert_eq!(median1, median2);
     }
-    
+
     /// Kani proof: BIP113 handles < 11 blocks correctly
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ n ∈ [1, 10]: get_median_time_past returns median of n blocks (not last 11)
     #[kani::proof]
     fn kani_bip113_handles_less_than_eleven_blocks() {
         let block_count: usize = kani::any();
         kani::assume(block_count >= 1 && block_count < MEDIAN_TIME_BLOCKS);
-        
+
         let mut headers = Vec::new();
         for i in 0..block_count {
             headers.push(BlockHeader {
@@ -303,15 +294,15 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median = get_median_time_past(&headers);
-        
+
         // Should return median of available blocks, not require 11
         assert!(median > 0 || block_count == 0);
     }
 
     /// Kani proof: BIP113 median calculation correctness (Orange Paper Section 13.3.4)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ headers ∈ [BlockHeader] with |headers| >= 11:
     /// - get_median_time_past(headers) = median of last 11 timestamps
@@ -321,10 +312,10 @@ mod kani_proofs {
     fn kani_bip113_median_calculation_correctness() {
         let header_count: usize = kani::any();
         kani::assume(header_count >= MEDIAN_TIME_BLOCKS && header_count <= 20);
-        
+
         let mut headers = Vec::new();
         let mut timestamps = Vec::new();
-        
+
         for i in 0..header_count {
             let timestamp: u64 = kani::any();
             kani::assume(timestamp <= 1000000000); // Reasonable timestamp bounds
@@ -338,18 +329,18 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median = get_median_time_past(&headers);
-        
+
         // Get last 11 timestamps (or all if fewer)
         let start_idx = timestamps.len().saturating_sub(MEDIAN_TIME_BLOCKS);
         let last_11: Vec<u64> = timestamps[start_idx..].to_vec();
-        
+
         if !last_11.is_empty() {
             // Sort for median calculation
             let mut sorted = last_11.clone();
             sorted.sort();
-            
+
             // Calculate expected median
             let expected_median = if sorted.len() % 2 == 0 {
                 // Even number: average of two middle values
@@ -358,21 +349,25 @@ mod kani_proofs {
                 // Odd number: middle value
                 sorted[sorted.len() / 2]
             };
-            
+
             // Critical invariant: calculated median must match expected median
-            assert_eq!(median, expected_median,
-                "BIP113 median calculation: must match expected median of last 11 timestamps");
-            
+            assert_eq!(
+                median, expected_median,
+                "BIP113 median calculation: must match expected median of last 11 timestamps"
+            );
+
             // Median must be bounded by min and max
             let min_ts = sorted[0];
             let max_ts = sorted[sorted.len() - 1];
-            assert!(median >= min_ts && median <= max_ts,
-                "BIP113 median calculation: median must be between min and max timestamps");
+            assert!(
+                median >= min_ts && median <= max_ts,
+                "BIP113 median calculation: median must be between min and max timestamps"
+            );
         }
     }
 
     /// Kani proof: BIP113 median time-past with exactly 11 blocks (Orange Paper Section 13.3.4)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ headers ∈ [BlockHeader] with |headers| = 11:
     /// - get_median_time_past(headers) = median of all 11 timestamps
@@ -380,7 +375,7 @@ mod kani_proofs {
     fn kani_bip113_exactly_eleven_blocks() {
         let mut headers = Vec::new();
         let mut timestamps = Vec::new();
-        
+
         for i in 0..MEDIAN_TIME_BLOCKS {
             let timestamp: u64 = kani::any();
             kani::assume(timestamp <= 1000000000);
@@ -394,23 +389,25 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median = get_median_time_past(&headers);
-        
+
         // Sort timestamps for median calculation
         let mut sorted = timestamps.clone();
         sorted.sort();
-        
+
         // With 11 blocks, median is the 6th element (index 5)
         let expected_median = sorted[5];
-        
+
         // Critical invariant: median must match expected median
-        assert_eq!(median, expected_median,
-            "BIP113 exactly 11 blocks: median must be 6th element of sorted timestamps");
+        assert_eq!(
+            median, expected_median,
+            "BIP113 exactly 11 blocks: median must be 6th element of sorted timestamps"
+        );
     }
 
     /// Kani proof: BIP113 median time-past bounded by block timestamps (Orange Paper Section 13.3.4)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ headers ∈ [BlockHeader]:
     /// - get_median_time_past(headers) >= min(header.timestamp for header in headers) or median == 0
@@ -419,11 +416,11 @@ mod kani_proofs {
     fn kani_bip113_median_bounded_by_timestamps() {
         let header_count: usize = kani::any();
         kani::assume(header_count <= 20);
-        
+
         let mut headers = Vec::new();
         let mut min_timestamp = u64::MAX;
         let mut max_timestamp = 0u64;
-        
+
         for _ in 0..header_count {
             let timestamp: u64 = kani::any();
             kani::assume(timestamp <= 1000000000);
@@ -442,14 +439,15 @@ mod kani_proofs {
                 nonce: 0,
             });
         }
-        
+
         let median = get_median_time_past(&headers);
-        
+
         if header_count > 0 {
             // Critical invariant: median must be bounded by min and max timestamps (or 0 if empty)
-            assert!(median == 0 || (median >= min_timestamp && median <= max_timestamp),
-                "BIP113 median bounded: median must be between min and max timestamps");
+            assert!(
+                median == 0 || (median >= min_timestamp && median <= max_timestamp),
+                "BIP113 median bounded: median must be between min and max timestamps"
+            );
         }
     }
 }
-

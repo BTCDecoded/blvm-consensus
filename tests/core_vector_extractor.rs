@@ -3,9 +3,9 @@
 //! Extracts and parses test vectors from Bitcoin Core's test data directory.
 //! Handles Core's specific JSON formats and converts them to our test format.
 
-use std::path::PathBuf;
-use std::fs;
 use serde_json::Value;
+use std::fs;
+use std::path::PathBuf;
 
 /// Extract transaction test vectors from Core's tx_valid.json
 ///
@@ -14,26 +14,27 @@ use serde_json::Value;
 pub fn extract_core_transaction_vectors(core_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let tx_valid_path = PathBuf::from(core_path).join("src/test/data/tx_valid.json");
     let tx_invalid_path = PathBuf::from(core_path).join("src/test/data/tx_invalid.json");
-    
+
     if tx_valid_path.exists() {
         let content = fs::read_to_string(&tx_valid_path)?;
         let json: Value = serde_json::from_str(&content)?;
-        
+
         if let Value::Array(cases) = json {
             println!("Found {} valid transaction test cases", cases.len());
-            
+
             // Parse each test case
             for (i, case) in cases.iter().enumerate() {
                 if let Value::Array(test_case) = case {
                     // Skip string-only entries (comments)
-                    if test_case.len() >= 2 && test_case[0].is_string() && test_case[1].is_string() {
+                    if test_case.len() >= 2 && test_case[0].is_string() && test_case[1].is_string()
+                    {
                         // Format: [[prevouts], serializedTx, flags]
                         if test_case.len() >= 3 {
                             if let Value::Array(prevouts) = &test_case[0] {
                                 if let Value::String(tx_hex) = &test_case[1] {
                                     // Parse flags (can be string or array)
                                     let flags = parse_flags(&test_case[2]);
-                                    
+
                                     // Store or process this test vector
                                     // (Implementation would store in our test vector format)
                                 }
@@ -44,16 +45,16 @@ pub fn extract_core_transaction_vectors(core_path: &str) -> Result<(), Box<dyn s
             }
         }
     }
-    
+
     if tx_invalid_path.exists() {
         let content = fs::read_to_string(&tx_invalid_path)?;
         let json: Value = serde_json::from_str(&content)?;
-        
+
         if let Value::Array(cases) = json {
             println!("Found {} invalid transaction test cases", cases.len());
         }
     }
-    
+
     Ok(())
 }
 
@@ -62,14 +63,14 @@ pub fn extract_core_transaction_vectors(core_path: &str) -> Result<(), Box<dyn s
 /// Core format: [scriptSig_string, scriptPubKey_string, flags_string, expected_result, description]
 pub fn extract_core_script_vectors(core_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let script_tests_path = PathBuf::from(core_path).join("src/test/data/script_tests.json");
-    
+
     if script_tests_path.exists() {
         let content = fs::read_to_string(&script_tests_path)?;
         let json: Value = serde_json::from_str(&content)?;
-        
+
         if let Value::Array(cases) = json {
             println!("Found {} script test cases", cases.len());
-            
+
             for (i, case) in cases.iter().enumerate() {
                 if let Value::Array(test_case) = case {
                     // Skip string-only entries (comments/format descriptions)
@@ -80,13 +81,14 @@ pub fn extract_core_script_vectors(core_path: &str) -> Result<(), Box<dyn std::e
                                 if let Value::String(flags_str) = &test_case[2] {
                                     // Parse flags (e.g., "P2SH,STRICTENC" -> 0x01 | 0x02)
                                     let flags = parse_flag_string(flags_str);
-                                    
+
                                     // Parse expected result
-                                    let expected = test_case.get(3)
+                                    let expected = test_case
+                                        .get(3)
                                         .and_then(|v| v.as_str())
                                         .map(|s| s == "OK")
                                         .unwrap_or(true);
-                                    
+
                                     // Store or process this test vector
                                 }
                             }
@@ -96,7 +98,7 @@ pub fn extract_core_script_vectors(core_path: &str) -> Result<(), Box<dyn std::e
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -105,7 +107,7 @@ pub fn extract_core_script_vectors(core_path: &str) -> Result<(), Box<dyn std::e
 /// Core uses comma-separated flag names like "P2SH,STRICTENC,DERSIG"
 fn parse_flag_string(flags_str: &str) -> u32 {
     let mut flags = 0u32;
-    
+
     for flag_name in flags_str.split(',') {
         let flag_name = flag_name.trim();
         match flag_name {
@@ -131,7 +133,7 @@ fn parse_flag_string(flags_str: &str) -> u32 {
             }
         }
     }
-    
+
     flags
 }
 
@@ -151,9 +153,9 @@ fn parse_flags(value: &Value) -> u32 {
 fn script_string_to_bytes(script_str: &str) -> Vec<u8> {
     // This is a simplified conversion - actual implementation would need
     // full script parser to handle opcodes, push operations, etc.
-    
+
     let mut bytes = Vec::new();
-    
+
     // Split by whitespace and parse tokens
     for token in script_str.split_whitespace() {
         // Handle opcodes
@@ -178,22 +180,25 @@ fn script_string_to_bytes(script_str: &str) -> Vec<u8> {
             }
         }
     }
-    
+
     bytes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_flag_string() {
         assert_eq!(parse_flag_string("P2SH"), 0x01);
         assert_eq!(parse_flag_string("P2SH,STRICTENC"), 0x01 | 0x02);
-        assert_eq!(parse_flag_string("P2SH,STRICTENC,DERSIG"), 0x01 | 0x02 | 0x04);
+        assert_eq!(
+            parse_flag_string("P2SH,STRICTENC,DERSIG"),
+            0x01 | 0x02 | 0x04
+        );
         assert_eq!(parse_flag_string("WITNESS,TAPROOT"), 0x800 | 0x4000);
     }
-    
+
     #[test]
     fn test_script_string_to_bytes() {
         let bytes = script_string_to_bytes("1 2 EQUAL");
@@ -202,7 +207,7 @@ mod tests {
         assert_eq!(bytes[1], 0x52); // OP_2
         assert_eq!(bytes[2], 0x87); // OP_EQUAL
     }
-    
+
     #[test]
     fn test_extract_core_vectors() {
         // Test extraction from Core repository
@@ -210,13 +215,9 @@ mod tests {
         if std::path::Path::new(core_path).exists() {
             let result = extract_core_transaction_vectors(core_path);
             assert!(result.is_ok());
-            
+
             let result = extract_core_script_vectors(core_path);
             assert!(result.is_ok());
         }
     }
 }
-
-
-
-
