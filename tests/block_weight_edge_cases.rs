@@ -7,8 +7,8 @@
 //! Consensus-critical: Incorrect weight calculation causes block rejection/acceptance divergence.
 
 use consensus_proof::segwit::calculate_transaction_weight;
-use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput, OutPoint};
 use consensus_proof::segwit::Witness;
+use consensus_proof::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Maximum block weight: 4,000,000 weight units
 pub const MAX_BLOCK_WEIGHT: u64 = 4_000_000;
@@ -19,11 +19,14 @@ fn test_block_weight_exact_limit() {
     // Create a transaction that would result in block weight at exactly 4MB
     // This is a simplified test - actual implementation would need to calculate
     // precise transaction sizes
-    
+
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0,
+            },
             script_sig: vec![],
             sequence: 0xffffffff,
         }],
@@ -33,14 +36,14 @@ fn test_block_weight_exact_limit() {
         }],
         lock_time: 0,
     };
-    
+
     let witness = Some(Witness::new());
     let weight = calculate_transaction_weight(&tx, witness.as_ref());
-    
+
     // Should calculate weight successfully
     assert!(weight.is_ok());
     let weight_value = weight.unwrap();
-    
+
     // Weight should be positive
     assert!(weight_value > 0);
 }
@@ -50,11 +53,11 @@ fn test_block_weight_exact_limit() {
 fn test_block_weight_exceeding_limit() {
     // Create a block that would exceed 4MB weight
     // This would need to be constructed with actual size calculations
-    
+
     // Block weight > 4,000,000 should be rejected
     let max_weight = MAX_BLOCK_WEIGHT;
     let exceeding_weight = MAX_BLOCK_WEIGHT + 1;
-    
+
     assert!(exceeding_weight > max_weight);
 }
 
@@ -67,7 +70,10 @@ fn test_segwit_weight_discount() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0,
+            },
             script_sig: vec![],
             sequence: 0xffffffff,
         }],
@@ -77,21 +83,21 @@ fn test_segwit_weight_discount() {
         }],
         lock_time: 0,
     };
-    
+
     // Transaction without witness (non-SegWit)
     let weight_no_witness = calculate_transaction_weight(&tx, None);
     assert!(weight_no_witness.is_ok());
-    
+
     // Transaction with witness (SegWit)
     let witness = Some(Witness::new());
     let weight_with_witness = calculate_transaction_weight(&tx, witness.as_ref());
     assert!(weight_with_witness.is_ok());
-    
+
     // SegWit transaction should have different weight calculation
     // (witness data counted 1x instead of 4x)
     let weight_no = weight_no_witness.unwrap();
     let weight_with = weight_with_witness.unwrap();
-    
+
     // Weights may be equal if witness is empty, but calculation method differs
     assert!(weight_no >= 0);
     assert!(weight_with >= 0);
@@ -104,7 +110,10 @@ fn test_mixed_witness_weight() {
     let segwit_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0,
+            },
             script_sig: vec![],
             sequence: 0xffffffff,
         }],
@@ -114,11 +123,14 @@ fn test_mixed_witness_weight() {
         }],
         lock_time: 0,
     };
-    
+
     let non_segwit_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51], // OP_1
             sequence: 0xffffffff,
         }],
@@ -128,14 +140,14 @@ fn test_mixed_witness_weight() {
         }],
         lock_time: 0,
     };
-    
+
     // Calculate weights separately
     let segwit_weight = calculate_transaction_weight(&segwit_tx, Some(&Witness::new()));
     let non_segwit_weight = calculate_transaction_weight(&non_segwit_tx, None);
-    
+
     assert!(segwit_weight.is_ok());
     assert!(non_segwit_weight.is_ok());
-    
+
     // Total block weight would be sum of all transaction weights
     let total_weight = segwit_weight.unwrap() + non_segwit_weight.unwrap();
     assert!(total_weight > 0);
@@ -147,14 +159,17 @@ fn test_mixed_witness_weight() {
 fn test_weight_calculation_segwit_activation() {
     // Before SegWit: blocks use size (1MB limit)
     // After SegWit: blocks use weight (4MB limit)
-    
+
     let pre_segwit_height = 481823;
     let post_segwit_height = 481824;
-    
+
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0,
+            },
             script_sig: vec![],
             sequence: 0xffffffff,
         }],
@@ -164,7 +179,7 @@ fn test_weight_calculation_segwit_activation() {
         }],
         lock_time: 0,
     };
-    
+
     // Weight calculation should work at both heights
     // (implementation may differ, but should be consistent)
     let weight = calculate_transaction_weight(&tx, None);
@@ -178,7 +193,10 @@ fn test_weight_large_witness() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0,
+            },
             script_sig: vec![],
             sequence: 0xffffffff,
         }],
@@ -188,17 +206,17 @@ fn test_weight_large_witness() {
         }],
         lock_time: 0,
     };
-    
+
     // Create large witness (up to 520 bytes per element)
     let large_witness_element = vec![0x42; 520];
     let witness = Some(vec![large_witness_element]);
-    
+
     let weight = calculate_transaction_weight(&tx, witness.as_ref());
-    
+
     // Should calculate weight successfully
     assert!(weight.is_ok());
     let weight_value = weight.unwrap();
-    
+
     // Weight should account for witness size (1x discount)
     assert!(weight_value > 0);
 }
@@ -210,17 +228,13 @@ fn test_block_weight_boundaries() {
     let exact_limit = MAX_BLOCK_WEIGHT;
     let one_over_limit = MAX_BLOCK_WEIGHT + 1;
     let one_under_limit = MAX_BLOCK_WEIGHT - 1;
-    
+
     // Exactly at limit should be valid
     assert_eq!(exact_limit, 4_000_000);
-    
+
     // One over limit should be invalid
     assert!(one_over_limit > MAX_BLOCK_WEIGHT);
-    
+
     // One under limit should be valid
     assert!(one_under_limit < MAX_BLOCK_WEIGHT);
 }
-
-
-
-

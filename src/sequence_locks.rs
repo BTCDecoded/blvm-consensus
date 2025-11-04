@@ -6,21 +6,26 @@
 //!
 //! Reference: Bitcoin Core `tx_verify.cpp` CalculateSequenceLocks and EvaluateSequenceLocks
 
-use crate::types::*;
-use crate::error::Result;
-use crate::locktime::{is_sequence_disabled, extract_sequence_locktime_value, extract_sequence_type_flag};
 use crate::bip113::get_median_time_past;
+use crate::error::Result;
+use crate::locktime::{
+    extract_sequence_locktime_value, extract_sequence_type_flag, is_sequence_disabled,
+};
+use crate::types::*;
 
 /// Sequence locktime disable flag (bit 31)
 /// When set, the sequence number is not treated as a relative locktime
+#[allow(dead_code)]
 const SEQUENCE_LOCKTIME_DISABLE_FLAG: u32 = 0x80000000;
 
 /// Sequence locktime type flag (bit 22)
 /// When set, locktime is time-based; otherwise block-based
+#[allow(dead_code)]
 const SEQUENCE_LOCKTIME_TYPE_FLAG: u32 = 0x00400000;
 
 /// Sequence locktime mask (bits 0-15)
 /// Extracts the locktime value from sequence number
+#[allow(dead_code)]
 const SEQUENCE_LOCKTIME_MASK: u32 = 0x0000ffff;
 
 /// Sequence locktime granularity (for time-based locks)
@@ -57,21 +62,25 @@ pub fn calculate_sequence_locks(
     // Ensure prev_heights matches input count
     if prev_heights.len() != tx.inputs.len() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            format!("prev_heights length {} does not match input count {}", prev_heights.len(), tx.inputs.len())
+            format!(
+                "prev_heights length {} does not match input count {}",
+                prev_heights.len(),
+                tx.inputs.len()
+            ),
         ));
     }
-    
+
     // Initialize to -1 (no constraint)
     let mut min_height: i64 = -1;
     let mut min_time: i64 = -1;
-    
+
     // BIP68 is only enforced for version 2+ transactions and when flag is set
     let enforce_bip68 = tx.version >= 2 && (flags & LOCKTIME_VERIFY_SEQUENCE) != 0;
-    
+
     if !enforce_bip68 {
         return Ok((min_height, min_time));
     }
-    
+
     // Process each input
     for (i, input) in tx.inputs.iter().enumerate() {
         // Check if sequence is disabled (bit 31 set)
@@ -79,9 +88,9 @@ pub fn calculate_sequence_locks(
             // This input doesn't contribute to sequence locks
             continue;
         }
-        
+
         let coin_height = prev_heights[i] as i64;
-        
+
         // Check locktime type (bit 22)
         if extract_sequence_type_flag(input.sequence as u32) {
             // Time-based relative locktime
@@ -96,11 +105,11 @@ pub fn calculate_sequence_locks(
                 // This is acceptable for some contexts (e.g., mempool validation)
                 continue;
             };
-            
+
             // Extract locktime value and multiply by granularity (512 seconds)
             let locktime_value = extract_sequence_locktime_value(input.sequence as u32) as i64;
             let locktime_seconds = locktime_value << SEQUENCE_LOCKTIME_GRANULARITY;
-            
+
             // Calculate minimum time: coin_time + locktime_seconds - 1
             // The -1 is to maintain nLockTime semantics (last invalid time)
             let required_time = coin_time + locktime_seconds - 1;
@@ -109,14 +118,14 @@ pub fn calculate_sequence_locks(
             // Block-based relative locktime
             // Extract locktime value (number of blocks)
             let locktime_value = extract_sequence_locktime_value(input.sequence as u32) as i64;
-            
+
             // Calculate minimum height: coin_height + locktime_value - 1
             // The -1 is to maintain nLockTime semantics (last invalid height)
             let required_height = coin_height + locktime_value - 1;
             min_height = min_height.max(required_height);
         }
     }
-    
+
     Ok((min_height, min_time))
 }
 
@@ -133,23 +142,19 @@ pub fn calculate_sequence_locks(
 ///
 /// # Returns
 /// true if locks are satisfied, false otherwise
-pub fn evaluate_sequence_locks(
-    block_height: u64,
-    block_time: u64,
-    lock_pair: (i64, i64),
-) -> bool {
+pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i64, i64)) -> bool {
     let (min_height, min_time) = lock_pair;
-    
+
     // Check height constraint
     if min_height >= 0 && block_height <= min_height as u64 {
         return false;
     }
-    
+
     // Check time constraint
     if min_time >= 0 && block_time <= min_time as u64 {
         return false;
     }
-    
+
     true
 }
 
@@ -182,59 +187,67 @@ pub fn sequence_locks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_calculate_sequence_locks_disabled() {
         let tx = Transaction {
             version: 2,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32], index: 0 },
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0,
+                },
                 script_sig: vec![],
                 sequence: SEQUENCE_LOCKTIME_DISABLE_FLAG as u64, // Disabled
             }],
             outputs: vec![],
             lock_time: 0,
         };
-        
+
         let prev_heights = vec![100];
-        let result = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, None).unwrap();
-        
+        let result =
+            calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, None).unwrap();
+
         // Disabled sequence should not create locks
         assert_eq!(result, (-1, -1));
     }
-    
+
     #[test]
     fn test_calculate_sequence_locks_block_based() {
         let tx = Transaction {
             version: 2,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32], index: 0 },
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0,
+                },
                 script_sig: vec![],
                 sequence: 100, // 100 blocks relative locktime
             }],
             outputs: vec![],
             lock_time: 0,
         };
-        
+
         let prev_heights = vec![1000]; // Input confirmed at height 1000
-        let result = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, None).unwrap();
-        
+        let result =
+            calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, None).unwrap();
+
         // Should require height 1000 + 100 - 1 = 1099
         assert_eq!(result.0, 1099);
         assert_eq!(result.1, -1); // No time constraint
     }
-    
+
     #[test]
     fn test_evaluate_sequence_locks() {
         // Lock requires height 1099
         let lock_pair = (1099, -1);
-        
+
         // Block height 1100 satisfies the lock
         assert!(evaluate_sequence_locks(1100, 0, lock_pair));
-        
+
         // Block height 1099 does not satisfy (must be > 1099)
         assert!(!evaluate_sequence_locks(1099, 0, lock_pair));
-        
+
         // Block height 1098 does not satisfy
         assert!(!evaluate_sequence_locks(1098, 0, lock_pair));
     }
@@ -246,7 +259,7 @@ mod kani_proofs {
     use kani::*;
 
     /// Kani proof: Sequence locks calculation correctness (BIP68)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ tx ∈ Transaction, prev_heights ∈ [ℕ]:
     /// - calculate_sequence_locks(tx, flags, prev_heights, headers) = (min_height, min_time)
@@ -259,36 +272,40 @@ mod kani_proofs {
         let flags: u32 = kani::any();
         let prev_heights: Vec<u64> = kani::any();
         let headers: Vec<BlockHeader> = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
         kani::assume(prev_heights.len() == tx.inputs.len());
         kani::assume(headers.len() <= 20);
-        
+
         // Ensure tx version >= 2 for BIP68
         let mut tx = tx;
         tx.version = kani::any();
         kani::assume(tx.version >= 2);
-        
+
         // Set LOCKTIME_VERIFY_SEQUENCE flag
         let flags = flags | 0x01;
-        
+
         let result = calculate_sequence_locks(&tx, flags, &prev_heights, Some(&headers));
-        
+
         if result.is_ok() {
             let (min_height, min_time) = result.unwrap();
-            
+
             // Critical invariant: min_height and min_time should be >= -1
             // (-1 means no constraint)
-            assert!(min_height >= -1,
-                "Sequence locks calculation: min_height must be >= -1");
-            assert!(min_time >= -1,
-                "Sequence locks calculation: min_time must be >= -1");
+            assert!(
+                min_height >= -1,
+                "Sequence locks calculation: min_height must be >= -1"
+            );
+            assert!(
+                min_time >= -1,
+                "Sequence locks calculation: min_time must be >= -1"
+            );
         }
     }
 
     /// Kani proof: Sequence locks evaluation correctness (BIP68)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ block_height, block_time ∈ ℕ, lock_pair ∈ (ℤ, ℤ):
     /// - evaluate_sequence_locks(block_height, block_time, lock_pair) = true ⟹
@@ -299,7 +316,7 @@ mod kani_proofs {
         let block_time: u64 = kani::any();
         let min_height: i64 = kani::any();
         let min_time: i64 = kani::any();
-        
+
         // Bound for tractability
         kani::assume(block_height <= 1000000);
         kani::assume(block_time <= 1000000000);
@@ -307,28 +324,33 @@ mod kani_proofs {
         kani::assume(min_time >= -1);
         kani::assume(min_height <= 1000000);
         kani::assume(min_time <= 1000000000);
-        
+
         let lock_pair = (min_height, min_time);
         let result = evaluate_sequence_locks(block_height, block_time, lock_pair);
-        
+
         // Critical invariant: locks are satisfied if and only if:
         // - block_height > min_height (when min_height >= 0)
         // - block_time > min_time (when min_time >= 0)
         if min_height >= 0 && block_height <= min_height as u64 {
-            assert!(!result,
-                "Sequence locks evaluation: block_height <= min_height must fail");
+            assert!(
+                !result,
+                "Sequence locks evaluation: block_height <= min_height must fail"
+            );
         }
-        
+
         if min_time >= 0 && block_time <= min_time as u64 {
-            assert!(!result,
-                "Sequence locks evaluation: block_time <= min_time must fail");
+            assert!(
+                !result,
+                "Sequence locks evaluation: block_time <= min_time must fail"
+            );
         }
-        
+
         if min_height < 0 && min_time < 0 {
             // No constraints: should always pass
-            assert!(result,
-                "Sequence locks evaluation: no constraints should always pass");
+            assert!(
+                result,
+                "Sequence locks evaluation: no constraints should always pass"
+            );
         }
     }
 }
-

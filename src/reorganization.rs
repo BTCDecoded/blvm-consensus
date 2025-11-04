@@ -1,13 +1,13 @@
 //! Chain reorganization functions from Orange Paper Section 10.3
 
-use crate::types::*;
-use crate::error::Result;
 use crate::block::connect_block;
+use crate::error::Result;
 use crate::segwit::Witness;
+use crate::types::*;
 // use std::collections::HashMap;
 
 /// Reorganization: When a longer chain is found (simplified API)
-/// 
+///
 /// Simplified version that creates empty witnesses. For full witness support,
 /// use `reorganize_chain_with_witnesses()`.
 pub fn reorganize_chain(
@@ -17,10 +17,11 @@ pub fn reorganize_chain(
     current_height: Natural,
 ) -> Result<ReorganizationResult> {
     // Create empty witnesses for all blocks (simplified)
-    let empty_witnesses: Vec<Vec<Witness>> = new_chain.iter()
+    let empty_witnesses: Vec<Vec<Witness>> = new_chain
+        .iter()
         .map(|block| block.transactions.iter().map(|_| Vec::new()).collect())
         .collect();
-    
+
     reorganize_chain_with_witnesses(
         new_chain,
         &empty_witnesses,
@@ -34,15 +35,15 @@ pub fn reorganize_chain(
 }
 
 /// Reorganization: When a longer chain is found (full API with witness support)
-/// 
+///
 /// For new chain with blocks [b1, b2, ..., bn] and current chain with blocks [c1, c2, ..., cm]:
 /// 1. Find common ancestor between new chain and current chain
 /// 2. Disconnect blocks from current chain back to common ancestor
 /// 3. Connect blocks from new chain from common ancestor forward
 /// 4. Return new UTXO set and reorganization result
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `new_chain` - Blocks from the new (longer) chain
 /// * `new_chain_witnesses` - Witness data for each block in new_chain (one Vec<Witness> per block)
 /// * `new_chain_headers` - Recent headers for median time-past calculation (last 11+ headers, oldest to newest)
@@ -64,53 +65,62 @@ pub fn reorganize_chain_with_witnesses(
 ) -> Result<ReorganizationResult> {
     // 1. Find common ancestor
     let common_ancestor = find_common_ancestor(new_chain, current_chain)?;
-    
+
     // 2. Disconnect blocks from current chain back to common ancestor
     let mut utxo_set = current_utxo_set;
     let disconnect_start = 0; // Simplified: disconnect from start
-    
+
     for i in (disconnect_start..current_chain.len()).rev() {
         if let Some(block) = current_chain.get(i) {
             utxo_set = disconnect_block(block, utxo_set, (i as Natural) + 1)?;
         }
     }
-    
+
     // 3. Connect blocks from new chain from common ancestor forward
     let mut new_height = current_height - (current_chain.len() as Natural) + 1;
     let mut connected_blocks = Vec::new();
-    
+
     // Ensure witnesses match blocks
     if new_chain_witnesses.len() != new_chain.len() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            format!("Witness count {} does not match block count {}", new_chain_witnesses.len(), new_chain.len())
+            format!(
+                "Witness count {} does not match block count {}",
+                new_chain_witnesses.len(),
+                new_chain.len()
+            ),
         ));
     }
-    
+
     for (i, block) in new_chain.iter().enumerate() {
         new_height += 1;
         // Get witnesses for this block
-        let witnesses = new_chain_witnesses.get(i)
+        let witnesses = new_chain_witnesses
+            .get(i)
             .cloned()
             .unwrap_or_else(|| block.transactions.iter().map(|_| Vec::new()).collect());
-        
+
         // Get recent headers for median time-past (if available)
         // For the first block in new chain, use provided headers
         // For subsequent blocks, we'd need headers from the new chain being built
         // Simplified: use provided headers if available
         let recent_headers = new_chain_headers;
-        
-        let (validation_result, new_utxo_set) = connect_block(block, &witnesses, utxo_set, new_height, recent_headers)?;
-        
+
+        let (validation_result, new_utxo_set) =
+            connect_block(block, &witnesses, utxo_set, new_height, recent_headers)?;
+
         if !matches!(validation_result, ValidationResult::Valid) {
             return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-                format!("Invalid block at height {} during reorganization", new_height)
+                format!(
+                    "Invalid block at height {} during reorganization",
+                    new_height
+                ),
             ));
         }
-        
+
         utxo_set = new_utxo_set;
         connected_blocks.push(block.clone());
     }
-    
+
     // 4. Return reorganization result
     Ok(ReorganizationResult {
         new_utxo_set: utxo_set,
@@ -167,15 +177,15 @@ where
     F: Fn(&Hash) -> Option<Transaction>,
 {
     use crate::mempool::update_mempool_after_block;
-    
+
     let mut all_removed = Vec::new();
-    
+
     // 1. Remove transactions that were included in the new connected blocks
     for block in &reorg_result.connected_blocks {
         let removed = update_mempool_after_block(mempool, block, utxo_set)?;
         all_removed.extend(removed);
     }
-    
+
     // 2. Remove transactions that became invalid (their inputs were spent by new chain)
     // Collect all spent outpoints from the new connected blocks
     let mut spent_outpoints = std::collections::HashSet::new();
@@ -188,7 +198,7 @@ where
             }
         }
     }
-    
+
     // If we have transaction lookup, check each mempool transaction
     if let Some(lookup) = get_tx_by_id {
         let mut invalid_tx_ids = Vec::new();
@@ -203,7 +213,7 @@ where
                 }
             }
         }
-        
+
         // Remove invalid transactions
         for tx_id in invalid_tx_ids {
             if mempool.remove(&tx_id) {
@@ -211,14 +221,14 @@ where
             }
         }
     }
-    
+
     // 3. Optionally re-add transactions from disconnected blocks that are still valid
     // Note: This is a simplified version. In a full implementation, we'd need to:
     // - Re-validate transactions against the new UTXO set
     // - Check if they're still valid (not double-spent, scripts still valid, etc.)
     // - Re-add them to mempool if valid
     // For now, we skip this step as it requires full transaction re-validation
-    
+
     Ok(all_removed)
 }
 
@@ -228,7 +238,12 @@ pub fn update_mempool_after_reorg_simple(
     reorg_result: &ReorganizationResult,
     utxo_set: &UtxoSet,
 ) -> Result<Vec<Hash>> {
-    update_mempool_after_reorg(mempool, reorg_result, utxo_set, None::<fn(&Hash) -> Option<Transaction>>)
+    update_mempool_after_reorg(
+        mempool,
+        reorg_result,
+        utxo_set,
+        None::<fn(&Hash) -> Option<Transaction>>,
+    )
 }
 
 /// Find common ancestor between two chains
@@ -237,10 +252,10 @@ fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<
     // In reality, this would traverse both chains to find the actual common ancestor
     if new_chain.is_empty() || current_chain.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot find common ancestor: empty chain".to_string()
+            "Cannot find common ancestor: empty chain".to_string(),
         ));
     }
-    
+
     // For now, return the first block of current chain as common ancestor
     // This is a simplification - real implementation would hash-compare blocks
     Ok(current_chain[0].header.clone())
@@ -250,7 +265,7 @@ fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<
 fn disconnect_block(block: &Block, mut utxo_set: UtxoSet, _height: Natural) -> Result<UtxoSet> {
     // Simplified: remove all outputs created by this block
     // In reality, this would be more complex, involving transaction reversal
-    
+
     for tx in &block.transactions {
         // Remove outputs created by this transaction
         let tx_id = calculate_tx_id(tx);
@@ -261,41 +276,38 @@ fn disconnect_block(block: &Block, mut utxo_set: UtxoSet, _height: Natural) -> R
             };
             utxo_set.remove(&outpoint);
         }
-        
+
         // Restore inputs spent by this transaction (simplified)
         for _input in &tx.inputs {
             // In reality, we'd need to restore the UTXO that was spent
             // This is a complex operation requiring historical state
         }
     }
-    
+
     Ok(utxo_set)
 }
 
 /// Check if reorganization is beneficial
-pub fn should_reorganize(
-    new_chain: &[Block],
-    current_chain: &[Block],
-) -> Result<bool> {
+pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
     // Reorganize if new chain is longer
     if new_chain.len() > current_chain.len() {
         return Ok(true);
     }
-    
+
     // Reorganize if chains are same length but new chain has more work
     if new_chain.len() == current_chain.len() {
         let new_work = calculate_chain_work(new_chain)?;
         let current_work = calculate_chain_work(current_chain)?;
         return Ok(new_work > current_work);
     }
-    
+
     Ok(false)
 }
 
 /// Calculate total work for a chain
 fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
     let mut total_work = 0u128;
-    
+
     for block in chain {
         let target = expand_target(block.header.bits)?;
         // Work is proportional to 1/target
@@ -303,7 +315,7 @@ fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
             total_work += u128::MAX / target;
         }
     }
-    
+
     Ok(total_work)
 }
 
@@ -311,7 +323,7 @@ fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
 fn expand_target(bits: Natural) -> Result<u128> {
     let exponent = (bits >> 24) as u8;
     let mantissa = bits & 0x00ffffff;
-    
+
     if exponent <= 3 {
         let shift = 8 * (3 - exponent);
         Ok((mantissa as u128) >> shift)
@@ -319,7 +331,7 @@ fn expand_target(bits: Natural) -> Result<u128> {
         let shift = 8 * (exponent - 3);
         if shift >= 104 {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".to_string()
+                "Target too large".to_string(),
             ));
         }
         Ok((mantissa as u128) << shift)
@@ -357,7 +369,7 @@ pub struct ReorganizationResult {
 
 /// Mathematical Specification for Chain Selection:
 /// ∀ chains C₁, C₂: work(C₁) > work(C₂) ⇒ select(C₁)
-/// 
+///
 /// Invariants:
 /// - Selected chain has maximum cumulative work
 /// - Work calculation is deterministic
@@ -376,25 +388,28 @@ mod kani_proofs {
         // Generate symbolic chains
         let new_chain: Vec<Block> = kani::any();
         let current_chain: Vec<Block> = kani::any();
-        
+
         // Assume non-empty chains for meaningful comparison
         kani::assume(new_chain.len() > 0);
         kani::assume(current_chain.len() > 0);
         kani::assume(new_chain.len() <= 5); // Bound for tractability
         kani::assume(current_chain.len() <= 5);
-        
+
         // Calculate work for both chains
         let new_work = calculate_chain_work(&new_chain).unwrap_or(0);
         let current_work = calculate_chain_work(&current_chain).unwrap_or(0);
-        
+
         // Call should_reorganize
         let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
-        
+
         // Mathematical invariant: reorganize iff new chain has more work
         if new_work > current_work {
             assert!(should_reorg, "Must reorganize when new chain has more work");
         } else {
-            assert!(!should_reorg, "Must not reorganize when new chain has less or equal work");
+            assert!(
+                !should_reorg,
+                "Must not reorganize when new chain has less or equal work"
+            );
         }
     }
 
@@ -404,14 +419,14 @@ mod kani_proofs {
     fn kani_calculate_chain_work_deterministic() {
         let chain: Vec<Block> = kani::any();
         kani::assume(chain.len() <= 3); // Bound for tractability
-        
+
         // Calculate work twice
         let work1 = calculate_chain_work(&chain).unwrap_or(0);
         let work2 = calculate_chain_work(&chain).unwrap_or(0);
-        
+
         // Deterministic invariant
         assert_eq!(work1, work2, "Chain work calculation must be deterministic");
-        
+
         // Non-negative invariant
         assert!(work1 >= 0, "Chain work must be non-negative");
     }
@@ -420,18 +435,18 @@ mod kani_proofs {
     #[kani::proof]
     fn kani_expand_target_edge_cases() {
         let bits: Natural = kani::any();
-        
+
         // Test valid range
         kani::assume(bits <= 0x1d00ffff); // Genesis difficulty
-        
+
         let result = expand_target(bits);
-        
+
         // Should not panic and should return reasonable value
         match result {
             Ok(target) => {
                 assert!(target > 0, "Valid target must be positive");
                 assert!(target <= u128::MAX, "Target must fit in u128");
-            },
+            }
             Err(_) => {
                 // Some invalid targets may fail, which is acceptable
             }
@@ -439,14 +454,14 @@ mod kani_proofs {
     }
 
     /// Kani proof: reorganize_chain maintains UTXO set consistency
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ new_chain, current_chain ∈ [Block], utxo_set ∈ 𝒰𝒮, height ∈ ℕ:
     /// - If reorganize_chain succeeds: new_utxo_set is consistent
     /// - UTXO set reflects state after disconnecting current_chain and connecting new_chain
     /// - All outputs from disconnected blocks are removed
     /// - All outputs from connected blocks are added
-    /// 
+    ///
     /// This ensures reorganization preserves UTXO set correctness.
     #[kani::proof]
     #[kani::unwind(5)]
@@ -455,13 +470,13 @@ mod kani_proofs {
         let current_chain: Vec<Block> = kani::any();
         let utxo_set: UtxoSet = kani::any();
         let height: Natural = kani::any();
-        
+
         // Bound for tractability
         kani::assume(new_chain.len() <= 3);
         kani::assume(current_chain.len() <= 3);
         kani::assume(new_chain.len() > 0);
         kani::assume(current_chain.len() > 0);
-        
+
         // Bound transaction counts in blocks
         for block in &new_chain {
             kani::assume(block.transactions.len() <= 2);
@@ -477,25 +492,33 @@ mod kani_proofs {
                 kani::assume(tx.outputs.len() <= 2);
             }
         }
-        
+
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, height);
-        
+
         if result.is_ok() {
             let reorg_result = result.unwrap();
-            
+
             // UTXO set should be non-empty if reorganization succeeded with valid blocks
             // (assuming initial UTXO set was non-empty or blocks created outputs)
-            
+
             // Reorganization result should reflect new chain
-            assert_eq!(reorg_result.connected_blocks.len(), new_chain.len(),
-                "Connected blocks should match new chain length");
-            assert_eq!(reorg_result.disconnected_blocks.len(), current_chain.len(),
-                "Disconnected blocks should match current chain length");
-            
+            assert_eq!(
+                reorg_result.connected_blocks.len(),
+                new_chain.len(),
+                "Connected blocks should match new chain length"
+            );
+            assert_eq!(
+                reorg_result.disconnected_blocks.len(),
+                current_chain.len(),
+                "Disconnected blocks should match current chain length"
+            );
+
             // New height should be updated correctly
-            assert!(reorg_result.new_height >= height.saturating_sub(current_chain.len() as Natural),
-                "New height should account for disconnected blocks");
-            
+            assert!(
+                reorg_result.new_height >= height.saturating_sub(current_chain.len() as Natural),
+                "New height should account for disconnected blocks"
+            );
+
             // UTXO set should be valid (no negative values, etc.)
             // This is implicitly ensured by connect_block validation
         }
@@ -517,10 +540,10 @@ mod property_tests {
             // Calculate work for both chains
             let new_work = calculate_chain_work(&new_chain).unwrap_or(0);
             let current_work = calculate_chain_work(&current_chain).unwrap_or(0);
-            
+
             // Call should_reorganize
             let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
-            
+
             // Mathematical property: reorganize iff new chain has more work
             if new_work > current_work {
                 prop_assert!(should_reorg, "Must reorganize when new chain has more work");
@@ -539,10 +562,10 @@ mod property_tests {
             // Calculate work twice
             let work1 = calculate_chain_work(&chain).unwrap_or(0);
             let work2 = calculate_chain_work(&chain).unwrap_or(0);
-            
+
             // Deterministic property
             prop_assert_eq!(work1, work2, "Chain work calculation must be deterministic");
-            
+
             // Non-negative property
             prop_assert!(work1 >= 0, "Chain work must be non-negative");
         }
@@ -555,7 +578,7 @@ mod property_tests {
             bits in 0x00000000u64..0x1d00ffffu64
         ) {
             let result = expand_target(bits);
-            
+
             match result {
                 Ok(target) => {
                     prop_assert!(target > 0, "Valid target must be positive");
@@ -579,12 +602,12 @@ mod property_tests {
             let len = chain1.len().min(chain2.len());
             let chain1 = &chain1[..len];
             let chain2 = &chain2[..len];
-            
+
             let work1 = calculate_chain_work(chain1).unwrap_or(0);
             let work2 = calculate_chain_work(chain2).unwrap_or(0);
-            
+
             let should_reorg = should_reorganize(chain1, chain2).unwrap_or(false);
-            
+
             // For equal length chains, reorganize iff chain1 has more work
             if work1 > work2 {
                 prop_assert!(should_reorg, "Must reorganize when first chain has more work");
@@ -598,66 +621,66 @@ mod property_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_should_reorganize_longer_chain() {
         let new_chain = vec![create_test_block(), create_test_block()];
         let current_chain = vec![create_test_block()];
-        
+
         assert!(should_reorganize(&new_chain, &current_chain).unwrap());
     }
-    
+
     #[test]
     fn test_should_reorganize_same_length_more_work() {
         let mut new_chain = vec![create_test_block()];
         let mut current_chain = vec![create_test_block()];
-        
+
         // Make new chain have lower difficulty (more work)
         new_chain[0].header.bits = 0x0200ffff; // Lower difficulty (exponent = 2)
         current_chain[0].header.bits = 0x0300ffff; // Higher difficulty (exponent = 3)
-        
+
         assert!(should_reorganize(&new_chain, &current_chain).unwrap());
     }
-    
+
     #[test]
     fn test_should_not_reorganize_shorter_chain() {
         let new_chain = vec![create_test_block()];
         let current_chain = vec![create_test_block(), create_test_block()];
-        
+
         assert!(!should_reorganize(&new_chain, &current_chain).unwrap());
     }
-    
+
     #[test]
     fn test_find_common_ancestor() {
         let new_chain = vec![create_test_block()];
         let current_chain = vec![create_test_block()];
-        
+
         let ancestor = find_common_ancestor(&new_chain, &current_chain).unwrap();
         assert_eq!(ancestor.version, 1);
     }
-    
+
     #[test]
     fn test_find_common_ancestor_empty_chain() {
         let new_chain = vec![];
         let current_chain = vec![create_test_block()];
-        
+
         let result = find_common_ancestor(&new_chain, &current_chain);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_calculate_chain_work() {
         let chain = vec![create_test_block()];
         let work = calculate_chain_work(&chain).unwrap();
         assert!(work > 0);
     }
-    
+
     #[test]
     fn test_reorganize_chain() {
         let new_chain = vec![create_test_block()];
         let current_chain = vec![create_test_block()];
         let utxo_set = UtxoSet::new();
-        
+
         // The reorganization might fail due to simplified block validation
         // This is expected behavior for the current implementation
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1);
@@ -666,103 +689,110 @@ mod tests {
             Ok(reorg_result) => {
                 assert_eq!(reorg_result.new_height, 1);
                 assert_eq!(reorg_result.connected_blocks.len(), 1);
-            },
+            }
             Err(_) => {
                 // Expected failure due to simplified validation
                 // This is acceptable for the current implementation
             }
         }
     }
-    
+
     #[test]
     fn test_reorganize_chain_deep_reorg() {
-        let new_chain = vec![create_test_block(), create_test_block(), create_test_block()];
+        let new_chain = vec![
+            create_test_block(),
+            create_test_block(),
+            create_test_block(),
+        ];
         let current_chain = vec![create_test_block(), create_test_block()];
         let utxo_set = UtxoSet::new();
-        
+
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 2);
         match result {
             Ok(reorg_result) => {
                 assert_eq!(reorg_result.connected_blocks.len(), 3);
                 assert_eq!(reorg_result.reorganization_depth, 2);
-            },
+            }
             Err(_) => {
                 // Expected failure due to simplified validation
             }
         }
     }
-    
+
     #[test]
     fn test_reorganize_chain_empty_new_chain() {
         let new_chain = vec![];
         let current_chain = vec![create_test_block()];
         let utxo_set = UtxoSet::new();
-        
+
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_reorganize_chain_empty_current_chain() {
         let new_chain = vec![create_test_block()];
         let current_chain = vec![];
         let utxo_set = UtxoSet::new();
-        
+
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 0);
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_disconnect_block() {
         let block = create_test_block();
         let mut utxo_set = UtxoSet::new();
-        
+
         // Add some UTXOs that will be removed
         let tx_id = calculate_tx_id(&block.transactions[0]);
-        let outpoint = OutPoint { hash: tx_id, index: 0 };
+        let outpoint = OutPoint {
+            hash: tx_id,
+            index: 0,
+        };
         let utxo = UTXO {
             value: 50_000_000_000,
             script_pubkey: vec![0x51],
             height: 1,
         };
         utxo_set.insert(outpoint, utxo);
-        
+
         let result = disconnect_block(&block, utxo_set, 1);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_calculate_chain_work_empty_chain() {
         let chain = vec![];
         let work = calculate_chain_work(&chain).unwrap();
         assert_eq!(work, 0);
     }
-    
+
     #[test]
     fn test_calculate_chain_work_multiple_blocks() {
         let mut chain = vec![create_test_block(), create_test_block()];
         // Make second block have different difficulty
         chain[1].header.bits = 0x0200ffff;
-        
+
         let work = calculate_chain_work(&chain).unwrap();
         assert!(work > 0);
     }
-    
+
     #[test]
     fn test_expand_target_edge_cases() {
         // Test zero target
         let result = expand_target(0x00000000);
         assert!(result.is_ok());
-        
+
         // Test maximum valid target
         let result = expand_target(0x03ffffff);
         assert!(result.is_ok());
-        
+
         // Test invalid target (too large) - need to use a much larger exponent
         let result = expand_target(0x10000000); // exponent = 16, which should be >= 16
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_calculate_tx_id_different_transactions() {
         let tx1 = Transaction {
@@ -771,20 +801,20 @@ mod tests {
             outputs: vec![],
             lock_time: 0,
         };
-        
+
         let tx2 = Transaction {
             version: 2,
             inputs: vec![],
             outputs: vec![],
             lock_time: 0,
         };
-        
+
         let id1 = calculate_tx_id(&tx1);
         let id2 = calculate_tx_id(&tx2);
-        
+
         assert_ne!(id1, id2);
     }
-    
+
     // Helper functions for tests
     fn create_test_block() -> Block {
         Block {
@@ -799,7 +829,10 @@ mod tests {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
+                    prevout: OutPoint {
+                        hash: [0; 32],
+                        index: 0xffffffff,
+                    },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 }],
@@ -816,12 +849,12 @@ mod tests {
 #[cfg(kani)]
 mod kani_proofs {
     use super::*;
-    use kani::*;
     use crate::block::connect_block;
     use crate::transaction::is_coinbase;
+    use kani::*;
 
     /// Kani proof: Chain reorganization preserves UTXO set invariants
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ new_chain, current_chain ∈ [Block], utxo_set ∈ US:
     /// - If reorganize_chain succeeds: new_utxo_set maintains economic invariants
@@ -834,11 +867,11 @@ mod kani_proofs {
         let current_chain: Vec<Block> = kani::any();
         let mut utxo_set: UtxoSet = kani::any();
         let current_height: Natural = kani::any();
-        
+
         // Bound for tractability
         kani::assume(new_chain.len() <= 3);
         kani::assume(current_chain.len() <= 3);
-        
+
         for block in &new_chain {
             kani::assume(block.transactions.len() <= 3);
             for tx in &block.transactions {
@@ -846,7 +879,7 @@ mod kani_proofs {
                 kani::assume(tx.outputs.len() <= 3);
             }
         }
-        
+
         for block in &current_chain {
             kani::assume(block.transactions.len() <= 3);
             for tx in &block.transactions {
@@ -854,50 +887,56 @@ mod kani_proofs {
                 kani::assume(tx.outputs.len() <= 3);
             }
         }
-        
+
         // Ensure inputs exist for non-coinbase transactions
         for block in &new_chain {
             for tx in &block.transactions {
                 if !is_coinbase(tx) {
                     for input in &tx.inputs {
                         if !utxo_set.contains_key(&input.prevout) {
-                            utxo_set.insert(input.prevout.clone(), UTXO {
-                                value: 1000,
-                                script_pubkey: vec![],
-                                height: current_height.saturating_sub(1),
-                            });
+                            utxo_set.insert(
+                                input.prevout.clone(),
+                                UTXO {
+                                    value: 1000,
+                                    script_pubkey: vec![],
+                                    height: current_height.saturating_sub(1),
+                                },
+                            );
                         }
                     }
                 }
             }
         }
-        
+
         for block in &current_chain {
             for tx in &block.transactions {
                 if !is_coinbase(tx) {
                     for input in &tx.inputs {
                         if !utxo_set.contains_key(&input.prevout) {
-                            utxo_set.insert(input.prevout.clone(), UTXO {
-                                value: 1000,
-                                script_pubkey: vec![],
-                                height: current_height.saturating_sub(1),
-                            });
+                            utxo_set.insert(
+                                input.prevout.clone(),
+                                UTXO {
+                                    value: 1000,
+                                    script_pubkey: vec![],
+                                    height: current_height.saturating_sub(1),
+                                },
+                            );
                         }
                     }
                 }
             }
         }
-        
+
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set.clone(), current_height);
-        
+
         if result.is_ok() {
             let reorg_result = result.unwrap();
             let new_utxo_set = reorg_result.utxo_set;
-            
+
             // UTXO set consistency: no double-spending
             // All spent inputs from disconnected blocks should be removed
             // All outputs from new blocks should be added
-            
+
             // Verify that if a transaction was disconnected, its outputs are removed
             for block in &current_chain {
                 for tx in &block.transactions {
@@ -907,7 +946,7 @@ mod kani_proofs {
                     }
                 }
             }
-            
+
             // Verify that new chain outputs are added
             for block in &new_chain {
                 for tx in &block.transactions {
@@ -915,7 +954,7 @@ mod kani_proofs {
                     // This is a simplified check - full verification would use calculate_tx_id
                 }
             }
-            
+
             // Critical invariant: UTXO set size changes correctly
             // size(new_utxo_set) = size(utxo_set) - disconnected_outputs + new_outputs
             assert!(true, "Reorganization preserves UTXO set consistency");
@@ -923,11 +962,11 @@ mod kani_proofs {
     }
 
     /// Kani proof: Disconnect/connect correctness (Orange Paper Section 11.3)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ block ∈ Block, utxo_set ∈ US:
     /// - disconnect_block(block, connect_block(block, utxo_set)) = utxo_set
-    /// 
+    ///
     /// This proves that disconnect and connect operations are inverse (idempotent).
     #[kani::proof]
     #[kani::unwind(5)]
@@ -935,46 +974,54 @@ mod kani_proofs {
         let block: Block = kani::any();
         let mut utxo_set: UtxoSet = kani::any();
         let height: Natural = kani::any();
-        
+
         // Bound for tractability
         kani::assume(block.transactions.len() <= 3);
         for tx in &block.transactions {
             kani::assume(tx.inputs.len() <= 3);
             kani::assume(tx.outputs.len() <= 3);
         }
-        
+
         // Ensure inputs exist for non-coinbase transactions
         for tx in &block.transactions {
             if !is_coinbase(tx) {
                 for input in &tx.inputs {
                     if !utxo_set.contains_key(&input.prevout) {
-                        utxo_set.insert(input.prevout.clone(), UTXO {
-                            value: 1000,
-                            script_pubkey: vec![],
-                            height: height.saturating_sub(1),
-                        });
+                        utxo_set.insert(
+                            input.prevout.clone(),
+                            UTXO {
+                                value: 1000,
+                                script_pubkey: vec![],
+                                height: height.saturating_sub(1),
+                            },
+                        );
                     }
                 }
             }
         }
-        
+
         // Connect block
-        let witnesses: Vec<crate::segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let witnesses: Vec<crate::segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
         let connect_result = connect_block(&block, &witnesses, utxo_set.clone(), height, None);
-        
+
         if connect_result.is_ok() {
             let (validation_result, connected_utxo_set) = connect_result.unwrap();
-            if matches!(validation_result, crate::transaction::ValidationResult::Valid) {
+            if matches!(
+                validation_result,
+                crate::transaction::ValidationResult::Valid
+            ) {
                 // Disconnect block
-                let disconnect_result = disconnect_block(&block, connected_utxo_set.clone(), height);
-                
+                let disconnect_result =
+                    disconnect_block(&block, connected_utxo_set.clone(), height);
+
                 if disconnect_result.is_ok() {
                     let disconnected_utxo_set = disconnect_result.unwrap();
-                    
+
                     // Verify that disconnect(connect(block, utxo_set)) ≈ utxo_set
                     // Note: Exact equality may not hold due to new outputs from coinbase,
                     // but the key property is that spent inputs are restored
-                    
+
                     // Verify that spent inputs are restored
                     for tx in &block.transactions {
                         if !is_coinbase(tx) {

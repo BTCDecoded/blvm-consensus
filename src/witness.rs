@@ -3,11 +3,11 @@
 //! Provides shared functions for witness structure validation, weight calculation,
 //! and witness data handling that are common to both SegWit and Taproot.
 
-use crate::types::*;
 use crate::error::Result;
+use crate::types::*;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
-/// 
+///
 /// Shared witness type used by both SegWit and Taproot.
 /// For SegWit: Vector of byte strings representing witness stack elements
 /// For Taproot: Vector containing control block and script path data
@@ -48,19 +48,19 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
     if witness.is_empty() {
         return Ok(false);
     }
-    
+
     if is_script_path {
         // Script path: at least script + control block
         if witness.len() < 2 {
             return Ok(false);
         }
-        
+
         // Control block must be at least 33 bytes (internal key + leaf version + parity)
         let control_block = &witness[witness.len() - 1];
         if control_block.len() < 33 {
             return Ok(false);
         }
-        
+
         // Control block size: 33 + 32n (where n is number of merkle proof levels)
         // Must be valid multiple
         if (control_block.len() - 33) % 32 != 0 {
@@ -75,7 +75,7 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
             return Ok(false);
         }
     }
-    
+
     Ok(true)
 }
 
@@ -84,10 +84,7 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
 /// BIP141: Weight(tx) = 4 × BaseSize(tx) + TotalSize(tx)
 /// BaseSize: Transaction size without witness data
 /// TotalSize: Transaction size with witness data
-pub fn calculate_transaction_weight_segwit(
-    base_size: Natural,
-    total_size: Natural,
-) -> Natural {
+pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natural) -> Natural {
     4 * base_size + total_size
 }
 
@@ -96,7 +93,9 @@ pub fn calculate_transaction_weight_segwit(
 /// BIP141: vsize = ceil(weight / 4)
 /// Used for fee calculation in SegWit transactions
 pub fn weight_to_vsize(weight: Natural) -> Natural {
-    (weight + 3) / 4 // Ceiling division
+    #[allow(clippy::manual_div_ceil)]
+    let result = (weight + 3) / 4; // Ceiling division
+    result
 }
 
 /// Validate witness version in scriptPubKey
@@ -107,7 +106,7 @@ pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
     if script.is_empty() {
         return None;
     }
-    
+
     match script[0] {
         0x51 => Some(WitnessVersion::TaprootV1), // OP_1
         0x00 => Some(WitnessVersion::SegWitV0),  // OP_0
@@ -119,11 +118,14 @@ pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
 ///
 /// For SegWit v0: Returns bytes after OP_0
 /// For Taproot v1: Returns bytes after OP_1
-pub fn extract_witness_program(script: &ByteString, _version: WitnessVersion) -> Option<ByteString> {
+pub fn extract_witness_program(
+    script: &ByteString,
+    _version: WitnessVersion,
+) -> Option<ByteString> {
     if script.len() < 2 {
         return None;
     }
-    
+
     // Skip version opcode (1 byte) and return program
     Some(script[1..].to_vec())
 }
@@ -157,11 +159,11 @@ mod tests {
     #[test]
     fn test_validate_segwit_witness_structure() {
         let witness = vec![
-            vec![0x01; 20],  // P2WPKH witness
-            vec![0x02; 72],  // Signature
+            vec![0x01; 20], // P2WPKH witness
+            vec![0x02; 72], // Signature
         ];
         assert!(validate_segwit_witness_structure(&witness).unwrap());
-        
+
         // Too large element
         let invalid_witness = vec![vec![0x01; crate::constants::MAX_SCRIPT_ELEMENT_SIZE + 1]];
         assert!(!validate_segwit_witness_structure(&invalid_witness).unwrap());
@@ -172,11 +174,11 @@ mod tests {
         // Key path: single 64-byte signature
         let witness = vec![vec![0x01; 64]];
         assert!(validate_taproot_witness_structure(&witness, false).unwrap());
-        
+
         // Invalid: wrong length
         let invalid = vec![vec![0x01; 63]];
         assert!(!validate_taproot_witness_structure(&invalid, false).unwrap());
-        
+
         // Invalid: multiple elements
         let invalid2 = vec![vec![0x01; 64], vec![0x02; 32]];
         assert!(!validate_taproot_witness_structure(&invalid2, false).unwrap());
@@ -186,15 +188,15 @@ mod tests {
     fn test_validate_taproot_witness_structure_script_path() {
         // Script path: script + control block (33 bytes minimum)
         let witness = vec![
-            vec![0x51], // Script
+            vec![0x51],    // Script
             vec![0u8; 33], // Control block (internal key + leaf version + parity)
         ];
         assert!(validate_taproot_witness_structure(&witness, true).unwrap());
-        
+
         // Invalid: control block too small
         let invalid = vec![vec![0x51], vec![0u8; 32]];
         assert!(!validate_taproot_witness_structure(&invalid, true).unwrap());
-        
+
         // Invalid: only one element
         let invalid2 = vec![vec![0x51]];
         assert!(!validate_taproot_witness_structure(&invalid2, true).unwrap());
@@ -219,11 +221,17 @@ mod tests {
     #[test]
     fn test_extract_witness_version() {
         let segwit_script = vec![0x00, 0x14, 0x01, 0x02, 0x03]; // OP_0 <20-byte-program>
-        assert_eq!(extract_witness_version(&segwit_script), Some(WitnessVersion::SegWitV0));
-        
+        assert_eq!(
+            extract_witness_version(&segwit_script),
+            Some(WitnessVersion::SegWitV0)
+        );
+
         let taproot_script = vec![0x51, 0x20]; // OP_1 <32-byte-program>
-        assert_eq!(extract_witness_version(&taproot_script), Some(WitnessVersion::TaprootV1));
-        
+        assert_eq!(
+            extract_witness_version(&taproot_script),
+            Some(WitnessVersion::TaprootV1)
+        );
+
         let non_witness_script = vec![0x76, 0xa9]; // OP_DUP OP_HASH160
         assert_eq!(extract_witness_version(&non_witness_script), None);
     }
@@ -238,17 +246,32 @@ mod tests {
     #[test]
     fn test_validate_witness_program_length() {
         let p2wpkh = vec![0u8; 20]; // 20 bytes
-        assert!(validate_witness_program_length(&p2wpkh, WitnessVersion::SegWitV0));
-        
+        assert!(validate_witness_program_length(
+            &p2wpkh,
+            WitnessVersion::SegWitV0
+        ));
+
         let p2wsh = vec![0u8; 32]; // 32 bytes
-        assert!(validate_witness_program_length(&p2wsh, WitnessVersion::SegWitV0));
-        
+        assert!(validate_witness_program_length(
+            &p2wsh,
+            WitnessVersion::SegWitV0
+        ));
+
         let p2tr = vec![0u8; 32]; // 32 bytes
-        assert!(validate_witness_program_length(&p2tr, WitnessVersion::TaprootV1));
-        
+        assert!(validate_witness_program_length(
+            &p2tr,
+            WitnessVersion::TaprootV1
+        ));
+
         let invalid = vec![0u8; 33];
-        assert!(!validate_witness_program_length(&invalid, WitnessVersion::SegWitV0));
-        assert!(!validate_witness_program_length(&invalid, WitnessVersion::TaprootV1));
+        assert!(!validate_witness_program_length(
+            &invalid,
+            WitnessVersion::SegWitV0
+        ));
+        assert!(!validate_witness_program_length(
+            &invalid,
+            WitnessVersion::TaprootV1
+        ));
     }
 
     #[test]
@@ -265,7 +288,7 @@ mod kani_proofs {
     use kani::*;
 
     /// Kani proof: SegWit witness structure validation correctness (BIP141)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ witness ∈ Witness:
     /// - validate_segwit_witness_structure(witness) = true ⟹
@@ -273,19 +296,19 @@ mod kani_proofs {
     #[kani::proof]
     fn kani_segwit_witness_structure_validation() {
         let witness: Witness = kani::any();
-        
+
         // Bound for tractability
         kani::assume(witness.len() <= 10);
         for element in &witness {
             kani::assume(element.len() <= 600); // Allow testing boundary cases
         }
-        
+
         const MAX_WITNESS_ELEMENT_SIZE: usize = 520;
         let result = validate_segwit_witness_structure(&witness);
-        
+
         if result.is_ok() {
             let is_valid = result.unwrap();
-            
+
             // Critical invariant: if valid, all elements must be <= MAX_WITNESS_ELEMENT_SIZE
             if is_valid {
                 for element in &witness {
@@ -297,7 +320,7 @@ mod kani_proofs {
     }
 
     /// Kani proof: Taproot witness structure validation correctness (BIP341)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ witness ∈ Witness, is_script_path ∈ bool:
     /// - validate_taproot_witness_structure(witness, is_script_path) = true ⟹
@@ -307,18 +330,18 @@ mod kani_proofs {
     fn kani_taproot_witness_structure_validation() {
         let witness: Witness = kani::any();
         let is_script_path: bool = kani::any();
-        
+
         // Bound for tractability
         kani::assume(witness.len() <= 10);
         for element in &witness {
             kani::assume(element.len() <= 200);
         }
-        
+
         let result = validate_taproot_witness_structure(&witness, is_script_path);
-        
+
         if result.is_ok() {
             let is_valid = result.unwrap();
-            
+
             if is_valid {
                 if is_script_path {
                     // Script path: at least 2 elements, control block >= 33 bytes, valid size
@@ -345,7 +368,7 @@ mod kani_proofs {
     }
 
     /// Kani proof: Witness program length validation correctness (BIP141/BIP341)
-    /// 
+    ///
     /// Mathematical specification:
     /// ∀ program ∈ ByteString, version ∈ WitnessVersion:
     /// - validate_witness_program_length(program, version) = true ⟹
@@ -355,23 +378,28 @@ mod kani_proofs {
     fn kani_witness_program_length_validation() {
         let program: Vec<u8> = kani::any();
         let version: WitnessVersion = kani::any();
-        
+
         // Bound for tractability
         kani::assume(program.len() <= 40);
-        
+
         let result = validate_witness_program_length(&program, version);
-        
+
         // Critical invariant: result must match specification
         match version {
             WitnessVersion::SegWitV0 => {
-                assert_eq!(result, program.len() == 20 || program.len() == 32,
-                    "Witness program length validation: SegWit v0 must be 20 or 32 bytes");
-            },
+                assert_eq!(
+                    result,
+                    program.len() == 20 || program.len() == 32,
+                    "Witness program length validation: SegWit v0 must be 20 or 32 bytes"
+                );
+            }
             WitnessVersion::TaprootV1 => {
-                assert_eq!(result, program.len() == 32,
-                    "Witness program length validation: Taproot v1 must be 32 bytes");
-            },
+                assert_eq!(
+                    result,
+                    program.len() == 32,
+                    "Witness program length validation: Taproot v1 must be 32 bytes"
+                );
+            }
         }
     }
 }
-

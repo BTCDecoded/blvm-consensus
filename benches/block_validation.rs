@@ -1,6 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use consensus_proof::{Block, BlockHeader, Transaction, UtxoSet};
 use consensus_proof::block::connect_block;
+use consensus_proof::{Block, BlockHeader, Transaction, UtxoSet};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn create_test_block() -> Block {
     Block {
@@ -24,14 +24,11 @@ fn create_test_block() -> Block {
 fn benchmark_connect_block(c: &mut Criterion) {
     let block = create_test_block();
     let utxo_set = UtxoSet::new();
-    
+
     c.bench_function("connect_block", |b| {
         b.iter(|| {
-            let _result = connect_block(
-                black_box(&block),
-                black_box(utxo_set.clone()),
-                black_box(0)
-            );
+            let _result =
+                connect_block(black_box(&block), black_box(utxo_set.clone()), black_box(0));
             // Ignore errors for benchmarking (they're expected for invalid test data)
         })
     });
@@ -44,7 +41,7 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
         outputs: vec![],
         lock_time: 0,
     }];
-    
+
     // Add 10 regular transactions
     for _ in 0..10 {
         transactions.push(Transaction {
@@ -54,7 +51,7 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
             lock_time: 0,
         });
     }
-    
+
     let block = Block {
         header: BlockHeader {
             version: 1,
@@ -66,21 +63,21 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
         },
         transactions,
     };
-    
+
     let utxo_set = UtxoSet::new();
-    
+
     c.bench_function("connect_block_multi_tx", |b| {
         b.iter(|| {
-            let _result = connect_block(
-                black_box(&block),
-                black_box(utxo_set.clone()),
-                black_box(0)
-            );
+            let _result =
+                connect_block(black_box(&block), black_box(utxo_set.clone()), black_box(0));
             // Ignore errors for benchmarking
         })
     });
 }
 
-criterion_group!(benches, benchmark_connect_block, benchmark_connect_block_multi_tx);
+criterion_group!(
+    benches,
+    benchmark_connect_block,
+    benchmark_connect_block_multi_tx
+);
 criterion_main!(benches);
-

@@ -60,23 +60,23 @@ pub fn calculate_bip9_state(
     if current_time < deployment.start_time {
         return Bip9State::Defined;
     }
-    
+
     // Check if deployment has timed out
     if current_time >= deployment.timeout {
         return Bip9State::Failed;
     }
-    
+
     // Count blocks with version bit set in the recent period
     let mut bit_set_count = 0;
     let check_period = deployment.lock_in_period.min(headers.len() as u32);
-    
+
     for header in headers.iter().take(check_period as usize) {
         let version_bit = (header.version >> deployment.bit) & 1;
         if version_bit == 1 {
             bit_set_count += 1;
         }
     }
-    
+
     // Check if locked in
     if bit_set_count >= deployment.threshold {
         // Check if activation height reached
@@ -87,7 +87,7 @@ pub fn calculate_bip9_state(
         }
         return Bip9State::LockedIn;
     }
-    
+
     // Still in started period
     Bip9State::Started
 }
@@ -97,15 +97,15 @@ pub fn calculate_bip9_state(
 fn test_bip9_version_bits_extraction() {
     // Test extracting version bits from block version
     let version = 0x20000001u32; // SegWit bit (31) + bit 0 set
-    
+
     // Extract bit 0
     let bit0 = (version >> 0) & 1;
     assert_eq!(bit0, 1);
-    
+
     // Extract bit 31 (SegWit)
     let bit31 = (version >> 31) & 1;
     assert_eq!(bit31, 1);
-    
+
     // Extract bit 29 (testnet)
     let bit29 = (version >> 29) & 1;
     assert_eq!(bit29, 0);
@@ -120,22 +120,22 @@ fn test_bip9_state_transitions() {
         start_time: 1000,
         timeout: 10000,
         lock_in_period: 2016, // 2 weeks
-        threshold: 1916, // 95% threshold
+        threshold: 1916,      // 95% threshold
     };
-    
+
     let current_time = 500;
     let current_height = 0;
     let headers = vec![];
-    
+
     // Before start time - should be Defined
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::Defined);
-    
+
     // After start time but before timeout - should be Started
     let current_time = 2000;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::Started);
-    
+
     // After timeout - should be Failed
     let current_time = 11000;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
@@ -152,7 +152,7 @@ fn test_bip9_lock_in_period() {
         lock_in_period: 2016,
         threshold: 1916, // 95% of 2016
     };
-    
+
     // Create headers with bit set (above threshold)
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -166,14 +166,14 @@ fn test_bip9_lock_in_period() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 2000;
     let current_height = 2016;
-    
+
     // Should be LockedIn (threshold reached)
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::LockedIn);
-    
+
     // After lock-in period, should be Active
     let current_height = 4032; // 2016 blocks after lock-in
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
@@ -190,7 +190,7 @@ fn test_bip9_activation_height() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     // Create headers with bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -204,14 +204,14 @@ fn test_bip9_activation_height() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 2000;
-    
+
     // At lock-in height - should be LockedIn
     let current_height = 2016;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::LockedIn);
-    
+
     // At activation height - should be Active
     let current_height = 4032; // lock_in_period blocks after lock-in
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
@@ -229,7 +229,7 @@ fn test_multiple_concurrent_soft_forks() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     let deployment2 = Bip9Deployment {
         bit: 1,
         start_time: 2000,
@@ -237,7 +237,7 @@ fn test_multiple_concurrent_soft_forks() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     // Create headers with both bits set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -251,14 +251,14 @@ fn test_multiple_concurrent_soft_forks() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 3000;
     let current_height = 2016;
-    
+
     // Both deployments should be in LockedIn state
     let state1 = calculate_bip9_state(&deployment1, &headers, current_time, current_height);
     let state2 = calculate_bip9_state(&deployment2, &headers, current_time, current_height);
-    
+
     assert_eq!(state1, Bip9State::LockedIn);
     assert_eq!(state2, Bip9State::LockedIn);
 }
@@ -274,7 +274,7 @@ fn test_blocks_at_exact_activation_heights() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     // Create headers with bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -288,19 +288,19 @@ fn test_blocks_at_exact_activation_heights() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 2000;
-    
+
     // One block before activation - should be LockedIn
     let current_height = 4031;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::LockedIn);
-    
+
     // At exact activation height - should be Active
     let current_height = 4032;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::Active);
-    
+
     // After activation - should remain Active
     let current_height = 4033;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
@@ -317,7 +317,7 @@ fn test_bip9_deactivation() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     // Create headers without bit set (below threshold)
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -331,14 +331,14 @@ fn test_bip9_deactivation() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 2000;
     let current_height = 2016;
-    
+
     // Should be Started (below threshold)
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
     assert_eq!(state, Bip9State::Started);
-    
+
     // After timeout - should be Failed
     let current_time = 11000;
     let state = calculate_bip9_state(&deployment, &headers, current_time, current_height);
@@ -355,11 +355,11 @@ fn test_segwit_activation() {
     let segwit_deployment = Bip9Deployment {
         bit: 31,
         start_time: 1479168000, // Approximate start time
-        timeout: 1510704000, // Approximate timeout
+        timeout: 1510704000,    // Approximate timeout
         lock_in_period: 2016,
         threshold: 1916, // 95%
     };
-    
+
     // Create headers with SegWit bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -373,10 +373,10 @@ fn test_segwit_activation() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 1500000000;
     let current_height = 481824;
-    
+
     // At activation height, should be Active
     let state = calculate_bip9_state(&segwit_deployment, &headers, current_time, current_height);
     // Note: This is a simplified test - actual SegWit activation was more complex
@@ -392,11 +392,11 @@ fn test_taproot_activation() {
     let taproot_deployment = Bip9Deployment {
         bit: 2,
         start_time: 1619222400, // Approximate start time
-        timeout: 1628640000, // Approximate timeout
+        timeout: 1628640000,    // Approximate timeout
         lock_in_period: 2016,
         threshold: 1815, // 90% threshold (changed from 95% for Taproot)
     };
-    
+
     // Create headers with Taproot bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -410,10 +410,10 @@ fn test_taproot_activation() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 1625000000;
     let current_height = 709632;
-    
+
     // At activation height, should be Active
     let state = calculate_bip9_state(&taproot_deployment, &headers, current_time, current_height);
     // Note: This is a simplified test - actual Taproot activation was more complex
@@ -435,19 +435,19 @@ fn test_version_bits_state_machine() {
         lock_in_period: 2016,
         threshold: 1916,
     };
-    
+
     let headers = vec![];
-    
+
     // Test state machine progression
     // Defined -> Started
     let mut current_time = 500;
     let mut state = calculate_bip9_state(&deployment, &headers, current_time, 0);
     assert_eq!(state, Bip9State::Defined);
-    
+
     current_time = 2000;
     state = calculate_bip9_state(&deployment, &headers, current_time, 0);
     assert_eq!(state, Bip9State::Started);
-    
+
     // Started -> Failed (timeout without lock-in)
     current_time = 11000;
     state = calculate_bip9_state(&deployment, &headers, current_time, 0);
@@ -466,7 +466,7 @@ fn test_version_bits_thresholds() {
         lock_in_period: 2016,
         threshold: 1916, // 95%
     };
-    
+
     let deployment_90 = Bip9Deployment {
         bit: 1,
         start_time: 1000,
@@ -474,7 +474,7 @@ fn test_version_bits_thresholds() {
         lock_in_period: 2016,
         threshold: 1815, // 90% (Taproot threshold)
     };
-    
+
     // Create headers with both bits set
     let mut headers = Vec::new();
     for i in 0..2016 {
@@ -488,18 +488,14 @@ fn test_version_bits_thresholds() {
             nonce: 0,
         });
     }
-    
+
     let current_time = 2000;
     let current_height = 2016;
-    
+
     // Both should be LockedIn (both thresholds met)
     let state_95 = calculate_bip9_state(&deployment_95, &headers, current_time, current_height);
     let state_90 = calculate_bip9_state(&deployment_90, &headers, current_time, current_height);
-    
+
     assert_eq!(state_95, Bip9State::LockedIn);
     assert_eq!(state_90, Bip9State::LockedIn);
 }
-
-
-
-

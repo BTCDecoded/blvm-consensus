@@ -1,10 +1,10 @@
 //! Comprehensive unit tests for consensus-proof modules
 
-use consensus_proof::*;
-use consensus_proof::transaction::*;
-use consensus_proof::script::*;
 use consensus_proof::economic::*;
 use consensus_proof::pow::*;
+use consensus_proof::script::*;
+use consensus_proof::transaction::*;
+use consensus_proof::*;
 
 // ============================================================================
 // TRANSACTION TESTS
@@ -15,7 +15,10 @@ fn test_check_transaction_valid() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -25,7 +28,7 @@ fn test_check_transaction_valid() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
@@ -41,7 +44,7 @@ fn test_check_transaction_empty_inputs() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -51,12 +54,15 @@ fn test_check_transaction_too_many_inputs() {
     let mut inputs = Vec::new();
     for i in 0..=MAX_INPUTS {
         inputs.push(TransactionInput {
-            prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [i as u8; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         });
     }
-    
+
     let tx = Transaction {
         version: 1,
         inputs,
@@ -66,7 +72,7 @@ fn test_check_transaction_too_many_inputs() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -80,18 +86,21 @@ fn test_check_transaction_too_many_outputs() {
             script_pubkey: vec![0x51],
         });
     }
-    
+
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
         outputs,
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -101,7 +110,10 @@ fn test_check_transaction_negative_output() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -111,7 +123,7 @@ fn test_check_transaction_negative_output() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -121,7 +133,10 @@ fn test_check_transaction_excessive_output() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -131,7 +146,7 @@ fn test_check_transaction_excessive_output() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -141,7 +156,10 @@ fn test_is_coinbase() {
     let coinbase_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -151,13 +169,16 @@ fn test_is_coinbase() {
         }],
         lock_time: 0,
     };
-    
+
     assert!(is_coinbase(&coinbase_tx));
-    
+
     let regular_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -167,7 +188,7 @@ fn test_is_coinbase() {
         }],
         lock_time: 0,
     };
-    
+
     assert!(!is_coinbase(&regular_tx));
 }
 
@@ -176,7 +197,10 @@ fn test_calculate_transaction_size() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51, 0x52],
             sequence: 0xffffffff,
         }],
@@ -186,7 +210,7 @@ fn test_calculate_transaction_size() {
         }],
         lock_time: 0,
     };
-    
+
     // Transaction size calculation is not exposed as a public function
     // We can test that the transaction is valid instead
     let result = check_transaction(&tx).unwrap();
@@ -213,7 +237,7 @@ fn test_eval_script_overflow() {
     for _ in 0..=MAX_STACK_SIZE {
         script.push(0x51); // OP_1
     }
-    
+
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0);
     assert!(result.is_err());
@@ -223,7 +247,7 @@ fn test_eval_script_overflow() {
 fn test_verify_script_simple() {
     let script_sig = vec![0x51]; // OP_1
     let script_pubkey = vec![0x51]; // OP_1
-    
+
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
     // The result depends on the simplified script logic
     // For now, we just ensure it doesn't panic
@@ -235,7 +259,7 @@ fn test_verify_script_with_witness() {
     let script_sig = vec![0x51]; // OP_1
     let script_pubkey = vec![0x51]; // OP_1
     let witness = Some(vec![0x52]); // OP_2
-    
+
     let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
     // The result depends on the simplified script logic
     assert!(result == true || result == false);
@@ -245,7 +269,7 @@ fn test_verify_script_with_witness() {
 fn test_verify_script_empty() {
     let script_sig = vec![];
     let script_pubkey = vec![];
-    
+
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
     assert!(result == true || result == false);
 }
@@ -254,13 +278,13 @@ fn test_verify_script_empty() {
 fn test_verify_script_large_scripts() {
     let mut script_sig = Vec::new();
     let mut script_pubkey = Vec::new();
-    
+
     // Create scripts that exceed MAX_SCRIPT_SIZE
     for _ in 0..=MAX_SCRIPT_SIZE {
         script_sig.push(0x51);
         script_pubkey.push(0x51);
     }
-    
+
     let result = verify_script(&script_sig, &script_pubkey, None, 0);
     assert!(result.is_err());
 }
@@ -318,7 +342,10 @@ fn test_calculate_fee() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -328,16 +355,19 @@ fn test_calculate_fee() {
         }],
         lock_time: 0,
     };
-    
+
     let mut utxo_set = UtxoSet::new();
-    let outpoint = OutPoint { hash: [1; 32], index: 0 };
+    let outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
     let utxo = UTXO {
         value: 1000,
         script_pubkey: vec![0x51],
         height: 100,
     };
     utxo_set.insert(outpoint, utxo);
-    
+
     let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 200);
 }
@@ -347,7 +377,10 @@ fn test_calculate_fee_negative() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -357,16 +390,19 @@ fn test_calculate_fee_negative() {
         }],
         lock_time: 0,
     };
-    
+
     let mut utxo_set = UtxoSet::new();
-    let outpoint = OutPoint { hash: [1; 32], index: 0 };
+    let outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
     let utxo = UTXO {
         value: 500, // Less than output
         script_pubkey: vec![0x51],
         height: 100,
     };
     utxo_set.insert(outpoint, utxo);
-    
+
     let result = calculate_fee(&tx, &utxo_set);
     assert!(result.is_err());
 }
@@ -376,7 +412,10 @@ fn test_calculate_fee_zero() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -386,16 +425,19 @@ fn test_calculate_fee_zero() {
         }],
         lock_time: 0,
     };
-    
+
     let mut utxo_set = UtxoSet::new();
-    let outpoint = OutPoint { hash: [1; 32], index: 0 };
+    let outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
     let utxo = UTXO {
         value: 1000,
         script_pubkey: vec![0x51],
         height: 100,
     };
     utxo_set.insert(outpoint, utxo);
-    
+
     let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 0);
 }
@@ -428,9 +470,9 @@ fn test_get_next_work_required_insufficient_headers() {
         bits: 0x1d00ffff,
         nonce: 0,
     };
-    
+
     let prev_headers = vec![]; // Empty - insufficient headers
-    
+
     let result = get_next_work_required(&current_header, &prev_headers);
     assert!(result.is_err());
 }
@@ -445,7 +487,7 @@ fn test_get_next_work_required_normal_adjustment() {
         bits: 0x1d00ffff,
         nonce: 0,
     };
-    
+
     let mut prev_headers = Vec::new();
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
@@ -457,9 +499,9 @@ fn test_get_next_work_required_normal_adjustment() {
             nonce: 0,
         });
     }
-    
+
     let result = get_next_work_required(&current_header, &prev_headers).unwrap();
-    
+
     // Should return same difficulty (adjustment = 1.0)
     // Debug prints removed
     assert_eq!(result, 0x1d00ffff);
@@ -478,7 +520,7 @@ fn test_check_proof_of_work_genesis() {
         bits: 0x0300ffff, // Valid target (exponent = 3)
         nonce: 0,
     };
-    
+
     // This should work with the valid target
     let result = check_proof_of_work(&header).unwrap();
     // Result depends on the hash, but should not panic
@@ -497,7 +539,7 @@ fn test_check_proof_of_work_invalid_target() {
         bits: 0x1f00ffff, // Invalid target
         nonce: 0,
     };
-    
+
     let result = check_proof_of_work(&header);
     assert!(result.is_err());
 }
@@ -515,11 +557,14 @@ fn test_transaction_size_boundaries() {
     for _ in 0..MAX_SCRIPT_SIZE {
         large_script.push(0x51);
     }
-    
+
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: large_script.clone(),
             sequence: 0xffffffff,
         }],
@@ -529,10 +574,13 @@ fn test_transaction_size_boundaries() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx).unwrap();
     // Should either be valid or fail gracefully
-    assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
+    assert!(matches!(
+        result,
+        ValidationResult::Valid | ValidationResult::Invalid(_)
+    ));
 }
 
 #[test]
@@ -541,12 +589,15 @@ fn test_maximum_input_output_counts() {
     let mut inputs = Vec::new();
     for i in 0..MAX_INPUTS {
         inputs.push(TransactionInput {
-            prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [i as u8; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         });
     }
-    
+
     let tx_max_inputs = Transaction {
         version: 1,
         inputs,
@@ -556,10 +607,10 @@ fn test_maximum_input_output_counts() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_max_inputs).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
-    
+
     // Test transaction with maximum number of outputs
     let mut outputs = Vec::new();
     for _ in 0..MAX_OUTPUTS {
@@ -568,18 +619,21 @@ fn test_maximum_input_output_counts() {
             script_pubkey: vec![0x51],
         });
     }
-    
+
     let tx_max_outputs = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
         outputs,
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_max_outputs).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
@@ -590,7 +644,10 @@ fn test_monetary_boundaries() {
     let tx_max_money = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -600,15 +657,18 @@ fn test_monetary_boundaries() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_max_money).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
-    
+
     // Test transaction exceeding maximum money
     let tx_excess_money = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }],
@@ -618,7 +678,7 @@ fn test_monetary_boundaries() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_excess_money).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
@@ -630,16 +690,16 @@ fn test_script_operation_limits() {
     for _ in 0..MAX_SCRIPT_OPS {
         script.push(0x51); // OP_1
     }
-    
+
     let result = verify_script(&script, &script, None, 0).unwrap();
     assert!(result == true || result == false);
-    
+
     // Test script exceeding operation limit
     let mut large_script = Vec::new();
     for _ in 0..=MAX_SCRIPT_OPS {
         large_script.push(0x51);
     }
-    
+
     let result = verify_script(&large_script, &large_script, None, 0);
     assert!(result.is_err());
 }
@@ -651,7 +711,7 @@ fn test_stack_size_limits() {
     for _ in 0..=MAX_STACK_SIZE {
         script.push(0x51); // OP_1
     }
-    
+
     let result = verify_script(&script, &script, None, 0);
     assert!(result.is_err());
 }
@@ -667,7 +727,7 @@ fn test_difficulty_adjustment_boundaries() {
         bits: 0x1d00ffff,
         nonce: 0,
     };
-    
+
     // Create headers with very fast block times (1 second each)
     let mut fast_headers = Vec::new();
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
@@ -680,12 +740,12 @@ fn test_difficulty_adjustment_boundaries() {
             nonce: 0,
         });
     }
-    
+
     let result = get_next_work_required(&current_header, &fast_headers).unwrap();
     // Should increase difficulty significantly
     // Debug prints removed
     assert!(result < 0x1d00ffff); // Higher difficulty = lower target
-    
+
     // Create headers with very slow block times (1 hour each)
     let mut slow_headers = Vec::new();
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
@@ -698,7 +758,7 @@ fn test_difficulty_adjustment_boundaries() {
             nonce: 0,
         });
     }
-    
+
     let result = get_next_work_required(&current_header, &slow_headers).unwrap();
     // Should decrease difficulty significantly
     assert!(result < 0x1d00ffff);
@@ -707,14 +767,20 @@ fn test_difficulty_adjustment_boundaries() {
 #[test]
 fn test_supply_calculation_boundaries() {
     // Test supply calculation at various heights
-    let heights = vec![0, 1, HALVING_INTERVAL, HALVING_INTERVAL * 2, HALVING_INTERVAL * 10];
-    
+    let heights = vec![
+        0,
+        1,
+        HALVING_INTERVAL,
+        HALVING_INTERVAL * 2,
+        HALVING_INTERVAL * 10,
+    ];
+
     for height in heights {
         let supply = total_supply(height);
         assert!(supply >= 0);
         assert!(supply <= MAX_MONEY);
     }
-    
+
     // Test supply at very high height (beyond normal operation)
     let high_height = HALVING_INTERVAL * 100;
     let supply = total_supply(high_height);
@@ -728,7 +794,10 @@ fn test_sequence_number_boundaries() {
     let tx_max_sequence = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: 0xffffffff, // Maximum sequence
         }],
@@ -738,15 +807,18 @@ fn test_sequence_number_boundaries() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_max_sequence).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
-    
+
     // Test transaction with RBF sequence
     let tx_rbf = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
             script_sig: vec![0x51],
             sequence: SEQUENCE_RBF as u64, // RBF sequence
         }],
@@ -756,7 +828,7 @@ fn test_sequence_number_boundaries() {
         }],
         lock_time: 0,
     };
-    
+
     let result = check_transaction(&tx_rbf).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }

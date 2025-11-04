@@ -18,16 +18,16 @@ use serde::{Deserialize, Serialize};
 pub struct UtxoCommitment {
     /// Merkle root of the UTXO set
     pub merkle_root: Hash,
-    
+
     /// Total Bitcoin supply in the UTXO set (satoshis)
     pub total_supply: u64,
-    
+
     /// Number of UTXOs in the set
     pub utxo_count: u64,
-    
+
     /// Block height at which this commitment was generated
     pub block_height: Natural,
-    
+
     /// Block hash at which this commitment was generated
     pub block_hash: Hash,
 }
@@ -49,7 +49,7 @@ impl UtxoCommitment {
             block_hash,
         }
     }
-    
+
     /// Serialize commitment to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(84);
@@ -60,13 +60,13 @@ impl UtxoCommitment {
         bytes.extend_from_slice(&self.block_hash);
         bytes
     }
-    
+
     /// Deserialize commitment from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, UtxoCommitmentError> {
         if data.len() != 84 {
             return Err(UtxoCommitmentError::InvalidSize(data.len()));
         }
-        
+
         let mut offset = 0;
         let merkle_root: Hash = {
             let mut hash = [0u8; 32];
@@ -74,31 +74,34 @@ impl UtxoCommitment {
             offset += 32;
             hash
         };
-        
+
         let total_supply = u64::from_be_bytes(
-            data[offset..offset + 8].try_into()
-                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?
+            data[offset..offset + 8]
+                .try_into()
+                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?,
         );
         offset += 8;
-        
+
         let utxo_count = u64::from_be_bytes(
-            data[offset..offset + 8].try_into()
-                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?
+            data[offset..offset + 8]
+                .try_into()
+                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?,
         );
         offset += 8;
-        
+
         let block_height = u64::from_be_bytes(
-            data[offset..offset + 8].try_into()
-                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?
+            data[offset..offset + 8]
+                .try_into()
+                .map_err(|_| UtxoCommitmentError::InvalidSize(data.len()))?,
         );
         offset += 8;
-        
+
         let block_hash: Hash = {
             let mut hash = [0u8; 32];
             hash.copy_from_slice(&data[offset..offset + 32]);
             hash
         };
-        
+
         Ok(Self {
             merkle_root,
             total_supply,
@@ -107,12 +110,12 @@ impl UtxoCommitment {
             block_hash,
         })
     }
-    
+
     /// Verify commitment matches UTXO set parameters
     pub fn verify_supply(&self, expected_supply: u64) -> bool {
         self.total_supply == expected_supply
     }
-    
+
     /// Verify commitment matches expected UTXO count
     pub fn verify_count(&self, expected_count: u64) -> bool {
         self.utxo_count == expected_count
@@ -186,7 +189,7 @@ mod kani_proofs {
     use kani::*;
 
     /// Kani proof: Commitment serialization round-trip
-    /// 
+    ///
     /// Verifies that serialization and deserialization are inverse operations.
     #[kani::proof]
     fn kani_commitment_serialization_roundtrip() {
@@ -197,20 +200,20 @@ mod kani_proofs {
             kani::any(), // block_height
             kani::any(), // block_hash
         );
-        
+
         // Serialize
         let bytes = commitment.to_bytes();
         assert_eq!(bytes.len(), 84, "Serialized commitment must be 84 bytes");
-        
+
         // Deserialize
         let deserialized = UtxoCommitment::from_bytes(&bytes);
         assert!(
             deserialized.is_ok(),
             "Deserialization should succeed for valid bytes"
         );
-        
+
         let deserialized = deserialized.unwrap();
-        
+
         // Round-trip invariant
         assert_eq!(
             commitment, deserialized,
@@ -219,7 +222,7 @@ mod kani_proofs {
     }
 
     /// Kani proof: Supply verification exactness
-    /// 
+    ///
     /// Verifies that supply verification is exact (no tolerance).
     #[kani::proof]
     fn kani_supply_verification_exact() {
@@ -230,15 +233,15 @@ mod kani_proofs {
             0,
             [0; 32],
         );
-        
+
         let expected_supply = commitment.total_supply;
-        
+
         // Exact match should pass
         assert!(
             commitment.verify_supply(expected_supply),
             "Exact supply match should pass verification"
         );
-        
+
         // Any mismatch should fail
         let wrong_supply = expected_supply.wrapping_add(1);
         assert!(
@@ -247,4 +250,3 @@ mod kani_proofs {
         );
     }
 }
-

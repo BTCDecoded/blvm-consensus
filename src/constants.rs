@@ -58,10 +58,8 @@ pub const MAX_TARGET: u32 = 0x1d00ffff;
 
 /// Minimum target (maximum difficulty) - Bitcoin's genesis target
 pub const MIN_TARGET: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
 /// Lock time threshold: transactions with lock time < this are block height
@@ -74,23 +72,23 @@ pub const SEQUENCE_FINAL: u32 = 0xffffffff;
 pub const SEQUENCE_RBF: u32 = 0xfffffffe;
 
 /// Minimum relay fee for RBF replacement (BIP125)
-/// 
+///
 /// A replacement transaction must pay at least this much more in fees
 /// than the transaction it replaces. This prevents spam replacements
 /// with minimal fee increases.
 pub const MIN_RELAY_FEE: i64 = 1000; // 1000 satoshis
 
 /// Coinbase maturity requirement: 100 blocks
-/// 
+///
 /// Coinbase outputs cannot be spent until 100 blocks deep.
 /// This prevents miners from spending coinbase immediately and helps
 /// secure the network against deep reorgs.
 pub const COINBASE_MATURITY: u64 = 100;
 
 /// Maximum block sigop cost (network rule)
-/// 
+///
 /// Total sigop cost for a block must not exceed this value.
 /// Sigop cost = (legacy sigops × 4) + (P2SH sigops × 4) + witness sigops
-/// 
+///
 /// Reference: Bitcoin Core `consensus.h` MAX_BLOCK_SIGOPS_COST = 80000
 pub const MAX_BLOCK_SIGOPS_COST: u64 = 80_000;

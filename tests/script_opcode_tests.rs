@@ -1,7 +1,7 @@
 //! Tests for script opcode execution
 
-use consensus_proof::*;
 use consensus_proof::script::*;
+use consensus_proof::*;
 
 #[test]
 fn test_eval_script_op_1() {
