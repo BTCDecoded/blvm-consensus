@@ -196,3 +196,4 @@ RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz run transaction_validation
 The fuzzing infrastructure is **production-ready** and matches Bitcoin Core's approach. Remaining work is fixing pre-existing compilation errors in the main library (utxo_commitments module).
 
 
+
