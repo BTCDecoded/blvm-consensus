@@ -37,13 +37,10 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Run tests with coverage
-      continue-on-error: true
       run: |
-        cargo install cargo-tarpaulin --version 0.27.0 || echo "cargo-tarpaulin installation failed (requires Rust 1.88+)"
-        cargo tarpaulin --out xml --output-dir coverage || echo "Coverage generation skipped"
+        cargo install cargo-tarpaulin --version 0.27.0
+        cargo tarpaulin --out xml --output-dir coverage
     - name: Upload coverage to Codecov
-      if: always()
-      continue-on-error: true
       uses: codecov/codecov-action@v3
       with:
         file: coverage/cobertura.xml
@@ -128,14 +125,9 @@ jobs:
       with:
         toolchain: 1.83.0
     - name: Install cargo-audit
-      continue-on-error: true
-      run: |
-        cargo install cargo-audit --version 0.16.0 || \
-        cargo install cargo-audit --version 0.15.0 || \
-        echo "cargo-audit installation failed (requires Rust 1.88+) - skipping security audit"
+      run: cargo install cargo-audit --version 0.17.6
     - name: Run security audit
-      continue-on-error: true
-      run: cargo audit || echo "Security audit skipped (cargo-audit not available with Rust 1.83.0)"
+      run: cargo audit
 
   build:
     name: Build
