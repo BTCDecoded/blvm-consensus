@@ -14,27 +14,27 @@ use crate::constants::*;
 pub mod proof_limits {
     /// Maximum inputs per transaction (Bitcoin limit)
     pub const MAX_INPUTS_PER_TX: usize = 1000;
-
+    
     /// Maximum outputs per transaction (Bitcoin limit)
     pub const MAX_OUTPUTS_PER_TX: usize = 1000;
-
+    
     /// Maximum transactions per block (Bitcoin limit)
     pub const MAX_TRANSACTIONS_PER_BLOCK: usize = 10000;
-
+    
     /// Maximum mempool transactions for proof tractability
     /// Kept small for proof performance
     pub const MAX_MEMPOOL_TXS_FOR_PROOF: usize = 3;
-
+    
     /// Maximum previous headers for proof tractability
     /// Kept small for proof performance
     pub const MAX_PREV_HEADERS_FOR_PROOF: usize = 3;
-
+    
     /// Maximum mining attempts for proof tractability
     pub const MAX_MINING_ATTEMPTS_FOR_PROOF: u64 = 10;
-
+    
     /// Maximum transaction inputs for proof tractability
     pub const MAX_TX_INPUTS_FOR_PROOF: usize = 2;
-
+    
     /// Maximum transaction outputs for proof tractability
     pub const MAX_TX_OUTPUTS_FOR_PROOF: usize = 2;
 }
@@ -46,26 +46,26 @@ pub mod proof_limits {
 pub mod unwind_bounds {
     /// Simple operations (1-2 loops, no recursion)
     pub const SIMPLE: u32 = 3;
-
+    
     /// Medium operations (3-5 loops, limited recursion)
     pub const MEDIUM: u32 = 5;
-
+    
     /// Complex operations (6+ loops, deep recursion)
     pub const COMPLEX: u32 = 10;
-
+    
     /// Mining-specific bounds
-    pub const MINING_BLOCK_CREATION: u32 = 3; // Simple: create block structure
-    pub const MINING_BLOCK_MINING: u32 = 10; // Complex: nonce iteration
-    pub const MERKLE_ROOT_CALC: u32 = 5; // Medium: tree traversal
-    pub const TRANSACTION_VALIDATION: u32 = 3; // Simple: linear scan
-
+    pub const MINING_BLOCK_CREATION: u32 = 3;  // Simple: create block structure
+    pub const MINING_BLOCK_MINING: u32 = 10;    // Complex: nonce iteration
+    pub const MERKLE_ROOT_CALC: u32 = 5;        // Medium: tree traversal
+    pub const TRANSACTION_VALIDATION: u32 = 3;   // Simple: linear scan
+    
     /// PoW-specific bounds
-    pub const POW_DIFFICULTY_ADJUSTMENT: u32 = 5; // For get_next_work_required
-    pub const POW_TARGET_EXPANSION: u32 = 3; // For expand_target
-    pub const POW_CHECK: u32 = 3; // For check_proof_of_work
-
+    pub const POW_DIFFICULTY_ADJUSTMENT: u32 = 5;  // For get_next_work_required
+    pub const POW_TARGET_EXPANSION: u32 = 3;       // For expand_target
+    pub const POW_CHECK: u32 = 3;                  // For check_proof_of_work
+    
     /// Block validation bounds
-    pub const BLOCK_VALIDATION: u32 = 10; // For block validation (multiple transactions)
+    pub const BLOCK_VALIDATION: u32 = 10;          // For block validation (multiple transactions)
 }
 
 /// Macro for standard transaction bounds
@@ -75,12 +75,8 @@ pub mod unwind_bounds {
 #[macro_export]
 macro_rules! assume_transaction_bounds {
     ($tx:expr) => {
-        kani::assume(
-            $tx.inputs.len() <= $crate::kani_helpers::proof_limits::MAX_TX_INPUTS_FOR_PROOF,
-        );
-        kani::assume(
-            $tx.outputs.len() <= $crate::kani_helpers::proof_limits::MAX_TX_OUTPUTS_FOR_PROOF,
-        );
+        kani::assume($tx.inputs.len() <= $crate::kani_helpers::proof_limits::MAX_TX_INPUTS_FOR_PROOF);
+        kani::assume($tx.outputs.len() <= $crate::kani_helpers::proof_limits::MAX_TX_OUTPUTS_FOR_PROOF);
     };
 }
 
@@ -92,10 +88,7 @@ macro_rules! assume_transaction_bounds {
 macro_rules! assume_block_bounds {
     ($block:expr) => {
         kani::assume(!$block.transactions.is_empty());
-        kani::assume(
-            $block.transactions.len()
-                <= $crate::kani_helpers::proof_limits::MAX_TRANSACTIONS_PER_BLOCK,
-        );
+        kani::assume($block.transactions.len() <= $crate::kani_helpers::proof_limits::MAX_TRANSACTIONS_PER_BLOCK);
         for tx in &$block.transactions {
             $crate::assume_transaction_bounds!(tx);
         }
@@ -109,12 +102,8 @@ macro_rules! assume_block_bounds {
 #[macro_export]
 macro_rules! assume_mining_bounds {
     ($mempool_txs:expr, $prev_headers:expr) => {
-        kani::assume(
-            $mempool_txs.len() <= $crate::kani_helpers::proof_limits::MAX_MEMPOOL_TXS_FOR_PROOF,
-        );
-        kani::assume(
-            $prev_headers.len() <= $crate::kani_helpers::proof_limits::MAX_PREV_HEADERS_FOR_PROOF,
-        );
+        kani::assume($mempool_txs.len() <= $crate::kani_helpers::proof_limits::MAX_MEMPOOL_TXS_FOR_PROOF);
+        kani::assume($prev_headers.len() <= $crate::kani_helpers::proof_limits::MAX_PREV_HEADERS_FOR_PROOF);
         for tx in &$mempool_txs {
             $crate::assume_transaction_bounds!(tx);
         }
@@ -127,9 +116,7 @@ macro_rules! assume_mining_bounds {
 #[macro_export]
 macro_rules! assume_mining_attempts {
     ($max_attempts:expr) => {
-        kani::assume(
-            $max_attempts <= $crate::kani_helpers::proof_limits::MAX_MINING_ATTEMPTS_FOR_PROOF,
-        );
+        kani::assume($max_attempts <= $crate::kani_helpers::proof_limits::MAX_MINING_ATTEMPTS_FOR_PROOF);
     };
 }
 
@@ -140,9 +127,7 @@ macro_rules! assume_mining_attempts {
 macro_rules! assume_pow_bounds {
     ($prev_headers:expr) => {
         kani::assume($prev_headers.len() >= 2);
-        kani::assume(
-            $prev_headers.len() <= $crate::kani_helpers::proof_limits::MAX_PREV_HEADERS_FOR_PROOF,
-        );
+        kani::assume($prev_headers.len() <= $crate::kani_helpers::proof_limits::MAX_PREV_HEADERS_FOR_PROOF);
     };
 }
 
@@ -156,3 +141,4 @@ macro_rules! assume_transaction_bounds_custom {
         kani::assume($tx.outputs.len() <= $max_outputs);
     };
 }
+

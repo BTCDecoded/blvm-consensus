@@ -650,9 +650,9 @@ mod kani_proofs {
         let height: Natural = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 3);
-        kani::assume(tx.outputs.len() <= 3);
-        kani::assume(mempool.len() <= 5);
+        use crate::kani_helpers::{assume_transaction_bounds_custom, assume_mempool_bounds};
+        assume_transaction_bounds_custom!(tx, 3, 3);
+        assume_mempool_bounds!(mempool, 5);
 
         let tx_id = calculate_tx_id(&tx);
 
@@ -687,8 +687,9 @@ mod kani_proofs {
         let height: Natural = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 3);
-        kani::assume(mempool.len() <= 5);
+        use crate::kani_helpers::{assume_transaction_bounds_custom, assume_mempool_bounds};
+        assume_transaction_bounds_custom!(tx, 3, 3);
+        assume_mempool_bounds!(mempool, 5);
 
         // Test conflict detection
         let has_conflict = has_conflicts(&tx, &mempool).unwrap_or(false);
@@ -758,8 +759,8 @@ mod kani_proofs {
         let tx: Transaction = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Check standard transaction rules
         let result = is_standard_tx(&tx);
@@ -956,10 +957,9 @@ mod kani_proofs {
         let mempool: Mempool = kani::any();
 
         // Bound for tractability
-        kani::assume(new_tx.inputs.len() <= 3);
-        kani::assume(new_tx.outputs.len() <= 3);
-        kani::assume(existing_tx.inputs.len() <= 3);
-        kani::assume(existing_tx.outputs.len() <= 3);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(new_tx, 3, 3);
+        assume_transaction_bounds_custom!(existing_tx, 3, 3);
 
         let result = replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
 
@@ -1521,10 +1521,9 @@ mod kani_proofs {
         let mempool: Mempool = kani::any();
 
         // Bound for tractability
-        kani::assume(new_tx.inputs.len() <= 5);
-        kani::assume(new_tx.outputs.len() <= 5);
-        kani::assume(existing_tx.inputs.len() <= 5);
-        kani::assume(existing_tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(new_tx, 5, 5);
+        assume_transaction_bounds_custom!(existing_tx, 5, 5);
 
         // Ensure inputs exist in UTXO set
         for input in &new_tx.inputs {
@@ -1610,8 +1609,8 @@ mod kani_proofs {
         let mut mempool: Mempool = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Check for conflicts
         let has_conflict = has_conflicts(&tx, &mempool).unwrap_or(false);
@@ -1645,8 +1644,8 @@ mod kani_proofs {
         let height: Natural = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Ensure inputs exist for non-coinbase transactions
         if !is_coinbase(&tx) {

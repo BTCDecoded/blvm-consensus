@@ -140,3 +140,7 @@ harness = false
 [[bench]]
 name = "utxo_commitments"
 harness = false
+
+[[bench]]
+name = "bllvm_optimizations"
+harness = false

@@ -53,6 +53,15 @@ impl std::error::Error for TransactionParseError {}
 ///   - Script bytes
 /// - Lock time (4 bytes, little-endian)
 pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
+    // BLLVM Optimization: Pre-allocate buffer using Kani-proven maximum size
+    // This avoids reallocations during serialization
+    #[cfg(feature = "production")]
+    let mut result = {
+        use crate::optimizations::prealloc_tx_buffer;
+        prealloc_tx_buffer()
+    };
+    
+    #[cfg(not(feature = "production"))]
     let mut result = Vec::new();
 
     // Version (4 bytes, little-endian) - Bitcoin uses signed 32-bit in wire format

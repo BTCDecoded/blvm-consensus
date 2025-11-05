@@ -1162,6 +1162,8 @@ mod kani_proofs {
         let witness_merkle_root: Hash = kani::any();
 
         // Bound for tractability
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        // Note: coinbase has only outputs, no inputs (or null input)
         kani::assume(coinbase_tx.outputs.len() <= 5);
 
         // Validate witness commitment
@@ -1200,8 +1202,8 @@ mod kani_proofs {
         let witness: Option<Witness> = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
         }
@@ -1242,8 +1244,8 @@ mod kani_proofs {
         let witness: Option<Witness> = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
         }
@@ -1282,8 +1284,8 @@ mod kani_proofs {
         let tx: Transaction = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
 
         let base_size = calculate_base_size(&tx);
 
@@ -1330,8 +1332,8 @@ mod kani_proofs {
         let witness: Option<Witness> = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
             for element in w {

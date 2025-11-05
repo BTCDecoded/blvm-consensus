@@ -132,27 +132,31 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
     }
 
     // Serialize all headers in parallel
+    // BLLVM Optimization: Pre-allocate header serialization buffers (80 bytes each)
     let header_bytes_vec: Vec<Vec<u8>> = {
         #[cfg(feature = "rayon")]
         {
             use rayon::prelude::*;
             headers
                 .par_iter()
-                .map(|header| serialize_header(header))
+                .map(|header| serialize_header(header)) // Uses Vec::with_capacity(80) internally
                 .collect()
         }
         #[cfg(not(feature = "rayon"))]
         {
             headers
                 .iter()
-                .map(|header| serialize_header(header))
+                .map(|header| serialize_header(header)) // Uses Vec::with_capacity(80) internally
                 .collect()
         }
     };
 
     // Batch hash all serialized headers using double SHA256
+    // BLLVM Optimization: Use cache-aligned structures for better performance
     let header_refs: Vec<&[u8]> = header_bytes_vec.iter().map(|v| v.as_slice()).collect();
-    let hashes = simd_vectorization::batch_double_sha256(&header_refs);
+    let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&header_refs);
+    // Convert to regular hashes for compatibility
+    let hashes: Vec<[u8; 32]> = aligned_hashes.iter().map(|h| *h.as_bytes()).collect();
 
     // Validate each hash against its target
     let mut results = Vec::with_capacity(headers.len());
@@ -513,7 +517,8 @@ fn compress_target(target: &U256) -> Result<Natural> {
 
 /// Serialize block header to bytes (simplified)
 fn serialize_header(header: &BlockHeader) -> Vec<u8> {
-    let mut bytes = Vec::new();
+    // BLLVM Optimization: Pre-allocate 80-byte buffer (block header is exactly 80 bytes)
+    let mut bytes = Vec::with_capacity(80);
 
     // Version (4 bytes, little-endian)
     bytes.extend_from_slice(&(header.version as u32).to_le_bytes());
@@ -666,8 +671,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_get_next_work_required_bounds() {
-        use crate::kani_helpers::{assume_pow_bounds, unwind_bounds};
-
+        use crate::kani_helpers::{unwind_bounds, assume_pow_bounds};
+        
         let current_header: BlockHeader = kani::any();
         let prev_headers: Vec<BlockHeader> = kani::any();
 
@@ -700,7 +705,9 @@ mod kani_proofs {
     /// - adjustment = clamp(timeSpan / expectedTime, 0.25, 4.0)
     /// - Ensures difficulty never changes more than 4x per adjustment period
     #[kani::proof]
+    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_difficulty_adjustment_clamping() {
+        use crate::kani_helpers::unwind_bounds;
         let time_span: u64 = kani::any();
         let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
 
@@ -885,14 +892,15 @@ mod kani_proofs {
     ///
     /// This ensures difficulty converges to maintain target block time.
     #[kani::proof]
-    #[kani::unwind(5)]
+    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_difficulty_adjustment_convergence() {
+        use crate::kani_helpers::unwind_bounds;
         let current_header: BlockHeader = kani::any();
         let mut prev_headers: Vec<BlockHeader> = kani::any();
 
-        // Bound for tractability
-        kani::assume(prev_headers.len() >= 2);
-        kani::assume(prev_headers.len() <= 5);
+        // Bound for tractability using standardized helpers
+        use crate::kani_helpers::assume_pow_bounds;
+        assume_pow_bounds!(prev_headers);
 
         // Set up headers with controlled timestamps
         let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
@@ -942,14 +950,15 @@ mod kani_proofs {
     /// - If timeSpan > expectedTime: new_target > old_target (difficulty decreases)
     /// - If timeSpan < expectedTime: new_target < old_target (difficulty increases)
     #[kani::proof]
-    #[kani::unwind(5)]
+    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_difficulty_adjustment_direction() {
+        use crate::kani_helpers::unwind_bounds;
         let current_header: BlockHeader = kani::any();
         let mut prev_headers: Vec<BlockHeader> = kani::any();
 
-        // Bound for tractability
-        kani::assume(prev_headers.len() >= 2);
-        kani::assume(prev_headers.len() <= 5);
+        // Bound for tractability using standardized helpers
+        use crate::kani_helpers::assume_pow_bounds;
+        assume_pow_bounds!(prev_headers);
 
         let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
         let old_bits: Natural = 0x1d00ffff;
