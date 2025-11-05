@@ -2356,7 +2356,8 @@ mod kani_proofs {
     #[kani::unwind(5)]
     fn kani_script_stack_size_bounds() {
         let script: Vec<u8> = kani::any();
-        kani::assume(script.len() <= 20); // Small scripts for tractability
+        use crate::kani_helpers::assume_script_bounds;
+        assume_script_bounds!(script, 20); // Small scripts for tractability
 
         let mut stack = Vec::new();
         let flags: u32 = kani::any();
@@ -2494,8 +2495,9 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // Bound for tractability
-        kani::assume(script_sig.len() <= 10);
-        kani::assume(script_pubkey.len() <= 10);
+        use crate::kani_helpers::assume_script_bounds;
+        assume_script_bounds!(script_sig, 10);
+        assume_script_bounds!(script_pubkey, 10);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 10);
         }
@@ -3114,7 +3116,8 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // Bound for tractability
-        kani::assume(script.len() <= MAX_SCRIPT_OPS + 10);
+        use crate::kani_helpers::assume_script_bounds;
+        assume_script_bounds!(script, MAX_SCRIPT_OPS + 10);
 
         // Script execution should respect operation count limits
         let result = eval_script(&script, &mut stack, flags);

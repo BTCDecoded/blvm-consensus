@@ -419,13 +419,14 @@ pub fn connect_block(
     }
 
     // 4. Compute transaction IDs (batch optimized if production feature enabled)
-    let tx_ids = {
+    let tx_ids: Vec<Hash> = {
         #[cfg(feature = "production")]
         {
             use crate::optimizations::simd_vectorization;
             use crate::serialization::transaction::serialize_transaction;
 
             // Serialize all transactions in parallel, then batch hash
+            // BLLVM Optimization: Pre-allocate serialization buffers (via serialize_transaction)
             let serialized_txs: Vec<Vec<u8>> = {
                 #[cfg(feature = "rayon")]
                 {
@@ -433,7 +434,7 @@ pub fn connect_block(
                     block
                         .transactions
                         .par_iter()
-                        .map(|tx| serialize_transaction(tx))
+                        .map(|tx| serialize_transaction(tx)) // Uses prealloc_tx_buffer internally
                         .collect()
                 }
                 #[cfg(not(feature = "rayon"))]
@@ -441,14 +442,17 @@ pub fn connect_block(
                     block
                         .transactions
                         .iter()
-                        .map(|tx| serialize_transaction(tx))
+                        .map(|tx| serialize_transaction(tx)) // Uses prealloc_tx_buffer internally
                         .collect()
                 }
             };
 
             // Batch hash all serialized transactions using double SHA256
+            // BLLVM Optimization: Use cache-aligned structures for better performance
             let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
-            simd_vectorization::batch_double_sha256(&tx_data_refs)
+            let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&tx_data_refs);
+            // Convert to regular hashes for compatibility
+            aligned_hashes.iter().map(|h| *h.as_bytes()).collect::<Vec<[u8; 32]>>()
         }
 
         #[cfg(not(feature = "production"))]
@@ -646,8 +650,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::BLOCK_VALIDATION)]
     fn kani_apply_transaction_consistency() {
-        use crate::kani_helpers::{assume_transaction_bounds_custom, unwind_bounds};
-
+        use crate::kani_helpers::{unwind_bounds, assume_transaction_bounds_custom};
+        
         let tx: Transaction = kani::any();
         let utxo_set: UtxoSet = kani::any();
         let height: Natural = kani::any();

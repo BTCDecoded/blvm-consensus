@@ -27,6 +27,10 @@ mod production_memory_tests;
 mod production_edge_tests;
 #[cfg(feature = "production")]
 mod production_cache_tests;
+#[cfg(feature = "production")]
+mod bllvm_optimization_tests;
+#[cfg(feature = "production")]
+mod bllvm_memory_profiling_tests;
 
 // UTXO commitments tests (only compiled with utxo-commitments feature)
 #[cfg(feature = "utxo-commitments")]

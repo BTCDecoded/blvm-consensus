@@ -213,40 +213,44 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 
     // Calculate transaction hashes with batch optimization (if available)
     // Uses BLLVM SIMD vectorization + Kani-proven bounds for optimal performance
-    let mut hashes = {
+    let mut hashes: Vec<Hash> = {
         #[cfg(feature = "production")]
         {
-            use crate::optimizations::{prealloc_proven, simd_vectorization};
+            use crate::optimizations::simd_vectorization;
 
             // Serialize all transactions in parallel (if rayon available)
             // Then batch hash all serialized forms using double SHA256
+            // BLLVM Optimization: Pre-allocate serialization buffers
             let serialized_txs: Vec<Vec<u8>> = {
                 #[cfg(feature = "rayon")]
                 {
                     use rayon::prelude::*;
                     transactions
                         .par_iter()
-                        .map(|tx| serialize_tx_for_hash(tx))
+                        .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
                         .collect()
                 }
                 #[cfg(not(feature = "rayon"))]
                 {
                     transactions
                         .iter()
-                        .map(|tx| serialize_tx_for_hash(tx))
+                        .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
                         .collect()
                 }
             };
 
             // Batch hash all serialized transactions using double SHA256
+            // BLLVM Optimization: Use cache-aligned structures for better performance
             let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
-            simd_vectorization::batch_double_sha256(&tx_data_refs)
+            let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&tx_data_refs);
+            // Convert to regular hashes for compatibility
+            aligned_hashes.iter().map(|h| *h.as_bytes()).collect::<Vec<[u8; 32]>>()
         }
 
         #[cfg(not(feature = "production"))]
         {
             // Sequential fallback for non-production builds
-            let mut hashes = Vec::new();
+            let mut hashes = Vec::with_capacity(transactions.len());
             for tx in transactions {
                 hashes.push(calculate_tx_hash(tx));
             }
@@ -255,20 +259,30 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     };
 
     // Build Merkle tree bottom-up
+    // BLLVM Optimization: Pre-allocate next level and combined buffers
     while hashes.len() > 1 {
-        let mut next_level = Vec::new();
+        #[cfg(feature = "production")]
+        let mut next_level = {
+            use crate::optimizations::MAX_TRANSACTIONS_PROVEN;
+            Vec::with_capacity(MAX_TRANSACTIONS_PROVEN.min(hashes.len() / 2 + 1))
+        };
+        
+        #[cfg(not(feature = "production"))]
+        let mut next_level = Vec::with_capacity(hashes.len() / 2 + 1);
 
         // Process pairs of hashes
         for chunk in hashes.chunks(2) {
             if chunk.len() == 2 {
                 // Hash two hashes together
-                let mut combined = Vec::new();
+                // BLLVM Optimization: Pre-allocate 64-byte buffer (2 * 32-byte hashes)
+                let mut combined = Vec::with_capacity(64);
                 combined.extend_from_slice(&chunk[0]);
                 combined.extend_from_slice(&chunk[1]);
                 next_level.push(sha256_hash(&combined));
             } else {
                 // Odd number: duplicate the last hash
-                let mut combined = Vec::new();
+                // BLLVM Optimization: Pre-allocate 64-byte buffer
+                let mut combined = Vec::with_capacity(64);
                 combined.extend_from_slice(&chunk[0]);
                 combined.extend_from_slice(&chunk[0]);
                 next_level.push(sha256_hash(&combined));
@@ -286,6 +300,14 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 /// This is the same serialization as calculate_tx_hash but returns the serialized bytes
 /// instead of hashing them, allowing batch hashing to be applied.
 fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
+    // BLLVM Optimization: Pre-allocate buffer using Kani-proven maximum size
+    #[cfg(feature = "production")]
+    let mut data = {
+        use crate::optimizations::prealloc_tx_buffer;
+        prealloc_tx_buffer()
+    };
+    
+    #[cfg(not(feature = "production"))]
     let mut data = Vec::new();
 
     // Version (4 bytes, little-endian)

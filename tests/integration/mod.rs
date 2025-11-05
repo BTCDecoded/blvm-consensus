@@ -6,6 +6,8 @@ mod mempool_mining;
 // Production optimization integration tests (only compiled with production feature)
 #[cfg(feature = "production")]
 mod production_integration_tests;
+#[cfg(feature = "production")]
+mod bllvm_integration_tests;
 
 // UTXO commitments integration tests (only compiled with utxo-commitments feature)
 #[cfg(feature = "utxo-commitments")]
