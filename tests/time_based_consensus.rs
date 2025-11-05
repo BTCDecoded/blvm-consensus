@@ -25,8 +25,9 @@ fn test_bip65_cltv_height() {
     let locktime_value = 1000u32; // Block height 1000
     let encoded = consensus_proof::locktime::encode_locktime_value(locktime_value);
 
-    // Encoded value should be correct
-    assert_eq!(encoded.len(), 4);
+    // Encoded value should use minimal encoding (1000 = 0xe8 0x03 = 2 bytes)
+    // Minimal encoding: only include bytes up to highest non-zero byte
+    assert_eq!(encoded.len(), 2); // 1000 = 0x03e8 = 2 bytes in little-endian
 
     // Test with transaction locktime at exact boundary
     let tx = Transaction {
