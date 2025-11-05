@@ -6,6 +6,9 @@
 use consensus_proof::transaction::is_coinbase;
 use consensus_proof::*;
 
+mod test_helpers;
+use test_helpers::{adjusted_timeout, is_ci};
+
 /// Test integration between mempool and block creation
 #[test]
 fn test_mempool_to_block_integration() {
@@ -241,12 +244,22 @@ fn test_performance_integration() {
     }
 
     let duration = start.elapsed();
-    assert!(duration.as_millis() < 1000); // Should be fast
-    println!(
-        "Accepted {}/{} transactions in {:?}",
+    let max_duration_ms = adjusted_timeout(1000); // Adjust for CI environment
+    assert!(
+        duration.as_millis() < max_duration_ms as u128,
+        "Performance test: accepted {}/{} transactions in {:?} (max: {}ms, CI: {})",
         accepted,
         mempool_txs.len(),
-        duration
+        duration,
+        max_duration_ms,
+        is_ci()
+    );
+    println!(
+        "Accepted {}/{} transactions in {:?} (CI: {})",
+        accepted,
+        mempool_txs.len(),
+        duration,
+        is_ci()
     );
 
     // 4. Test block creation performance
@@ -258,13 +271,21 @@ fn test_performance_integration() {
             100,
             &create_valid_block_header(),
             &vec![create_valid_block_header(), create_valid_block_header()],
-            &vec![0x51],
+            &vec![0x51, 0x51], // 2 bytes for coinbase script_sig
             &vec![0x51],
         )
         .unwrap();
 
     let duration = start.elapsed();
-    assert!(duration.as_millis() < 1000); // Should be fast
+    let max_duration_ms = adjusted_timeout(1000); // Adjust for CI environment
+    assert!(
+        duration.as_millis() < max_duration_ms as u128,
+        "Performance test: created block with {} transactions in {:?} (max: {}ms, CI: {})",
+        block.transactions.len(),
+        duration,
+        max_duration_ms,
+        is_ci()
+    );
     println!(
         "Created block with {} transactions in {:?}",
         block.transactions.len(),

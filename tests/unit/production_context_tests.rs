@@ -3,6 +3,11 @@
 #[cfg(feature = "production")]
 mod tests {
     use consensus_proof::script::*;
+    
+    // Import CI-aware test helpers
+    #[path = "../test_helpers.rs"]
+    mod test_helpers;
+    use test_helpers::adjusted_timeout;
 
     #[test]
     fn test_thread_local_context_reuse() {
@@ -97,9 +102,11 @@ mod tests {
         
         // Sanity check: 100 operations should complete quickly
         // This is a basic check, not a full benchmark
-        assert!(duration.as_millis() < 10_000, 
-                "Context reuse should enable fast signature verification ({}ms for {} ops)", 
-                duration.as_millis(), iterations);
+        // Adjust threshold for CI environments (slower resources)
+        let max_duration_ms = adjusted_timeout(10_000);
+        assert!(duration.as_millis() < max_duration_ms as u128,
+                "Context reuse should enable fast signature verification ({}ms for {} ops, max: {}ms)", 
+                duration.as_millis(), iterations, max_duration_ms);
     }
 
     #[test]
