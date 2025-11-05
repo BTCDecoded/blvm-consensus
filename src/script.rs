@@ -2861,14 +2861,13 @@ mod property_tests {
             // For a script with only opcodes (no data pushes), length = op_count
             // So scripts with length > MAX_SCRIPT_OPS that are all opcodes will fail
             // But scripts with data pushes might have length > MAX_SCRIPT_OPS but op_count <= MAX_SCRIPT_OPS
-            
             // Simple check: if script is all opcodes (no data pushes), length should match op_count
             // For simplicity, we just check that very long scripts (> MAX_SCRIPT_OPS * 2) eventually fail
             // or that the operation limit is respected
             if script.len() > MAX_SCRIPT_OPS * 2 {
                 // Very long scripts should fail (either op limit or other reasons)
                 // This is a weak check but acceptable for property testing
-                prop_assert!(result.is_err() || !result.unwrap(), 
+                prop_assert!(result.is_err() || !result.unwrap(),
                     "Very long scripts should fail or return false");
             }
             // Otherwise, scripts may succeed or fail - both are acceptable

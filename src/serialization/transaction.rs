@@ -94,8 +94,8 @@ pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
         result.extend_from_slice(&output.script_pubkey);
     }
 
-        // Lock time (4 bytes, little-endian) - Bitcoin uses u32 in wire format
-        result.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+    // Lock time (4 bytes, little-endian) - Bitcoin uses u32 in wire format
+    result.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
 
     result
 }

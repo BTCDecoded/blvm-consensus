@@ -375,10 +375,11 @@ fn expand_target(bits: Natural) -> Result<u128> {
         let shift = 8 * (exponent - 3);
         // Use checked shift to avoid overflow
         let mantissa_u128 = mantissa as u128;
-        let expanded = mantissa_u128.checked_shl(shift as u32)
-            .ok_or_else(|| crate::error::ConsensusError::InvalidProofOfWork(
+        let expanded = mantissa_u128.checked_shl(shift as u32).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidProofOfWork(
                 "Target expansion overflow".to_string(),
-            ))?;
+            )
+        })?;
         Ok(expanded)
     }
 }
