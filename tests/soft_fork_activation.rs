@@ -115,19 +115,21 @@ pub fn calculate_bip9_state(
 #[test]
 fn test_bip9_version_bits_extraction() {
     // Test extracting version bits from block version
-    let version = 0x20000001u32; // SegWit bit (31) + bit 0 set
+    let version = 0x20000001u32; // Bit 29 (0x20000000) + bit 0 set
+    // Note: BIP9 version bits are bits 0-28, but SegWit uses bit 1 of the top 3 bits
+    // Bit 29 (0x20000000) is SegWit-related, not bit 31
 
     // Extract bit 0
     let bit0 = (version >> 0) & 1;
     assert_eq!(bit0, 1);
 
-    // Extract bit 31 (SegWit)
-    let bit31 = (version >> 31) & 1;
-    assert_eq!(bit31, 1);
-
-    // Extract bit 29 (testnet)
+    // Extract bit 29 (often associated with SegWit signaling)
     let bit29 = (version >> 29) & 1;
-    assert_eq!(bit29, 0);
+    assert_eq!(bit29, 1);
+    
+    // Extract bit 31 (should be 0 for 0x20000001)
+    let bit31 = (version >> 31) & 1;
+    assert_eq!(bit31, 0);
 }
 
 /// Test BIP9 state transitions
@@ -370,9 +372,10 @@ fn test_bip9_deactivation() {
 /// This test verifies the activation process.
 #[test]
 fn test_segwit_activation() {
-    // SegWit uses bit 31 (0x20000000)
+    // SegWit uses bit 1 (which is bit 29 in full version field, 0x20000000)
+    // Note: BIP9 version bits are 0-28, but SegWit uses bit 1 of the top 3 bits
     let segwit_deployment = Bip9Deployment {
-        bit: 31,
+        bit: 1, // BIP9 bit 1 (not bit 31 of full version)
         start_time: 1479168000, // Approximate start time
         timeout: 1510704000,    // Approximate timeout
         lock_in_period: 2016,
@@ -382,7 +385,7 @@ fn test_segwit_activation() {
     // Create headers with SegWit bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = 0x20000000; // SegWit bit set
+        let version = 0x20000002; // Bit 1 set (0x00000002) + top bit for SegWit
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
