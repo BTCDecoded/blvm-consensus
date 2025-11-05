@@ -5,6 +5,11 @@ mod tests {
     use consensus_proof::*;
     use consensus_proof::block::*;
     use std::time::Instant;
+    
+    // Import CI-aware test helpers
+    #[path = "../test_helpers.rs"]
+    mod test_helpers;
+    use test_helpers::adjusted_timeout;
 
     fn create_multi_transaction_block(num_txs: usize) -> (Block, UtxoSet) {
         let mut transactions = vec![
