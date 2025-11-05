@@ -597,6 +597,7 @@ mod kani_proofs {
 }
 
 #[cfg(test)]
+#[allow(unused_doc_comments)]
 mod property_tests {
     use super::*;
     use proptest::prelude::*;

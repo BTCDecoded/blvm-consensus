@@ -40,6 +40,8 @@
 //! let result = consensus.validate_transaction(&transaction).unwrap();
 //! ```
 
+#![allow(unused_doc_comments)] // Allow doc comments before macros (proptest, etc.)
+
 pub mod constants;
 pub mod script;
 pub mod transaction;
