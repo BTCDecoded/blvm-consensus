@@ -38,7 +38,7 @@ jobs:
       run: cargo test --verbose
     - name: Run tests with coverage
       run: |
-        cargo install cargo-tarpaulin
+        cargo install cargo-tarpaulin --version 0.27.0
         cargo tarpaulin --out Xml --output-dir coverage
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

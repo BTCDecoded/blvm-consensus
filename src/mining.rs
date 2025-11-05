@@ -1267,9 +1267,10 @@ mod kani_proofs {
     ///
     /// This ensures block creation follows Orange Paper specification exactly.
     #[kani::proof]
-    #[kani::unwind(3)]
+    #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
     fn kani_create_new_block_correctness() {
         use crate::economic::get_block_subsidy;
+        use crate::kani_helpers::{assume_mining_bounds, unwind_bounds};
         use crate::pow::get_next_work_required;
 
         let utxo_set: UtxoSet = kani::any();
@@ -1280,13 +1281,8 @@ mod kani_proofs {
         let coinbase_script: Vec<u8> = kani::any();
         let coinbase_address: Vec<u8> = kani::any();
 
-        // Bound for tractability
-        kani::assume(mempool_txs.len() <= 3);
-        kani::assume(prev_headers.len() <= 3);
-        for tx in &mempool_txs {
-            kani::assume(tx.inputs.len() <= 2);
-            kani::assume(tx.outputs.len() <= 2);
-        }
+        // Bound for tractability using standardized helpers
+        assume_mining_bounds!(mempool_txs, prev_headers);
 
         let result = create_new_block(
             &utxo_set,
@@ -1360,15 +1356,16 @@ mod kani_proofs {
     ///
     /// This ensures mining process correctly finds valid proof of work or reports failure.
     #[kani::proof]
-    #[kani::unwind(10)]
+    #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
     fn kani_mine_block_correctness() {
+        use crate::kani_helpers::{assume_mining_attempts, unwind_bounds};
         use crate::pow::check_proof_of_work;
 
         let mut block: Block = kani::any();
         let max_attempts: Natural = kani::any();
 
-        // Bound for tractability
-        kani::assume(max_attempts <= 10);
+        // Bound for tractability using standardized helpers
+        assume_mining_attempts!(max_attempts);
         kani::assume(!block.transactions.is_empty());
 
         // Ensure block has valid structure
@@ -1431,8 +1428,10 @@ mod kani_proofs {
     ///
     /// This ensures block template contains all required fields for mining.
     #[kani::proof]
-    #[kani::unwind(3)]
+    #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
     fn kani_create_block_template_completeness() {
+        use crate::kani_helpers::{assume_mining_bounds, unwind_bounds};
+
         let utxo_set: UtxoSet = kani::any();
         let mempool_txs: Vec<Transaction> = kani::any();
         let height: Natural = kani::any();
@@ -1441,13 +1440,8 @@ mod kani_proofs {
         let coinbase_script: Vec<u8> = kani::any();
         let coinbase_address: Vec<u8> = kani::any();
 
-        // Bound for tractability
-        kani::assume(mempool_txs.len() <= 3);
-        kani::assume(prev_headers.len() <= 3);
-        for tx in &mempool_txs {
-            kani::assume(tx.inputs.len() <= 2);
-            kani::assume(tx.outputs.len() <= 2);
-        }
+        // Bound for tractability using standardized helpers
+        assume_mining_bounds!(mempool_txs, prev_headers);
 
         let result = create_block_template(
             &utxo_set,
@@ -1525,13 +1519,15 @@ mod kani_proofs {
     ///
     /// This ensures mining process tries nonces systematically.
     #[kani::proof]
-    #[kani::unwind(10)]
+    #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
     fn kani_mine_block_nonce_progression() {
+        use crate::kani_helpers::{assume_mining_attempts, unwind_bounds};
+
         let mut block: Block = kani::any();
         let max_attempts: Natural = kani::any();
 
-        // Bound for tractability
-        kani::assume(max_attempts <= 10);
+        // Bound for tractability using standardized helpers
+        assume_mining_attempts!(max_attempts);
         kani::assume(!block.transactions.is_empty());
 
         let initial_nonce = block.header.nonce;

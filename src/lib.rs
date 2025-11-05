@@ -64,6 +64,8 @@ pub mod witness;
 pub mod error;
 #[cfg(kani)]
 pub mod integration_proofs;
+#[cfg(kani)]
+pub mod kani_helpers;
 pub mod mining;
 pub mod network;
 pub mod reorganization;
