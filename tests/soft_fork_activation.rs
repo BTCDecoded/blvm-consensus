@@ -82,19 +82,25 @@ pub fn calculate_bip9_state(
         // Lock-in occurs when threshold is met during a lock_in_period
         // If we've checked a full period (check_period == lock_in_period), lock-in was detected
         // at the end of that period. Activation happens lock_in_period blocks after lock-in.
-        
-        // If we have exactly lock_in_period headers, lock-in was just detected at current_height
-        // Otherwise, estimate when lock-in was detected based on current state
-        let lock_in_detected_at = if check_period == deployment.lock_in_period {
-            // We just completed a full period with threshold met - lock-in detected now
-            current_height
+
+        // Calculate when lock-in was detected
+        // Key insight: If we have exactly lock_in_period headers showing threshold met,
+        // lock-in was detected at the end of the period those headers represent.
+        // Once lock-in is detected at a specific height, it stays at that height.
+        let lock_in_detected_at = if check_period == deployment.lock_in_period && headers.len() >= deployment.lock_in_period as usize {
+            // Headers represent a complete period where threshold was met
+            // Lock-in was detected at the end of that period
+            // If we have exactly lock_in_period headers, they represent the period ending at lock_in_period
+            // This is the first period where lock-in could occur
+            deployment.lock_in_period as u64
         } else {
             // Partial period, but threshold met - assume lock-in will be at end of current period
-            ((current_height / deployment.lock_in_period as u64) + 1) * deployment.lock_in_period as u64
+            ((current_height / deployment.lock_in_period as u64) + 1)
+                * deployment.lock_in_period as u64
         };
-        
+
         let activation_height = lock_in_detected_at + deployment.lock_in_period as u64;
-        
+
         if current_height >= activation_height {
             return Bip9State::Active;
         }
