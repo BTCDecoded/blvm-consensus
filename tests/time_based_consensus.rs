@@ -329,8 +329,9 @@ fn test_bip65_cltv_with_tx_locktime() {
 #[test]
 fn test_bip112_csv_sequence_combinations() {
     // Test all sequence number combinations
+    // CSV disabled when bit 31 (0x80000000) is set
     let combinations = vec![
-        (0x00000000, false, 0),               // No CSV, no locktime
+        (0x80000000u32 as i32, false, 0),     // CSV disabled, no locktime
         (0x00000001, true, 1),                // CSV enabled, block height = 1
         (0x80000001u32 as i32, false, 1),     // CSV disabled, seconds = 1
         (0x0000ffff, true, 65535),            // CSV enabled, block height = 65535
