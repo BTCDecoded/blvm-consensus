@@ -1,4 +1,5 @@
 use consensus_proof::block::connect_block;
+use consensus_proof::segwit::Witness;
 use consensus_proof::{Block, BlockHeader, Transaction, UtxoSet};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -24,11 +25,17 @@ fn create_test_block() -> Block {
 fn benchmark_connect_block(c: &mut Criterion) {
     let block = create_test_block();
     let utxo_set = UtxoSet::new();
+    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
 
     c.bench_function("connect_block", |b| {
         b.iter(|| {
-            let _result =
-                connect_block(black_box(&block), black_box(utxo_set.clone()), black_box(0));
+            let _result = connect_block(
+                black_box(&block),
+                black_box(&witnesses),
+                black_box(utxo_set.clone()),
+                black_box(0),
+                black_box(None),
+            );
             // Ignore errors for benchmarking (they're expected for invalid test data)
         })
     });
@@ -65,11 +72,17 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
     };
 
     let utxo_set = UtxoSet::new();
+    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
 
     c.bench_function("connect_block_multi_tx", |b| {
         b.iter(|| {
-            let _result =
-                connect_block(black_box(&block), black_box(utxo_set.clone()), black_box(0));
+            let _result = connect_block(
+                black_box(&block),
+                black_box(&witnesses),
+                black_box(utxo_set.clone()),
+                black_box(0),
+                black_box(None),
+            );
             // Ignore errors for benchmarking
         })
     });

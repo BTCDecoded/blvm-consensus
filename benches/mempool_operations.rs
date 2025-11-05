@@ -60,6 +60,7 @@ fn benchmark_mempool_acceptance(c: &mut Criterion) {
         b.iter(|| {
             black_box(accept_to_memory_pool(
                 black_box(&tx),
+                black_box(None), // witnesses
                 black_box(&utxo_set),
                 black_box(&mempool),
                 black_box(0),
@@ -77,6 +78,7 @@ fn benchmark_mempool_acceptance_complex(c: &mut Criterion) {
         b.iter(|| {
             black_box(accept_to_memory_pool(
                 black_box(&tx),
+                black_box(None), // witnesses
                 black_box(&utxo_set),
                 black_box(&mempool),
                 black_box(0),
@@ -101,12 +103,14 @@ fn benchmark_replacement_checks(c: &mut Criterion) {
     existing_tx.inputs[0].sequence = 0xfffffffe; // RBF
 
     let mempool: Mempool = HashSet::new();
+    let utxo_set = UtxoSet::new();
 
     c.bench_function("replacement_checks", |b| {
         b.iter(|| {
             black_box(replacement_checks(
                 black_box(&new_tx),
                 black_box(&existing_tx),
+                black_box(&utxo_set),
                 black_box(&mempool),
             ))
         })
