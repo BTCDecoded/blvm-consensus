@@ -147,7 +147,10 @@ fn test_validate_block() {
         ValidationResult::Invalid(reason) => {
             // Block may be invalid due to missing proof of work, etc.
             // This is acceptable for a unit test
-            eprintln!("Block validation failed (expected in some cases): {}", reason);
+            eprintln!(
+                "Block validation failed (expected in some cases): {}",
+                reason
+            );
         }
     }
 }

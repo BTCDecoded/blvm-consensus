@@ -341,7 +341,7 @@ fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
             // Work = 2^256 / (target + 1) for Bitcoin
             // For simplicity, use: work = u128::MAX / (target + 1)
             // Prevent division by zero and overflow
-            let work_contribution = if target >= u128::MAX {
+            let work_contribution = if target == u128::MAX {
                 0 // Very large target means very small work
             } else {
                 // Use checked_div to avoid panic, fallback to 0 on overflow
