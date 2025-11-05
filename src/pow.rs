@@ -664,14 +664,15 @@ mod kani_proofs {
 
     /// Kani proof: get_next_work_required respects bounds
     #[kani::proof]
-    #[kani::unwind(5)]
+    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_get_next_work_required_bounds() {
+        use crate::kani_helpers::{assume_pow_bounds, unwind_bounds};
+
         let current_header: BlockHeader = kani::any();
         let prev_headers: Vec<BlockHeader> = kani::any();
 
-        // Bound for tractability
-        kani::assume(prev_headers.len() >= 2);
-        kani::assume(prev_headers.len() <= 5);
+        // Bound for tractability using standardized helpers
+        assume_pow_bounds!(prev_headers);
 
         // Ensure reasonable timestamps
         kani::assume(current_header.timestamp > prev_headers[0].timestamp);

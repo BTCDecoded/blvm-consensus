@@ -212,10 +212,11 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     }
 
     // Calculate transaction hashes with batch optimization (if available)
+    // Uses BLLVM SIMD vectorization + Kani-proven bounds for optimal performance
     let mut hashes = {
         #[cfg(feature = "production")]
         {
-            use crate::optimizations::simd_vectorization;
+            use crate::optimizations::{prealloc_proven, simd_vectorization};
 
             // Serialize all transactions in parallel (if rayon available)
             // Then batch hash all serialized forms using double SHA256
@@ -1143,6 +1144,8 @@ mod kani_proofs {
         let txs1: Vec<Transaction> = kani::any();
         let txs2: Vec<Transaction> = kani::any();
 
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+
         // Bound for tractability
         kani::assume(txs1.len() <= 5);
         kani::assume(txs2.len() <= 5);
@@ -1150,12 +1153,10 @@ mod kani_proofs {
         kani::assume(!txs2.is_empty());
 
         for tx in &txs1 {
-            kani::assume(tx.inputs.len() <= 3);
-            kani::assume(tx.outputs.len() <= 3);
+            assume_transaction_bounds_custom!(tx, 3, 3);
         }
         for tx in &txs2 {
-            kani::assume(tx.inputs.len() <= 3);
-            kani::assume(tx.outputs.len() <= 3);
+            assume_transaction_bounds_custom!(tx, 3, 3);
         }
 
         let root1_result = calculate_merkle_root(&txs1);
@@ -1218,8 +1219,8 @@ mod kani_proofs {
         let tx: Transaction = kani::any();
 
         // Bound for tractability
-        kani::assume(tx.inputs.len() <= 3);
-        kani::assume(tx.outputs.len() <= 3);
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+        assume_transaction_bounds_custom!(tx, 3, 3);
 
         // Edge case 1: Single transaction
         let single_tx_vec = vec![tx.clone()];

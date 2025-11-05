@@ -644,15 +644,16 @@ mod kani_proofs {
 
     /// Kani proof: apply_transaction preserves UTXO set consistency
     #[kani::proof]
-    #[kani::unwind(10)]
+    #[kani::unwind(unwind_bounds::BLOCK_VALIDATION)]
     fn kani_apply_transaction_consistency() {
+        use crate::kani_helpers::{assume_transaction_bounds_custom, unwind_bounds};
+
         let tx: Transaction = kani::any();
         let utxo_set: UtxoSet = kani::any();
         let height: Natural = kani::any();
 
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
+        // Bound for tractability using standardized helpers
+        assume_transaction_bounds_custom!(tx, 5, 5);
 
         let result = apply_transaction(&tx, utxo_set.clone(), height);
 

@@ -58,6 +58,14 @@ pub mod unwind_bounds {
     pub const MINING_BLOCK_MINING: u32 = 10; // Complex: nonce iteration
     pub const MERKLE_ROOT_CALC: u32 = 5; // Medium: tree traversal
     pub const TRANSACTION_VALIDATION: u32 = 3; // Simple: linear scan
+
+    /// PoW-specific bounds
+    pub const POW_DIFFICULTY_ADJUSTMENT: u32 = 5; // For get_next_work_required
+    pub const POW_TARGET_EXPANSION: u32 = 3; // For expand_target
+    pub const POW_CHECK: u32 = 3; // For check_proof_of_work
+
+    /// Block validation bounds
+    pub const BLOCK_VALIDATION: u32 = 10; // For block validation (multiple transactions)
 }
 
 /// Macro for standard transaction bounds
@@ -122,5 +130,29 @@ macro_rules! assume_mining_attempts {
         kani::assume(
             $max_attempts <= $crate::kani_helpers::proof_limits::MAX_MINING_ATTEMPTS_FOR_PROOF,
         );
+    };
+}
+
+/// Macro for PoW difficulty adjustment bounds
+///
+/// Applies standard bounds for difficulty adjustment proofs.
+#[macro_export]
+macro_rules! assume_pow_bounds {
+    ($prev_headers:expr) => {
+        kani::assume($prev_headers.len() >= 2);
+        kani::assume(
+            $prev_headers.len() <= $crate::kani_helpers::proof_limits::MAX_PREV_HEADERS_FOR_PROOF,
+        );
+    };
+}
+
+/// Macro for transaction bounds with custom limits
+///
+/// Allows proof-specific bounds while maintaining consistency.
+#[macro_export]
+macro_rules! assume_transaction_bounds_custom {
+    ($tx:expr, $max_inputs:expr, $max_outputs:expr) => {
+        kani::assume($tx.inputs.len() <= $max_inputs);
+        kani::assume($tx.outputs.len() <= $max_outputs);
     };
 }
