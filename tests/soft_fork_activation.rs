@@ -87,7 +87,9 @@ pub fn calculate_bip9_state(
         // Key insight: If we have exactly lock_in_period headers showing threshold met,
         // lock-in was detected at the end of the period those headers represent.
         // Once lock-in is detected at a specific height, it stays at that height.
-        let lock_in_detected_at = if check_period == deployment.lock_in_period && headers.len() >= deployment.lock_in_period as usize {
+        let lock_in_detected_at = if check_period == deployment.lock_in_period
+            && headers.len() >= deployment.lock_in_period as usize
+        {
             // Headers represent a complete period where threshold was met
             // Lock-in was detected at the end of that period
             // If we have exactly lock_in_period headers, they represent the period ending at lock_in_period
@@ -116,8 +118,8 @@ pub fn calculate_bip9_state(
 fn test_bip9_version_bits_extraction() {
     // Test extracting version bits from block version
     let version = 0x20000001u32; // Bit 29 (0x20000000) + bit 0 set
-    // Note: BIP9 version bits are bits 0-28, but SegWit uses bit 1 of the top 3 bits
-    // Bit 29 (0x20000000) is SegWit-related, not bit 31
+                                 // Note: BIP9 version bits are bits 0-28, but SegWit uses bit 1 of the top 3 bits
+                                 // Bit 29 (0x20000000) is SegWit-related, not bit 31
 
     // Extract bit 0
     let bit0 = (version >> 0) & 1;
@@ -126,7 +128,7 @@ fn test_bip9_version_bits_extraction() {
     // Extract bit 29 (often associated with SegWit signaling)
     let bit29 = (version >> 29) & 1;
     assert_eq!(bit29, 1);
-    
+
     // Extract bit 31 (should be 0 for 0x20000001)
     let bit31 = (version >> 31) & 1;
     assert_eq!(bit31, 0);
@@ -375,7 +377,7 @@ fn test_segwit_activation() {
     // SegWit uses bit 1 (which is bit 29 in full version field, 0x20000000)
     // Note: BIP9 version bits are 0-28, but SegWit uses bit 1 of the top 3 bits
     let segwit_deployment = Bip9Deployment {
-        bit: 1, // BIP9 bit 1 (not bit 31 of full version)
+        bit: 1,                 // BIP9 bit 1 (not bit 31 of full version)
         start_time: 1479168000, // Approximate start time
         timeout: 1510704000,    // Approximate timeout
         lock_in_period: 2016,
