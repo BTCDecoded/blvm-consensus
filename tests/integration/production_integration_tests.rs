@@ -100,9 +100,11 @@ mod tests {
                 "Multi-transaction block validation must work");
         
         // Should complete in reasonable time (basic sanity check)
-        assert!(duration.as_millis() < 10_000,
-                "Multi-transaction block should validate quickly ({}ms)", 
-                duration.as_millis());
+        // Adjust threshold for CI environments (slower resources)
+        let max_duration_ms = adjusted_timeout(10_000);
+        assert!(duration.as_millis() < max_duration_ms as u128,
+                "Multi-transaction block should validate quickly ({}ms, max: {}ms)", 
+                duration.as_millis(), max_duration_ms);
     }
 
     #[test]
