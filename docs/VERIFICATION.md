@@ -68,15 +68,33 @@ Our verification approach follows the principle: **"Rust + Tests + Math Specs = 
 ∀ header H: CheckProofOfWork(H) = SHA256(SHA256(H)) < ExpandTarget(H.bits)
 ```
 
+**Target Compression/Expansion (Bitcoin Core GetCompact/SetCompact):**
+```
+∀ bits ∈ [0x03000000, 0x1d00ffff]:
+  Let expanded = expand_target(bits)
+  Let compressed = compress_target(expanded)
+  Let re_expanded = expand_target(compressed)
+  
+  Then:
+  - re_expanded ≤ expanded (compression truncates, never increases)
+  - re_expanded.0[2] = expanded.0[2] ∧ re_expanded.0[3] = expanded.0[3]
+    (significant bits preserved exactly)
+  - Precision loss in words 0, 1 is acceptable (compact format limitation)
+```
+
 **Invariants:**
 - Hash must be less than target for valid proof of work
 - Target expansion handles edge cases correctly
+- Target compression preserves significant bits (words 2, 3) exactly
+- Target compression may lose precision in lower bits (words 0, 1)
 - Difficulty adjustment respects bounds [0.25, 4.0]
 - Work calculation is deterministic
 
 **Verified Functions:**
 - `check_proof_of_work`: Verifies hash < target
 - `expand_target`: Handles compact target representation
+- `compress_target`: Implements Bitcoin Core GetCompact() exactly
+- `kani_target_expand_compress_round_trip`: **Formally verified** - proves significant bits preserved
 - `get_next_work_required`: Respects difficulty bounds
 
 ### Transaction Validation (`src/transaction.rs`)
@@ -383,6 +401,7 @@ ots verify proof-artifacts.tar.gz.ots
 - [OpenTimestamps Protocol](https://opentimestamps.org/)
 - [BTCDecoded Governance](../governance/GOVERNANCE.md)
 - [Orange Paper](../the-orange-paper/THE_ORANGE_PAPER.md)
+
 
 
 
