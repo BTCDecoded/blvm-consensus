@@ -127,7 +127,7 @@ pub fn connect_block(
             // Validate transaction structure
             if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
                 return Ok((
-                    ValidationResult::Invalid(format!("Invalid transaction at index {}", i)),
+                    ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
                     utxo_set,
                 ));
             }
@@ -136,7 +136,7 @@ pub fn connect_block(
             let (input_valid, fee) = check_tx_inputs(tx, &utxo_set, height)?;
             if !matches!(input_valid, ValidationResult::Valid) {
                 return Ok((
-                    ValidationResult::Invalid(format!("Invalid transaction inputs at index {}", i)),
+                    ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
                     utxo_set,
                 ));
             }
@@ -222,7 +222,7 @@ pub fn connect_block(
 
             // Use checked arithmetic to prevent fee overflow
             total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {}", i))
+                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}"))
             })?;
         }
     }
@@ -234,7 +234,7 @@ pub fn connect_block(
             // Validate transaction structure
             if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
                 return Ok((
-                    ValidationResult::Invalid(format!("Invalid transaction at index {}", i)),
+                    ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
                     utxo_set,
                 ));
             }
@@ -243,7 +243,7 @@ pub fn connect_block(
             let (input_valid, fee) = check_tx_inputs(tx, &utxo_set, height)?;
             if !matches!(input_valid, ValidationResult::Valid) {
                 return Ok((
-                    ValidationResult::Invalid(format!("Invalid transaction inputs at index {}", i)),
+                    ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
                     utxo_set,
                 ));
             }
@@ -303,7 +303,7 @@ pub fn connect_block(
 
             // Use checked arithmetic to prevent fee overflow
             total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {}", i))
+                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}"))
             })?;
         }
     }
@@ -404,7 +404,7 @@ pub fn connect_block(
         let tx_sigop_cost = get_transaction_sigop_cost(tx, &utxo_set, tx_witness, flags)?;
 
         total_sigop_cost = total_sigop_cost.checked_add(tx_sigop_cost).ok_or_else(|| {
-            ConsensusError::BlockValidation(format!("Sigop cost overflow at transaction {}", i))
+            ConsensusError::BlockValidation(format!("Sigop cost overflow at transaction {i}"))
         })?;
     }
 
