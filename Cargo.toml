@@ -70,6 +70,10 @@ bolero = []
 # Keep separate from 'verify' to maintain Kani compatibility
 production = ["lru", "rayon"]
 
+# Benchmarking utilities
+# Enables cache clearing and state reset functions for reproducible benchmarks
+benchmarking = []
+
 # UTXO commitments module
 # Enables UTXO set commitments and peer consensus sync
 utxo-commitments = ["sparse-merkle-tree"]

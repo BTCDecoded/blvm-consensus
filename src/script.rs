@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 #[cfg(feature = "production")]
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, atomic::{AtomicBool, Ordering}};
 #[cfg(feature = "production")]
 use std::thread_local;
 
@@ -115,6 +115,39 @@ fn get_hash_cache() -> &'static RwLock<lru::LruCache<[u8; 32], Vec<u8>>> {
         // Cache 5,000 hash results (smaller than script cache since entries are larger)
         RwLock::new(LruCache::new(NonZeroUsize::new(5_000).unwrap()))
     })
+}
+
+/// Flag to disable caching for benchmarking (production feature only)
+///
+/// When set to true, caches are bypassed entirely, allowing reproducible benchmarks
+/// without cache state pollution between runs.
+#[cfg(feature = "production")]
+static CACHE_DISABLED: AtomicBool = AtomicBool::new(false);
+
+/// Disable caching for benchmarking
+///
+/// When disabled, all cache lookups are bypassed, ensuring consistent performance
+/// measurements without cache state affecting results.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::disable_caching;
+///
+/// // Disable caches for benchmarking
+/// disable_caching(true);
+/// // Run benchmarks...
+/// disable_caching(false); // Re-enable for production
+/// ```
+#[cfg(feature = "production")]
+pub fn disable_caching(disabled: bool) {
+    CACHE_DISABLED.store(disabled, Ordering::Relaxed);
+}
+
+/// Check if caching is disabled
+#[cfg(feature = "production")]
+fn is_caching_disabled() -> bool {
+    CACHE_DISABLED.load(Ordering::Relaxed)
 }
 
 /// Compute cache key for script verification
@@ -223,43 +256,56 @@ pub fn verify_script(
 ) -> Result<bool> {
     #[cfg(feature = "production")]
     {
-        // Check cache first
-        let cache_key = compute_script_cache_key(script_sig, script_pubkey, witness, flags);
-        {
-            let cache = get_script_cache().read().unwrap();
-            if let Some(&cached_result) = cache.peek(&cache_key) {
-                return Ok(cached_result);
+        // Check cache first (unless disabled for benchmarking)
+        if !is_caching_disabled() {
+            let cache_key = compute_script_cache_key(script_sig, script_pubkey, witness, flags);
+            {
+                let cache = get_script_cache().read().unwrap();
+                if let Some(&cached_result) = cache.peek(&cache_key) {
+                    return Ok(cached_result);
+                }
             }
         }
 
         // Execute script (cache miss)
         // Use pooled stack to avoid allocation
         let mut stack = get_pooled_stack();
+        let cache_key = compute_script_cache_key(script_sig, script_pubkey, witness, flags);
         let result = {
             if !eval_script(script_sig, &mut stack, flags)? {
-                // Cache negative result
-                let mut cache = get_script_cache().write().unwrap();
-                cache.put(cache_key, false);
+                // Cache negative result (unless disabled)
+                if !is_caching_disabled() {
+                    let mut cache = get_script_cache().write().unwrap();
+                    cache.put(cache_key, false);
+                }
                 false
             } else if !eval_script(script_pubkey, &mut stack, flags)? {
-                let mut cache = get_script_cache().write().unwrap();
-                cache.put(cache_key, false);
+                if !is_caching_disabled() {
+                    let mut cache = get_script_cache().write().unwrap();
+                    cache.put(cache_key, false);
+                }
                 false
             } else if let Some(w) = witness {
                 if !eval_script(w, &mut stack, flags)? {
-                    let mut cache = get_script_cache().write().unwrap();
-                    cache.put(cache_key, false);
+                    if !is_caching_disabled() {
+                        let mut cache = get_script_cache().write().unwrap();
+                        cache.put(cache_key, false);
+                    }
                     false
                 } else {
                     let res = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
-                    let mut cache = get_script_cache().write().unwrap();
-                    cache.put(cache_key, res);
+                    if !is_caching_disabled() {
+                        let mut cache = get_script_cache().write().unwrap();
+                        cache.put(cache_key, res);
+                    }
                     res
                 }
             } else {
                 let res = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
-                let mut cache = get_script_cache().write().unwrap();
-                cache.put(cache_key, res);
+                if !is_caching_disabled() {
+                    let mut cache = get_script_cache().write().unwrap();
+                    cache.put(cache_key, res);
+                }
                 res
             }
         };
@@ -501,27 +547,32 @@ fn execute_opcode(opcode: u8, stack: &mut Vec<ByteString>, flags: u32) -> Result
             if let Some(item) = stack.pop() {
                 #[cfg(feature = "production")]
                 {
-                    // Check hash cache first
-                    let cache_key = compute_hash_cache_key(&item, true);
-                    {
-                        let cache = get_hash_cache().read().unwrap();
-                        if let Some(cached_result) = cache.peek(&cache_key) {
-                            // Verify cached result is HASH160 (20 bytes)
-                            if cached_result.len() == 20 {
-                                stack.push(cached_result.clone());
-                                return Ok(true);
+                    // Check hash cache first (unless disabled)
+                    if !is_caching_disabled() {
+                        let cache_key = compute_hash_cache_key(&item, true);
+                        {
+                            let cache = get_hash_cache().read().unwrap();
+                            if let Some(cached_result) = cache.peek(&cache_key) {
+                                // Verify cached result is HASH160 (20 bytes)
+                                if cached_result.len() == 20 {
+                                    stack.push(cached_result.clone());
+                                    return Ok(true);
+                                }
                             }
                         }
                     }
 
-                    // Compute hash (cache miss)
+                    // Compute hash (cache miss or caching disabled)
                     let sha256_hash = Sha256::digest(&item);
                     let ripemd160_hash = Ripemd160::digest(sha256_hash);
                     let result = ripemd160_hash.to_vec();
 
-                    // Cache result
-                    let mut cache = get_hash_cache().write().unwrap();
-                    cache.put(cache_key, result.clone());
+                    // Cache result (unless disabled)
+                    if !is_caching_disabled() {
+                        let cache_key = compute_hash_cache_key(&item, true);
+                        let mut cache = get_hash_cache().write().unwrap();
+                        cache.put(cache_key, result.clone());
+                    }
 
                     stack.push(result);
                     Ok(true)
@@ -544,27 +595,32 @@ fn execute_opcode(opcode: u8, stack: &mut Vec<ByteString>, flags: u32) -> Result
             if let Some(item) = stack.pop() {
                 #[cfg(feature = "production")]
                 {
-                    // Check hash cache first
-                    let cache_key = compute_hash_cache_key(&item, false);
-                    {
-                        let cache = get_hash_cache().read().unwrap();
-                        if let Some(cached_result) = cache.peek(&cache_key) {
-                            // Verify cached result is HASH256 (32 bytes)
-                            if cached_result.len() == 32 {
-                                stack.push(cached_result.clone());
-                                return Ok(true);
+                    // Check hash cache first (unless disabled)
+                    if !is_caching_disabled() {
+                        let cache_key = compute_hash_cache_key(&item, false);
+                        {
+                            let cache = get_hash_cache().read().unwrap();
+                            if let Some(cached_result) = cache.peek(&cache_key) {
+                                // Verify cached result is HASH256 (32 bytes)
+                                if cached_result.len() == 32 {
+                                    stack.push(cached_result.clone());
+                                    return Ok(true);
+                                }
                             }
                         }
                     }
 
-                    // Compute hash (cache miss)
+                    // Compute hash (cache miss or caching disabled)
                     let hash1 = Sha256::digest(&item);
                     let hash2 = Sha256::digest(hash1);
                     let result = hash2.to_vec();
 
-                    // Cache result
-                    let mut cache = get_hash_cache().write().unwrap();
-                    cache.put(cache_key, result.clone());
+                    // Cache result (unless disabled)
+                    if !is_caching_disabled() {
+                        let cache_key = compute_hash_cache_key(&item, false);
+                        let mut cache = get_hash_cache().write().unwrap();
+                        cache.put(cache_key, result.clone());
+                    }
 
                     stack.push(result);
                     Ok(true)
@@ -1254,6 +1310,114 @@ pub fn batch_verify_signatures(verification_tasks: &[(&[u8], &[u8], [u8; 32])]) 
             })
             .collect()
     }
+}
+
+// ============================================================================
+// Benchmarking Utilities
+// ============================================================================
+
+/// Clear script verification cache
+///
+/// Useful for benchmarking to ensure consistent results without cache state
+/// pollution between runs.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::clear_script_cache;
+///
+/// // Clear cache before benchmark run
+/// clear_script_cache();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn clear_script_cache() {
+    if let Some(cache) = SCRIPT_CACHE.get() {
+        let mut cache = cache.write().unwrap();
+        cache.clear();
+    }
+}
+
+/// Clear hash operation cache
+///
+/// Useful for benchmarking to ensure consistent results without cache state
+/// pollution between runs.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::clear_hash_cache;
+///
+/// // Clear cache before benchmark run
+/// clear_hash_cache();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn clear_hash_cache() {
+    if let Some(cache) = HASH_CACHE.get() {
+        let mut cache = cache.write().unwrap();
+        cache.clear();
+    }
+}
+
+/// Clear all caches
+///
+/// Convenience function to clear both script and hash caches.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::clear_all_caches;
+///
+/// // Clear all caches before benchmark run
+/// clear_all_caches();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn clear_all_caches() {
+    clear_script_cache();
+    clear_hash_cache();
+}
+
+/// Clear thread-local stack pool
+///
+/// Clears the thread-local stack pool to reset allocation state for benchmarking.
+/// This ensures consistent memory allocation patterns across benchmark runs.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::clear_stack_pool;
+///
+/// // Clear pool before benchmark run
+/// clear_stack_pool();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn clear_stack_pool() {
+    STACK_POOL.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        pool.clear();
+    });
+}
+
+/// Reset all benchmarking state
+///
+/// Convenience function to reset all caches and thread-local state for
+/// reproducible benchmarks. Also clears sighash templates cache.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::script::reset_benchmarking_state;
+///
+/// // Reset all state before benchmark run
+/// reset_benchmarking_state();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn reset_benchmarking_state() {
+    clear_all_caches();
+    clear_stack_pool();
+    disable_caching(false); // Re-enable caching by default
+    // Also clear sighash templates (currently no-op as templates aren't populated yet)
+    #[cfg(feature = "benchmarking")]
+    crate::transaction_hash::clear_sighash_templates();
 }
 
 #[cfg(test)]

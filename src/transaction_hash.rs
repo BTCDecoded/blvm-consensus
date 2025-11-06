@@ -397,6 +397,31 @@ fn serialize_sighash_preimage(
 }
 
 /// Encode integer as Bitcoin varint
+/// Clear sighash templates cache
+///
+/// Useful for benchmarking to ensure consistent results without cache state
+/// pollution between runs.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::transaction_hash::clear_sighash_templates;
+///
+/// // Clear cache before benchmark run
+/// clear_sighash_templates();
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn clear_sighash_templates() {
+    // SIGHASH_TEMPLATES is a OnceLock<HashMap>, not wrapped in RwLock
+    // OnceLock doesn't allow mutation after initialization, so we can't clear it directly.
+    // This cache is currently not populated (see get_sighash_template which returns None),
+    // so clearing is a no-op, but we provide the function for API consistency and future use
+    // when templates are actually populated.
+    // Note: If templates need to be clearable, SIGHASH_TEMPLATES should be changed to
+    // RwLock<HashMap> similar to SCRIPT_CACHE and HASH_CACHE.
+    let _ = SIGHASH_TEMPLATES.get();
+}
+
 fn encode_varint(value: u64) -> Vec<u8> {
     if value < 0xfd {
         vec![value as u8]

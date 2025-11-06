@@ -38,6 +38,7 @@ use rayon::prelude::*;
 /// # Configuration
 /// - Environment variable: `ASSUME_VALID_HEIGHT` (decimal height)
 /// - Default: 0 (validate all blocks - safest option)
+/// - Benchmarking override: Use `set_assume_valid_height()` to override for benchmarking
 ///
 /// # Safety
 /// This optimization is safe because:
@@ -48,12 +49,55 @@ use rayon::prelude::*;
 /// Reference: Bitcoin Core's -assumevalid parameter
 #[cfg(feature = "production")]
 pub fn get_assume_valid_height() -> u64 {
+    // Check for benchmarking override first
+    #[cfg(feature = "benchmarking")]
+    {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static OVERRIDE: AtomicU64 = AtomicU64::new(u64::MAX);
+        let override_val = OVERRIDE.load(Ordering::Relaxed);
+        if override_val != u64::MAX {
+            return override_val;
+        }
+    }
+    
     // Load from environment variable (supports config files via std::env)
     // Default to 0 (validate all blocks) for maximum safety
     std::env::var("ASSUME_VALID_HEIGHT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0)
+}
+
+/// Set assume-valid height for benchmarking
+///
+/// Overrides the assume-valid height for reproducible benchmarks.
+/// This allows testing different validation configurations without
+/// modifying environment variables.
+///
+/// # Example
+///
+/// ```rust
+/// use consensus_proof::block::set_assume_valid_height;
+///
+/// // Set to validate all blocks (no skipping)
+/// set_assume_valid_height(0);
+/// // Run benchmarks...
+/// set_assume_valid_height(u64::MAX); // Reset to use environment
+/// ```
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn set_assume_valid_height(height: u64) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static OVERRIDE: AtomicU64 = AtomicU64::new(u64::MAX);
+    OVERRIDE.store(height, Ordering::Relaxed);
+}
+
+/// Reset assume-valid height to use environment variable
+///
+/// Resets the benchmarking override so that `get_assume_valid_height()`
+/// will read from the environment variable again.
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub fn reset_assume_valid_height() {
+    set_assume_valid_height(u64::MAX);
 }
 
 /// ConnectBlock: ℬ × 𝒲* × 𝒰𝒮 × ℕ × ℋ* → {valid, invalid} × 𝒰𝒮
