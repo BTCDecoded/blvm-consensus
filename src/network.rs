@@ -269,7 +269,7 @@ fn process_headers_message(
     // Process each header
     for header in &headers.headers {
         if let Err(e) = chain_state.process_header(header) {
-            return Ok(NetworkResponse::Reject(format!("Invalid header: {}", e)));
+            return Ok(NetworkResponse::Reject(format!("Invalid header: {e}")));
         }
     }
 
@@ -284,7 +284,7 @@ fn process_block_message(
 ) -> Result<NetworkResponse> {
     // Validate block
     if let Err(e) = chain_state.process_block(block) {
-        return Ok(NetworkResponse::Reject(format!("Invalid block: {}", e)));
+        return Ok(NetworkResponse::Reject(format!("Invalid block: {e}")));
     }
 
     Ok(NetworkResponse::Ok)

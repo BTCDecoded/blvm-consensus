@@ -330,8 +330,6 @@ pub fn update_mempool_after_block(
     block: &crate::types::Block,
     _utxo_set: &crate::types::UtxoSet,
 ) -> Result<Vec<Hash>> {
-    use crate::block::calculate_tx_id;
-
     let mut removed = Vec::new();
 
     // 1. Remove transactions that were included in the block
@@ -374,8 +372,6 @@ pub fn update_mempool_after_block_with_lookup<F>(
 where
     F: Fn(&Hash) -> Option<crate::types::Transaction>,
 {
-    use crate::block::calculate_tx_id;
-
     let mut removed = Vec::new();
 
     // 1. Remove transactions that were included in the block
