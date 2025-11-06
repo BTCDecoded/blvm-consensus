@@ -172,7 +172,7 @@ pub fn check_tx_inputs(
     for (i, input) in tx.inputs.iter().enumerate() {
         if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
             return Ok((
-                ValidationResult::Invalid(format!("Non-coinbase input {} has null prevout", i)),
+                ValidationResult::Invalid(format!("Non-coinbase input {i} has null prevout")),
                 0,
             ));
         }
@@ -198,7 +198,7 @@ pub fn check_tx_inputs(
             })?;
         } else {
             return Ok((
-                ValidationResult::Invalid(format!("Input {} not found in UTXO set", i)),
+                ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
                 0,
             ));
         }
