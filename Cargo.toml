@@ -134,6 +134,10 @@ name = "block_validation"
 harness = false
 
 [[bench]]
+name = "block_validation_realistic"
+harness = false
+
+[[bench]]
 name = "mempool_operations"
 harness = false
 
