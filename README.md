@@ -2,7 +2,7 @@
 
 **Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper.**
 
-[![Verification Status](https://github.com/BTCDecoded/consensus-proof/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/consensus-proof/actions/workflows/verify.yml)
+[![Verification Status](https://github.com/BTCDecoded/bllvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/bllvm-consensus/actions/workflows/verify.yml)
 [![Kani Verification](https://img.shields.io/badge/Kani-Verified-green)](https://model-checking.github.io/kani/)
 [![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
 
@@ -13,11 +13,11 @@ This crate provides pure, side-effect-free functions that implement the mathemat
 This is **Tier 2** of the 5-tier Bitcoin Commons architecture (BLLVM technology stack):
 
 ```
-1. Orange Paper (mathematical foundation)
-2. consensus-proof (pure math implementation) ← THIS CRATE
-3. protocol-engine (Bitcoin abstraction)
-4. reference-node (full node implementation)
-5. developer-sdk (governance infrastructure)
+1. bllvm-spec (Orange Paper - mathematical foundation)
+2. bllvm-consensus (pure math implementation) ← THIS CRATE
+3. bllvm-protocol (Bitcoin abstraction)
+4. bllvm-node (full node implementation)
+5. bllvm-sdk (governance infrastructure)
 ```
 
 ## Core Functions
