@@ -60,6 +60,7 @@ pub use block::{reset_assume_valid_height, set_assume_valid_height};
 pub use transaction_hash::clear_sighash_templates;
 pub mod bip113;
 pub mod block;
+pub mod crypto;
 pub mod economic;
 pub mod locktime;
 pub mod mempool;

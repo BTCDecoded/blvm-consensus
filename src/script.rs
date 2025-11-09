@@ -1037,10 +1037,11 @@ fn execute_opcode_with_context_full(
 
                 // Calculate transaction sighash for signature verification
                 // Optimization: Use batch computation if available (for transactions with multiple inputs)
-                use crate::transaction_hash::{batch_compute_sighashes, calculate_transaction_sighash, SighashType};
+                use crate::transaction_hash::{calculate_transaction_sighash, SighashType};
                 let sighash = {
                     #[cfg(feature = "production")]
                     {
+                        use crate::transaction_hash::batch_compute_sighashes;
                         // Use batch computation if we have multiple inputs (more efficient)
                         if tx.inputs.len() > 1 {
                             let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
@@ -1083,10 +1084,11 @@ fn execute_opcode_with_context_full(
 
                 // Calculate transaction sighash for signature verification
                 // Optimization: Use batch computation if available (for transactions with multiple inputs)
-                use crate::transaction_hash::{batch_compute_sighashes, calculate_transaction_sighash, SighashType};
+                use crate::transaction_hash::{calculate_transaction_sighash, SighashType};
                 let sighash = {
                     #[cfg(feature = "production")]
                     {
+                        use crate::transaction_hash::batch_compute_sighashes;
                         // Use batch computation if we have multiple inputs (more efficient)
                         if tx.inputs.len() > 1 {
                             let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
