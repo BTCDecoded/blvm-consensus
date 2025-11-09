@@ -1,7 +1,7 @@
 //! Tests for error paths and edge cases
 
-use consensus_proof::network::*;
-use consensus_proof::*;
+use bllvm_consensus::network::*;
+use bllvm_consensus::*;
 
 #[test]
 fn test_transaction_validation_errors() {

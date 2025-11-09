@@ -10,7 +10,7 @@
 //!   2. Run: cargo test --features production --test bllvm_memory_profiling_tests
 //!   3. Or use: valgrind --tool=massif cargo test --features production --test bllvm_memory_profiling_tests
 
-use consensus_proof::{
+use bllvm_consensus::{
     mining::calculate_merkle_root,
     optimizations::{prealloc_tx_buffer, prealloc_block_buffer},
     serialization::transaction::serialize_transaction,
@@ -68,7 +68,7 @@ fn test_preallocation_reduces_reallocations() {
 #[test]
 #[cfg(feature = "production")]
 fn test_batch_operations_memory_patterns() {
-    use consensus_proof::optimizations::simd_vectorization;
+    use bllvm_consensus::optimizations::simd_vectorization;
 
     // Create a large batch
     let transactions = create_test_transactions(1000);
@@ -141,7 +141,7 @@ fn test_memory_usage_scaling() {
 #[test]
 #[cfg(feature = "production")]
 fn test_cache_alignment_impact() {
-    use consensus_proof::optimizations::simd_vectorization;
+    use bllvm_consensus::optimizations::simd_vectorization;
 
     // Create test data
     let transactions = create_test_transactions(1000);

@@ -5,12 +5,12 @@
 //!
 //! Consensus-critical: Spending coinbase too early causes consensus violation.
 
-use consensus_proof::block::connect_block;
-use consensus_proof::types::Block;
-use consensus_proof::types::{BlockHeader, UtxoSet, ValidationResult};
-use consensus_proof::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::types::Block;
+use bllvm_consensus::types::{BlockHeader, UtxoSet, ValidationResult};
+use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
-use consensus_proof::constants::COINBASE_MATURITY;
+use bllvm_consensus::constants::COINBASE_MATURITY;
 
 /// Test coinbase maturity at exact boundary (100 blocks)
 #[test]
@@ -36,7 +36,7 @@ fn test_coinbase_maturity_exact_boundary() {
     // Create UTXO set with coinbase output
     let mut utxo_set = UtxoSet::new();
     let coinbase_outpoint = OutPoint {
-        hash: consensus_proof::block::calculate_tx_id(&coinbase_tx),
+        hash: bllvm_consensus::block::calculate_tx_id(&coinbase_tx),
         index: 0,
     };
     // Note: Actual UTXO insertion would use proper method

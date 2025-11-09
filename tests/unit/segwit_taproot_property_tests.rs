@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering SegWit transaction weight,
 //! witness validation, Taproot output validation, and related edge cases.
 
-use consensus_proof::*;
-use consensus_proof::segwit;
-use consensus_proof::types::*;
-use consensus_proof::constants::MAX_BLOCK_SIZE;
+use bllvm_consensus::*;
+use bllvm_consensus::segwit;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::MAX_BLOCK_SIZE;
 use proptest::prelude::*;
 
 /// Property test: transaction weight is always positive

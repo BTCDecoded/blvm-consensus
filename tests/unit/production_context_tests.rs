@@ -2,7 +2,7 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use consensus_proof::script::*;
+    use bllvm_consensus::script::*;
     
     // Import CI-aware test helpers
     #[path = "../test_helpers.rs"]

@@ -6,8 +6,8 @@
 //! Requires: Bitcoin Core running with RPC enabled
 //! Usage: Set environment variables or configure connection settings
 
-use consensus_proof::*;
-use consensus_proof::types::ByteString;
+use bllvm_consensus::*;
+use bllvm_consensus::types::ByteString;
 use serde_json::json;
 
 /// Bitcoin Core RPC client configuration

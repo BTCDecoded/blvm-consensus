@@ -2,8 +2,8 @@
 
 #[cfg(feature = "utxo-commitments")]
 mod tests {
-    use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, ByteString};
-    use consensus_proof::utxo_commitments::spam_filter::*;
+    use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, ByteString};
+    use bllvm_consensus::utxo_commitments::spam_filter::*;
 
     fn create_test_transaction(script_pubkey: ByteString) -> Transaction {
         Transaction {

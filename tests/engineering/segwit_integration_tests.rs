@@ -3,10 +3,10 @@
 //! Tests for Segregated Witness (BIP141/143) integration with transaction validation,
 //! block weight calculation, and witness handling.
 
-use consensus_proof::*;
-use consensus_proof::segwit::*;
-use consensus_proof::script::verify_script_with_context_full;
-use consensus_proof::constants::MAX_BLOCK_WEIGHT;
+use bllvm_consensus::*;
+use bllvm_consensus::segwit::*;
+use bllvm_consensus::script::verify_script_with_context_full;
+use bllvm_consensus::constants::MAX_BLOCK_WEIGHT;
 use super::bip_test_helpers::*;
 
 /// Create witness commitment script (helper for tests)

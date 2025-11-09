@@ -3,8 +3,8 @@
 //! Tests for median time-past calculation and integration with CLTV (BIP65)
 //! timestamp validation.
 
-use consensus_proof::*;
-use consensus_proof::bip113::get_median_time_past;
+use bllvm_consensus::*;
+use bllvm_consensus::bip113::get_median_time_past;
 use super::bip_test_helpers::*;
 
 #[test]

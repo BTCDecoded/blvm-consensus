@@ -6,8 +6,8 @@
 //!
 //! Consensus-critical: Incorrect witness commitment causes consensus violation.
 
-use consensus_proof::segwit::{compute_witness_merkle_root, validate_witness_commitment, Witness};
-use consensus_proof::types::{
+use bllvm_consensus::segwit::{compute_witness_merkle_root, validate_witness_commitment, Witness};
+use bllvm_consensus::types::{
     Block, BlockHeader, Hash, OutPoint, Transaction, TransactionInput, TransactionOutput,
 };
 

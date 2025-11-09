@@ -1,8 +1,8 @@
 //! Unit tests for economic model functions
 
-use consensus_proof::*;
-use consensus_proof::economic::*;
-use consensus_proof::constants::*;
+use bllvm_consensus::*;
+use bllvm_consensus::economic::*;
+use bllvm_consensus::constants::*;
 
 #[test]
 fn test_get_block_subsidy_genesis() {

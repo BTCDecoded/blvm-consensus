@@ -1,5 +1,5 @@
-use consensus_proof::script::{eval_script, verify_script};
-use consensus_proof::constants::{MAX_SCRIPT_OPS, MAX_STACK_SIZE};
+use bllvm_consensus::script::{eval_script, verify_script};
+use bllvm_consensus::constants::{MAX_SCRIPT_OPS, MAX_STACK_SIZE};
 
 #[test]
 fn test_eval_script_op_limit_exceeded() {

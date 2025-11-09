@@ -9,8 +9,8 @@
 //! - All verification flag combinations
 //! - Opcode interactions and edge cases
 
-use consensus_proof::script::{eval_script, verify_script};
-use consensus_proof::types::ByteString;
+use bllvm_consensus::script::{eval_script, verify_script};
+use bllvm_consensus::types::ByteString;
 
 /// Script verification flags from Bitcoin Core
 ///
@@ -177,7 +177,7 @@ fn test_disabled_opcodes() {
 /// Verifies that scripts exceeding size limits are rejected.
 #[test]
 fn test_script_size_limits() {
-    use consensus_proof::constants::MAX_SCRIPT_SIZE;
+    use bllvm_consensus::constants::MAX_SCRIPT_SIZE;
 
     // Create a script at the size limit
     let mut script = vec![0x51; MAX_SCRIPT_SIZE];
@@ -201,7 +201,7 @@ fn test_script_size_limits() {
 /// Verifies that scripts exceeding operation count limits are rejected.
 #[test]
 fn test_operation_count_limits() {
-    use consensus_proof::constants::MAX_SCRIPT_OPS;
+    use bllvm_consensus::constants::MAX_SCRIPT_OPS;
 
     // Create a script at the operation limit
     let script = vec![0x51; MAX_SCRIPT_OPS]; // OP_1 repeated
@@ -226,7 +226,7 @@ fn test_operation_count_limits() {
 /// Verifies that stack size limits are enforced correctly.
 #[test]
 fn test_stack_size_limits() {
-    use consensus_proof::constants::MAX_STACK_SIZE;
+    use bllvm_consensus::constants::MAX_STACK_SIZE;
 
     // Create a script that would exceed stack size
     // Push MAX_STACK_SIZE + 1 items

@@ -3,7 +3,7 @@
 //! These tests verify consensus correctness by running Core's test vectors
 //! through our validation logic. This provides free verification coverage.
 
-use consensus_proof::*;
+use bllvm_consensus::*;
 use std::path::PathBuf;
 
 /// Test directory for Core test vectors

@@ -7,7 +7,7 @@
 //! BIP9: Version bits with timeout and delay
 //! https://github.com/bitcoin/bips/blob/master/bip-0009.mediawiki
 
-use consensus_proof::types::BlockHeader;
+use bllvm_consensus::types::BlockHeader;
 
 /// BIP9 version bits constants
 ///

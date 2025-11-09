@@ -1,4 +1,4 @@
-use consensus_proof::taproot::*;
+use bllvm_consensus::taproot::*;
 
 #[test]
 fn test_validate_taproot_script_and_extract_key() {

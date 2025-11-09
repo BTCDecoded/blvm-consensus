@@ -3,9 +3,9 @@
 //! Tests for Taproot (BIP340/341/342) integration with transaction validation,
 //! block context, and output validation.
 
-use consensus_proof::*;
-use consensus_proof::taproot::*;
-use consensus_proof::script::verify_script_with_context_full;
+use bllvm_consensus::*;
+use bllvm_consensus::taproot::*;
+use bllvm_consensus::script::verify_script_with_context_full;
 use super::bip_test_helpers::*;
 
 /// Create a Taproot P2TR script (OP_1 <32-byte-output-key>)

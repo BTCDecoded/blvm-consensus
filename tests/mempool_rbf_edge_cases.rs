@@ -10,10 +10,10 @@
 //!
 //! Consensus-critical: Incorrect RBF handling can cause mempool divergence.
 
-use consensus_proof::constants::{SEQUENCE_FINAL, SEQUENCE_RBF};
-use consensus_proof::mempool::replacement_checks;
-use consensus_proof::mempool::Mempool;
-use consensus_proof::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use bllvm_consensus::constants::{SEQUENCE_FINAL, SEQUENCE_RBF};
+use bllvm_consensus::mempool::replacement_checks;
+use bllvm_consensus::mempool::Mempool;
+use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Test RBF signaling (sequence < 0xffffffff)
 #[test]
@@ -348,7 +348,7 @@ fn test_rbf_replacement_chains() {
 /// BIP125 rule 3: Absolute fee must increase by at least MIN_RELAY_FEE
 #[test]
 fn test_rbf_absolute_fee_requirement() {
-    use consensus_proof::constants::MIN_RELAY_FEE;
+    use bllvm_consensus::constants::MIN_RELAY_FEE;
 
     // Original transaction with fee
     let original_fee = 10000; // 10000 satoshis

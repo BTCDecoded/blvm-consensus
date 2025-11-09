@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering all edge cases and boundary conditions
 //! for transaction validation, ensuring 99% coverage of possible input combinations.
 
-use consensus_proof::*;
-use consensus_proof::ConsensusProof;
-use consensus_proof::types::*;
-use consensus_proof::constants::{MAX_MONEY, MAX_INPUTS, MAX_OUTPUTS};
+use bllvm_consensus::*;
+use bllvm_consensus::ConsensusProof;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::{MAX_MONEY, MAX_INPUTS, MAX_OUTPUTS};
 use proptest::prelude::*;
 
 /// Property test: transaction with exactly MAX_MONEY output value

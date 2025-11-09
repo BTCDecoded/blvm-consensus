@@ -2,9 +2,9 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use consensus_proof::*;
-    use consensus_proof::block::*;
-    use consensus_proof::script::*;
+    use bllvm_consensus::*;
+    use bllvm_consensus::block::*;
+    use bllvm_consensus::script::*;
 
     fn create_multi_input_transaction() -> Transaction {
         Transaction {

@@ -3,9 +3,9 @@
 //! Comprehensive property-based tests covering script opcode combinations,
 //! stack operations, and edge cases to ensure 99% coverage of possible scenarios.
 
-use consensus_proof::*;
-use consensus_proof::script;
-use consensus_proof::constants::MAX_STACK_SIZE;
+use bllvm_consensus::*;
+use bllvm_consensus::script;
+use bllvm_consensus::constants::MAX_STACK_SIZE;
 use proptest::prelude::*;
 
 // Note: execute_opcode is private, so we'll use eval_script instead

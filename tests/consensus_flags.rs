@@ -20,8 +20,8 @@
 //! - SCRIPT_VERIFY_MINIMALIF (0x2000)
 //! - SCRIPT_VERIFY_TAPROOT (0x4000)
 
-use consensus_proof::script::{eval_script, verify_script};
-use consensus_proof::types::ByteString;
+use bllvm_consensus::script::{eval_script, verify_script};
+use bllvm_consensus::types::ByteString;
 
 /// All script verification flags
 pub const ALL_FLAGS: &[u32] = &[

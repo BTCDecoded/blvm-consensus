@@ -8,9 +8,9 @@
 
 #[cfg(feature = "utxo-commitments")]
 mod tests {
-    use consensus_proof::types::{BlockHeader, Hash, Natural, Transaction, TransactionInput, TransactionOutput, OutPoint, UTXO, ByteString};
-    use consensus_proof::utxo_commitments::*;
-    use consensus_proof::economic::total_supply;
+    use bllvm_consensus::types::{BlockHeader, Hash, Natural, Transaction, TransactionInput, TransactionOutput, OutPoint, UTXO, ByteString};
+    use bllvm_consensus::utxo_commitments::*;
+    use bllvm_consensus::economic::total_supply;
     use std::collections::HashMap;
 
     /// Create a test block header
@@ -89,10 +89,10 @@ mod tests {
 
     #[test]
     fn test_spam_transaction_removes_spent_inputs() {
-        use consensus_proof::utxo_commitments::initial_sync::InitialSync;
-        use consensus_proof::utxo_commitments::merkle_tree::UtxoMerkleTree;
-        use consensus_proof::utxo_commitments::peer_consensus::ConsensusConfig;
-        use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, UTXO};
+        use bllvm_consensus::utxo_commitments::initial_sync::InitialSync;
+        use bllvm_consensus::utxo_commitments::merkle_tree::UtxoMerkleTree;
+        use bllvm_consensus::utxo_commitments::peer_consensus::ConsensusConfig;
+        use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, UTXO};
         
         // Create initial sync manager
         let config = ConsensusConfig {
@@ -162,7 +162,7 @@ mod tests {
         
         // Verify spam output was NOT added (bandwidth savings)
         // Compute tx_id using the same method as process_filtered_block
-        use consensus_proof::serialization::transaction::serialize_transaction;
+        use bllvm_consensus::serialization::transaction::serialize_transaction;
         use sha2::{Sha256, Digest};
         let serialized = serialize_transaction(&spam_tx);
         let first_hash = Sha256::digest(&serialized);

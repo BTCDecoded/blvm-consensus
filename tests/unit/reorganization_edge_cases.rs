@@ -3,9 +3,9 @@
 //! Comprehensive property-based tests covering chain reorganization scenarios,
 //! chain work calculations, and UTXO set consistency during reorganizations.
 
-use consensus_proof::*;
-use consensus_proof::reorganization;
-use consensus_proof::types::*;
+use bllvm_consensus::*;
+use bllvm_consensus::reorganization;
+use bllvm_consensus::types::*;
 use proptest::prelude::*;
 
 /// Property test: chain work is always non-negative

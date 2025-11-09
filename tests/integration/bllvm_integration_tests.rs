@@ -3,7 +3,7 @@
 //! Tests verify that BLLVM optimizations work correctly in realistic scenarios,
 //! including block validation, merkle root calculation, and batch operations.
 
-use consensus_proof::{
+use bllvm_consensus::{
     block::validate_block,
     mining::{calculate_merkle_root, generate_block_template},
     optimizations::simd_vectorization,
@@ -72,7 +72,7 @@ fn test_merkle_root_large_transaction_set() {
 /// Test that serialization and deserialization round-trip works with optimizations
 #[test]
 fn test_serialization_round_trip() {
-    use consensus_proof::serialization::transaction::deserialize_transaction;
+    use bllvm_consensus::serialization::transaction::deserialize_transaction;
 
     let tx = create_test_transaction();
 
