@@ -10,10 +10,10 @@
 //!
 //! Consensus-critical: Taproot validation bugs can cause consensus divergence.
 
-use consensus_proof::taproot::{
+use bllvm_consensus::taproot::{
     compute_taproot_tweak, validate_taproot_key_aggregation, validate_taproot_script_path,
 };
-use consensus_proof::types::{ByteString, Hash};
+use bllvm_consensus::types::{ByteString, Hash};
 
 /// Test Taproot script path merkle proof validation
 #[test]

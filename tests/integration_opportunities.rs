@@ -3,8 +3,8 @@
 //! These tests verify that different modules work together correctly
 //! and catch integration bugs that unit tests might miss.
 
-use consensus_proof::transaction::is_coinbase;
-use consensus_proof::*;
+use bllvm_consensus::transaction::is_coinbase;
+use bllvm_consensus::*;
 
 mod test_helpers;
 use test_helpers::{adjusted_timeout, is_ci};

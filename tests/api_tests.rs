@@ -1,10 +1,10 @@
 //! Comprehensive tests for the public ConsensusProof API
 
-use consensus_proof::mempool::*;
-use consensus_proof::mining::*;
-use consensus_proof::network::*;
-use consensus_proof::segwit::*;
-use consensus_proof::*;
+use bllvm_consensus::mempool::*;
+use bllvm_consensus::mining::*;
+use bllvm_consensus::network::*;
+use bllvm_consensus::segwit::*;
+use bllvm_consensus::*;
 
 #[test]
 fn test_consensus_proof_new() {

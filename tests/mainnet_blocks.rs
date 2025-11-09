@@ -11,11 +11,11 @@
 //! - Taproot activation (height 709632)
 //! - Post-Taproot (height > 709632)
 
-use consensus_proof::block::connect_block;
-use consensus_proof::pow::check_proof_of_work;
-use consensus_proof::segwit::Witness;
-use consensus_proof::serialization::block::deserialize_block_with_witnesses;
-use consensus_proof::{Block, BlockHeader, UtxoSet, ValidationResult};
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::pow::check_proof_of_work;
+use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
+use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
 use hex;
 
 /// Genesis block (height 0) - the first Bitcoin block
@@ -150,9 +150,9 @@ fn test_taproot_activation_block() {
 /// - Post-Taproot: Coinbase may include Taproot commitment
 #[test]
 fn test_coinbase_transaction_eras() {
-    use consensus_proof::transaction::check_transaction;
-    use consensus_proof::types::OutPoint;
-    use consensus_proof::types::{Transaction, TransactionInput, TransactionOutput};
+    use bllvm_consensus::transaction::check_transaction;
+    use bllvm_consensus::types::OutPoint;
+    use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
 
     // Pre-SegWit coinbase (height < 481824)
     let pre_segwit_coinbase = Transaction {
@@ -207,7 +207,7 @@ fn test_coinbase_transaction_eras() {
 /// maintaining byte-for-byte compatibility with Bitcoin Core.
 #[test]
 fn test_mainnet_block_serialization_roundtrip() {
-    use consensus_proof::serialization::block::{deserialize_block_header, serialize_block_header};
+    use bllvm_consensus::serialization::block::{deserialize_block_header, serialize_block_header};
 
     // Test with a realistic block header
     let header = BlockHeader {
@@ -239,7 +239,7 @@ fn test_mainnet_block_serialization_roundtrip() {
 /// - Taproot transactions (P2TR)
 #[test]
 fn test_real_world_transaction_patterns() {
-    use consensus_proof::transaction::is_coinbase;
+    use bllvm_consensus::transaction::is_coinbase;
 
     let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
     let test_heights = vec![100000, 200000, 300000, 400000, 500000, 600000];

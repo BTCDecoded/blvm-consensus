@@ -1,10 +1,10 @@
-use consensus_proof::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
+use bllvm_consensus::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
 
 fn utxo(value: i64) -> (UtxoSet, OutPoint) {
     let mut set = UtxoSet::new();
     let txid = [1u8;32];
     let op = OutPoint { hash: txid, index: 0 };
-    set.insert(op.clone(), consensus_proof::UTXO { value, script_pubkey: vec![0x51], height: 1 });
+    set.insert(op.clone(), bllvm_consensus::UTXO { value, script_pubkey: vec![0x51], height: 1 });
     (set, op)
 }
 

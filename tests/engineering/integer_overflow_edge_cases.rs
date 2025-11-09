@@ -3,11 +3,11 @@
 //! Tests for consensus-critical integer arithmetic edge cases that could cause
 //! money creation or validation failures if not handled correctly.
 
-use consensus_proof::*;
-use consensus_proof::transaction::check_tx_inputs;
-use consensus_proof::economic::get_block_subsidy;
-use consensus_proof::block::connect_block;
-use consensus_proof::economic::calculate_fee;
+use bllvm_consensus::*;
+use bllvm_consensus::transaction::check_tx_inputs;
+use bllvm_consensus::economic::get_block_subsidy;
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::economic::calculate_fee;
 
 #[test]
 fn test_input_value_overflow() {

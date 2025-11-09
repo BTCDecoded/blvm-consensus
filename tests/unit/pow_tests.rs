@@ -1,9 +1,9 @@
 //! Unit tests for proof of work functions
 
-use consensus_proof::*;
-use consensus_proof::pow::*;
-use consensus_proof::types::*;
-use consensus_proof::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, TARGET_TIME_PER_BLOCK, MAX_TARGET};
+use bllvm_consensus::*;
+use bllvm_consensus::pow::*;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, TARGET_TIME_PER_BLOCK, MAX_TARGET};
 
 #[test]
 fn test_get_next_work_required_insufficient_headers() {

@@ -1,9 +1,9 @@
 //! Integration tests for mempool and mining functions
 
-use consensus_proof::*;
-use consensus_proof::types::*;
-use consensus_proof::mempool::*;
-use consensus_proof::mining::*;
+use bllvm_consensus::*;
+use bllvm_consensus::types::*;
+use bllvm_consensus::mempool::*;
+use bllvm_consensus::mining::*;
 
 #[test]
 fn test_mempool_to_block_integration() {

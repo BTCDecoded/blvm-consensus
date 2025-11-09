@@ -1,9 +1,9 @@
 //! Tests for witness data validation in block context
 
-use consensus_proof::types::*;
-use consensus_proof::block::connect_block;
-use consensus_proof::segwit::Witness;
-use consensus_proof::bip113::get_median_time_past;
+use bllvm_consensus::types::*;
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::bip113::get_median_time_past;
 
 #[test]
 fn test_witness_validation_empty_witnesses() {

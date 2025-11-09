@@ -1,4 +1,4 @@
-use consensus_proof::{mining, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block};
+use bllvm_consensus::{mining, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block};
 
 fn create_coinbase_tx() -> Transaction {
     Transaction {
@@ -39,7 +39,7 @@ fn test_merkle_root_single_transaction() {
 
 #[test]
 fn test_block_template_creation() {
-    let utxo = consensus_proof::UtxoSet::new();
+    let utxo = bllvm_consensus::UtxoSet::new();
     let mempool_txs = vec![];
     let height = 1;
     let prev_header = BlockHeader {

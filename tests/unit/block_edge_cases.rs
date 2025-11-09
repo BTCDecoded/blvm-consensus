@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering all edge cases and boundary conditions
 //! for block validation, ensuring 99% coverage of possible input combinations.
 
-use consensus_proof::*;
-use consensus_proof::ConsensusProof;
-use consensus_proof::types::*;
-use consensus_proof::constants::{MAX_BLOCK_SIZE, MAX_TX_SIZE};
+use bllvm_consensus::*;
+use bllvm_consensus::ConsensusProof;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::{MAX_BLOCK_SIZE, MAX_TX_SIZE};
 use proptest::prelude::*;
 
 /// Property test: block with maximum transaction count
@@ -250,7 +250,7 @@ proptest! {
         prop_assert!(subsidy >= 0);
         
         // Subsidy should not exceed initial subsidy
-        prop_assert!(subsidy <= consensus_proof::constants::INITIAL_SUBSIDY as i64);
+        prop_assert!(subsidy <= bllvm_consensus::constants::INITIAL_SUBSIDY as i64);
         
         // Subsidy should decrease with height (halving)
         if height > 210000 {

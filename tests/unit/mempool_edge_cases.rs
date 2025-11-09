@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering mempool transaction validation,
 //! RBF rules, fee rate calculations, and conflict detection.
 
-use consensus_proof::*;
-use consensus_proof::mempool;
-use consensus_proof::types::*;
-use consensus_proof::constants::MAX_INPUTS;
+use bllvm_consensus::*;
+use bllvm_consensus::mempool;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::MAX_INPUTS;
 use proptest::prelude::*;
 
 // Note: Mempool is a HashSet<Hash> in the actual implementation

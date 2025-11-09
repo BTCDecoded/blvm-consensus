@@ -2,8 +2,8 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use consensus_proof::script::*;
-    use consensus_proof::constants::*;
+    use bllvm_consensus::script::*;
+    use bllvm_consensus::constants::*;
 
     #[test]
     fn test_stack_preallocation_capacity() {

@@ -10,7 +10,7 @@
 //! 4. Compares UTXO set hashes at checkpoints with known values
 //! 5. Reports any validation failures or divergences
 
-use consensus_proof::*;
+use bllvm_consensus::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use hex;
@@ -107,17 +107,17 @@ pub async fn replay_historical_blocks(
                 };
                 
                 // Deserialize block
-                use consensus_proof::serialization::block::deserialize_block_with_witnesses;
+                use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
                 let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
                     .map_err(|e| format!("Failed to deserialize block {}: {}", current_height, e))?;
                 
                 // Validate block
                 // connect_block expects &[Witness] where each Witness is Vec<ByteString> (one per transaction)
-                use consensus_proof::block::connect_block;
+                use bllvm_consensus::block::connect_block;
                 match connect_block(&block, &witnesses, utxo_set.clone(), current_height, None) {
                     Ok((validation_result, new_utxo_set)) => {
                         match validation_result {
-                            consensus_proof::ValidationResult::Valid => {
+                            bllvm_consensus::ValidationResult::Valid => {
                                 utxo_set = new_utxo_set;
                                 blocks_validated += 1;
                                 
@@ -133,7 +133,7 @@ pub async fn replay_historical_blocks(
                                     }
                                 }
                             }
-                            consensus_proof::ValidationResult::Invalid(reason) => {
+                            bllvm_consensus::ValidationResult::Invalid(reason) => {
                                 blocks_failed.push((current_height, reason));
                                 // Continue replay even if block fails (for debugging)
                             }
@@ -260,7 +260,7 @@ pub fn load_block_from_disk(
             height, bin_path.display(), hex_path.display()).into());
     };
     
-    use consensus_proof::serialization::block::deserialize_block_with_witnesses;
+    use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
         .map_err(|e| format!("Failed to deserialize block {}: {}", height, e))?;
     

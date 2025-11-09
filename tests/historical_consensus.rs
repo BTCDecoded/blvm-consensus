@@ -11,9 +11,9 @@
 //! Also tests historical consensus bugs:
 //! - CVE-2012-2459: Merkle tree duplicate hash vulnerability
 
-use consensus_proof::block::connect_block;
-use consensus_proof::pow::check_proof_of_work;
-use consensus_proof::{Block, BlockHeader, UtxoSet, ValidationResult};
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::pow::check_proof_of_work;
+use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
 
 /// Test CVE-2012-2459: Merkle tree duplicate hash vulnerability
 ///
@@ -163,7 +163,7 @@ fn test_post_taproot_block_validation() {
 /// Verifies that block subsidy is correctly calculated at various halving heights.
 #[test]
 fn test_historical_block_subsidy() {
-    use consensus_proof::economic::get_block_subsidy;
+    use bllvm_consensus::economic::get_block_subsidy;
 
     // Test at various historical heights
     let heights = vec![
@@ -198,7 +198,7 @@ fn test_historical_block_subsidy() {
 /// difficulty adjustment periods.
 #[test]
 fn test_historical_difficulty_adjustment() {
-    use consensus_proof::pow::get_next_work_required;
+    use bllvm_consensus::pow::get_next_work_required;
 
     // Create headers for a difficulty adjustment period
     let mut headers = Vec::new();

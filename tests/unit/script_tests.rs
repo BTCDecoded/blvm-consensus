@@ -1,7 +1,7 @@
 //! Unit tests for script execution functions
 
-use consensus_proof::*;
-use consensus_proof::script::*;
+use bllvm_consensus::*;
+use bllvm_consensus::script::*;
 
 #[test]
 fn test_eval_script_simple() {

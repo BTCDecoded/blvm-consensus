@@ -1,4 +1,4 @@
-use consensus_proof::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
+use bllvm_consensus::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
 
 fn create_rbf_tx(sequence: u32) -> Transaction {
     Transaction {

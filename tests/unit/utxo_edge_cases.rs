@@ -3,8 +3,8 @@
 //! Comprehensive property-based tests covering UTXO set operations,
 //! consistency during block connection, and edge cases.
 
-use consensus_proof::*;
-use consensus_proof::types::*;
+use bllvm_consensus::*;
+use bllvm_consensus::types::*;
 use proptest::prelude::*;
 
 /// Property test: UTXO set insertion maintains uniqueness

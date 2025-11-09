@@ -10,9 +10,9 @@
 //! - Locktime interactions with soft fork activation
 //! - Time-based consensus at exact boundaries
 
-use consensus_proof::bip113::get_median_time_past;
-use consensus_proof::types::BlockHeader;
-use consensus_proof::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use bllvm_consensus::bip113::get_median_time_past;
+use bllvm_consensus::types::BlockHeader;
+use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Test BIP65 CLTV (CheckLockTimeVerify) - height-based locktime
 ///
@@ -23,7 +23,7 @@ fn test_bip65_cltv_height() {
 
     // Test CLTV with block height locktime
     let locktime_value = 1000u32; // Block height 1000
-    let encoded = consensus_proof::locktime::encode_locktime_value(locktime_value);
+    let encoded = bllvm_consensus::locktime::encode_locktime_value(locktime_value);
 
     // Encoded value should use minimal encoding (1000 = 0xe8 0x03 = 2 bytes)
     // Minimal encoding: only include bytes up to highest non-zero byte
@@ -60,7 +60,7 @@ fn test_bip65_cltv_time() {
 
     // Test CLTV with Unix timestamp locktime
     let locktime_value = 500000000u32; // Unix timestamp
-    let encoded = consensus_proof::locktime::encode_locktime_value(locktime_value);
+    let encoded = bllvm_consensus::locktime::encode_locktime_value(locktime_value);
 
     // Encoded value should be correct
     assert_eq!(encoded.len(), 4);

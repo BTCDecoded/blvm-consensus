@@ -3,9 +3,9 @@
 //! Tests for consensus-critical parser behavior that must reject malformed data
 //! deterministically to ensure all nodes agree on what's invalid.
 
-use consensus_proof::*;
-use consensus_proof::serialization::varint::decode_varint;
-use consensus_proof::serialization::{deserialize_transaction, deserialize_block_header};
+use bllvm_consensus::*;
+use bllvm_consensus::serialization::varint::decode_varint;
+use bllvm_consensus::serialization::{deserialize_transaction, deserialize_block_header};
 
 #[test]
 fn test_varint_truncated_data() {

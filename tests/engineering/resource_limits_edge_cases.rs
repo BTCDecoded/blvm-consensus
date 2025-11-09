@@ -3,10 +3,10 @@
 //! Tests for consensus-critical resource limits that must be enforced deterministically
 //! at exact boundaries to prevent DoS attacks and ensure consensus compatibility.
 
-use consensus_proof::*;
-use consensus_proof::constants::*;
-use consensus_proof::script::eval_script;
-use consensus_proof::transaction::{check_transaction, calculate_transaction_size};
+use bllvm_consensus::*;
+use bllvm_consensus::constants::*;
+use bllvm_consensus::script::eval_script;
+use bllvm_consensus::transaction::{check_transaction, calculate_transaction_size};
 
 #[test]
 fn test_script_operation_limit_boundary() {
@@ -27,7 +27,7 @@ fn test_script_operation_limit_boundary() {
     assert!(result.is_err(), "Script with exactly 201 operations should fail");
     
     // Check error message
-    if let Err(consensus_proof::error::ConsensusError::ScriptExecution(msg)) = result {
+    if let Err(bllvm_consensus::error::ConsensusError::ScriptExecution(msg)) = result {
         assert!(msg.contains("Operation limit"), "Error should mention operation limit");
     }
 }
@@ -59,7 +59,7 @@ fn test_stack_size_limit_boundary() {
     let result = eval_script(&script, &mut stack, 0);
     assert!(result.is_err(), "Script pushing 1000 items should fail due to stack limit");
     
-    if let Err(consensus_proof::error::ConsensusError::ScriptExecution(msg)) = result {
+    if let Err(bllvm_consensus::error::ConsensusError::ScriptExecution(msg)) = result {
         assert!(msg.contains("Stack") || msg.contains("overflow"), "Error should mention stack");
     }
 }

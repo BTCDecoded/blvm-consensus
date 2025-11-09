@@ -5,9 +5,9 @@
 //!
 //! Requires: reference-node running with RPC enabled (or in-process test node)
 
-use consensus_proof::*;
-use consensus_proof::serialization::transaction::serialize_transaction;
-use consensus_proof::serialization::block::serialize_block_header;
+use bllvm_consensus::*;
+use bllvm_consensus::serialization::transaction::serialize_transaction;
+use bllvm_consensus::serialization::block::serialize_block_header;
 use serde_json::json;
 use std::time::Duration;
 

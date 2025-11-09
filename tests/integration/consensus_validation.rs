@@ -1,7 +1,7 @@
 //! Integration tests for consensus validation
 
-use consensus_proof::*;
-use consensus_proof::types::*;
+use bllvm_consensus::*;
+use bllvm_consensus::types::*;
 
 #[test]
 fn test_consensus_proof_basic_functionality() {

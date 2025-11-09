@@ -1,8 +1,8 @@
 //! Regression tests for edge cases and boundary conditions
 
-use consensus_proof::*;
-use consensus_proof::types::*;
-use consensus_proof::constants::*;
+use bllvm_consensus::*;
+use bllvm_consensus::types::*;
+use bllvm_consensus::constants::*;
 
 #[test]
 fn test_transaction_size_boundaries() {

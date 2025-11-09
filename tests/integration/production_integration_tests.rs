@@ -2,8 +2,8 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use consensus_proof::*;
-    use consensus_proof::block::*;
+    use bllvm_consensus::*;
+    use bllvm_consensus::block::*;
     use std::time::Instant;
     
     // Import CI-aware test helpers
