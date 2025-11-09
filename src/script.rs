@@ -223,7 +223,7 @@ fn eval_script_impl(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32
     // Falls back to Vec for larger stacks
     // Note: We convert to Vec for execute_opcode compatibility, but SmallVec
     // still provides stack allocation benefits for the initial allocation
-    let mut small_stack: SmallVec<[ByteString; 8]> = SmallVec::from_vec(std::mem::take(stack));
+    let small_stack: SmallVec<[ByteString; 8]> = SmallVec::from_vec(std::mem::take(stack));
     let mut vec_stack = small_stack.into_vec();
     let result = eval_script_inner(script, &mut vec_stack, flags);
     *stack = vec_stack;

@@ -13,6 +13,7 @@ use crate::error::{ConsensusError, Result};
 /// Values below this threshold are guaranteed to not overflow when
 /// added together (even with many additions). This is set conservatively
 /// to ensure safety.
+#[allow(dead_code)] // Used in tests
 const MAX_SAFE_VALUE: i64 = MAX_MONEY / 2;
 
 /// Fast-path addition with overflow checking

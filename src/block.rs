@@ -16,8 +16,7 @@ use crate::segwit::{
 use crate::transaction::{check_transaction, check_tx_inputs, is_coinbase};
 use crate::types::*;
 
-#[cfg(feature = "production")]
-use rayon::prelude::*;
+// Rayon is used conditionally in the code, imported where needed
 
 /// Assume-valid checkpoint configuration (Phase 4.1)
 ///
@@ -450,14 +449,6 @@ pub fn connect_block(
                 // Verify scripts for non-coinbase transactions
                 // Phase 4.1: Skip signature verification if assume-valid
                 if !is_coinbase(tx) && !skip_signatures {
-                    // Pre-lookup UTXOs to avoid concurrent HashMap access
-                    let input_utxos: Vec<(usize, Option<&ByteString>)> = tx
-                        .inputs
-                        .iter()
-                        .enumerate()
-                        .map(|(j, input)| (j, utxo_set.get(&input.prevout).map(|u| &u.script_pubkey)))
-                        .collect();
-
                     // Create prevouts for context (needed for CLTV/CSV validation)
                     let prevouts: Vec<TransactionOutput> = tx
                         .inputs

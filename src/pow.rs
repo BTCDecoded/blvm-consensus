@@ -172,7 +172,7 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
                 let is_valid = hash_value < target;
                 results.push((is_valid, if is_valid { Some(hash) } else { None }));
             }
-            Err(e) => {
+            Err(_e) => {
                 // Invalid target, mark as invalid
                 results.push((false, None));
             }

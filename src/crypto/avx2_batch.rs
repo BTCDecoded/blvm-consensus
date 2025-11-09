@@ -8,9 +8,6 @@
 //! - Batch (8+ items): Uses AVX2 8-way parallel processing
 //! - Expected: 4-8x speedup for batch operations on AVX2-capable CPUs
 
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
-
 use sha2::{Digest, Sha256};
 use crate::crypto::sha256_avx2;
 

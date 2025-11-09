@@ -387,6 +387,7 @@ fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
 ///
 /// This function computes the double SHA256 hash of the serialized transaction.
 /// For batch operations, use serialize_tx_for_hash + batch_double_sha256 instead.
+#[allow(dead_code)] // Used in tests
 fn calculate_tx_hash(tx: &Transaction) -> Hash {
     let data = serialize_tx_for_hash(tx);
     // Double SHA256 (Bitcoin standard)

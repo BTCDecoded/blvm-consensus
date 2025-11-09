@@ -12,13 +12,21 @@
 use std::arch::x86_64::*;
 
 // SHA256 initial hash values
-const INITIAL_HASH: [u32; 8] = [
+// Aligned to 16-byte boundary for optimal SIMD access
+#[repr(align(16))]
+struct AlignedInitialHash([u32; 8]);
+
+static INITIAL_HASH: AlignedInitialHash = AlignedInitialHash([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-];
+]);
 
 // SHA256 K constants
-const K_ARRAY: [u32; 64] = [
+// Aligned to 16-byte boundary for optimal SIMD access
+#[repr(align(16))]
+struct AlignedKArray([u32; 64]);
+
+static K_ARRAY: AlignedKArray = AlignedKArray([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
     0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -35,7 +43,7 @@ const K_ARRAY: [u32; 64] = [
     0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-];
+]);
 
 /// Helper functions for AVX2 operations
 #[cfg(target_arch = "x86_64")]
@@ -263,14 +271,14 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
     use helpers::*;
     
     // Initialize state with initial hash values (host byte order, matching Core)
-    let mut a = _mm256_set1_epi32(INITIAL_HASH[0] as i32);
-    let mut b = _mm256_set1_epi32(INITIAL_HASH[1] as i32);
-    let mut c = _mm256_set1_epi32(INITIAL_HASH[2] as i32);
-    let mut d = _mm256_set1_epi32(INITIAL_HASH[3] as i32);
-    let mut e = _mm256_set1_epi32(INITIAL_HASH[4] as i32);
-    let mut f = _mm256_set1_epi32(INITIAL_HASH[5] as i32);
-    let mut g = _mm256_set1_epi32(INITIAL_HASH[6] as i32);
-    let mut h = _mm256_set1_epi32(INITIAL_HASH[7] as i32);
+    let mut a = _mm256_set1_epi32(INITIAL_HASH.0[0] as i32);
+    let mut b = _mm256_set1_epi32(INITIAL_HASH.0[1] as i32);
+    let mut c = _mm256_set1_epi32(INITIAL_HASH.0[2] as i32);
+    let mut d = _mm256_set1_epi32(INITIAL_HASH.0[3] as i32);
+    let mut e = _mm256_set1_epi32(INITIAL_HASH.0[4] as i32);
+    let mut f = _mm256_set1_epi32(INITIAL_HASH.0[5] as i32);
+    let mut g = _mm256_set1_epi32(INITIAL_HASH.0[6] as i32);
+    let mut h = _mm256_set1_epi32(INITIAL_HASH.0[7] as i32);
     
     #[cfg(debug_assertions)]
     {
@@ -309,7 +317,7 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
             println!("DEBUG: w0 is zero (expected for zero input)");
         }
     }
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[0]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[0]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after_round0 = _mm256_extract_epi32(a, 0) as u32;
@@ -317,7 +325,7 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG After round 0: a=0x{:08x}, h=0x{:08x}", a_after_round0, h_after_round0);
     }
     w1 = read8(input, 4);
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[1]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[1]), w1));
     #[cfg(debug_assertions)]
     {
         let a_after_round1 = _mm256_extract_epi32(a, 0) as u32;
@@ -325,17 +333,17 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG After round 1: a=0x{:08x}, h=0x{:08x}", a_after_round1, h_after_round1);
     }
     w2 = read8(input, 8);
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[2]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[2]), w2));
     w3 = read8(input, 12);
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[3]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[3]), w3));
     w4 = read8(input, 16);
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[4]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[4]), w4));
     w5 = read8(input, 20);
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[5]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[5]), w5));
     w6 = read8(input, 24);
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[6]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[6]), w6));
     w7 = read8(input, 28);
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[7]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[7]), w7));
     #[cfg(debug_assertions)]
     {
         let a_after_round7 = _mm256_extract_epi32(a, 0) as u32;
@@ -344,21 +352,21 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG After round 7: a=0x{:08x}, b=0x{:08x}, h=0x{:08x}", a_after_round7, b_after_round7, h_after_round7);
     }
     w8 = read8(input, 32);
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[8]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[8]), w8));
     w9 = read8(input, 36);
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[9]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[9]), w9));
     w10 = read8(input, 40);
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[10]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[10]), w10));
     w11 = read8(input, 44);
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[11]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[11]), w11));
     w12 = read8(input, 48);
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[12]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[12]), w12));
     w13 = read8(input, 52);
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[13]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[13]), w13));
     w14 = read8(input, 56);
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[14]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[14]), w14));
     w15 = read8(input, 60);
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[15]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[15]), w15));
     #[cfg(debug_assertions)]
     {
         let a_after_round15 = _mm256_extract_epi32(a, 0) as u32;
@@ -382,7 +390,7 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         let w0_after_inc = _mm256_extract_epi32(w0, 0) as u32;
         println!("DEBUG After inc4 w0 (round 16): w0=0x{:08x}", w0_after_inc);
     }
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[16]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[16]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after_round16 = _mm256_extract_epi32(a, 0) as u32;
@@ -398,43 +406,43 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
                  e_after_round16, f_after_round16, g_after_round16, h_after_round16);
     }
     helpers::inc4(&mut w1, helpers::sigma1_small(w15), w10, helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[17]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[17]), w1));
     helpers::inc4(&mut w2, helpers::sigma1_small(w0), w11, helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[18]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[18]), w2));
     #[cfg(debug_assertions)]
     {
         let a_after_round18 = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG After round 18: a=0x{:08x}", a_after_round18);
     }
     helpers::inc4(&mut w3, helpers::sigma1_small(w1), w12, helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[19]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[19]), w3));
     helpers::inc4(&mut w4, helpers::sigma1_small(w2), w13, helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[20]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[20]), w4));
     #[cfg(debug_assertions)]
     {
         let a_after_round20 = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG After round 20: a=0x{:08x}", a_after_round20);
     }
     helpers::inc4(&mut w5, helpers::sigma1_small(w3), w14, helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[21]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[21]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), w15, helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[22]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[22]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, helpers::sigma0_small(w8));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[23]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[23]), w7));
     helpers::inc4(&mut w8, helpers::sigma1_small(w6), w1, helpers::sigma0_small(w9));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[24]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[24]), w8));
     helpers::inc4(&mut w9, helpers::sigma1_small(w7), w2, helpers::sigma0_small(w10));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[25]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[25]), w9));
     helpers::inc4(&mut w10, helpers::sigma1_small(w8), w3, helpers::sigma0_small(w11));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[26]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[26]), w10));
     helpers::inc4(&mut w11, helpers::sigma1_small(w9), w4, helpers::sigma0_small(w12));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[27]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[27]), w11));
     helpers::inc4(&mut w12, helpers::sigma1_small(w10), w5, helpers::sigma0_small(w13));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[28]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[28]), w12));
     helpers::inc4(&mut w13, helpers::sigma1_small(w11), w6, helpers::sigma0_small(w14));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[29]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[29]), w13));
     helpers::inc4(&mut w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[30]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[30]), w14));
     #[cfg(debug_assertions)]
     {
         let a_after_round30 = _mm256_extract_epi32(a, 0) as u32;
@@ -471,10 +479,10 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
     {
         let w15_after = _mm256_extract_epi32(w15, 0) as u32;
         println!("DEBUG w15 after inc4: 0x{:08x}", w15_after);
-        let k31 = K_ARRAY[31];
-        println!("DEBUG K_ARRAY[31] = 0x{:08x}", k31);
+        let k31 = K_ARRAY.0[31];
+        println!("DEBUG K_ARRAY.0[31] = 0x{:08x}", k31);
     }
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[31]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[31]), w15));
     #[cfg(debug_assertions)]
     {
         let a_after_round31 = _mm256_extract_epi32(a, 0) as u32;
@@ -490,69 +498,69 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
                  e_after_round31, f_after_round31, g_after_round31, h_after_round31);
     }
     helpers::inc4(&mut w0, helpers::sigma1_small(w14), w9, helpers::sigma0_small(w1));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[32]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[32]), w0));
     helpers::inc4(&mut w1, helpers::sigma1_small(w15), w10, helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[33]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[33]), w1));
     helpers::inc4(&mut w2, helpers::sigma1_small(w0), w11, helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[34]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[34]), w2));
     helpers::inc4(&mut w3, helpers::sigma1_small(w1), w12, helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[35]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[35]), w3));
     helpers::inc4(&mut w4, helpers::sigma1_small(w2), w13, helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[36]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[36]), w4));
     helpers::inc4(&mut w5, helpers::sigma1_small(w3), w14, helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[37]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[37]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), w15, helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[38]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[38]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, helpers::sigma0_small(w8));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[39]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[39]), w7));
     helpers::inc4(&mut w8, helpers::sigma1_small(w6), w1, helpers::sigma0_small(w9));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[40]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[40]), w8));
     helpers::inc4(&mut w9, helpers::sigma1_small(w7), w2, helpers::sigma0_small(w10));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[41]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[41]), w9));
     helpers::inc4(&mut w10, helpers::sigma1_small(w8), w3, helpers::sigma0_small(w11));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[42]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[42]), w10));
     helpers::inc4(&mut w11, helpers::sigma1_small(w9), w4, helpers::sigma0_small(w12));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[43]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[43]), w11));
     helpers::inc4(&mut w12, helpers::sigma1_small(w10), w5, helpers::sigma0_small(w13));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[44]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[44]), w12));
     helpers::inc4(&mut w13, helpers::sigma1_small(w11), w6, helpers::sigma0_small(w14));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[45]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[45]), w13));
     helpers::inc4(&mut w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[46]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[46]), w14));
     helpers::inc4(&mut w15, helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[47]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[47]), w15));
     helpers::inc4(&mut w0, helpers::sigma1_small(w14), w9, helpers::sigma0_small(w1));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[48]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[48]), w0));
     helpers::inc4(&mut w1, helpers::sigma1_small(w15), w10, helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[49]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[49]), w1));
     helpers::inc4(&mut w2, helpers::sigma1_small(w0), w11, helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[50]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[50]), w2));
     helpers::inc4(&mut w3, helpers::sigma1_small(w1), w12, helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[51]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[51]), w3));
     helpers::inc4(&mut w4, helpers::sigma1_small(w2), w13, helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[52]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[52]), w4));
     helpers::inc4(&mut w5, helpers::sigma1_small(w3), w14, helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[53]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[53]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), w15, helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[54]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[54]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, helpers::sigma0_small(w8));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[55]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[55]), w7));
     helpers::inc4(&mut w8, helpers::sigma1_small(w6), w1, helpers::sigma0_small(w9));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[56]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[56]), w8));
     helpers::inc4(&mut w9, helpers::sigma1_small(w7), w2, helpers::sigma0_small(w10));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[57]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[57]), w9));
     helpers::inc4(&mut w10, helpers::sigma1_small(w8), w3, helpers::sigma0_small(w11));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[58]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[58]), w10));
     helpers::inc4(&mut w11, helpers::sigma1_small(w9), w4, helpers::sigma0_small(w12));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[59]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[59]), w11));
     helpers::inc4(&mut w12, helpers::sigma1_small(w10), w5, helpers::sigma0_small(w13));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[60]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[60]), w12));
     helpers::inc4(&mut w13, helpers::sigma1_small(w11), w6, helpers::sigma0_small(w14));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[61]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[61]), w13));
     helpers::inc4(&mut w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[62]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[62]), w14));
     helpers::inc4(&mut w15, helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[63]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[63]), w15));
     #[cfg(debug_assertions)]
     {
         let a_after_round63 = _mm256_extract_epi32(a, 0) as u32;
@@ -581,14 +589,14 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG Transform 1 before adding initial hash: a=0x{:08x}, h=0x{:08x}", a_before, h_before);
         println!("Expected SHA256(64 zeros) first word: 0xf5a5fd42");
     }
-    a = add(a, k(INITIAL_HASH[0]));
-    b = add(b, k(INITIAL_HASH[1]));
-    c = add(c, k(INITIAL_HASH[2]));
-    d = add(d, k(INITIAL_HASH[3]));
-    e = add(e, k(INITIAL_HASH[4]));
-    f = add(f, k(INITIAL_HASH[5]));
-    g = add(g, k(INITIAL_HASH[6]));
-    h = add(h, k(INITIAL_HASH[7]));
+    a = add(a, k(INITIAL_HASH.0[0]));
+    b = add(b, k(INITIAL_HASH.0[1]));
+    c = add(c, k(INITIAL_HASH.0[2]));
+    d = add(d, k(INITIAL_HASH.0[3]));
+    e = add(e, k(INITIAL_HASH.0[4]));
+    f = add(f, k(INITIAL_HASH.0[5]));
+    g = add(g, k(INITIAL_HASH.0[6]));
+    h = add(h, k(INITIAL_HASH.0[7]));
     #[cfg(debug_assertions)]
     {
         let a_after = _mm256_extract_epi32(a, 0) as u32;
@@ -708,14 +716,14 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
 
     // Transform 3: Final SHA256 on the combined state
     // Reset state to initial hash values
-    a = k(INITIAL_HASH[0]);
-    b = k(INITIAL_HASH[1]);
-    c = k(INITIAL_HASH[2]);
-    d = k(INITIAL_HASH[3]);
-    e = k(INITIAL_HASH[4]);
-    f = k(INITIAL_HASH[5]);
-    g = k(INITIAL_HASH[6]);
-    h = k(INITIAL_HASH[7]);
+    a = k(INITIAL_HASH.0[0]);
+    b = k(INITIAL_HASH.0[1]);
+    c = k(INITIAL_HASH.0[2]);
+    d = k(INITIAL_HASH.0[3]);
+    e = k(INITIAL_HASH.0[4]);
+    f = k(INITIAL_HASH.0[5]);
+    g = k(INITIAL_HASH.0[6]);
+    h = k(INITIAL_HASH.0[7]);
 
     // Rounds 0-15: Use w0-w7 from combined state
     #[cfg(debug_assertions)]
@@ -724,20 +732,20 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         let w1_t3 = _mm256_extract_epi32(w1, 0) as u32;
         println!("DEBUG Transform 3 input w0=0x{:08x}, w1=0x{:08x}", w0_t3, w1_t3);
     }
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[0]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[0]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after_t3_round0 = _mm256_extract_epi32(a, 0) as u32;
         let h_after_t3_round0 = _mm256_extract_epi32(h, 0) as u32;
         println!("DEBUG Transform 3 after round 0: a=0x{:08x} (old), h=0x{:08x} (new a for next round)", a_after_t3_round0, h_after_t3_round0);
     }
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[1]), w1));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[2]), w2));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[3]), w3));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[4]), w4));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[5]), w5));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[6]), w6));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[7]), w7));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[1]), w1));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[2]), w2));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[3]), w3));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[4]), w4));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[5]), w5));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[6]), w6));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[7]), w7));
     #[cfg(debug_assertions)]
     {
         // After round 7, the new a (for next round) is in h
@@ -796,8 +804,8 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
     }
     // Save old values before round 16 - these will be needed in round 17
     // Round 16 modifies d and h, so we save c and d (which become $d and $e in round 17)
-    let c_old_16 = c;
-    let d_old_16 = d;
+    let _c_old_16 = c;
+    let _d_old_16 = d;
     #[cfg(debug_assertions)]
     {
         let d_before_16 = _mm256_extract_epi32(d, 0) as u32;
@@ -818,47 +826,47 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         let w0_after = _mm256_extract_epi32(w0, 0) as u32;
         println!("DEBUG T3 R16 after inc: w0=0x{:08x}", w0_after);
     }
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[16]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[16]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG T3 R16 after round: a=0x{:08x}", a_after);
     }
     helpers::inc3(&mut w1, k(0xa00000), helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[17]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[17]), w1));
     #[cfg(debug_assertions)]
     {
         let g_after = _mm256_extract_epi32(g, 0) as u32;
         println!("DEBUG T3 R17 after: g=0x{:08x}", g_after);
     }
     helpers::inc3(&mut w2, helpers::sigma1_small(w0), helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[18]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[18]), w2));
     helpers::inc3(&mut w3, helpers::sigma1_small(w1), helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[19]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[19]), w3));
     helpers::inc3(&mut w4, helpers::sigma1_small(w2), helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[20]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[20]), w4));
     helpers::inc3(&mut w5, helpers::sigma1_small(w3), helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[21]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[21]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), k(0x100), helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[22]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[22]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, k(0x11002000));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[23]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[23]), w7));
     w8 = helpers::add3(k(0x80000000), helpers::sigma1_small(w6), w1);
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[24]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[24]), w8));
     w9 = helpers::add(helpers::sigma1_small(w7), w2);
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[25]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[25]), w9));
     w10 = helpers::add(helpers::sigma1_small(w8), w3);
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[26]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[26]), w10));
     w11 = helpers::add(helpers::sigma1_small(w9), w4);
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[27]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[27]), w11));
     w12 = helpers::add(helpers::sigma1_small(w10), w5);
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[28]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[28]), w12));
     w13 = helpers::add(helpers::sigma1_small(w11), w6);
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[29]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[29]), w13));
     w14 = helpers::add3(helpers::sigma1_small(w12), w7, k(0x400022));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[30]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[30]), w14));
     w15 = helpers::add4(k(0x100), helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[31]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[31]), w15));
     
     // Continue with standard message schedule for rounds 32-63 (matching Core Transform 3 pattern)
     #[cfg(debug_assertions)]
@@ -867,28 +875,28 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG T3 R32 before: a=0x{:08x}", a_before_32);
     }
     helpers::inc4(&mut w0, helpers::sigma1_small(w14), w9, helpers::sigma0_small(w1));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[32]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[32]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after_32 = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG T3 R32 after: a=0x{:08x}", a_after_32);
     }
     helpers::inc4(&mut w1, helpers::sigma1_small(w15), w10, helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[33]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[33]), w1));
     helpers::inc4(&mut w2, helpers::sigma1_small(w0), w11, helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[34]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[34]), w2));
     helpers::inc4(&mut w3, helpers::sigma1_small(w1), w12, helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[35]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[35]), w3));
     helpers::inc4(&mut w4, helpers::sigma1_small(w2), w13, helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[36]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[36]), w4));
     helpers::inc4(&mut w5, helpers::sigma1_small(w3), w14, helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[37]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[37]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), w15, helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[38]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[38]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, helpers::sigma0_small(w8));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[39]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[39]), w7));
     helpers::inc4(&mut w8, helpers::sigma1_small(w6), w1, helpers::sigma0_small(w9));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[40]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[40]), w8));
     #[cfg(debug_assertions)]
     {
         let a_after_40 = _mm256_extract_epi32(a, 0) as u32;
@@ -896,60 +904,60 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG T3 R40 after: a=0x{:08x}, h=0x{:08x}", a_after_40, h_after_40);
     }
     helpers::inc4(&mut w9, helpers::sigma1_small(w7), w2, helpers::sigma0_small(w10));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[41]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[41]), w9));
     helpers::inc4(&mut w10, helpers::sigma1_small(w8), w3, helpers::sigma0_small(w11));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[42]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[42]), w10));
     helpers::inc4(&mut w11, helpers::sigma1_small(w9), w4, helpers::sigma0_small(w12));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[43]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[43]), w11));
     helpers::inc4(&mut w12, helpers::sigma1_small(w10), w5, helpers::sigma0_small(w13));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[44]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[44]), w12));
     helpers::inc4(&mut w13, helpers::sigma1_small(w11), w6, helpers::sigma0_small(w14));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[45]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[45]), w13));
     helpers::inc4(&mut w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[46]), w14));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[46]), w14));
     helpers::inc4(&mut w15, helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[47]), w15));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[47]), w15));
     helpers::inc4(&mut w0, helpers::sigma1_small(w14), w9, helpers::sigma0_small(w1));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[48]), w0));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[48]), w0));
     #[cfg(debug_assertions)]
     {
         let a_after_48 = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG T3 R48 after: a=0x{:08x}", a_after_48);
     }
     helpers::inc4(&mut w1, helpers::sigma1_small(w15), w10, helpers::sigma0_small(w2));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[49]), w1));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[49]), w1));
     helpers::inc4(&mut w2, helpers::sigma1_small(w0), w11, helpers::sigma0_small(w3));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[50]), w2));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[50]), w2));
     helpers::inc4(&mut w3, helpers::sigma1_small(w1), w12, helpers::sigma0_small(w4));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[51]), w3));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[51]), w3));
     helpers::inc4(&mut w4, helpers::sigma1_small(w2), w13, helpers::sigma0_small(w5));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[52]), w4));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[52]), w4));
     helpers::inc4(&mut w5, helpers::sigma1_small(w3), w14, helpers::sigma0_small(w6));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[53]), w5));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[53]), w5));
     helpers::inc4(&mut w6, helpers::sigma1_small(w4), w15, helpers::sigma0_small(w7));
-    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY[54]), w6));
+    round!(c, d, e, f, g, h, a, b, add(k(K_ARRAY.0[54]), w6));
     helpers::inc4(&mut w7, helpers::sigma1_small(w5), w0, helpers::sigma0_small(w8));
-    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY[55]), w7));
+    round!(b, c, d, e, f, g, h, a, add(k(K_ARRAY.0[55]), w7));
     helpers::inc4(&mut w8, helpers::sigma1_small(w6), w1, helpers::sigma0_small(w9));
-    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY[56]), w8));
+    round!(a, b, c, d, e, f, g, h, add(k(K_ARRAY.0[56]), w8));
     #[cfg(debug_assertions)]
     {
         let a_after_56 = _mm256_extract_epi32(a, 0) as u32;
         println!("DEBUG T3 R56 after: a=0x{:08x}", a_after_56);
     }
     helpers::inc4(&mut w9, helpers::sigma1_small(w7), w2, helpers::sigma0_small(w10));
-    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY[57]), w9));
+    round!(h, a, b, c, d, e, f, g, add(k(K_ARRAY.0[57]), w9));
     helpers::inc4(&mut w10, helpers::sigma1_small(w8), w3, helpers::sigma0_small(w11));
-    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY[58]), w10));
+    round!(g, h, a, b, c, d, e, f, add(k(K_ARRAY.0[58]), w10));
     helpers::inc4(&mut w11, helpers::sigma1_small(w9), w4, helpers::sigma0_small(w12));
-    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY[59]), w11));
+    round!(f, g, h, a, b, c, d, e, add(k(K_ARRAY.0[59]), w11));
     helpers::inc4(&mut w12, helpers::sigma1_small(w10), w5, helpers::sigma0_small(w13));
-    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY[60]), w12));
+    round!(e, f, g, h, a, b, c, d, add(k(K_ARRAY.0[60]), w12));
     helpers::inc4(&mut w13, helpers::sigma1_small(w11), w6, helpers::sigma0_small(w14));
-    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY[61]), w13));
+    round!(d, e, f, g, h, a, b, c, add(k(K_ARRAY.0[61]), w13));
     // Core Transform 3 rounds 62-63: Use Add with 5 args, w14/w15 NOT modified (different from Transform 1)
-    round!(c, d, e, f, g, h, a, b, helpers::add5(k(K_ARRAY[62]), w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15)));
-    round!(b, c, d, e, f, g, h, a, helpers::add5(k(K_ARRAY[63]), w15, helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0)));
+    round!(c, d, e, f, g, h, a, b, helpers::add5(k(K_ARRAY.0[62]), w14, helpers::sigma1_small(w12), w7, helpers::sigma0_small(w15)));
+    round!(b, c, d, e, f, g, h, a, helpers::add5(k(K_ARRAY.0[63]), w15, helpers::sigma1_small(w13), w8, helpers::sigma0_small(w0)));
 
     // Add initial hash values and write output
     // Core: Add initial hash values before writing output
@@ -973,20 +981,20 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
         println!("DEBUG Transform 3 before adding initial hash: a=0x{:08x} (expected 0x78ec3678)", a_before_final);
     }
     // Write8(out, 0, Add(a, K(0x6a09e667ul)));
-    let a_final = add(a, k(INITIAL_HASH[0]));
+    let a_final = add(a, k(INITIAL_HASH.0[0]));
     #[cfg(debug_assertions)]
     {
         let a_final_val = _mm256_extract_epi32(a_final, 0) as u32;
         println!("DEBUG Transform 3 final a (after adding initial): 0x{:08x}", a_final_val);
     }
     write8(out, 0, a_final);
-    write8(out, 4, add(b, k(INITIAL_HASH[1])));
-    write8(out, 8, add(c, k(INITIAL_HASH[2])));
-    write8(out, 12, add(d, k(INITIAL_HASH[3])));
-    write8(out, 16, add(e, k(INITIAL_HASH[4])));
-    write8(out, 20, add(f, k(INITIAL_HASH[5])));
-    write8(out, 24, add(g, k(INITIAL_HASH[6])));
-    write8(out, 28, add(h, k(INITIAL_HASH[7])));
+    write8(out, 4, add(b, k(INITIAL_HASH.0[1])));
+    write8(out, 8, add(c, k(INITIAL_HASH.0[2])));
+    write8(out, 12, add(d, k(INITIAL_HASH.0[3])));
+    write8(out, 16, add(e, k(INITIAL_HASH.0[4])));
+    write8(out, 20, add(f, k(INITIAL_HASH.0[5])));
+    write8(out, 24, add(g, k(INITIAL_HASH.0[6])));
+    write8(out, 28, add(h, k(INITIAL_HASH.0[7])));
     #[cfg(debug_assertions)]
     {
         // Check what we wrote
@@ -1006,7 +1014,7 @@ unsafe fn transform_8way(out: &mut [u8], input: &[u8]) {
 pub unsafe fn sha256_8way_avx2(inputs: &[&[u8]; 8]) -> [[u8; 32]; 8] {
     // For inputs that aren't exactly 64 bytes, we need to handle padding
     // For now, use sha2 crate as fallback for non-64-byte inputs
-    use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
+    use bitcoin_hashes::{sha256d, Hash as BitcoinHash};
     
     // Check if all inputs are exactly 64 bytes
     let all_64_bytes = inputs.iter().all(|input| input.len() == 64);

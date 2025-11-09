@@ -42,7 +42,6 @@ mod precomputed_constants {
 /// Uses unsafe only when bounds have been statically proven.
 #[cfg(feature = "production")]
 pub mod bounds_optimization {
-    use super::*;
 
     /// Optimized bounds-checked access with proven bounds
     ///
@@ -144,8 +143,6 @@ macro_rules! hot_inline {
 /// Caches common hash pre-images for constant folding.
 #[cfg(feature = "production")]
 pub mod constant_folding {
-    use sha2::{Digest, Sha256};
-
     /// Pre-computed: SHA256 of empty string
     pub const EMPTY_STRING_HASH: [u8; 32] = [
         0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9,
