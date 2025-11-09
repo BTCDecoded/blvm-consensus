@@ -263,6 +263,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 
     // Build Merkle tree bottom-up
     // BLLVM Optimization: Pre-allocate next level and combined buffers
+    // Optimization: Process multiple tree levels in parallel where safe
     while hashes.len() > 1 {
         #[cfg(feature = "production")]
         let mut next_level = {
@@ -273,22 +274,52 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
         #[cfg(not(feature = "production"))]
         let mut next_level = Vec::with_capacity(hashes.len() / 2 + 1);
 
-        // Process pairs of hashes
-        for chunk in hashes.chunks(2) {
-            if chunk.len() == 2 {
-                // Hash two hashes together
-                // BLLVM Optimization: Pre-allocate 64-byte buffer (2 * 32-byte hashes)
-                let mut combined = Vec::with_capacity(64);
-                combined.extend_from_slice(&chunk[0]);
-                combined.extend_from_slice(&chunk[1]);
-                next_level.push(sha256_hash(&combined));
-            } else {
-                // Odd number: duplicate the last hash
-                // BLLVM Optimization: Pre-allocate 64-byte buffer
-                let mut combined = Vec::with_capacity(64);
-                combined.extend_from_slice(&chunk[0]);
-                combined.extend_from_slice(&chunk[0]);
-                next_level.push(sha256_hash(&combined));
+        // Optimization: Parallelize hash pair processing for large trees
+        // Tree levels are independent, so we can process chunks in parallel
+        #[cfg(all(feature = "production", feature = "rayon"))]
+        {
+            use rayon::prelude::*;
+            let chunk_results: Vec<Hash> = hashes
+                .chunks(2)
+                .par_bridge()
+                .map(|chunk| {
+                    if chunk.len() == 2 {
+                        // Hash two hashes together
+                        let mut combined = Vec::with_capacity(64);
+                        combined.extend_from_slice(&chunk[0]);
+                        combined.extend_from_slice(&chunk[1]);
+                        sha256_hash(&combined)
+                    } else {
+                        // Odd number: duplicate the last hash
+                        let mut combined = Vec::with_capacity(64);
+                        combined.extend_from_slice(&chunk[0]);
+                        combined.extend_from_slice(&chunk[0]);
+                        sha256_hash(&combined)
+                    }
+                })
+                .collect();
+            next_level = chunk_results;
+        }
+
+        #[cfg(not(all(feature = "production", feature = "rayon")))]
+        {
+            // Process pairs of hashes sequentially
+            for chunk in hashes.chunks(2) {
+                if chunk.len() == 2 {
+                    // Hash two hashes together
+                    // BLLVM Optimization: Pre-allocate 64-byte buffer (2 * 32-byte hashes)
+                    let mut combined = Vec::with_capacity(64);
+                    combined.extend_from_slice(&chunk[0]);
+                    combined.extend_from_slice(&chunk[1]);
+                    next_level.push(sha256_hash(&combined));
+                } else {
+                    // Odd number: duplicate the last hash
+                    // BLLVM Optimization: Pre-allocate 64-byte buffer
+                    let mut combined = Vec::with_capacity(64);
+                    combined.extend_from_slice(&chunk[0]);
+                    combined.extend_from_slice(&chunk[0]);
+                    next_level.push(sha256_hash(&combined));
+                }
             }
         }
 
@@ -408,14 +439,13 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
 }
 
 /// Simple SHA256 hash function
+/// 
+/// Performance optimization: Uses OptimizedSha256 (SHA-NI or AVX2) instead of sha2 crate
+/// for faster hashing in Merkle tree construction.
+#[inline(always)]
 fn sha256_hash(data: &[u8]) -> Hash {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+    use crate::crypto::OptimizedSha256;
+    OptimizedSha256::new().hash(data)
 }
 
 /// Expand target from compact format (simplified)

@@ -16,6 +16,9 @@ pub type Natural = u64;
 pub type Integer = i64;
 
 /// OutPoint: 𝒪 = ℍ × ℕ
+///
+/// Performance optimization: Cache-line aligned for better memory access patterns
+#[repr(align(64))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OutPoint {
     pub hash: Hash,
@@ -23,11 +26,14 @@ pub struct OutPoint {
 }
 
 /// Transaction Input: ℐ = 𝒪 × 𝕊 × ℕ
+///
+/// Performance optimization: Hot fields (prevout, sequence) grouped together
+/// for better cache locality. script_sig is accessed less frequently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionInput {
-    pub prevout: OutPoint,
-    pub script_sig: ByteString,
-    pub sequence: Natural,
+    pub prevout: OutPoint,      // Hot: 40 bytes (frequently accessed)
+    pub sequence: Natural,     // Hot: 8 bytes (frequently accessed)
+    pub script_sig: ByteString, // Cold: Vec (pointer, less frequently accessed)
 }
 
 /// Transaction Output: 𝒯 = ℤ × 𝕊

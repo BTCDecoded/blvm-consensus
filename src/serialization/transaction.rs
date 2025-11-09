@@ -52,13 +52,22 @@ impl std::error::Error for TransactionParseError {}
 ///   - Script length (VarInt)
 ///   - Script bytes
 /// - Lock time (4 bytes, little-endian)
+#[inline(always)]
 pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
-    // BLLVM Optimization: Pre-allocate buffer using Kani-proven maximum size
+    // BLLVM Optimization: Pre-allocate buffer with better size estimation
+    // Estimate: version(4) + varint(input_count) + inputs(36*N + scripts) + varint(output_count) + outputs(9*M + scripts) + locktime(4)
+    // Conservative estimate: 4 + 1 + (tx.inputs.len() * 50) + 1 + (tx.outputs.len() * 50) + 4
     // This avoids reallocations during serialization
     #[cfg(feature = "production")]
     let mut result = {
-        use crate::optimizations::prealloc_tx_buffer;
-        prealloc_tx_buffer()
+        // Better size estimation: calculate actual estimated size
+        let estimated_size = 4 // version
+            + 1 // input count varint (usually 1 byte)
+            + tx.inputs.iter().map(|i| 36 + i.script_sig.len() + 1).sum::<usize>() // inputs: 32+4+varint+script+4
+            + 1 // output count varint
+            + tx.outputs.iter().map(|o| 9 + o.script_pubkey.len() + 1).sum::<usize>() // outputs: 8+varint+script
+            + 4; // locktime
+        Vec::with_capacity(estimated_size.min(1_000_000)) // Cap at 1MB (max transaction size)
     };
 
     #[cfg(not(feature = "production"))]

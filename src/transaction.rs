@@ -35,6 +35,31 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
         )));
     }
 
+    // Quick reject: obviously invalid value ranges (before expensive validation)
+    // Check if any output value is negative or exceeds MAX_MONEY
+    for output in &tx.outputs {
+        if output.value < 0 || output.value > MAX_MONEY {
+            return Some(ValidationResult::Invalid(format!(
+                "Invalid output value: {}",
+                output.value
+            )));
+        }
+    }
+
+    // Quick reject: coinbase with invalid scriptSig length
+    if tx.inputs.len() == 1
+        && tx.inputs[0].prevout.hash == [0u8; 32]
+        && tx.inputs[0].prevout.index == 0xffffffff
+    {
+        let script_sig_len = tx.inputs[0].script_sig.len();
+        if !(2..=100).contains(&script_sig_len) {
+            return Some(ValidationResult::Invalid(format!(
+                "Coinbase scriptSig length {} must be between 2 and 100 bytes",
+                script_sig_len
+            )));
+        }
+    }
+
     // Fast-path can't validate everything, needs full validation
     None
 }
@@ -52,6 +77,7 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 /// 8. If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
 ///
 /// Performance optimization (Phase 6.3): Uses fast-path checks before full validation.
+#[inline]
 pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Phase 6.3: Fast-path early exit for obviously invalid transactions
     #[cfg(feature = "production")]
@@ -122,14 +148,15 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 
     // 7. Check for duplicate inputs (Orange Paper Section 5.1, rule 4)
     // ∀i,j ∈ ins: i ≠ j ⟹ i.prevout ≠ j.prevout
-    for i in 0..tx.inputs.len() {
-        for j in (i + 1)..tx.inputs.len() {
-            if tx.inputs[i].prevout == tx.inputs[j].prevout {
-                return Ok(ValidationResult::Invalid(format!(
-                    "Duplicate input prevout at indices {} and {}",
-                    i, j
-                )));
-            }
+    // Optimization: Use HashSet for O(n) duplicate detection instead of O(n²) nested loop
+    use std::collections::HashSet;
+    let mut seen_prevouts = HashSet::with_capacity(tx.inputs.len());
+    for (i, input) in tx.inputs.iter().enumerate() {
+        if !seen_prevouts.insert(&input.prevout) {
+            return Ok(ValidationResult::Invalid(format!(
+                "Duplicate input prevout at index {}",
+                i
+            )));
         }
     }
 
@@ -157,6 +184,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 /// 4. Let total_out = Σₒ o.value
 /// 5. If total_in < total_out: return (invalid, 0)
 /// 6. Return (valid, total_in - total_out)
+#[inline]
 pub fn check_tx_inputs(
     tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -178,11 +206,22 @@ pub fn check_tx_inputs(
         }
     }
 
+    // Optimization: Batch UTXO lookups - collect all prevouts first, then lookup
+    // This improves cache locality and reduces HashMap traversal overhead
+    // Optimization: Pre-allocate with known size
+    let input_utxos: Vec<(usize, Option<&UTXO>)> = {
+        let mut result = Vec::with_capacity(tx.inputs.len());
+        for (i, input) in tx.inputs.iter().enumerate() {
+            result.push((i, utxo_set.get(&input.prevout)));
+        }
+        result
+    };
+
     let mut total_input_value = 0i64;
 
-    for (i, input) in tx.inputs.iter().enumerate() {
+    for (i, opt_utxo) in input_utxos {
         // Check if input exists in UTXO set
-        if let Some(utxo) = utxo_set.get(&input.prevout) {
+        if let Some(utxo) = opt_utxo {
             // Check coinbase maturity: coinbase outputs cannot be spent until COINBASE_MATURITY blocks deep
             // This is enforced by checking if the UTXO was created at height h and current height >= h + COINBASE_MATURITY
             // Note: For coinbase outputs, we check if height difference is sufficient
@@ -244,6 +283,7 @@ pub fn check_tx_inputs(
 }
 
 /// Check if transaction is coinbase
+#[inline]
 pub fn is_coinbase(tx: &Transaction) -> bool {
     tx.inputs.len() == 1
         && tx.inputs[0].prevout.hash == [0u8; 32]
@@ -251,6 +291,7 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 }
 
 /// Calculate transaction size (simplified)
+#[inline]
 fn calculate_transaction_size(tx: &Transaction) -> usize {
     // Simplified size calculation
     // In reality, this would be the serialized size
