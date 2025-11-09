@@ -15,6 +15,9 @@ use secp256k1::{ecdsa::Signature, Context, Message, PublicKey, Secp256k1, Verifi
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "production")]
+use smallvec::SmallVec;
+
+#[cfg(feature = "production")]
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
 use std::sync::{OnceLock, RwLock, atomic::{AtomicBool, Ordering}};
@@ -211,6 +214,28 @@ pub fn eval_script(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32)
     if stack.capacity() < 20 {
         stack.reserve(20);
     }
+    eval_script_impl(script, stack, flags)
+}
+
+#[cfg(feature = "production")]
+fn eval_script_impl(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
+    // Use SmallVec for small stacks (most scripts have < 8 items)
+    // Falls back to Vec for larger stacks
+    // Note: We convert to Vec for execute_opcode compatibility, but SmallVec
+    // still provides stack allocation benefits for the initial allocation
+    let mut small_stack: SmallVec<[ByteString; 8]> = SmallVec::from_vec(std::mem::take(stack));
+    let mut vec_stack = small_stack.into_vec();
+    let result = eval_script_inner(script, &mut vec_stack, flags);
+    *stack = vec_stack;
+    result
+}
+
+#[cfg(not(feature = "production"))]
+fn eval_script_impl(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
+    eval_script_inner(script, stack, flags)
+}
+
+fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
     let mut op_count = 0;
 
     for opcode in script {
@@ -1011,9 +1036,25 @@ fn execute_opcode_with_context_full(
                 let signature_bytes = stack.pop().unwrap();
 
                 // Calculate transaction sighash for signature verification
-                use crate::transaction_hash::{calculate_transaction_sighash, SighashType};
-                let sighash =
-                    calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?;
+                // Optimization: Use batch computation if available (for transactions with multiple inputs)
+                use crate::transaction_hash::{batch_compute_sighashes, calculate_transaction_sighash, SighashType};
+                let sighash = {
+                    #[cfg(feature = "production")]
+                    {
+                        // Use batch computation if we have multiple inputs (more efficient)
+                        if tx.inputs.len() > 1 {
+                            let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
+                            sighashes[input_index]
+                        } else {
+                            // Single input: use individual calculation (no overhead)
+                            calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                        }
+                    }
+                    #[cfg(not(feature = "production"))]
+                    {
+                        calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                    }
+                };
 
                 // Verify signature with real transaction hash
                 #[cfg(feature = "production")]
@@ -1041,9 +1082,25 @@ fn execute_opcode_with_context_full(
                 let signature_bytes = stack.pop().unwrap();
 
                 // Calculate transaction sighash for signature verification
-                use crate::transaction_hash::{calculate_transaction_sighash, SighashType};
-                let sighash =
-                    calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?;
+                // Optimization: Use batch computation if available (for transactions with multiple inputs)
+                use crate::transaction_hash::{batch_compute_sighashes, calculate_transaction_sighash, SighashType};
+                let sighash = {
+                    #[cfg(feature = "production")]
+                    {
+                        // Use batch computation if we have multiple inputs (more efficient)
+                        if tx.inputs.len() > 1 {
+                            let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
+                            sighashes[input_index]
+                        } else {
+                            // Single input: use individual calculation (no overhead)
+                            calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                        }
+                    }
+                    #[cfg(not(feature = "production"))]
+                    {
+                        calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                    }
+                };
 
                 // Verify signature with real transaction hash
                 #[cfg(feature = "production")]

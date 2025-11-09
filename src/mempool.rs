@@ -78,24 +78,73 @@ pub fn accept_to_memory_pool(
         // Enable SegWit flag if transaction has witness data
         let flags = calculate_script_flags(tx, witnesses);
 
-        for (i, input) in tx.inputs.iter().enumerate() {
-            if let Some(utxo) = utxo_set.get(&input.prevout) {
-                // Get witness for this input if available
-                // Witness is Vec<ByteString> per input, for verify_script we need Option<&ByteString>
-                // For SegWit P2WPKH/P2WSH, we typically use the witness stack elements
-                // For now, we'll use the first element if available (simplified)
-                let witness: Option<&ByteString> =
-                    witnesses.and_then(|wits| wits.get(i)).and_then(|wit| {
-                        // Witness is Vec<ByteString> - for verify_script we can pass the first element
-                        // or construct a combined witness script. For now, use first element.
-                        wit.first()
-                    });
+        #[cfg(all(feature = "production", feature = "rayon"))]
+        {
+            use rayon::prelude::*;
 
-                if !verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)? {
+            // Optimization: Batch UTXO lookups and parallelize script verification
+            // Pre-lookup all UTXOs to avoid concurrent HashMap access
+            // Pre-allocate with known size
+            let input_utxos: Vec<(usize, Option<&UTXO>)> = {
+                let mut result = Vec::with_capacity(tx.inputs.len());
+                for (i, input) in tx.inputs.iter().enumerate() {
+                    result.push((i, utxo_set.get(&input.prevout)));
+                }
+                result
+            };
+
+            // Parallelize script verification (read-only operations) ✅ Thread-safe
+            let script_results: Result<Vec<bool>> = input_utxos
+                .par_iter()
+                .map(|(i, opt_utxo)| {
+                    if let Some(utxo) = opt_utxo {
+                        let input = &tx.inputs[*i];
+                        let witness: Option<&ByteString> =
+                            witnesses.and_then(|wits| wits.get(*i)).and_then(|wit| {
+                                wit.first()
+                            });
+
+                        verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)
+                    } else {
+                        Ok(false)
+                    }
+                })
+                .collect();
+
+            // Check results sequentially
+            let script_results = script_results?;
+            for (i, &is_valid) in script_results.iter().enumerate() {
+                if !is_valid {
                     return Ok(MempoolResult::Rejected(format!(
                         "Invalid script at input {}",
                         i
                     )));
+                }
+            }
+        }
+
+        #[cfg(not(all(feature = "production", feature = "rayon")))]
+        {
+            // Sequential fallback
+            for (i, input) in tx.inputs.iter().enumerate() {
+                if let Some(utxo) = utxo_set.get(&input.prevout) {
+                    // Get witness for this input if available
+                    // Witness is Vec<ByteString> per input, for verify_script we need Option<&ByteString>
+                    // For SegWit P2WPKH/P2WSH, we typically use the witness stack elements
+                    // For now, we'll use the first element if available (simplified)
+                    let witness: Option<&ByteString> =
+                        witnesses.and_then(|wits| wits.get(i)).and_then(|wit| {
+                            // Witness is Vec<ByteString> - for verify_script we can pass the first element
+                            // or construct a combined witness script. For now, use first element.
+                            wit.first()
+                        });
+
+                    if !verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)? {
+                        return Ok(MempoolResult::Rejected(format!(
+                            "Invalid script at input {}",
+                            i
+                        )));
+                    }
                 }
             }
         }

@@ -15,9 +15,15 @@ use sha2::{Digest, Sha256};
 #[cfg(target_arch = "x86_64")]
 pub mod avx2_batch;
 #[cfg(target_arch = "x86_64")]
+pub mod hash_compare;
+#[cfg(target_arch = "x86_64")]
 pub mod sha256_avx2;
 #[cfg(target_arch = "x86_64")]
 pub mod sha_ni;
+#[cfg(target_arch = "x86_64")]
+pub mod simd_bytes;
+
+pub mod int_ops;
 
 /// CPU feature detection for runtime optimization selection
 pub mod cpu_features {
