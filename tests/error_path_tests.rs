@@ -249,38 +249,38 @@ fn test_difficulty_adjustment_errors() {
 #[test]
 fn test_consensus_error_display() {
     let error = ConsensusError::TransactionValidation("test error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("test error"));
 
     let error = ConsensusError::BlockValidation("block error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("block error"));
 
     let error = ConsensusError::ScriptExecution("script error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("script error"));
 
     let error = ConsensusError::UtxoNotFound("utxo error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("utxo error"));
 
     let error = ConsensusError::InvalidSignature("sig error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("sig error"));
 
     let error = ConsensusError::InvalidProofOfWork("pow error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("pow error"));
 
     let error = ConsensusError::EconomicValidation("econ error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("econ error"));
 
     let error = ConsensusError::Serialization("ser error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("ser error"));
 
     let error = ConsensusError::ConsensusRuleViolation("rule error".to_string());
-    let error_str = format!("{}", error);
+    let error_str = format!("{error}");
     assert!(error_str.contains("rule error"));
 }

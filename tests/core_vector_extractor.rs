@@ -129,7 +129,7 @@ fn parse_flag_string(flags_str: &str) -> u32 {
             "NONE" => flags |= 0,
             _ => {
                 // Unknown flag - log but continue
-                eprintln!("Unknown flag: {}", flag_name);
+                eprintln!("Unknown flag: {flag_name}");
             }
         }
     }

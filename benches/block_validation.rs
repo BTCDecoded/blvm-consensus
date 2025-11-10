@@ -1,6 +1,6 @@
-use consensus_proof::block::connect_block;
-use consensus_proof::segwit::Witness;
-use consensus_proof::{Block, BlockHeader, Transaction, UtxoSet};
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::{Block, BlockHeader, Transaction, UtxoSet};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn create_test_block() -> Block {

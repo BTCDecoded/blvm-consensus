@@ -489,7 +489,7 @@ mod property_tests {
             height in 0u64..(HALVING_INTERVAL * 10)
         ) {
             let subsidy = get_block_subsidy(height);
-            let halving_period = (height as u64) / HALVING_INTERVAL;
+            let halving_period = height / HALVING_INTERVAL;
 
             // Non-negative property
             prop_assert!(subsidy >= 0, "Subsidy must be non-negative");
@@ -549,8 +549,8 @@ mod property_tests {
             height1 in 0u64..(HALVING_INTERVAL * 5),
             height2 in 0u64..(HALVING_INTERVAL * 5)
         ) {
-            let halving1 = (height1 as u64) / HALVING_INTERVAL;
-            let halving2 = (height2 as u64) / HALVING_INTERVAL;
+            let halving1 = height1 / HALVING_INTERVAL;
+            let halving2 = height2 / HALVING_INTERVAL;
 
             // If halving1 < halving2, then subsidy1 >= subsidy2
             if halving1 < halving2 && halving2 < 64 {
@@ -616,8 +616,7 @@ mod tests {
         // Allow for much larger rounding differences due to bit operations
         let difference = (supply_at_halving - expected_at_halving).abs();
         println!(
-            "Supply at halving: {}, Expected: {}, Difference: {}",
-            supply_at_halving, expected_at_halving, difference
+            "Supply at halving: {supply_at_halving}, Expected: {expected_at_halving}, Difference: {difference}"
         );
         assert!(difference <= 3_000_000_000); // Allow for significant rounding differences
     }

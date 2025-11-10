@@ -21,7 +21,6 @@
 //! - SCRIPT_VERIFY_TAPROOT (0x4000)
 
 use bllvm_consensus::script::{eval_script, verify_script};
-use bllvm_consensus::types::ByteString;
 
 /// All script verification flags
 pub const ALL_FLAGS: &[u32] = &[
@@ -86,8 +85,7 @@ fn test_all_flag_combinations_simple() {
         // Should not panic with any flag combination
         assert!(
             result.is_ok() || result.is_err(),
-            "Script failed with flags 0x{:x}",
-            flags
+            "Script failed with flags 0x{flags:x}"
         );
     }
 }
@@ -113,8 +111,7 @@ fn test_flag_combinations_p2sh() {
         // Should not panic
         assert!(
             result.is_ok() || result.is_err(),
-            "P2SH script failed with flags 0x{:x}",
-            flags
+            "P2SH script failed with flags 0x{flags:x}"
         );
     }
 }
@@ -207,8 +204,7 @@ fn test_individual_flags() {
         // Each flag should work correctly
         assert!(
             result.is_ok() || result.is_err(),
-            "Flag 0x{:x} caused error",
-            flag
+            "Flag 0x{flag:x} caused error"
         );
     }
 }
@@ -260,8 +256,7 @@ fn test_comprehensive_flag_combinations() {
             // Should handle all combinations
             assert!(
                 result.is_ok() || result.is_err(),
-                "Script failed with flags 0x{:x}",
-                flags
+                "Script failed with flags 0x{flags:x}"
             );
         }
     }

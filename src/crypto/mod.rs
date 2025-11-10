@@ -71,11 +71,11 @@ impl OptimizedSha256 {
     }
 
     /// Hash data using the best available implementation
-    /// 
+    ///
     /// Priority:
     /// 1. SHA-NI (Intel SHA Extensions) - 10-15x faster for single hashes
     /// 2. sha2 crate with asm - baseline fallback
-    /// 
+    ///
     /// For batch operations, see batch_sha256 in optimizations module.
     pub fn hash(&self, data: &[u8]) -> [u8; 32] {
         #[cfg(target_arch = "x86_64")]
@@ -85,7 +85,7 @@ impl OptimizedSha256 {
                 return sha_ni::sha256(data);
             }
         }
-        
+
         // Fallback: sha2 crate with asm optimizations
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -96,7 +96,7 @@ impl OptimizedSha256 {
     }
 
     /// Compute double SHA256 (SHA256(SHA256(data)))
-    /// 
+    ///
     /// Uses SHA-NI if available for optimal single-hash performance.
     pub fn hash256(&self, data: &[u8]) -> [u8; 32] {
         #[cfg(target_arch = "x86_64")]
@@ -105,7 +105,7 @@ impl OptimizedSha256 {
                 return sha_ni::hash256(data);
             }
         }
-        
+
         let first = self.hash(data);
         self.hash(&first)
     }

@@ -12,11 +12,9 @@
 //! - Post-Taproot (height > 709632)
 
 use bllvm_consensus::block::connect_block;
-use bllvm_consensus::pow::check_proof_of_work;
 use bllvm_consensus::segwit::Witness;
 use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
-use hex;
 
 /// Genesis block (height 0) - the first Bitcoin block
 ///
@@ -46,7 +44,7 @@ fn test_genesis_block_validation() {
                     ValidationResult::Invalid(reason) => {
                         // May fail due to missing context (previous blocks, difficulty validation, etc.)
                         // But deserialization succeeded, which is what we're testing here
-                        eprintln!("Genesis block validation failed: {}", reason);
+                        eprintln!("Genesis block validation failed: {reason}");
                     }
                 }
             }
@@ -82,15 +80,14 @@ fn test_segwit_activation_block() {
                 ValidationResult::Invalid(reason) => {
                     // May fail due to missing context (previous blocks, UTXO set, etc.)
                     // But deserialization succeeded, which is what we're testing here
-                    eprintln!("SegWit activation block validation failed: {}", reason);
+                    eprintln!("SegWit activation block validation failed: {reason}");
                 }
             }
         }
     } else {
         // Block not available - skip test (not a failure)
         eprintln!(
-            "Block {} not available in test_data/mainnet_blocks, skipping test",
-            segwit_activation_height
+            "Block {segwit_activation_height} not available in test_data/mainnet_blocks, skipping test"
         );
     }
 }
@@ -129,15 +126,14 @@ fn test_taproot_activation_block() {
                 ValidationResult::Invalid(reason) => {
                     // May fail due to missing context (previous blocks, UTXO set, etc.)
                     // But deserialization succeeded, which is what we're testing here
-                    eprintln!("Taproot activation block validation failed: {}", reason);
+                    eprintln!("Taproot activation block validation failed: {reason}");
                 }
             }
         }
     } else {
         // Block not available - skip test (not a failure)
         eprintln!(
-            "Block {} not available in test_data/mainnet_blocks, skipping test",
-            taproot_activation_height
+            "Block {taproot_activation_height} not available in test_data/mainnet_blocks, skipping test"
         );
     }
 }
@@ -259,7 +255,7 @@ fn test_real_world_transaction_patterns() {
                     // Check scriptSig patterns
                     if input.script_sig.is_empty() {
                         patterns_found.insert("P2WPKH/P2WSH"); // SegWit spends have empty scriptSig
-                    } else if input.script_sig.len() > 0 {
+                    } else if !input.script_sig.is_empty() {
                         patterns_found.insert("P2PKH/P2SH");
                     }
                 }
@@ -305,7 +301,7 @@ fn test_real_world_transaction_patterns() {
 
     // At minimum, we should find some common patterns
     // This test verifies that our deserialization can handle real-world transaction formats
-    println!("Transaction patterns found: {:?}", patterns_found);
+    println!("Transaction patterns found: {patterns_found:?}");
 
     // Test passes if we can load and analyze blocks (even if no patterns found)
     assert!(true);
@@ -319,10 +315,10 @@ pub fn load_mainnet_block_from_disk(
     block_dir: &std::path::PathBuf,
     height: u64,
 ) -> Result<(Block, Vec<Witness>), Box<dyn std::error::Error>> {
-    use std::path::PathBuf;
+    
 
-    let bin_path = block_dir.join(format!("block_{}.bin", height));
-    let hex_path = block_dir.join(format!("block_{}.hex", height));
+    let bin_path = block_dir.join(format!("block_{height}.bin"));
+    let hex_path = block_dir.join(format!("block_{height}.hex"));
 
     let block_data = if bin_path.exists() {
         std::fs::read(&bin_path)?
@@ -340,7 +336,7 @@ pub fn load_mainnet_block_from_disk(
     };
 
     let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
-        .map_err(|e| format!("Failed to deserialize block {}: {}", height, e))?;
+        .map_err(|e| format!("Failed to deserialize block {height}: {e}"))?;
 
     Ok((block, witnesses))
 }

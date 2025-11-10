@@ -11,8 +11,6 @@
 //! Consensus-critical: Incorrect RBF handling can cause mempool divergence.
 
 use bllvm_consensus::constants::{SEQUENCE_FINAL, SEQUENCE_RBF};
-use bllvm_consensus::mempool::replacement_checks;
-use bllvm_consensus::mempool::Mempool;
 use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Test RBF signaling (sequence < 0xffffffff)

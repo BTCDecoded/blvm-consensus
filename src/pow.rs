@@ -504,8 +504,7 @@ fn compress_target(target: &U256) -> Result<Natural> {
     // Validate exponent is reasonable (Bitcoin Core allows up to 34, but we clamp to 29 for safety)
     if n_size_final > 29 {
         return Err(ConsensusError::InvalidProofOfWork(format!(
-            "Target too large: exponent {} exceeds maximum 29",
-            n_size_final
+            "Target too large: exponent {n_size_final} exceeds maximum 29"
         )));
     }
 
@@ -1085,7 +1084,7 @@ mod property_tests {
 
             // Left shift then right shift should preserve value (for small shifts and values)
             // Only test when shift + leading zeros < 32 to avoid overflow
-            if shift < 32 && value.leading_zeros() as u32 + shift < 32 {
+            if shift < 32 && value.leading_zeros() + shift < 32 {
                 let u256_value1 = U256::from_u32(value);
                 let shifted_left = u256_value1.shl(shift);
                 let shifted_back = shifted_left.shr(shift);
@@ -1216,7 +1215,7 @@ mod tests {
         // This should work with the valid target
         let result = check_proof_of_work(&header).unwrap();
         // Result depends on the hash, but should not panic
-        assert!(result == true || result == false);
+        assert!(result || !result);
     }
 
     // ============================================================================
@@ -1414,7 +1413,7 @@ mod tests {
         };
 
         let result = check_proof_of_work(&header).unwrap();
-        assert!(result == true || result == false);
+        assert!(result || !result);
     }
 
     #[test]
@@ -1547,8 +1546,7 @@ mod tests {
             // (since compression truncates lower bits). For most cases they should be equal.
             if re_expanded > expanded {
                 panic!(
-                    "Round-trip failed for bits 0x{:08x}: re-expanded > original (compression should truncate, not add)",
-                    bits
+                    "Round-trip failed for bits 0x{bits:08x}: re-expanded > original (compression should truncate, not add)"
                 );
             }
             // For most practical targets, they should be equal. If not equal, the difference

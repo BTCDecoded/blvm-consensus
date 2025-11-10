@@ -1,6 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use sha2::{Digest, Sha256};
-use bllvm_consensus::crypto::OptimizedSha256;
 
 fn benchmark_sha256(c: &mut Criterion) {
     let data = vec![0u8; 1024];
@@ -20,7 +19,7 @@ fn benchmark_double_sha256(c: &mut Criterion) {
     c.bench_function("double_sha256_1kb", |b| {
         b.iter(|| {
             let hash1 = Sha256::digest(black_box(&data));
-            black_box(Sha256::digest(&hash1))
+            black_box(Sha256::digest(hash1))
         })
     });
 }
@@ -29,53 +28,53 @@ fn benchmark_double_sha256(c: &mut Criterion) {
 #[cfg(target_arch = "x86_64")]
 fn benchmark_sha_ni_single(c: &mut Criterion) {
     use bllvm_consensus::crypto::sha_ni;
-    
+
     if !sha_ni::is_sha_ni_available() {
         return; // Skip on CPUs without SHA-NI
     }
-    
+
     let data_32b = vec![0u8; 32];
     let data_64b = vec![0u8; 64];
     let data_1kb = vec![0u8; 1024];
-    
+
     // 32-byte input (typical transaction hash)
     c.bench_function("sha_ni_32b", |b| {
         b.iter(|| black_box(sha_ni::sha256(black_box(&data_32b))))
     });
-    
+
     c.bench_function("sha2_crate_32b", |b| {
         b.iter(|| {
             let hash = Sha256::digest(black_box(&data_32b));
             black_box(hash)
         })
     });
-    
+
     // 64-byte input (typical block header)
     c.bench_function("sha_ni_64b", |b| {
         b.iter(|| black_box(sha_ni::sha256(black_box(&data_64b))))
     });
-    
+
     c.bench_function("sha2_crate_64b", |b| {
         b.iter(|| {
             let hash = Sha256::digest(black_box(&data_64b));
             black_box(hash)
         })
     });
-    
+
     // 1KB input
     c.bench_function("sha_ni_1kb", |b| {
         b.iter(|| black_box(sha_ni::sha256(black_box(&data_1kb))))
     });
-    
+
     // Double SHA256 comparison
     c.bench_function("sha_ni_double_32b", |b| {
         b.iter(|| black_box(sha_ni::hash256(black_box(&data_32b))))
     });
-    
+
     c.bench_function("sha2_crate_double_32b", |b| {
         b.iter(|| {
             let hash1 = Sha256::digest(black_box(&data_32b));
-            let hash2 = Sha256::digest(&hash1);
+            let hash2 = Sha256::digest(hash1);
             black_box(hash2)
         })
     });
@@ -194,8 +193,8 @@ fn benchmark_batch_hash160(c: &mut Criterion) {
 
 #[cfg(feature = "production")]
 fn benchmark_merkle_root_batching(c: &mut Criterion) {
-use bllvm_consensus::mining::calculate_merkle_root;
-use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+    use bllvm_consensus::mining::calculate_merkle_root;
+    use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
     let tx_counts = vec![10, 100, 1000];
 
@@ -232,8 +231,8 @@ use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput
 #[cfg(feature = "production")]
 fn benchmark_block_validation_tx_ids(c: &mut Criterion) {
     use bllvm_consensus::optimizations::simd_vectorization;
-use bllvm_consensus::serialization::transaction::serialize_transaction;
-use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+    use bllvm_consensus::serialization::transaction::serialize_transaction;
+    use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
     let tx_counts = vec![10, 100];
 
@@ -539,6 +538,11 @@ criterion_group!(
 );
 
 #[cfg(not(feature = "production"))]
-criterion_group!(benches, benchmark_sha256, benchmark_double_sha256, benchmark_sha_ni_single);
+criterion_group!(
+    benches,
+    benchmark_sha256,
+    benchmark_double_sha256,
+    benchmark_sha_ni_single
+);
 
 criterion_main!(benches);

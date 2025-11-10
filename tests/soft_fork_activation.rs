@@ -122,7 +122,7 @@ fn test_bip9_version_bits_extraction() {
                                  // Bit 29 (0x20000000) is SegWit-related, not bit 31
 
     // Extract bit 0
-    let bit0 = (version >> 0) & 1;
+    let bit0 = version & 1;
     assert_eq!(bit0, 1);
 
     // Extract bit 29 (often associated with SegWit signaling)

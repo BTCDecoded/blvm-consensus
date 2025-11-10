@@ -99,10 +99,9 @@ pub fn accept_to_memory_pool(
                 .map(|(i, opt_utxo)| {
                     if let Some(utxo) = opt_utxo {
                         let input = &tx.inputs[*i];
-                        let witness: Option<&ByteString> =
-                            witnesses.and_then(|wits| wits.get(*i)).and_then(|wit| {
-                                wit.first()
-                            });
+                        let witness: Option<&ByteString> = witnesses
+                            .and_then(|wits| wits.get(*i))
+                            .and_then(|wit| wit.first());
 
                         verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)
                     } else {
@@ -141,8 +140,7 @@ pub fn accept_to_memory_pool(
 
                     if !verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)? {
                         return Ok(MempoolResult::Rejected(format!(
-                            "Invalid script at input {}",
-                            i
+                            "Invalid script at input {i}"
                         )));
                     }
                 }
@@ -1215,7 +1213,7 @@ mod tests {
     #[test]
     fn test_replacement_checks_new_unconfirmed_dependency() {
         let utxo_set = create_test_utxo_set();
-        let mut mempool = Mempool::new();
+        let mempool = Mempool::new();
 
         // Existing transaction
         let mut existing_tx = create_valid_transaction();
@@ -1239,7 +1237,7 @@ mod tests {
 
     #[test]
     fn test_has_conflict_with_tx_true() {
-        let mut tx1 = create_valid_transaction();
+        let tx1 = create_valid_transaction();
         let mut tx2 = create_valid_transaction();
         tx2.inputs[0].prevout = tx1.inputs[0].prevout.clone(); // Same input = conflict
 

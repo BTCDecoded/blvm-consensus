@@ -6,7 +6,6 @@
 //! Consensus-critical: P2SH redeem script bugs can cause consensus divergence.
 
 use bllvm_consensus::script::verify_script;
-use bllvm_consensus::types::ByteString;
 
 /// Maximum redeem script size: 520 bytes
 pub const MAX_REDEEM_SCRIPT_SIZE: usize = 520;

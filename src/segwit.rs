@@ -968,7 +968,7 @@ mod property_tests {
             tx in create_transaction_strategy()
         ) {
             let is_segwit = is_segwit_transaction(&tx);
-            assert!(is_segwit == true || is_segwit == false);
+            assert!(is_segwit || !is_segwit);
         }
     }
 

@@ -1,5 +1,5 @@
-use consensus_proof::transaction::check_transaction;
-use consensus_proof::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use bllvm_consensus::transaction::check_transaction;
+use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn create_test_transaction() -> Transaction {

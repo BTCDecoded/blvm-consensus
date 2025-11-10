@@ -227,7 +227,7 @@ fn test_eval_script_simple() {
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0).unwrap();
     // The result is a boolean indicating success/failure
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn test_verify_script_simple() {
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
     // The result depends on the simplified script logic
     // For now, we just ensure it doesn't panic
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn test_verify_script_with_witness() {
 
     let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
     // The result depends on the simplified script logic
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn test_verify_script_empty() {
     let script_pubkey = vec![];
 
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 #[test]
@@ -506,17 +506,11 @@ fn test_get_next_work_required_normal_adjustment() {
     // Allow for small differences due to integer arithmetic and clamping
     // The result should be very close to 0x1d00ffff
     let expected = 0x1d00ffff;
-    let diff = if result > expected {
-        result - expected
-    } else {
-        expected - result
-    };
+    let diff = result.abs_diff(expected);
     // Allow difference of up to 100 (due to integer arithmetic precision)
     assert!(
         diff <= 100,
-        "Expected difficulty close to 0x1d00ffff, got {} (diff: {})",
-        result,
-        diff
+        "Expected difficulty close to 0x1d00ffff, got {result} (diff: {diff})"
     );
 }
 
@@ -537,7 +531,7 @@ fn test_check_proof_of_work_genesis() {
     // This should work with the valid target
     let result = check_proof_of_work(&header).unwrap();
     // Result depends on the hash, but should not panic
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 // expand_target is not a public function, so we test it indirectly through check_proof_of_work
@@ -629,7 +623,7 @@ fn test_maximum_input_output_counts() {
         ValidationResult::Invalid(reason) => {
             // Transaction may be invalid due to size calculation or other checks
             // This is acceptable - the test verifies we can create transactions at the limit
-            eprintln!("Transaction validation result: {}", reason);
+            eprintln!("Transaction validation result: {reason}");
             // For now, we'll allow this test to pass if it's a size issue
             // The important thing is that MAX_INPUTS transactions don't crash
         }
@@ -716,7 +710,7 @@ fn test_script_operation_limits() {
     }
 
     let result = verify_script(&script, &script, None, 0).unwrap();
-    assert!(result == true || result == false);
+    assert!(result || !result);
 
     // Test script exceeding operation limit
     let mut large_script = Vec::new();
@@ -791,8 +785,7 @@ fn test_difficulty_adjustment_boundaries() {
     // So we check that result is >= 0x1d00ffff (difficulty decreased or stayed same)
     assert!(
         result >= 0x1d00ffff,
-        "Slow blocks should decrease difficulty (increase bits), got {} (expected >= 0x1d00ffff)",
-        result
+        "Slow blocks should decrease difficulty (increase bits), got {result} (expected >= 0x1d00ffff)"
     );
 }
 

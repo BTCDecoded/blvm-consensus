@@ -7,7 +7,7 @@
 
 use bllvm_consensus::block::connect_block;
 use bllvm_consensus::types::Block;
-use bllvm_consensus::types::{BlockHeader, UtxoSet, ValidationResult};
+use bllvm_consensus::types::{BlockHeader, UtxoSet};
 use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 use bllvm_consensus::constants::COINBASE_MATURITY;
@@ -34,7 +34,7 @@ fn test_coinbase_maturity_exact_boundary() {
     };
 
     // Create UTXO set with coinbase output
-    let mut utxo_set = UtxoSet::new();
+    let utxo_set = UtxoSet::new();
     let coinbase_outpoint = OutPoint {
         hash: bllvm_consensus::block::calculate_tx_id(&coinbase_tx),
         index: 0,

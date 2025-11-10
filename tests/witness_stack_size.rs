@@ -6,7 +6,6 @@
 //! Consensus-critical: Witness stack overflow can cause consensus divergence.
 
 use bllvm_consensus::script::verify_script;
-use bllvm_consensus::segwit::Witness;
 use bllvm_consensus::types::ByteString;
 
 /// Maximum witness stack size: 100 items

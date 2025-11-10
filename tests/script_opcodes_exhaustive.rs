@@ -10,7 +10,6 @@
 //! - Opcode interactions and edge cases
 
 use bllvm_consensus::script::{eval_script, verify_script};
-use bllvm_consensus::types::ByteString;
 
 /// Script verification flags from Bitcoin Core
 ///
@@ -50,8 +49,7 @@ fn test_all_opcodes_individual() {
         // Result may be Ok or Err, but should not panic
         assert!(
             result.is_ok() || result.is_err(),
-            "Opcode 0x{:02x} caused panic",
-            opcode
+            "Opcode 0x{opcode:02x} caused panic"
         );
     }
 }
@@ -180,7 +178,7 @@ fn test_script_size_limits() {
     use bllvm_consensus::constants::MAX_SCRIPT_SIZE;
 
     // Create a script at the size limit
-    let mut script = vec![0x51; MAX_SCRIPT_SIZE];
+    let script = vec![0x51; MAX_SCRIPT_SIZE];
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0);
 
@@ -188,7 +186,7 @@ fn test_script_size_limits() {
     assert!(result.is_ok() || result.is_err());
 
     // Create a script exceeding the size limit
-    let mut large_script = vec![0x51; MAX_SCRIPT_SIZE + 1];
+    let large_script = vec![0x51; MAX_SCRIPT_SIZE + 1];
     let mut stack = Vec::new();
     let result = eval_script(&large_script, &mut stack, 0);
 

@@ -49,18 +49,16 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
         Ok(a + b)
     } else {
         // Mixed signs: use checked arithmetic (overflow not possible, but safer)
-        a.checked_add(b).ok_or_else(|| {
-            ConsensusError::TransactionValidation("Arithmetic overflow".to_string())
-        })
+        a.checked_add(b)
+            .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".to_string()))
     }
 }
 
 #[cfg(not(feature = "production"))]
 pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
-    a.checked_add(b).ok_or_else(|| {
-        ConsensusError::TransactionValidation("Arithmetic overflow".to_string())
-    })
+    a.checked_add(b)
+        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".to_string()))
 }
 
 /// Fast-path subtraction with overflow checking
@@ -98,9 +96,8 @@ pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
 #[cfg(not(feature = "production"))]
 pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
-    a.checked_sub(b).ok_or_else(|| {
-        ConsensusError::TransactionValidation("Arithmetic underflow".to_string())
-    })
+    a.checked_sub(b)
+        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic underflow".to_string()))
 }
 
 #[cfg(test)]
@@ -129,4 +126,3 @@ mod tests {
         assert!(safe_sub(i64::MIN, 1).is_err());
     }
 }
-

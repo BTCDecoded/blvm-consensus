@@ -298,10 +298,7 @@ fn process_tx_message(
 ) -> Result<NetworkResponse> {
     // Validate transaction
     if let Err(e) = chain_state.process_transaction(tx) {
-        return Ok(NetworkResponse::Reject(format!(
-            "Invalid transaction: {}",
-            e
-        )));
+        return Ok(NetworkResponse::Reject(format!("Invalid transaction: {e}")));
     }
 
     Ok(NetworkResponse::Ok)

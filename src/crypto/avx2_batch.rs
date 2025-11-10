@@ -8,8 +8,8 @@
 //! - Batch (8+ items): Uses AVX2 8-way parallel processing
 //! - Expected: 4-8x speedup for batch operations on AVX2-capable CPUs
 
-use sha2::{Digest, Sha256};
 use crate::crypto::sha256_avx2;
+use sha2::{Digest, Sha256};
 
 /// Batch SHA256 using AVX2 8-way parallel processing
 ///
@@ -46,7 +46,7 @@ pub fn batch_sha256_avx2(inputs: &[&[u8]]) -> Vec<[u8; 32]> {
     }
 
     let mut results = Vec::with_capacity(inputs.len());
-    
+
     // Process in chunks of 8 using AVX2
     let chunks = inputs.chunks_exact(8);
     let remainder = chunks.remainder();
@@ -55,10 +55,9 @@ pub fn batch_sha256_avx2(inputs: &[&[u8]]) -> Vec<[u8; 32]> {
     for chunk in chunks {
         // Convert chunk to array of 8 references
         let chunk_array: [&[u8]; 8] = [
-            chunk[0], chunk[1], chunk[2], chunk[3],
-            chunk[4], chunk[5], chunk[6], chunk[7],
+            chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
         ];
-        
+
         // Use AVX2 8-way parallel double SHA256
         // Note: sha256_8way_avx2 expects 64-byte inputs (one SHA256 block)
         // For non-64-byte inputs, it will fall back to sequential processing
@@ -93,4 +92,3 @@ pub fn batch_sha256_avx2(inputs: &[&[u8]]) -> Vec<[u8; 32]> {
         })
         .collect()
 }
-
