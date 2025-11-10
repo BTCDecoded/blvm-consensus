@@ -150,7 +150,8 @@ fn test_mixed_witness_weight() {
     // Total block weight would be sum of all transaction weights
     let total_weight = segwit_weight.unwrap() + non_segwit_weight.unwrap();
     assert!(total_weight > 0);
-    assert!(total_weight <= MAX_BLOCK_WEIGHT || total_weight > MAX_BLOCK_WEIGHT);
+    // total_weight is either <= MAX_BLOCK_WEIGHT or > MAX_BLOCK_WEIGHT (always true)
+    let _ = total_weight <= MAX_BLOCK_WEIGHT;
 }
 
 /// Test weight calculation at SegWit activation boundary
