@@ -77,7 +77,7 @@ fn test_economic_mining_integration() {
                 &[],
                 height,
                 &create_valid_block_header(),
-                &vec![create_valid_block_header(), create_valid_block_header()],
+                &[create_valid_block_header(), create_valid_block_header()],
                 &coinbase_script,
                 &coinbase_address,
             )
@@ -187,7 +187,7 @@ fn test_cross_system_error_handling() {
         &[invalid_tx],
         100,
         &create_valid_block_header(),
-        &vec![create_valid_block_header(), create_valid_block_header()],
+        &[create_valid_block_header(), create_valid_block_header()],
         &vec![0x51],
         &vec![0x51],
     );
@@ -270,7 +270,7 @@ fn test_performance_integration() {
             &mempool_txs,
             100,
             &create_valid_block_header(),
-            &vec![create_valid_block_header(), create_valid_block_header()],
+            &[create_valid_block_header(), create_valid_block_header()],
             &vec![0x51, 0x51], // 2 bytes for coinbase script_sig
             &vec![0x51],
         )

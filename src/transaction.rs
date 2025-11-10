@@ -107,8 +107,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
             .checked_add(output.value)
             .ok_or_else(|| {
                 ConsensusError::TransactionValidation(format!(
-                    "Output value sum overflow at index {}",
-                    i
+                    "Output value sum overflow at index {i}"
                 ))
             })?;
     }
@@ -116,8 +115,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // 2b. Check total output sum doesn't exceed MAX_MONEY (Orange Paper Section 5.1, rule 3)
     if total_output_value > MAX_MONEY {
         return Ok(ValidationResult::Invalid(format!(
-            "Total output value {} exceeds maximum money supply",
-            total_output_value
+            "Total output value {total_output_value} exceeds maximum money supply"
         )));
     }
 
@@ -141,8 +139,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     let tx_size = calculate_transaction_size(tx);
     if tx_size > MAX_TX_SIZE {
         return Ok(ValidationResult::Invalid(format!(
-            "Transaction too large: {} bytes",
-            tx_size
+            "Transaction too large: {tx_size} bytes"
         )));
     }
 
@@ -154,8 +151,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     for (i, input) in tx.inputs.iter().enumerate() {
         if !seen_prevouts.insert(&input.prevout) {
             return Ok(ValidationResult::Invalid(format!(
-                "Duplicate input prevout at index {}",
-                i
+                "Duplicate input prevout at index {i}"
             )));
         }
     }
@@ -166,8 +162,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         let script_sig_len = tx.inputs[0].script_sig.len();
         if !(2..=100).contains(&script_sig_len) {
             return Ok(ValidationResult::Invalid(format!(
-                "Coinbase scriptSig length {} must be between 2 and 100 bytes",
-                script_sig_len
+                "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
             )));
         }
     }
@@ -230,10 +225,7 @@ pub fn check_tx_inputs(
 
             // Use checked arithmetic to prevent overflow
             total_input_value = total_input_value.checked_add(utxo.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation(format!(
-                    "Input value overflow at input {}",
-                    i
-                ))
+                ConsensusError::TransactionValidation(format!("Input value overflow at input {i}"))
             })?;
         } else {
             return Ok((
@@ -258,8 +250,7 @@ pub fn check_tx_inputs(
     if total_output_value > MAX_MONEY {
         return Ok((
             ValidationResult::Invalid(format!(
-                "Total output value {} exceeds maximum money supply",
-                total_output_value
+                "Total output value {total_output_value} exceeds maximum money supply"
             )),
             0,
         ));
@@ -830,7 +821,7 @@ mod property_tests {
             let result = check_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
 
             // Value bounds property
-            if value < 0 || value > MAX_MONEY {
+            if !(0..=MAX_MONEY).contains(&value) {
                 prop_assert!(matches!(result, ValidationResult::Invalid(_)),
                     "Transactions with invalid output values must be invalid");
             } else {

@@ -20,7 +20,10 @@ use smallvec::SmallVec;
 #[cfg(feature = "production")]
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
-use std::sync::{OnceLock, RwLock, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    OnceLock, RwLock,
+};
 #[cfg(feature = "production")]
 use std::thread_local;
 
@@ -1044,11 +1047,17 @@ fn execute_opcode_with_context_full(
                         use crate::transaction_hash::batch_compute_sighashes;
                         // Use batch computation if we have multiple inputs (more efficient)
                         if tx.inputs.len() > 1 {
-                            let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
+                            let sighashes =
+                                batch_compute_sighashes(tx, prevouts, SighashType::All)?;
                             sighashes[input_index]
                         } else {
                             // Single input: use individual calculation (no overhead)
-                            calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                            calculate_transaction_sighash(
+                                tx,
+                                input_index,
+                                prevouts,
+                                SighashType::All,
+                            )?
                         }
                     }
                     #[cfg(not(feature = "production"))]
@@ -1091,11 +1100,17 @@ fn execute_opcode_with_context_full(
                         use crate::transaction_hash::batch_compute_sighashes;
                         // Use batch computation if we have multiple inputs (more efficient)
                         if tx.inputs.len() > 1 {
-                            let sighashes = batch_compute_sighashes(tx, prevouts, SighashType::All)?;
+                            let sighashes =
+                                batch_compute_sighashes(tx, prevouts, SighashType::All)?;
                             sighashes[input_index]
                         } else {
                             // Single input: use individual calculation (no overhead)
-                            calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?
+                            calculate_transaction_sighash(
+                                tx,
+                                input_index,
+                                prevouts,
+                                SighashType::All,
+                            )?
                         }
                     }
                     #[cfg(not(feature = "production"))]
@@ -1474,7 +1489,7 @@ pub fn reset_benchmarking_state() {
     clear_all_caches();
     clear_stack_pool();
     disable_caching(false); // Re-enable caching by default
-    // Also clear sighash templates (currently no-op as templates aren't populated yet)
+                            // Also clear sighash templates (currently no-op as templates aren't populated yet)
     #[cfg(feature = "benchmarking")]
     crate::transaction_hash::clear_sighash_templates();
 }
@@ -1503,8 +1518,8 @@ mod tests {
 
     #[test]
     fn test_verify_script_simple() {
-        let _script_sig = vec![0x51]; // OP_1
-        let _script_pubkey = vec![0x51]; // OP_1
+        let _script_sig = [0x51]; // OP_1
+        let _script_pubkey = [0x51]; // OP_1
 
         // This should work: OP_1 pushes 1, then OP_1 pushes another 1
         // Final stack has [1, 1], which is not exactly one non-zero value
@@ -3142,7 +3157,7 @@ mod property_tests {
             // Should not panic and return valid boolean
             assert!(result.is_ok());
             let success = result.unwrap();
-            assert!(success == true || success == false);
+            assert!(success || !success);
 
             // Stack should remain within bounds
             assert!(stack.len() <= MAX_STACK_SIZE);

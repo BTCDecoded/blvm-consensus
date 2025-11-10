@@ -1,10 +1,10 @@
 //! Realistic Block Validation Benchmark
 //! Uses more realistic test data for fair comparison with Bitcoin Core's ConnectBlock benchmark
 
-use consensus_proof::block::connect_block;
-use consensus_proof::segwit::Witness;
-use consensus_proof::{
-    Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet,
+use bllvm_consensus::block::connect_block;
+use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::{
+    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
@@ -23,7 +23,7 @@ fn create_realistic_test_block(num_txs: usize) -> Block {
             sequence: 0xffffffff,
         }],
         outputs: vec![TransactionOutput {
-            value: 50_000_000_000, // 50 BTC
+            value: 50_000_000_000,     // 50 BTC
             script_pubkey: vec![0x51], // OP_1
         }],
         lock_time: 0,
@@ -44,7 +44,7 @@ fn create_realistic_test_block(num_txs: usize) -> Block {
             }],
             outputs: vec![
                 TransactionOutput {
-                    value: 10_000_000, // 0.1 BTC
+                    value: 10_000_000,             // 0.1 BTC
                     script_pubkey: vec![0x51; 25], // Longer script
                 },
                 TransactionOutput {
@@ -71,7 +71,7 @@ fn create_realistic_test_block(num_txs: usize) -> Block {
 
 fn benchmark_connect_block_realistic(c: &mut Criterion) {
     let block = create_realistic_test_block(100); // 100 transactions (more realistic)
-    let mut utxo_set = UtxoSet::new();
+    let utxo_set = UtxoSet::new();
     let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
 
     c.bench_function("connect_block_realistic_100tx", |b| {
@@ -90,7 +90,7 @@ fn benchmark_connect_block_realistic(c: &mut Criterion) {
 
 fn benchmark_connect_block_realistic_1000tx(c: &mut Criterion) {
     let block = create_realistic_test_block(1000); // 1000 transactions (matches Core benchmark)
-    let mut utxo_set = UtxoSet::new();
+    let utxo_set = UtxoSet::new();
     let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
 
     c.bench_function("connect_block_realistic_1000tx", |b| {
@@ -113,4 +113,3 @@ criterion_group!(
     benchmark_connect_block_realistic_1000tx
 );
 criterion_main!(benches);
-

@@ -56,7 +56,7 @@ pub fn create_new_block(
                 // Transaction is invalid, skip it
                 // In test mode, log the reason for debugging
                 #[cfg(test)]
-                eprintln!("Transaction rejected: {}", _reason);
+                eprintln!("Transaction rejected: {_reason}");
                 continue;
             }
         }
@@ -440,7 +440,7 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
 }
 
 /// Simple SHA256 hash function
-/// 
+///
 /// Performance optimization: Uses OptimizedSha256 (SHA-NI or AVX2) instead of sha2 crate
 /// for faster hashing in Merkle tree construction.
 #[inline(always)]

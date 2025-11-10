@@ -13,7 +13,7 @@
 use bllvm_consensus::taproot::{
     compute_taproot_tweak, validate_taproot_key_aggregation, validate_taproot_script_path,
 };
-use bllvm_consensus::types::{ByteString, Hash};
+use bllvm_consensus::types::Hash;
 
 /// Test Taproot script path merkle proof validation
 #[test]
@@ -154,7 +154,7 @@ fn test_taproot_witness_size_limits() {
     // - Control block (33-65 bytes)
 
     // Control block format: <version byte> <internal_key> <merkle_proof>
-    let control_block = vec![0xc0; 33]; // Version + internal key
+    let control_block = [0xc0; 33]; // Version + internal key
 
     // Should handle maximum witness sizes
     assert!(max_witness_element.len() <= 520);
@@ -233,7 +233,7 @@ fn test_taproot_control_block() {
     // - Merkle proof (variable length)
 
     // Minimum control block: 33 bytes (version + internal key, no proof)
-    let min_control_block = vec![0xc0; 33];
+    let min_control_block = [0xc0; 33];
     assert_eq!(min_control_block.len(), 33);
 
     // Control block with merkle proof: 33 + (proof_length * 32)

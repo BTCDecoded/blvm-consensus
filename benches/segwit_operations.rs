@@ -1,8 +1,8 @@
-use consensus_proof::segwit::Witness;
-use consensus_proof::segwit::{
+use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::segwit::{
     calculate_block_weight, calculate_transaction_weight, is_segwit_transaction,
 };
-use consensus_proof::{
+use bllvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput,
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};

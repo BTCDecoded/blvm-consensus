@@ -110,10 +110,7 @@ pub fn reorganize_chain_with_witnesses(
 
         if !matches!(validation_result, ValidationResult::Valid) {
             return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-                format!(
-                    "Invalid block at height {} during reorganization",
-                    new_height
-                ),
+                format!("Invalid block at height {new_height} during reorganization"),
             ));
         }
 

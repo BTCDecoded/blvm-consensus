@@ -195,7 +195,7 @@ mod tests {
         let headers: Vec<BlockHeader> =
             vec![100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100]
                 .into_iter()
-                .map(|t| create_header(t))
+                .map(create_header)
                 .collect();
 
         assert_eq!(get_median_time_past(&headers), 600);

@@ -7,9 +7,9 @@
 //! Run with: cargo bench --bench bllvm_optimizations --features production
 
 #[cfg(feature = "production")]
-use consensus_proof::optimizations;
+use bllvm_consensus::optimizations;
 
-use consensus_proof::{
+use bllvm_consensus::{
     mining::calculate_merkle_root,
     serialization::{block::serialize_block_header, transaction::serialize_transaction},
     types::{BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput},
@@ -76,13 +76,13 @@ fn bench_transaction_serialization(c: &mut Criterion) {
 
 /// Benchmark batch hash operations with different batch sizes
 fn bench_batch_hashing(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batch_hashing");
+    let group = c.benchmark_group("batch_hashing");
 
     for size in [10, 100, 1000, 2000].iter() {
         let transactions = create_test_transactions(*size);
         let serialized: Vec<Vec<u8>> = transactions
             .iter()
-            .map(|tx| serialize_transaction(tx))
+            .map(serialize_transaction)
             .collect();
         let tx_refs: Vec<&[u8]> = serialized.iter().map(|v| v.as_slice()).collect();
 
@@ -158,7 +158,7 @@ fn bench_block_header_serialization(c: &mut Criterion) {
 /// Benchmark pre-allocation impact
 #[cfg(feature = "production")]
 fn bench_preallocation_impact(c: &mut Criterion) {
-    use consensus_proof::optimizations::{prealloc_block_buffer, prealloc_tx_buffer};
+    use bllvm_consensus::optimizations::{prealloc_block_buffer, prealloc_tx_buffer};
 
     let mut group = c.benchmark_group("preallocation");
 

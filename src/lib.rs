@@ -47,15 +47,15 @@ pub mod script;
 pub mod transaction;
 pub mod transaction_hash;
 pub mod types;
+#[cfg(all(feature = "production", feature = "benchmarking"))]
+pub use block::{reset_assume_valid_height, set_assume_valid_height};
 #[cfg(feature = "production")]
 pub use script::batch_verify_signatures;
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use script::{
-    clear_all_caches, clear_hash_cache, clear_script_cache, clear_stack_pool,
-    disable_caching, reset_benchmarking_state,
+    clear_all_caches, clear_hash_cache, clear_script_cache, clear_stack_pool, disable_caching,
+    reset_benchmarking_state,
 };
-#[cfg(all(feature = "production", feature = "benchmarking"))]
-pub use block::{reset_assume_valid_height, set_assume_valid_height};
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use transaction_hash::clear_sighash_templates;
 pub mod bip113;
@@ -951,7 +951,7 @@ mod tests {
 
     #[test]
     fn test_consensus_proof_default() {
-        let _consensus = ConsensusProof::default();
+        let _consensus = ConsensusProof;
         // Just test that it creates successfully
         assert!(true);
     }
@@ -1293,6 +1293,6 @@ mod tests {
             script_pubkey: vec![0x51],
         };
         let result = consensus.is_taproot_output(&output);
-        assert!(result == false || result == true); // Just test it returns a boolean
+        assert!(!result || result); // Just test it returns a boolean
     }
 }

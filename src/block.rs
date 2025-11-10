@@ -58,7 +58,7 @@ pub fn get_assume_valid_height() -> u64 {
             return override_val;
         }
     }
-    
+
     // Load from environment variable (supports config files via std::env)
     // Default to 0 (validate all blocks) for maximum safety
     std::env::var("ASSUME_VALID_HEIGHT")
@@ -199,7 +199,7 @@ pub fn connect_block(
             .collect();
 
         // Batch UTXO lookup for all transactions (single pass through HashMap)
-        let mut utxo_cache: std::collections::HashMap<&OutPoint, &UTXO> = 
+        let mut utxo_cache: std::collections::HashMap<&OutPoint, &UTXO> =
             std::collections::HashMap::with_capacity(all_prevouts.len());
         for prevout in &all_prevouts {
             if let Some(utxo) = utxo_set.get(prevout) {
@@ -297,7 +297,10 @@ pub fn connect_block(
                         let input_utxos: Vec<(usize, Option<&ByteString>)> = {
                             let mut result = Vec::with_capacity(tx.inputs.len());
                             for (j, input) in tx.inputs.iter().enumerate() {
-                                result.push((j, utxo_set.get(&input.prevout).map(|u| &u.script_pubkey)));
+                                result.push((
+                                    j,
+                                    utxo_set.get(&input.prevout).map(|u| &u.script_pubkey),
+                                ));
                             }
                             result
                         };
@@ -365,16 +368,16 @@ pub fn connect_block(
 
                 if !script_valid {
                     return Ok((
-                        ValidationResult::Invalid(format!(
-                            "Invalid script at transaction {i}"
-                        )),
+                        ValidationResult::Invalid(format!("Invalid script at transaction {i}")),
                         utxo_set,
                     ));
                 }
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                    ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}"))
+                    ConsensusError::BlockValidation(format!(
+                        "Total fees overflow at transaction {i}"
+                    ))
                 })?;
             }
         }
@@ -426,7 +429,9 @@ pub fn connect_block(
                         .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
 
                     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
-                        ConsensusError::TransactionValidation("Fee calculation underflow".to_string())
+                        ConsensusError::TransactionValidation(
+                            "Fee calculation underflow".to_string(),
+                        )
                     })?;
 
                     if fee < 0 {
@@ -441,7 +446,9 @@ pub fn connect_block(
 
                 if !matches!(input_valid, ValidationResult::Valid) {
                     return Ok((
-                        ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
+                        ValidationResult::Invalid(format!(
+                            "Invalid transaction inputs at index {i}"
+                        )),
                         utxo_set,
                     ));
                 }
@@ -495,7 +502,9 @@ pub fn connect_block(
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                    ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}"))
+                    ConsensusError::BlockValidation(format!(
+                        "Total fees overflow at transaction {i}"
+                    ))
                 })?;
             }
         }
@@ -565,8 +574,7 @@ pub fn connect_block(
                         )? {
                             return Ok((
                                 ValidationResult::Invalid(format!(
-                                    "Invalid script at transaction {}, input {}",
-                                    i, j
+                                    "Invalid script at transaction {i}, input {j}"
                                 )),
                                 utxo_set,
                             ));
@@ -620,8 +628,7 @@ pub fn connect_block(
         if coinbase_output > MAX_MONEY {
             return Ok((
                 ValidationResult::Invalid(format!(
-                    "Coinbase output {} exceeds maximum money supply",
-                    coinbase_output
+                    "Coinbase output {coinbase_output} exceeds maximum money supply"
                 )),
                 utxo_set,
             ));
@@ -635,8 +642,7 @@ pub fn connect_block(
         if coinbase_output > max_coinbase_value {
             return Ok((
                 ValidationResult::Invalid(format!(
-                    "Coinbase output {} exceeds fees {} + subsidy {}",
-                    coinbase_output, total_fees, subsidy
+                    "Coinbase output {coinbase_output} exceeds fees {total_fees} + subsidy {subsidy}"
                 )),
                 utxo_set,
             ));
@@ -685,8 +691,7 @@ pub fn connect_block(
     if total_sigop_cost > MAX_BLOCK_SIGOPS_COST {
         return Ok((
             ValidationResult::Invalid(format!(
-                "Block sigop cost {} exceeds maximum {}",
-                total_sigop_cost, MAX_BLOCK_SIGOPS_COST
+                "Block sigop cost {total_sigop_cost} exceeds maximum {MAX_BLOCK_SIGOPS_COST}"
             )),
             utxo_set,
         ));
@@ -779,7 +784,8 @@ fn apply_transaction_with_id(
     // Estimate: current size + new outputs - spent inputs (for non-coinbase)
     #[cfg(feature = "production")]
     {
-        let estimated_new_size = utxo_set.len()
+        let estimated_new_size = utxo_set
+            .len()
             .saturating_add(tx.outputs.len())
             .saturating_sub(if is_coinbase(tx) { 0 } else { tx.inputs.len() });
         if estimated_new_size > utxo_set.capacity() {
@@ -896,13 +902,13 @@ pub(crate) fn calculate_script_flags_for_block(
 /// is the transaction in Bitcoin wire format.
 ///
 /// For batch operations, use serialize_transaction + batch_double_sha256 instead.
-/// 
+///
 /// Performance optimization: Uses OptimizedSha256 (SHA-NI or AVX2) instead of sha2 crate
 /// for 2-3x faster transaction ID calculation.
 #[inline(always)]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
-    use crate::serialization::transaction::serialize_transaction;
     use crate::crypto::OptimizedSha256;
+    use crate::serialization::transaction::serialize_transaction;
 
     // Serialize transaction to Bitcoin wire format
     let serialized = serialize_transaction(tx);

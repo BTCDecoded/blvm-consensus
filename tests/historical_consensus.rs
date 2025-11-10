@@ -12,8 +12,7 @@
 //! - CVE-2012-2459: Merkle tree duplicate hash vulnerability
 
 use bllvm_consensus::block::connect_block;
-use bllvm_consensus::pow::check_proof_of_work;
-use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
+use bllvm_consensus::{Block, BlockHeader, UtxoSet};
 
 /// Test CVE-2012-2459: Merkle tree duplicate hash vulnerability
 ///

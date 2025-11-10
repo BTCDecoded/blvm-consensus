@@ -277,12 +277,11 @@ mod tests {
         for value in test_values {
             let encoded = encode_varint(value);
             let (decoded, bytes_consumed) = decode_varint(&encoded).unwrap();
-            assert_eq!(decoded, value, "Round-trip failed for value {}", value);
+            assert_eq!(decoded, value, "Round-trip failed for value {value}");
             assert_eq!(
                 bytes_consumed,
                 encoded.len(),
-                "Bytes consumed mismatch for value {}",
-                value
+                "Bytes consumed mismatch for value {value}"
             );
         }
     }

@@ -203,7 +203,7 @@ fn test_mempool_dependency_creation() {
 
 #[test]
 fn test_mempool_standard_script() {
-    let standard_script = vec![0x51]; // OP_1
+    let standard_script = [0x51]; // OP_1
     let non_standard_script = vec![0x00; 10001]; // Very long script
 
     // Test script length limits
@@ -255,7 +255,7 @@ fn test_mempool_transaction_size() {
 
     // Test that transaction size is reasonable
     let serialized = serde_json::to_vec(&tx).unwrap();
-    assert!(serialized.len() > 0);
+    assert!(!serialized.is_empty());
     assert!(serialized.len() <= MAX_TX_SIZE);
 }
 

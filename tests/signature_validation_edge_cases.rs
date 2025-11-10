@@ -11,7 +11,6 @@
 //! Consensus-critical: Signature validation bugs can allow invalid transactions.
 
 use bllvm_consensus::script::verify_script;
-use bllvm_consensus::types::ByteString;
 
 /// Script verification flags for signature validation
 pub const SCRIPT_VERIFY_DERSIG: u32 = 0x04;

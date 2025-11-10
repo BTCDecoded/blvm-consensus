@@ -166,9 +166,9 @@ mod tests {
 
     #[test]
     fn test_extract_sequence_type_flag() {
-        assert_eq!(extract_sequence_type_flag(0x00400000), true);
-        assert_eq!(extract_sequence_type_flag(0x00000000), false);
-        assert_eq!(extract_sequence_type_flag(0x00410000), true);
+        assert!(extract_sequence_type_flag(0x00400000));
+        assert!(!extract_sequence_type_flag(0x00000000));
+        assert!(extract_sequence_type_flag(0x00410000));
     }
 
     #[test]
@@ -179,9 +179,9 @@ mod tests {
 
     #[test]
     fn test_is_sequence_disabled() {
-        assert_eq!(is_sequence_disabled(0x80000000), true);
-        assert_eq!(is_sequence_disabled(0x00000000), false);
-        assert_eq!(is_sequence_disabled(0x80010000), true);
+        assert!(is_sequence_disabled(0x80000000));
+        assert!(!is_sequence_disabled(0x00000000));
+        assert!(is_sequence_disabled(0x80010000));
     }
 }
 

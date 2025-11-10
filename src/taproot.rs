@@ -1065,7 +1065,7 @@ mod property_tests {
             output in create_output_strategy()
         ) {
             let is_taproot = is_taproot_output(&output);
-            assert!(is_taproot == true || is_taproot == false);
+            assert!(is_taproot || !is_taproot);
         }
     }
 
@@ -1135,7 +1135,7 @@ mod property_tests {
             assert_eq!(encoded1, encoded2);
 
             // Encoded length should be reasonable
-            assert!(encoded1.len() >= 1);
+            assert!(!encoded1.is_empty());
             assert!(encoded1.len() <= 9);
         }
     }
@@ -1160,7 +1160,7 @@ mod property_tests {
                 },
                 3 => {
                     // 2-byte encoding
-                    assert!(value >= 0xfd && value <= 0xffff);
+                    assert!((0xfd..=0xffff).contains(&value));
                     assert_eq!(encoded[0], 0xfd);
                 },
                 5 => {
