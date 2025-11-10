@@ -636,7 +636,9 @@ mod property_tests {
             match result {
                 Ok(target) => {
                     // Target can be zero for bits=0, which is valid
-                    prop_assert!(target <= u128::MAX, "Target must fit in u128");
+                    // target is u128, so it's always <= u128::MAX (always true)
+                    // This assertion is redundant but kept for documentation
+                    let _ = target;
                 },
                 Err(_) => {
                     // Some invalid targets may fail, which is acceptable
