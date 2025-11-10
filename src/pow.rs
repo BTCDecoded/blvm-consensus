@@ -386,7 +386,7 @@ impl Ord for U256 {
 ///
 /// The round-trip property is formally verified by `kani_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-fn expand_target(bits: Natural) -> Result<U256> {
+pub fn expand_target(bits: Natural) -> Result<U256> {
     let exponent = (bits >> 24) as u8;
     let mantissa = bits & 0x00ffffff;
 
