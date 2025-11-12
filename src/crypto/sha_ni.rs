@@ -384,7 +384,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_arch = "x86_64"), ignore)]
     fn test_sha256_empty() {
+        // Only test if SHA-NI is available, otherwise skip (fallback is tested elsewhere)
+        if !is_sha_ni_available() {
+            return;
+        }
         let input = b"";
         let result = sha256(input);
 
@@ -399,7 +404,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_arch = "x86_64"), ignore)]
     fn test_sha256_hello_world() {
+        // Only test if SHA-NI is available, otherwise skip (fallback is tested elsewhere)
+        if !is_sha_ni_available() {
+            return;
+        }
         let input = b"hello world";
         let result = sha256(input);
 
@@ -411,7 +421,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_arch = "x86_64"), ignore)]
     fn test_sha256_matches_reference() {
+        // Only test if SHA-NI is available, otherwise skip (fallback is tested elsewhere)
+        if !is_sha_ni_available() {
+            return;
+        }
         // Test various input sizes
         let zeros_64 = vec![0u8; 64];
         let ff_128 = vec![0xffu8; 128];
@@ -444,7 +459,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_arch = "x86_64"), ignore)]
     fn test_double_sha256() {
+        // Only test if SHA-NI is available, otherwise skip (fallback is tested elsewhere)
+        if !is_sha_ni_available() {
+            return;
+        }
         let input = b"hello world";
         let result = hash256(input);
 
@@ -457,7 +477,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(target_arch = "x86_64"), ignore)]
     fn test_double_sha256_zero() {
+        // Only test if SHA-NI is available, otherwise skip (fallback is tested elsewhere)
+        if !is_sha_ni_available() {
+            return;
+        }
         // Test with 64 zero bytes (same as AVX2 test)
         let input = vec![0u8; 64];
         let result = hash256(&input);
