@@ -7,10 +7,7 @@
 #[cfg(feature = "k256")]
 use k256::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
-    elliptic_curve::{
-        generic_array::GenericArray,
-        sec1::FromEncodedPoint,
-    },
+    elliptic_curve::{generic_array::GenericArray, sec1::FromEncodedPoint},
     EncodedPoint,
 };
 

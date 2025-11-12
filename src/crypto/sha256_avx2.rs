@@ -180,9 +180,9 @@ macro_rules! round {
 unsafe fn read8(input: &[u8], offset: usize) -> __m256i {
     // Read 8 32-bit words from positions: offset, offset+64, offset+128, ..., offset+448
     let mut words = [0u32; 8];
-    for i in 0..8 {
+    for (i, word) in words.iter_mut().enumerate() {
         let pos = (i * 64) + offset;
-        words[i] = u32::from_le_bytes([input[pos], input[pos + 1], input[pos + 2], input[pos + 3]]);
+        *word = u32::from_le_bytes([input[pos], input[pos + 1], input[pos + 2], input[pos + 3]]);
     }
 
     // _mm256_set_epi32 places first argument at index 7, last at index 0
