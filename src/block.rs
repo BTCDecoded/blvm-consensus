@@ -76,7 +76,7 @@ pub fn get_assume_valid_height() -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use consensus_proof::block::set_assume_valid_height;
+/// use bllvm_consensus::block::set_assume_valid_height;
 ///
 /// // Set to validate all blocks (no skipping)
 /// set_assume_valid_height(0);

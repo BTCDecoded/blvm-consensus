@@ -41,7 +41,7 @@ impl std::error::Error for VarIntError {}
 /// # Examples
 ///
 /// ```
-/// use consensus_proof::serialization::varint::encode_varint;
+/// use bllvm_consensus::serialization::varint::encode_varint;
 ///
 /// assert_eq!(encode_varint(0), vec![0]);
 /// assert_eq!(encode_varint(252), vec![252]);
@@ -78,7 +78,7 @@ pub fn encode_varint(value: u64) -> Vec<u8> {
 /// # Examples
 ///
 /// ```
-/// use consensus_proof::serialization::varint::decode_varint;
+/// use bllvm_consensus::serialization::varint::decode_varint;
 ///
 /// assert_eq!(decode_varint(&[0]), Ok((0, 1)));
 /// assert_eq!(decode_varint(&[252]), Ok((252, 1)));

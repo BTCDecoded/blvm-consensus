@@ -336,12 +336,12 @@ pub enum MempoolResult {
 /// # Example
 ///
 /// ```rust
-/// use consensus_proof::mempool::{Mempool, update_mempool_after_block};
-/// use consensus_proof::block::connect_block;
+/// use bllvm_consensus::mempool::{Mempool, update_mempool_after_block};
+/// use bllvm_consensus::block::connect_block;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # use consensus_proof::types::*;
-/// # use consensus_proof::mining::calculate_merkle_root;
+/// # use bllvm_consensus::types::*;
+/// # use bllvm_consensus::mining::calculate_merkle_root;
 /// # let coinbase_tx = Transaction {
 /// #     version: 1,
 /// #     inputs: vec![TransactionInput {

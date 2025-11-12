@@ -32,8 +32,8 @@ pub const MEDIAN_TIME_BLOCKS: usize = 11;
 /// # Example
 ///
 /// ```rust
-/// use consensus_proof::bip113::get_median_time_past;
-/// use consensus_proof::types::BlockHeader;
+/// use bllvm_consensus::bip113::get_median_time_past;
+/// use bllvm_consensus::types::BlockHeader;
 ///
 /// let headers = vec![
 ///     BlockHeader { version: 1, prev_block_hash: [0; 32], merkle_root: [0; 32], timestamp: 1000, bits: 0, nonce: 0 },

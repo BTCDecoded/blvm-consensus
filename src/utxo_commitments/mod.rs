@@ -14,7 +14,7 @@
 //! ## Usage
 //!
 //! ```rust
-//! use consensus_proof::utxo_commitments::{UtxoCommitmentSet, UtxoCommitment};
+//! use bllvm_consensus::utxo_commitments::{UtxoCommitmentSet, UtxoCommitment};
 //!
 //! // Create UTXO commitment set
 //! let mut commitment_set = UtxoCommitmentSet::new();

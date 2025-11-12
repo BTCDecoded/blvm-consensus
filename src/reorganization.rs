@@ -153,12 +153,12 @@ pub fn reorganize_chain_with_witnesses(
 /// # Example
 ///
 /// ```rust
-/// use consensus_proof::reorganization::{reorganize_chain_with_witnesses, update_mempool_after_reorg};
-/// use consensus_proof::mempool::Mempool;
+/// use bllvm_consensus::reorganization::{reorganize_chain_with_witnesses, update_mempool_after_reorg};
+/// use bllvm_consensus::mempool::Mempool;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # use consensus_proof::types::*;
-/// # use consensus_proof::mempool::Mempool;
+/// # use bllvm_consensus::types::*;
+/// # use bllvm_consensus::mempool::Mempool;
 /// # let new_chain = vec![];
 /// # let new_witnesses = vec![];
 /// # let current_chain = vec![];
