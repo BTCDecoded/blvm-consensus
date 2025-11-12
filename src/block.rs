@@ -212,6 +212,7 @@ pub fn connect_block(
         // Sequential application phase (write operations) maintains correctness
         #[cfg(feature = "rayon")]
         {
+            use rayon::prelude::*;
             // Phase 1: Parallel validation (read-only UTXO access) ✅ Thread-safe
             let validation_results: Vec<Result<(ValidationResult, i64, bool)>> = block
                 .transactions
@@ -321,6 +322,7 @@ pub fn connect_block(
                         };
 
                         // Parallelize script verification using pre-looked-up UTXOs
+                        use rayon::prelude::*;
                         let script_results: Result<Vec<bool>> = input_utxos
                             .par_iter()
                             .map(|(j, opt_script_pubkey)| {

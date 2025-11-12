@@ -7,7 +7,10 @@
 #[cfg(feature = "k256")]
 use k256::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
-    elliptic_curve::sec1::FromEncodedPoint,
+    elliptic_curve::{
+        generic_array::GenericArray,
+        sec1::FromEncodedPoint,
+    },
     EncodedPoint,
 };
 
@@ -30,8 +33,6 @@ pub fn verify_signature_k256(
     sighash: &[u8; 32],
     _flags: u32,
 ) -> bool {
-    use k256::elliptic_curve::generic_array::GenericArray;
-
     // Parse public key from SEC1 format
     let verifying_key = match EncodedPoint::from_bytes(pubkey_bytes) {
         Ok(encoded_point) => match VerifyingKey::from_encoded_point(&encoded_point) {
@@ -61,8 +62,8 @@ pub fn verify_signature_k256(
         }
     };
 
-    // Convert sighash to GenericArray for verification
-    let msg_hash = GenericArray::from_slice(sighash);
+    // Convert sighash to GenericArray for verification (32 bytes = SHA256 output)
+    let msg_hash = GenericArray::<u8, _>::from_slice(sighash);
 
     // Verify signature
     // k256 verification takes the message hash directly
