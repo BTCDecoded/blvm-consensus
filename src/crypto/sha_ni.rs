@@ -305,33 +305,34 @@ unsafe fn sha256_ni_impl(data: &[u8]) -> [u8; 32] {
     // state0: [h0, h1, h4, h5]
     // state1: [h2, h3, h6, h7]
     // We need to reorder to h0,h1,h2,h3,h4,h5,h6,h7 and byte-swap each word to big-endian
-    
+
     let mut result = [0u8; 32];
-    
+
     // Extract and byte-swap state0: h0, h1, h4, h5
     let state0_swapped = _mm_shuffle_epi8(state0, shuf_mask);
     _mm_storeu_si128(result.as_mut_ptr() as *mut __m128i, state0_swapped);
-    
+
     // Extract and byte-swap state1: h2, h3, h6, h7
     let state1_swapped = _mm_shuffle_epi8(state1, shuf_mask);
     _mm_storeu_si128(result.as_mut_ptr().add(16) as *mut __m128i, state1_swapped);
-    
+
     // Now we need to reorder: currently [h0, h1, h4, h5, h2, h3, h6, h7]
     // Need: [h0, h1, h2, h3, h4, h5, h6, h7]
     // Swap the middle two 16-byte blocks
     let temp = [
         result[0], result[1], result[2], result[3], result[4], result[5], result[6], result[7],
-        result[8], result[9], result[10], result[11], result[12], result[13], result[14], result[15],
-        result[16], result[17], result[18], result[19], result[20], result[21], result[22], result[23],
-        result[24], result[25], result[26], result[27], result[28], result[29], result[30], result[31],
+        result[8], result[9], result[10], result[11], result[12], result[13], result[14],
+        result[15], result[16], result[17], result[18], result[19], result[20], result[21],
+        result[22], result[23], result[24], result[25], result[26], result[27], result[28],
+        result[29], result[30], result[31],
     ];
-    
+
     // Reorder: h0, h1 from temp[0-7], h2, h3 from temp[16-23], h4, h5 from temp[8-15], h6, h7 from temp[24-31]
-    result[0..8].copy_from_slice(&temp[0..8]);      // h0, h1
-    result[8..16].copy_from_slice(&temp[16..24]);   // h2, h3
-    result[16..24].copy_from_slice(&temp[8..16]);   // h4, h5
-    result[24..32].copy_from_slice(&temp[24..32]);  // h6, h7
-    
+    result[0..8].copy_from_slice(&temp[0..8]); // h0, h1
+    result[8..16].copy_from_slice(&temp[16..24]); // h2, h3
+    result[16..24].copy_from_slice(&temp[8..16]); // h4, h5
+    result[24..32].copy_from_slice(&temp[24..32]); // h6, h7
+
     result
 }
 

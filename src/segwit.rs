@@ -524,7 +524,7 @@ mod tests {
     }
 }
 
-#[cfg(feature = "verify")]
+#[cfg(kani)]
 mod kani_proofs {
     use super::*;
     use kani::*;
