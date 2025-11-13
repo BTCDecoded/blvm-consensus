@@ -323,6 +323,7 @@ jobs:
       
       - name: Trigger downstream build (bllvm-protocol)
         if: success()
+        continue-on-error: true
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
