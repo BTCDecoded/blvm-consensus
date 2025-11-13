@@ -338,6 +338,7 @@ pub enum MempoolResult {
 /// ```rust
 /// use bllvm_consensus::mempool::{Mempool, update_mempool_after_block};
 /// use bllvm_consensus::block::connect_block;
+/// use bllvm_consensus::ValidationResult;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # use bllvm_consensus::types::*;
@@ -365,7 +366,7 @@ pub enum MempoolResult {
 /// # let height = 0;
 /// # let mut mempool = Mempool::new();
 /// let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, height, None)?;
-/// if matches!(result, consensus_proof::ValidationResult::Valid) {
+/// if matches!(result, ValidationResult::Valid) {
 ///     let removed = update_mempool_after_block(&mut mempool, &block, &new_utxo_set)?;
 ///     println!("Removed {} transactions from mempool", removed.len());
 /// }

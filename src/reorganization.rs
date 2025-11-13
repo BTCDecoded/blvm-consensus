@@ -155,6 +155,7 @@ pub fn reorganize_chain_with_witnesses(
 /// ```rust
 /// use bllvm_consensus::reorganization::{reorganize_chain_with_witnesses, update_mempool_after_reorg};
 /// use bllvm_consensus::mempool::Mempool;
+/// use bllvm_consensus::segwit::Witness;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # use bllvm_consensus::types::*;
@@ -174,7 +175,7 @@ pub fn reorganize_chain_with_witnesses(
 ///     &current_chain,
 ///     current_utxo_set,
 ///     current_height,
-///     None::<fn(&Block) -> Option<Vec<consensus_proof::segwit::Witness>>>,
+///     None::<fn(&Block) -> Option<Vec<Witness>>>,
 ///     None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
 /// );
 /// if let Ok(reorg_result) = reorg_result {
