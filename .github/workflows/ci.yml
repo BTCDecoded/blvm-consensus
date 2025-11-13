@@ -317,6 +317,7 @@ jobs:
         if: always()
         run: |
           if [ -d "./target" ] && [ "$TARGET_CACHE_DIR" != "" ]; then
+            mkdir -p "$TARGET_CACHE_DIR" || true
             rsync -a --delete ./target/ "$TARGET_CACHE_DIR/" || true
           fi
       
