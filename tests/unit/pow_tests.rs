@@ -284,6 +284,81 @@ fn test_get_next_work_required_timespan_clamping() {
     assert!(result > 0);
 }
 
+#[test]
+fn test_get_next_work_required_corrected_off_by_one_fix() {
+    // Test that the corrected version fixes the off-by-one error
+    // When we have exactly 2016 blocks with perfect 10-minute intervals,
+    // the corrected version should maintain difficulty better
+    
+    let mut prev_headers = Vec::new();
+    let start_timestamp = 1231006505;
+    
+    // Create exactly 2016 blocks with perfect 10-minute intervals
+    for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
+        prev_headers.push(BlockHeader {
+            version: 1,
+            prev_block_hash: [i as u8; 32],
+            merkle_root: [0; 32],
+            timestamp: start_timestamp + (i * TARGET_TIME_PER_BLOCK),
+            bits: 0x1d00ffff,
+            nonce: 0,
+        });
+    }
+    
+    let current_header = BlockHeader {
+        version: 1,
+        prev_block_hash: [0xff; 32],
+        merkle_root: [0; 32],
+        timestamp: start_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK),
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+    
+    // Bitcoin-compatible version (buggy)
+    let buggy_result = get_next_work_required(&current_header, &prev_headers).unwrap();
+    
+    // Corrected version
+    let corrected_result = get_next_work_required_corrected(&current_header, &prev_headers).unwrap();
+    
+    // With perfect timing, the corrected version should maintain difficulty better
+    // The buggy version will slightly over-adjust because it compares 2015 intervals
+    // against 2016 intervals worth of time
+    // 
+    // Buggy: measures 2015 intervals, compares to 2016 intervals
+    //        adjustment = (2015 * 600) / (2016 * 600) ≈ 0.9995
+    //        So difficulty increases slightly (target decreases)
+    //
+    // Corrected: measures 2015 intervals, compares to 2015 intervals  
+    //            adjustment = (2015 * 600) / (2015 * 600) = 1.0
+    //            So difficulty stays the same (target stays same)
+    
+    // The corrected version should be closer to the original bits
+    let original_bits = 0x1d00ffff;
+    let buggy_diff = if buggy_result > original_bits {
+        buggy_result - original_bits
+    } else {
+        original_bits - buggy_result
+    };
+    
+    let corrected_diff = if corrected_result > original_bits {
+        corrected_result - original_bits
+    } else {
+        original_bits - corrected_result
+    };
+    
+    // Corrected version should be closer to maintaining the same difficulty
+    assert!(
+        corrected_diff <= buggy_diff,
+        "Corrected version should maintain difficulty better with perfect timing"
+    );
+    
+    // With perfect timing, corrected version should maintain difficulty exactly
+    assert_eq!(
+        corrected_result, original_bits,
+        "With perfect timing, corrected version should maintain exact difficulty"
+    );
+}
+
 
 
 

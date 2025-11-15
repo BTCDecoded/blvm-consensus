@@ -440,6 +440,21 @@ impl ConsensusProof {
         pow::get_next_work_required(current_header, prev_headers)
     }
 
+    /// Get next work required with corrected off-by-one error fix
+    ///
+    /// This version fixes the known off-by-one error in Bitcoin's difficulty adjustment.
+    /// **Warning**: Only use this for isolated networks like regtest. Do NOT use for
+    /// Bitcoin mainnet/testnet as it will cause consensus divergence.
+    ///
+    /// See `get_next_work_required_corrected()` in the `pow` module for details.
+    pub fn get_next_work_required_corrected(
+        &self,
+        current_header: &BlockHeader,
+        prev_headers: &[BlockHeader],
+    ) -> Result<Natural> {
+        pow::get_next_work_required_corrected(current_header, prev_headers)
+    }
+
     /// Accept transaction to memory pool
     ///
     /// # Examples

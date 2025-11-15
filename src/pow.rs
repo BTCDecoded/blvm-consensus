@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 ///
 /// Calculate the next work required based on difficulty adjustment using integer arithmetic.
 ///
-/// Algorithm (matches Bitcoin Core exactly):
+/// Algorithm (matches Bitcoin Core exactly, including known off-by-one error):
 /// 1. Use the previous block's bits (last block before adjustment)
 /// 2. Calculate timespan between first and last block of adjustment period
 /// 3. Clamp timespan to [expected_time/4, expected_time*4]
@@ -19,6 +19,11 @@ use sha2::{Digest, Sha256};
 /// 7. Compress result back to compact bits format
 /// 8. Clamp to MAX_TARGET
 ///
+/// **Known Issue (Bitcoin Compatibility)**: This function measures time for (n-1) intervals
+/// when given n blocks, but compares against n intervals. This matches Bitcoin Core's
+/// behavior exactly for consensus compatibility. For corrected behavior, use
+/// `get_next_work_required_corrected()`.
+///
 /// For block header h and previous headers prev:
 /// - prev[0] is the first block of the adjustment period
 /// - prev[prev.len()-1] is the last block before the adjustment (use its bits)
@@ -27,6 +32,36 @@ use sha2::{Digest, Sha256};
 pub fn get_next_work_required(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
+) -> Result<Natural> {
+    get_next_work_required_internal(_current_header, prev_headers, false)
+}
+
+/// GetNextWorkRequired (Corrected): ℋ × ℋ* → ℕ
+///
+/// Calculate the next work required with corrected off-by-one error fix.
+///
+/// This version fixes the known off-by-one error in Bitcoin's difficulty adjustment:
+/// - When measuring time for n blocks (indices 0 to n-1), we measure (n-1) intervals
+/// - The corrected version adjusts expected_time to account for this
+/// - Use this for regtest or new protocol variants that don't need Bitcoin compatibility
+///
+/// **Compatibility Warning**: Do NOT use this for Bitcoin mainnet/testnet as it will
+/// cause consensus divergence. This is only safe for isolated networks like regtest.
+pub fn get_next_work_required_corrected(
+    _current_header: &BlockHeader,
+    prev_headers: &[BlockHeader],
+) -> Result<Natural> {
+    get_next_work_required_internal(_current_header, prev_headers, true)
+}
+
+/// Internal implementation of difficulty adjustment
+///
+/// `use_corrected`: If true, fixes the off-by-one error by adjusting expected_time
+///                  to account for measuring (n-1) intervals when given n blocks.
+fn get_next_work_required_internal(
+    _current_header: &BlockHeader,
+    prev_headers: &[BlockHeader],
+    use_corrected: bool,
 ) -> Result<Natural> {
     // Need at least 2 previous headers for adjustment
     if prev_headers.len() < 2 {
@@ -52,7 +87,26 @@ pub fn get_next_work_required(
     }
 
     let time_span = last_timestamp - first_timestamp;
-    let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
+    
+    // Calculate expected_time based on whether we're using corrected version
+    // When we have n blocks (indices 0 to n-1), we measure (n-1) intervals
+    // Bitcoin bug: compares against n intervals
+    // Corrected: compares against (n-1) intervals
+    let expected_time = if use_corrected {
+        // Corrected: account for the fact we're measuring (n-1) intervals
+        // If we have exactly DIFFICULTY_ADJUSTMENT_INTERVAL blocks, we measure
+        // (DIFFICULTY_ADJUSTMENT_INTERVAL - 1) intervals
+        let num_intervals = prev_headers.len() as u64;
+        if num_intervals == DIFFICULTY_ADJUSTMENT_INTERVAL {
+            (DIFFICULTY_ADJUSTMENT_INTERVAL - 1) * TARGET_TIME_PER_BLOCK
+        } else {
+            // For other cases, use the actual number of intervals measured
+            (num_intervals - 1) * TARGET_TIME_PER_BLOCK
+        }
+    } else {
+        // Bitcoin-compatible: use the buggy version
+        DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK
+    };
 
     // Clamp timespan to [expected_time/4, expected_time*4] before calculation
     // This prevents extreme difficulty adjustments (max 4x change per period)
