@@ -6,6 +6,10 @@
 use super::varint::{decode_varint, encode_varint};
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+use std::borrow::Cow;
+
+#[cfg(feature = "production")]
+use smallvec::SmallVec;
 
 /// Error type for transaction parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +137,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
     // Version (4 bytes) - Bitcoin uses signed 32-bit in wire format, but we store as u64
     if data.len() < offset + 4 {
         return Err(ConsensusError::Serialization(
-            TransactionParseError::InsufficientBytes.to_string(),
+            Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
         ));
     }
     let version = i32::from_le_bytes([
@@ -150,16 +154,19 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
 
     if input_count > 1000000 {
         return Err(ConsensusError::Serialization(
-            TransactionParseError::InvalidInputCount.to_string(),
+            Cow::Owned(TransactionParseError::InvalidInputCount.to_string()),
         ));
     }
 
+    #[cfg(feature = "production")]
+    let mut inputs = SmallVec::<[TransactionInput; 2]>::new();
+    #[cfg(not(feature = "production"))]
     let mut inputs = Vec::new();
     for _ in 0..input_count {
         // Previous output hash (32 bytes)
         if data.len() < offset + 32 {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let mut hash = [0u8; 32];
@@ -169,7 +176,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         // Previous output index (4 bytes)
         if data.len() < offset + 4 {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let index = u64::from_le_bytes([
@@ -191,7 +198,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         // Script bytes
         if data.len() < offset + script_len as usize {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let script_sig = data[offset..offset + script_len as usize].to_vec();
@@ -200,7 +207,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         // Sequence (4 bytes) - Bitcoin uses u32 in wire format, but we store as u64
         if data.len() < offset + 4 {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let sequence = u32::from_le_bytes([
@@ -224,16 +231,19 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
 
     if output_count > 1000000 {
         return Err(ConsensusError::Serialization(
-            TransactionParseError::InvalidOutputCount.to_string(),
+            Cow::Owned(TransactionParseError::InvalidOutputCount.to_string()),
         ));
     }
 
+    #[cfg(feature = "production")]
+    let mut outputs = SmallVec::<[TransactionOutput; 2]>::new();
+    #[cfg(not(feature = "production"))]
     let mut outputs = Vec::new();
     for _ in 0..output_count {
         // Value (8 bytes)
         if data.len() < offset + 8 {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let value = i64::from_le_bytes([
@@ -255,7 +265,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         // Script bytes
         if data.len() < offset + script_len as usize {
             return Err(ConsensusError::Serialization(
-                TransactionParseError::InsufficientBytes.to_string(),
+                Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
             ));
         }
         let script_pubkey = data[offset..offset + script_len as usize].to_vec();
@@ -270,7 +280,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
     // Lock time (4 bytes) - Bitcoin uses u32 in wire format, but we store as u64
     if data.len() < offset + 4 {
         return Err(ConsensusError::Serialization(
-            TransactionParseError::InsufficientBytes.to_string(),
+            Cow::Owned(TransactionParseError::InsufficientBytes.to_string()),
         ));
     }
     let lock_time = u32::from_le_bytes([
@@ -296,7 +306,7 @@ mod tests {
     fn test_serialize_deserialize_round_trip() {
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
+            inputs: crate::tx_inputs![TransactionInput {
                 prevout: OutPoint {
                     hash: [1; 32],
                     index: 0,
@@ -304,7 +314,7 @@ mod tests {
                 script_sig: vec![0x51], // OP_1
                 sequence: 0xffffffff,
             }],
-            outputs: vec![TransactionOutput {
+            outputs: crate::tx_outputs![TransactionOutput {
                 value: 5000000000,
                 script_pubkey: vec![0x51], // OP_1
             }],

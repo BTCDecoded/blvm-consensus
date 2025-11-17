@@ -1,35 +1,36 @@
 //! Error types for consensus validation
 
+use std::borrow::Cow;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum ConsensusError {
     #[error("Transaction validation failed: {0}")]
-    TransactionValidation(String),
+    TransactionValidation(Cow<'static, str>),
 
     #[error("Block validation failed: {0}")]
-    BlockValidation(String),
+    BlockValidation(Cow<'static, str>),
 
     #[error("Script execution failed: {0}")]
-    ScriptExecution(String),
+    ScriptExecution(Cow<'static, str>),
 
     #[error("UTXO not found: {0}")]
-    UtxoNotFound(String),
+    UtxoNotFound(Cow<'static, str>),
 
     #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
+    InvalidSignature(Cow<'static, str>),
 
     #[error("Invalid proof of work: {0}")]
-    InvalidProofOfWork(String),
+    InvalidProofOfWork(Cow<'static, str>),
 
     #[error("Economic validation failed: {0}")]
-    EconomicValidation(String),
+    EconomicValidation(Cow<'static, str>),
 
     #[error("Serialization error: {0}")]
-    Serialization(String),
+    Serialization(Cow<'static, str>),
 
     #[error("Consensus rule violation: {0}")]
-    ConsensusRuleViolation(String),
+    ConsensusRuleViolation(Cow<'static, str>),
 
     #[error("Invalid sighash type: {0}")]
     InvalidSighashType(u8),

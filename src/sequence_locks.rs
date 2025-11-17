@@ -66,7 +66,7 @@ pub fn calculate_sequence_locks(
                 "prev_heights length {} does not match input count {}",
                 prev_heights.len(),
                 tx.inputs.len()
-            ),
+            ).into(),
         ));
     }
 
@@ -136,7 +136,7 @@ pub fn calculate_sequence_locks(
                 .and_then(|sum| sum.checked_sub(1))
                 .ok_or_else(|| {
                     crate::error::ConsensusError::ConsensusRuleViolation(
-                        "Sequence lock time calculation overflow".to_string(),
+                        "Sequence lock time calculation overflow".into(),
                     )
                 })?;
             
@@ -175,7 +175,7 @@ pub fn calculate_sequence_locks(
                 .and_then(|sum| sum.checked_sub(1))
                 .ok_or_else(|| {
                     crate::error::ConsensusError::ConsensusRuleViolation(
-                        "Sequence lock height calculation overflow".to_string(),
+                        "Sequence lock height calculation overflow".into(),
                     )
                 })?;
             

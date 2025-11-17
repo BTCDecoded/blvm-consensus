@@ -18,9 +18,7 @@
 //! this correctly by processing all transactions but only adding non-spam outputs.
 
 #[cfg(feature = "utxo-commitments")]
-use crate::types::{ByteString, Transaction, TransactionInput, TransactionOutput};
-#[cfg(feature = "utxo-commitments")]
-use crate::utxo_commitments::data_structures::{UtxoCommitmentError, UtxoCommitmentResult};
+use crate::types::{ByteString, Transaction};
 
 /// Default dust threshold (546 satoshis = 0.00000546 BTC)
 pub const DEFAULT_DUST_THRESHOLD: i64 = 546;
@@ -366,7 +364,7 @@ fn estimate_transaction_size(tx: &Transaction) -> u64 {
     // - Per output: ~35 bytes (value + script)
     // - Locktime: 4 bytes
 
-    let base_size = 4 + 1 + 1 + 4; // Version + input count + output count + locktime
+    let base_size: u64 = 4 + 1 + 1 + 4; // Version + input count + output count + locktime
     let input_size = tx.inputs.len() as u64 * 150;
     let output_size = tx
         .outputs

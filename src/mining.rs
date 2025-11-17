@@ -84,7 +84,7 @@ pub fn create_new_block(
 
     Ok(Block {
         header,
-        transactions,
+        transactions: transactions.into_boxed_slice(),
     })
 }
 
@@ -94,6 +94,7 @@ pub fn create_new_block(
 /// 1. Try different nonce values
 /// 2. Check if resulting hash meets difficulty target
 /// 3. Return mined block or failure
+#[track_caller] // Better error messages showing caller location
 pub fn mine_block(mut block: Block, max_attempts: Natural) -> Result<(Block, MiningResult)> {
     let target = expand_target(block.header.bits)?;
 
@@ -197,17 +198,18 @@ fn create_coinbase_transaction(
 
     Ok(Transaction {
         version: 1,
-        inputs: vec![coinbase_input],
-        outputs: vec![coinbase_output],
+        inputs: crate::tx_inputs![coinbase_input],
+        outputs: crate::tx_outputs![coinbase_output],
         lock_time: 0,
     })
 }
 
 /// Calculate merkle root using proper Bitcoin Merkle tree construction
+#[track_caller] // Better error messages showing caller location
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
-            "Cannot calculate merkle root for empty transaction list".to_string(),
+            "Cannot calculate merkle root for empty transaction list".into(),
         ));
     }
 
@@ -502,7 +504,7 @@ fn expand_target(bits: Natural) -> Result<u128> {
         if shift >= 104 {
             // Allow up to 128-bit values (16 bytes - 3 = 13 bytes * 8 = 104)
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".to_string(),
+                "Target too large".into(),
             ));
         }
         Ok((mantissa << shift) as u128)
@@ -980,7 +982,7 @@ mod tests {
     fn create_test_block() -> Block {
         Block {
             header: create_valid_block_header(),
-            transactions: vec![create_valid_transaction()],
+            transactions: vec![create_valid_transaction()].into_boxed_slice(),
         }
     }
 

@@ -6,6 +6,18 @@
 use crate::constants::*;
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+use std::borrow::Cow;
+
+// Cold error construction helpers - these paths are rarely taken
+#[cold]
+fn make_output_sum_overflow_error() -> ConsensusError {
+    ConsensusError::TransactionValidation("Output value sum overflow".into())
+}
+
+#[cold]
+fn make_fee_calculation_underflow_error() -> ConsensusError {
+    ConsensusError::TransactionValidation("Fee calculation underflow".into())
+}
 
 /// Phase 6.3: Fast-path early-exit checks for transaction validation
 ///
@@ -78,6 +90,7 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 ///
 /// Performance optimization (Phase 6.3): Uses fast-path checks before full validation.
 #[inline]
+#[track_caller] // Better error messages showing caller location
 pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Phase 6.3: Fast-path early exit for obviously invalid transactions
     #[cfg(feature = "production")]
@@ -105,11 +118,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         // Accumulate sum with overflow check
         total_output_value = total_output_value
             .checked_add(output.value)
-            .ok_or_else(|| {
-                ConsensusError::TransactionValidation(format!(
-                    "Output value sum overflow at index {i}"
-                ))
-            })?;
+            .ok_or_else(make_output_sum_overflow_error)?;
     }
 
     // 2b. Check total output sum doesn't exceed MAX_MONEY (Orange Paper Section 5.1, rule 3)
@@ -225,7 +234,7 @@ pub fn check_tx_inputs(
 
             // Use checked arithmetic to prevent overflow
             total_input_value = total_input_value.checked_add(utxo.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation(format!("Input value overflow at input {i}"))
+                ConsensusError::TransactionValidation(format!("Input value overflow at input {i}").into())
             })?;
         } else {
             return Ok((
@@ -241,10 +250,10 @@ pub fn check_tx_inputs(
         .iter()
         .try_fold(0i64, |acc, output| {
             acc.checked_add(output.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation("Output value overflow".to_string())
+                ConsensusError::TransactionValidation("Output value overflow".into())
             })
         })
-        .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
+        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
 
     // Check that output total doesn't exceed MAX_MONEY (Bitcoin Core check)
     if total_output_value > MAX_MONEY {
@@ -267,7 +276,7 @@ pub fn check_tx_inputs(
     let fee = total_input_value
         .checked_sub(total_output_value)
         .ok_or_else(|| {
-            ConsensusError::TransactionValidation("Fee calculation underflow".to_string())
+            ConsensusError::TransactionValidation("Fee calculation underflow".into())
         })?;
 
     Ok((ValidationResult::Valid, fee))

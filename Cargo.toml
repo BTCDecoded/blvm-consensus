@@ -20,7 +20,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-smallvec = { version = "1.11", optional = true }
+smallvec = { version = "1.11", optional = true, features = ["serde"] }
 
 # Consensus-critical cryptography - EXACT VERSIONS
 secp256k1 = "=0.28.2"

@@ -34,7 +34,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     if a >= 0 && b >= 0 {
         if a > i64::MAX - b {
             return Err(ConsensusError::TransactionValidation(
-                "Arithmetic overflow".to_string(),
+                "Arithmetic overflow".into(),
             ));
         }
         Ok(a + b)
@@ -43,22 +43,23 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
         // Equivalent to a < i64::MIN - b
         if a < i64::MIN - b {
             return Err(ConsensusError::TransactionValidation(
-                "Arithmetic underflow".to_string(),
+                "Arithmetic underflow".into(),
             ));
         }
         Ok(a + b)
     } else {
         // Mixed signs: use checked arithmetic (overflow not possible, but safer)
         a.checked_add(b)
-            .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".to_string()))
+            .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".into()))
     }
 }
 
 #[cfg(not(feature = "production"))]
+#[inline]
 pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
     a.checked_add(b)
-        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".to_string()))
+        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".into()))
 }
 
 /// Fast-path subtraction with overflow checking
@@ -88,16 +89,17 @@ pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
     } else {
         // Mixed signs: use checked arithmetic
         a.checked_sub(b).ok_or_else(|| {
-            ConsensusError::TransactionValidation("Arithmetic underflow".to_string())
+            ConsensusError::TransactionValidation("Arithmetic underflow".into())
         })
     }
 }
 
 #[cfg(not(feature = "production"))]
+#[inline]
 pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
     a.checked_sub(b)
-        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic underflow".to_string()))
+        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic underflow".into()))
 }
 
 #[cfg(test)]

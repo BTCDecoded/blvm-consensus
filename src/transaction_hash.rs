@@ -76,6 +76,7 @@ static SIGHASH_TEMPLATES: OnceLock<HashMap<SighashPattern, Vec<u8>>> = OnceLock:
 
 /// Phase 6.2: Check if transaction matches a common pattern suitable for templating
 #[cfg(feature = "production")]
+#[inline]
 fn matches_template_pattern(
     tx: &Transaction,
     input_index: usize,

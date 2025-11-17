@@ -2,6 +2,7 @@
 
 use crate::constants::*;
 use crate::error::{ConsensusError, Result};
+use std::borrow::Cow;
 use crate::types::*;
 
 /// GetBlockSubsidy: ℕ → ℤ
@@ -109,23 +110,23 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
                 .map(|utxo| utxo.value)
                 .unwrap_or(0);
             acc.checked_add(value).ok_or_else(|| {
-                ConsensusError::EconomicValidation("Input value overflow".to_string())
+                ConsensusError::EconomicValidation("Input value overflow".into())
             })
         })
-        .map_err(|e| ConsensusError::EconomicValidation(e.to_string()))?;
+        .map_err(|e| ConsensusError::EconomicValidation(Cow::Owned(e.to_string())))?;
 
     let total_output: i64 = tx
         .outputs
         .iter()
         .try_fold(0i64, |acc, output| {
             acc.checked_add(output.value).ok_or_else(|| {
-                ConsensusError::EconomicValidation("Output value overflow".to_string())
+                ConsensusError::EconomicValidation("Output value overflow".into())
             })
         })
-        .map_err(|e| ConsensusError::EconomicValidation(e.to_string()))?;
+        .map_err(|e| ConsensusError::EconomicValidation(Cow::Owned(e.to_string())))?;
 
     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
-        ConsensusError::EconomicValidation("Fee calculation underflow".to_string())
+        ConsensusError::EconomicValidation("Fee calculation underflow".into())
     })?;
     
     // Runtime assertion: Fee must be non-negative after checked subtraction
@@ -139,7 +140,7 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     
     if fee < 0 {
         return Err(ConsensusError::EconomicValidation(
-            "Negative fee".to_string(),
+            "Negative fee".into(),
         ));
     }
 

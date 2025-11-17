@@ -12,6 +12,7 @@
 //! This must match Bitcoin Core's CVarInt implementation exactly.
 
 use crate::error::{ConsensusError, Result};
+use std::borrow::Cow;
 
 /// Error type for VarInt encoding/decoding failures
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +136,7 @@ pub fn encode_varint(value: u64) -> Vec<u8> {
 pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
     if data.is_empty() {
         return Err(ConsensusError::Serialization(
-            VarIntError::InsufficientBytes.to_string(),
+            Cow::Owned(VarIntError::InsufficientBytes.to_string()),
         ));
     }
 
@@ -149,7 +150,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
         0xfd => {
             if data.len() < 3 {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InsufficientBytes.to_string(),
+                    Cow::Owned(VarIntError::InsufficientBytes.to_string()),
                 ));
             }
             
@@ -165,7 +166,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
             // Bitcoin Core rejects values < 0xfd encoded with 0xfd prefix
             if value < 0xfd {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InvalidEncoding.to_string(),
+                    Cow::Owned(VarIntError::InvalidEncoding.to_string()),
                 ));
             }
             
@@ -183,7 +184,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
         0xfe => {
             if data.len() < 5 {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InsufficientBytes.to_string(),
+                    Cow::Owned(VarIntError::InsufficientBytes.to_string()),
                 ));
             }
             
@@ -199,7 +200,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
             // Bitcoin Core rejects values <= 0xffff encoded with 0xfe prefix
             if value <= 0xffff {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InvalidEncoding.to_string(),
+                    Cow::Owned(VarIntError::InvalidEncoding.to_string()),
                 ));
             }
             
@@ -217,7 +218,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
         0xff => {
             if data.len() < 9 {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InsufficientBytes.to_string(),
+                    Cow::Owned(VarIntError::InsufficientBytes.to_string()),
                 ));
             }
             
@@ -235,7 +236,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
             // Bitcoin Core rejects values <= 0xffffffff encoded with 0xff prefix
             if value <= 0xffffffff {
                 return Err(ConsensusError::Serialization(
-                    VarIntError::InvalidEncoding.to_string(),
+                    Cow::Owned(VarIntError::InvalidEncoding.to_string()),
                 ));
             }
             
@@ -250,7 +251,7 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
         }
 
         _ => Err(ConsensusError::Serialization(
-            VarIntError::InvalidEncoding.to_string(),
+            Cow::Owned(VarIntError::InvalidEncoding.to_string()),
         )),
     }
 }

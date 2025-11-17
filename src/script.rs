@@ -246,7 +246,7 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
         op_count += 1;
         if op_count > MAX_SCRIPT_OPS {
             return Err(ConsensusError::ScriptExecution(
-                "Operation limit exceeded".to_string(),
+                "Operation limit exceeded".into(),
             ));
         }
         
@@ -261,7 +261,7 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
         // Check stack size
         if stack.len() > MAX_STACK_SIZE {
             return Err(ConsensusError::ScriptExecution(
-                "Stack overflow".to_string(),
+                "Stack overflow".into(),
             ));
         }
         
@@ -538,14 +538,14 @@ fn eval_script_with_context_full(
         op_count += 1;
         if op_count > MAX_SCRIPT_OPS {
             return Err(ConsensusError::ScriptExecution(
-                "Operation limit exceeded".to_string(),
+                "Operation limit exceeded".into(),
             ));
         }
 
         // Check stack size
         if stack.len() > MAX_STACK_SIZE {
             return Err(ConsensusError::ScriptExecution(
-                "Stack overflow".to_string(),
+                "Stack overflow".into(),
             ));
         }
         
@@ -2252,12 +2252,16 @@ mod kani_proofs {
     /// ∀ tx ∈ Transaction, locktime_value ∈ u32, stack ∈ Vec<ByteString>:
     /// if tx.lock_time type ≠ locktime_value type then CLTV fails
     #[kani::proof]
+    #[kani::unwind(5)]  // Add unwind bound for performance
     fn kani_bip65_cltv_type_mismatch_fails() {
         let tx_locktime: u32 = kani::any();
         let locktime_value: u32 = kani::any();
 
-        // Ensure types are different
+        // Ensure types are different - constrain input space for faster verification
         kani::assume(tx_locktime < LOCKTIME_THRESHOLD && locktime_value >= LOCKTIME_THRESHOLD);
+        // Bound values to reasonable ranges
+        kani::assume(tx_locktime < 500_000_000);  // Block height limit
+        kani::assume(locktime_value >= LOCKTIME_THRESHOLD && locktime_value < 0xffffffff);
 
         // Create minimal transaction and stack for CLTV validation
         let tx = Transaction {

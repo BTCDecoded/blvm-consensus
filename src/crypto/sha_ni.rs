@@ -337,6 +337,7 @@ unsafe fn sha256_ni_impl(data: &[u8]) -> [u8; 32] {
 }
 
 /// Fallback SHA256 using sha2 crate
+#[inline]
 fn fallback_sha256(data: &[u8]) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(data);
@@ -348,6 +349,7 @@ fn fallback_sha256(data: &[u8]) -> [u8; 32] {
 /// Public API: Single SHA256 with automatic dispatch
 ///
 /// Uses Intel SHA-NI if available, otherwise falls back to sha2 crate.
+#[inline]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     #[cfg(target_arch = "x86_64")]
     {
@@ -367,6 +369,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// Double SHA256 (SHA256D) using SHA-NI
 ///
 /// Computes SHA256(SHA256(data)), which is Bitcoin's standard hash function.
+#[inline]
 pub fn hash256(data: &[u8]) -> [u8; 32] {
     let first = sha256(data);
     sha256(&first)

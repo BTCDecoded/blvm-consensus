@@ -55,7 +55,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
         Ok(pk) => pk,
         Err(_) => {
             return Err(crate::error::ConsensusError::InvalidSignature(
-                "Invalid internal public key".to_string(),
+                "Invalid internal public key".into(),
             ))
         }
     };
@@ -71,7 +71,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
         Ok(scalar) => scalar,
         Err(_) => {
             return Err(crate::error::ConsensusError::InvalidSignature(
-                "Invalid tweak scalar".to_string(),
+                "Invalid tweak scalar".into(),
             ))
         }
     };
@@ -82,7 +82,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
     // Compute tweaked public key: full_pk + tweak_scalar * G
     let tweaked_pk = full_pk.add_exp_tweak(&secp, &tweak_scalar).map_err(|_| {
         crate::error::ConsensusError::InvalidSignature(
-            "Failed to compute tweaked public key".to_string(),
+            "Failed to compute tweaked public key".into(),
         )
     })?;
 

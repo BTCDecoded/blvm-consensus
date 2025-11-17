@@ -296,10 +296,10 @@ pub fn replacement_checks(
     // Check: new_fee * existing_tx_size > existing_fee * new_tx_size
     let new_fee_scaled = (new_fee as u128)
         .checked_mul(existing_tx_size as u128)
-        .ok_or_else(|| ConsensusError::TransactionValidation("Fee rate calculation overflow".to_string()))?;
+        .ok_or_else(|| ConsensusError::TransactionValidation("Fee rate calculation overflow".into()))?;
     let existing_fee_scaled = (existing_fee as u128)
         .checked_mul(new_tx_size as u128)
-        .ok_or_else(|| ConsensusError::TransactionValidation("Fee rate calculation overflow".to_string()))?;
+        .ok_or_else(|| ConsensusError::TransactionValidation("Fee rate calculation overflow".into()))?;
     
     if new_fee_scaled <= existing_fee_scaled {
         return Ok(false);

@@ -66,7 +66,7 @@ fn get_next_work_required_internal(
     // Need at least 2 previous headers for adjustment
     if prev_headers.len() < 2 {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Insufficient headers for difficulty adjustment".to_string(),
+            "Insufficient headers for difficulty adjustment".into(),
         ));
     }
 
@@ -82,7 +82,7 @@ fn get_next_work_required_internal(
     // Timespan should be positive (last block comes after first)
     if last_timestamp < first_timestamp {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Invalid timestamp order in difficulty adjustment".to_string(),
+            "Invalid timestamp order in difficulty adjustment".into(),
         ));
     }
 
@@ -139,7 +139,7 @@ fn get_next_work_required_internal(
     let multiplied_target = old_target
         .checked_mul_u64(clamped_timespan)
         .ok_or_else(|| {
-            ConsensusError::InvalidProofOfWork("Target multiplication overflow".to_string())
+            ConsensusError::InvalidProofOfWork("Target multiplication overflow".into())
         })?;
 
     // Runtime assertion: Multiplied target must be >= old target (timespan >= expected_time/4)
@@ -179,7 +179,7 @@ fn get_next_work_required_internal(
     // Ensure result is positive
     if clamped_bits == 0 {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Difficulty adjustment resulted in zero target".to_string(),
+            "Difficulty adjustment resulted in zero target".into(),
         ));
     }
 
@@ -567,14 +567,14 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
     // Validate target format
     if !(3..=32).contains(&exponent) {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Invalid target exponent".to_string(),
+            "Invalid target exponent".into(),
         ));
     }
 
     // Check if target is too large (exponent > 29 is usually invalid)
     if exponent > 29 {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Target too large".to_string(),
+            "Target too large".into(),
         ));
     }
 
@@ -592,7 +592,7 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
         let shift = 8 * (exponent - 3);
         if shift == 255 {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".to_string(),
+                "Target too large".into(),
             ));
         }
         let mantissa_u256 = U256::from_u32(mantissa as u32);
@@ -636,7 +636,7 @@ fn compress_target(target: &U256) -> Result<Natural> {
 
     // Find the highest set bit to determine size in bytes
     let highest_bit = target.highest_set_bit().ok_or_else(|| {
-        ConsensusError::InvalidProofOfWork("Cannot compress zero target".to_string())
+        ConsensusError::InvalidProofOfWork("Cannot compress zero target".into())
     })?;
 
     // Calculate size in bytes: nSize = (bits + 7) / 8 (ceiling division)
@@ -679,7 +679,7 @@ fn compress_target(target: &U256) -> Result<Natural> {
     if n_size_final > 29 {
         return Err(ConsensusError::InvalidProofOfWork(format!(
             "Target too large: exponent {n_size_final} exceeds maximum 29"
-        )));
+        ).into()));
     }
 
     // Combine exponent and mantissa: (nSize << 24) | mantissa

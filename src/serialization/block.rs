@@ -6,6 +6,7 @@
 use super::transaction::{deserialize_transaction, serialize_transaction};
 use super::varint::decode_varint;
 use crate::error::{ConsensusError, Result};
+use std::borrow::Cow;
 use crate::segwit::Witness;
 use crate::types::*;
 
@@ -65,7 +66,7 @@ pub fn deserialize_block_header(data: &[u8]) -> Result<BlockHeader> {
     // Block header must be exactly 80 bytes
     if data.len() < 80 {
         return Err(ConsensusError::Serialization(
-            BlockParseError::InsufficientBytes.to_string(),
+            Cow::Owned(BlockParseError::InsufficientBytes.to_string()),
         ));
     }
 
@@ -147,7 +148,7 @@ fn parse_witness(data: &[u8], mut offset: usize) -> Result<(Witness, usize)> {
 
         if data.len() < offset + element_len as usize {
             return Err(ConsensusError::Serialization(
-                BlockParseError::InsufficientBytes.to_string(),
+                Cow::Owned(BlockParseError::InsufficientBytes.to_string()),
             ));
         }
 
@@ -172,7 +173,7 @@ fn parse_witness(data: &[u8], mut offset: usize) -> Result<(Witness, usize)> {
 pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witness>)> {
     if data.len() < 80 {
         return Err(ConsensusError::Serialization(
-            BlockParseError::InsufficientBytes.to_string(),
+            Cow::Owned(BlockParseError::InsufficientBytes.to_string()),
         ));
     }
 
@@ -188,7 +189,7 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witne
 
     if tx_count == 0 {
         return Err(ConsensusError::Serialization(
-            BlockParseError::InvalidTransactionCount.to_string(),
+            Cow::Owned(BlockParseError::InvalidTransactionCount.to_string()),
         ));
     }
 
@@ -253,7 +254,7 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witne
     Ok((
         Block {
             header,
-            transactions,
+            transactions: transactions.into_boxed_slice(),
         },
         witnesses,
     ))

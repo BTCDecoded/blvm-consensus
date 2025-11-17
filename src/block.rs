@@ -9,7 +9,19 @@ use crate::bip113::get_median_time_past;
 use crate::constants::*;
 use crate::economic::get_block_subsidy;
 use crate::error::{ConsensusError, Result};
+use std::borrow::Cow;
 use crate::script::verify_script_with_context_full;
+
+// Cold error construction helpers - these paths are rarely taken
+#[cold]
+fn make_arithmetic_overflow_error() -> ConsensusError {
+    ConsensusError::TransactionValidation("Arithmetic overflow".into())
+}
+
+#[cold]
+fn make_fee_overflow_error() -> ConsensusError {
+    ConsensusError::BlockValidation("Total fees overflow".into())
+}
 use crate::segwit::{
     compute_witness_merkle_root, is_segwit_transaction, validate_witness_commitment, Witness,
 };
@@ -120,6 +132,7 @@ pub fn reset_assume_valid_height() {
 /// * `utxo_set` - Current UTXO set (will be modified)
 /// * `height` - Current block height
 /// * `recent_headers` - Optional recent block headers for median time-past calculation (BIP113)
+#[track_caller] // Better error messages showing caller location
 pub fn connect_block(
     block: &Block,
     witnesses: &[Witness],
@@ -248,7 +261,7 @@ pub fn connect_block(
                                     )
                                 })
                             })
-                            .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
+                            .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
 
                         let total_output: i64 = tx
                             .outputs
@@ -260,7 +273,7 @@ pub fn connect_block(
                                     )
                                 })
                             })
-                            .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
+                            .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
 
                         let fee = total_input.checked_sub(total_output).ok_or_else(|| {
                             ConsensusError::TransactionValidation(
@@ -379,7 +392,7 @@ pub fn connect_block(
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
                     ConsensusError::BlockValidation(format!(
                         "Total fees overflow at transaction {i}"
-                    ))
+                    ).into())
                 })?;
             }
         }
@@ -412,11 +425,11 @@ pub fn connect_block(
                                 .unwrap_or(0);
                             acc.checked_add(value).ok_or_else(|| {
                                 ConsensusError::TransactionValidation(
-                                    "Input value overflow".to_string(),
+                                    "Input value overflow".into(),
                                 )
                             })
                         })
-                        .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
+                        .map_err(|e| ConsensusError::TransactionValidation(e.to_string().into()))?;
 
                     let total_output: i64 = tx
                         .outputs
@@ -424,15 +437,15 @@ pub fn connect_block(
                         .try_fold(0i64, |acc, output| {
                             acc.checked_add(output.value).ok_or_else(|| {
                                 ConsensusError::TransactionValidation(
-                                    "Output value overflow".to_string(),
+                                    "Output value overflow".into(),
                                 )
                             })
                         })
-                        .map_err(|e| ConsensusError::TransactionValidation(e.to_string()))?;
+                        .map_err(|e| ConsensusError::TransactionValidation(e.to_string().into()))?;
 
                     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
                         ConsensusError::TransactionValidation(
-                            "Fee calculation underflow".to_string(),
+                            "Fee calculation underflow".into(),
                         )
                     })?;
 
@@ -522,7 +535,7 @@ pub fn connect_block(
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
                     ConsensusError::BlockValidation(format!(
                         "Total fees overflow at transaction {i}"
-                    ))
+                    ).into())
                 })?;
             }
         }
@@ -603,7 +616,7 @@ pub fn connect_block(
 
             // Use checked arithmetic to prevent fee overflow
             total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}"))
+                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}").into())
             })?;
         }
     }
@@ -637,10 +650,10 @@ pub fn connect_block(
             .iter()
             .try_fold(0i64, |acc, output| {
                 acc.checked_add(output.value).ok_or_else(|| {
-                    ConsensusError::BlockValidation("Coinbase output value overflow".to_string())
+                    ConsensusError::BlockValidation("Coinbase output value overflow".into())
                 })
             })
-            .map_err(|e| ConsensusError::BlockValidation(e.to_string()))?;
+            .map_err(|e| ConsensusError::BlockValidation(Cow::Owned(e.to_string())))?;
 
         // Check that coinbase output doesn't exceed MAX_MONEY
         if coinbase_output > MAX_MONEY {
@@ -654,7 +667,7 @@ pub fn connect_block(
 
         // Use checked arithmetic for fee + subsidy calculation
         let max_coinbase_value = total_fees.checked_add(subsidy).ok_or_else(|| {
-            ConsensusError::BlockValidation("Fees + subsidy overflow".to_string())
+            ConsensusError::BlockValidation("Fees + subsidy overflow".into())
         })?;
 
         if coinbase_output > max_coinbase_value {
@@ -702,7 +715,7 @@ pub fn connect_block(
         let tx_sigop_cost = get_transaction_sigop_cost(tx, &utxo_set, tx_witness, flags)?;
 
         total_sigop_cost = total_sigop_cost.checked_add(tx_sigop_cost).ok_or_else(|| {
-            ConsensusError::BlockValidation(format!("Sigop cost overflow at transaction {i}"))
+            ConsensusError::BlockValidation(format!("Sigop cost overflow at transaction {i}").into())
         })?;
     }
 
@@ -783,6 +796,7 @@ pub fn connect_block(
 ///
 /// This function computes the transaction ID internally.
 /// For batch operations, use `apply_transaction_with_id` instead.
+#[track_caller] // Better error messages showing caller location
 pub fn apply_transaction(tx: &Transaction, utxo_set: UtxoSet, height: Natural) -> Result<UtxoSet> {
     let tx_id = calculate_tx_id(tx);
     apply_transaction_with_id(tx, tx_id, utxo_set, height)
@@ -2519,7 +2533,7 @@ mod tests {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: vec![], // No transactions
+            transactions: vec![].into_boxed_slice(), // No transactions
         };
 
         let utxo_set = UtxoSet::new();
@@ -2890,7 +2904,7 @@ mod tests {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: vec![], // Empty transactions
+            transactions: vec![].into_boxed_slice(), // Empty transactions
         };
 
         let utxo_set = UtxoSet::new();

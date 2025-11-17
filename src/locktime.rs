@@ -18,6 +18,7 @@ pub enum LocktimeType {
 /// Determine locktime type from value
 ///
 /// BIP65/BIP68: If locktime < 500000000, it's block height; otherwise it's Unix timestamp.
+#[inline]
 pub fn get_locktime_type(locktime: u32) -> LocktimeType {
     if locktime < LOCKTIME_THRESHOLD {
         LocktimeType::BlockHeight
@@ -29,6 +30,7 @@ pub fn get_locktime_type(locktime: u32) -> LocktimeType {
 /// Check if two locktime values have matching types
 ///
 /// Used by both BIP65 (CLTV) and BIP112 (CSV) to ensure type consistency.
+#[inline]
 pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
     get_locktime_type(locktime1) == get_locktime_type(locktime2)
 }
@@ -134,6 +136,7 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
 /// Bit 22 (0x00400000) indicates locktime type:
 /// - 0 = block-based relative locktime
 /// - 1 = time-based relative locktime
+#[inline]
 pub fn extract_sequence_type_flag(sequence: u32) -> bool {
     (sequence & 0x00400000) != 0
 }
@@ -141,6 +144,7 @@ pub fn extract_sequence_type_flag(sequence: u32) -> bool {
 /// BIP68: Extract relative locktime value from sequence number
 ///
 /// Masks out flags (bits 31, 22) and returns only the locktime value (bits 0-15).
+#[inline]
 pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
     (sequence & 0x0000ffff) as u16
 }
@@ -148,6 +152,7 @@ pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
 /// BIP68: Check if sequence number has disabled bit set
 ///
 /// Bit 31 (0x80000000) disables relative locktime when set.
+#[inline]
 pub fn is_sequence_disabled(sequence: u32) -> bool {
     (sequence & 0x80000000) != 0
 }

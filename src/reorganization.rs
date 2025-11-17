@@ -87,7 +87,7 @@ pub fn reorganize_chain_with_witnesses(
                 "Witness count {} does not match block count {}",
                 new_chain_witnesses.len(),
                 new_chain.len()
-            ),
+            ).into(),
         ));
     }
 
@@ -110,7 +110,7 @@ pub fn reorganize_chain_with_witnesses(
 
         if !matches!(validation_result, ValidationResult::Valid) {
             return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-                format!("Invalid block at height {new_height} during reorganization"),
+                format!("Invalid block at height {new_height} during reorganization").into(),
             ));
         }
 
@@ -274,7 +274,7 @@ fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<
     // In reality, this would traverse both chains to find the actual common ancestor
     if new_chain.is_empty() || current_chain.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot find common ancestor: empty chain".to_string(),
+            "Cannot find common ancestor: empty chain".into(),
         ));
     }
 
@@ -310,6 +310,7 @@ fn disconnect_block(block: &Block, mut utxo_set: UtxoSet, _height: Natural) -> R
 }
 
 /// Check if reorganization is beneficial
+#[track_caller] // Better error messages showing caller location
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
     // Reorganize if new chain is longer
     if new_chain.len() > current_chain.len() {
@@ -400,7 +401,7 @@ fn expand_target(bits: Natural) -> Result<u128> {
         // Maximum safe exponent: 3 + (128 / 8) = 19
         if exponent > 19 {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".to_string(),
+                "Target too large".into(),
             ));
         }
         // Calculate shift safely - exponent is bounded, so no overflow
@@ -409,7 +410,7 @@ fn expand_target(bits: Natural) -> Result<u128> {
         let mantissa_u128 = mantissa as u128;
         let expanded = mantissa_u128.checked_shl(shift as u32).ok_or_else(|| {
             crate::error::ConsensusError::InvalidProofOfWork(
-                "Target expansion overflow".to_string(),
+                "Target expansion overflow".into(),
             )
         })?;
         Ok(expanded)

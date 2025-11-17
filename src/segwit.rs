@@ -80,7 +80,7 @@ fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural 
 pub fn compute_witness_merkle_root(block: &Block, witnesses: &[Witness]) -> Result<Hash> {
     if block.transactions.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot compute witness merkle root for empty block".to_string(),
+            "Cannot compute witness merkle root for empty block".into(),
         ));
     }
 
@@ -116,7 +116,7 @@ fn hash_witness(witness: &Witness) -> Hash {
 fn compute_merkle_root(hashes: &[Hash]) -> Result<Hash> {
     if hashes.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot compute merkle root from empty hash list".to_string(),
+            "Cannot compute merkle root from empty hash list".into(),
         ));
     }
 
@@ -260,7 +260,7 @@ mod tests {
     fn test_compute_witness_merkle_root_empty_block() {
         let block = Block {
             header: create_test_header(),
-            transactions: vec![],
+            transactions: vec![].into_boxed_slice(),
         };
         let witnesses = vec![];
 
@@ -500,7 +500,7 @@ mod tests {
             transactions: vec![
                 create_test_transaction(), // Coinbase
                 create_test_transaction(), // Regular tx
-            ],
+            ].into_boxed_slice(),
         }
     }
 
@@ -630,7 +630,7 @@ mod kani_proofs {
         } else {
             Block {
                 header: create_bounded_header(),
-                transactions: vec![],
+                transactions: vec![].into_boxed_slice(),
             }
         };
 
@@ -723,17 +723,18 @@ mod kani_proofs {
         let tx_count: usize = kani::any();
         kani::assume(tx_count <= 3); // Bounded for tractability
 
-        let mut block = Block {
-            header: create_bounded_header(),
-            transactions: Vec::new(),
-        };
-
+        let mut transactions = Vec::new();
         let mut witnesses = Vec::new();
 
         for _ in 0..tx_count {
-            block.transactions.push(create_bounded_transaction());
+            transactions.push(create_bounded_transaction());
             witnesses.push(vec![]); // Empty witness for simplicity
         }
+
+        let block = Block {
+            header: create_bounded_header(),
+            transactions: transactions.into_boxed_slice(),
+        };
 
         if !block.transactions.is_empty() {
             let block_weight_result = calculate_block_weight(&block, &witnesses);
