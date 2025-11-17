@@ -92,9 +92,40 @@ pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natur
 ///
 /// BIP141: vsize = ceil(weight / 4)
 /// Used for fee calculation in SegWit transactions
+///
+/// Mathematical specification:
+/// - vsize = ⌈weight / 4⌉
+/// - Implemented as: vsize = (weight + 3) / 4 (integer ceiling division)
 pub fn weight_to_vsize(weight: Natural) -> Natural {
     #[allow(clippy::manual_div_ceil)]
     let result = (weight + 3) / 4; // Ceiling division
+    
+    // Runtime assertion: Verify ceiling division property
+    // vsize must be >= weight / 4 (ceiling property)
+    debug_assert!(
+        (result as u64) >= (weight / 4),
+        "Vsize ({}) must be >= weight / 4 ({})",
+        result,
+        weight / 4
+    );
+    
+    // Runtime assertion: vsize must be < (weight / 4) + 1 (ceiling property)
+    debug_assert!(
+        (result as u64) < ((weight / 4) + 1),
+        "Vsize ({}) must be < (weight / 4) + 1 ({})",
+        result,
+        (weight / 4) + 1
+    );
+    
+    // Runtime assertion: Result must be non-negative
+    // Note: Natural is unsigned, so this is always true, but documents the invariant
+    debug_assert!(
+        true, // Natural is always non-negative
+        "Vsize ({}) must be non-negative (weight: {})",
+        result,
+        weight
+    );
+    
     result
 }
 

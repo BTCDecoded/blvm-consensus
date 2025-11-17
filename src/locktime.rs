@@ -48,13 +48,44 @@ pub fn decode_locktime_value(bytes: &ByteString) -> Option<u32> {
         return None; // Invalid encoding (too large)
     }
 
+    // Runtime assertion: Byte string length must be <= 5
+    debug_assert!(
+        bytes.len() <= 5,
+        "Locktime byte string length ({}) must be <= 5",
+        bytes.len()
+    );
+
     let mut value: u32 = 0;
     for (i, &byte) in bytes.iter().enumerate() {
         if i >= 4 {
             break; // Only use first 4 bytes
         }
-        value |= (byte as u32) << (i * 8);
+        
+        // Runtime assertion: Index must be < 4
+        debug_assert!(
+            i < 4,
+            "Byte index ({}) must be < 4 for locktime decoding",
+            i
+        );
+        
+        // Runtime assertion: Shift amount must be valid (0-24, multiples of 8)
+        let shift_amount = i * 8;
+        debug_assert!(
+            shift_amount < 32,
+            "Shift amount ({}) must be < 32 (i: {})",
+            shift_amount,
+            i
+        );
+        
+        value |= (byte as u32) << shift_amount;
     }
+    
+    // Runtime assertion: Decoded value must fit in u32 (always true, but documents invariant)
+    debug_assert!(
+        value <= u32::MAX,
+        "Decoded locktime value ({}) must fit in u32",
+        value
+    );
 
     Some(value)
 }
@@ -71,12 +102,29 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
     while temp > 0 {
         bytes.push((temp & 0xff) as u8);
         temp >>= 8;
+        
+        // Runtime assertion: Encoding loop must terminate (temp decreases each iteration)
+        // This is guaranteed by right shift, but documents the invariant
+        debug_assert!(
+            temp < value || bytes.len() <= 4,
+            "Locktime encoding loop must terminate (temp: {}, value: {}, bytes: {})",
+            temp,
+            value,
+            bytes.len()
+        );
     }
 
     // If value is 0, return single zero byte
     if bytes.is_empty() {
         bytes.push(0);
     }
+    
+    // Runtime assertion: Encoded length must be between 1 and 4 bytes (u32 max)
+    debug_assert!(
+        bytes.len() >= 1 && bytes.len() <= 4,
+        "Encoded locktime length ({}) must be between 1 and 4 bytes",
+        bytes.len()
+    );
 
     bytes
 }

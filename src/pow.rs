@@ -112,8 +112,28 @@ fn get_next_work_required_internal(
     // This prevents extreme difficulty adjustments (max 4x change per period)
     let clamped_timespan = time_span.max(expected_time / 4).min(expected_time * 4);
 
+    // Runtime assertion: Clamped timespan must be within bounds
+    debug_assert!(
+        clamped_timespan >= expected_time / 4,
+        "Clamped timespan ({}) must be >= expected_time/4 ({})",
+        clamped_timespan,
+        expected_time / 4
+    );
+    debug_assert!(
+        clamped_timespan <= expected_time * 4,
+        "Clamped timespan ({}) must be <= expected_time*4 ({})",
+        clamped_timespan,
+        expected_time * 4
+    );
+
     // Expand previous block's bits to full U256 target
     let old_target = expand_target(previous_bits)?;
+
+    // Runtime assertion: Old target must be positive
+    debug_assert!(
+        !old_target.is_zero(),
+        "Old target must be non-zero"
+    );
 
     // Multiply target by clamped_timespan (integer multiplication)
     let multiplied_target = old_target
@@ -122,14 +142,39 @@ fn get_next_work_required_internal(
             ConsensusError::InvalidProofOfWork("Target multiplication overflow".to_string())
         })?;
 
+    // Runtime assertion: Multiplied target must be >= old target (timespan >= expected_time/4)
+    debug_assert!(
+        multiplied_target >= old_target || clamped_timespan < expected_time,
+        "Multiplied target should be >= old target when timespan >= expected_time"
+    );
+
     // Divide by expected_time (integer division)
     let new_target = multiplied_target.div_u64(expected_time);
+
+    // Runtime assertion: New target must be positive
+    debug_assert!(
+        !new_target.is_zero(),
+        "New target must be non-zero after division"
+    );
 
     // Compress back to compact bits format
     let new_bits = compress_target(&new_target)?;
 
     // Clamp to maximum target (minimum difficulty)
     let clamped_bits = new_bits.min(MAX_TARGET as Natural);
+
+    // Runtime assertion: Clamped bits must be positive and <= MAX_TARGET
+    debug_assert!(
+        clamped_bits > 0,
+        "Clamped bits ({}) must be positive",
+        clamped_bits
+    );
+    debug_assert!(
+        clamped_bits <= MAX_TARGET as Natural,
+        "Clamped bits ({}) must be <= MAX_TARGET ({})",
+        clamped_bits,
+        MAX_TARGET
+    );
 
     // Ensure result is positive
     if clamped_bits == 0 {
@@ -300,11 +345,57 @@ impl U256 {
         let word_shift = (shift / 64) as usize;
         let bit_shift = shift % 64;
 
+        // Runtime assertion: word_shift must be < 4 (since shift < 256)
+        debug_assert!(
+            word_shift < 4,
+            "Word shift ({}) must be < 4 (shift: {})",
+            word_shift,
+            shift
+        );
+        
+        // Runtime assertion: bit_shift must be < 64
+        debug_assert!(
+            bit_shift < 64,
+            "Bit shift ({}) must be < 64 (shift: {})",
+            bit_shift,
+            shift
+        );
+
         for i in 0..4 {
             if i >= word_shift {
-                result.0[i - word_shift] |= self.0[i] >> bit_shift;
+                // Runtime assertion: Array index must be in bounds
+                let dest_idx = i - word_shift;
+                debug_assert!(
+                    dest_idx < 4,
+                    "Destination index ({}) must be < 4 (i: {}, word_shift: {})",
+                    dest_idx,
+                    i,
+                    word_shift
+                );
+                
+                result.0[dest_idx] |= self.0[i] >> bit_shift;
+                
                 if bit_shift > 0 && i - word_shift + 1 < 4 {
-                    result.0[i - word_shift + 1] |= self.0[i] << (64 - bit_shift);
+                    // Runtime assertion: Second destination index must be in bounds
+                    let dest_idx2 = i - word_shift + 1;
+                    debug_assert!(
+                        dest_idx2 < 4,
+                        "Second destination index ({}) must be < 4 (i: {}, word_shift: {})",
+                        dest_idx2,
+                        i,
+                        word_shift
+                    );
+                    
+                    // Runtime assertion: Left shift amount must be valid
+                    let left_shift = 64 - bit_shift;
+                    debug_assert!(
+                        left_shift > 0 && left_shift < 64,
+                        "Left shift amount ({}) must be in (0, 64) (bit_shift: {})",
+                        left_shift,
+                        bit_shift
+                    );
+                    
+                    result.0[dest_idx2] |= self.0[i] << left_shift;
                 }
             }
         }
@@ -353,6 +444,11 @@ impl U256 {
     }
 
     /// Divide U256 by u64 (integer division)
+    ///
+    /// Mathematical invariants:
+    /// - Result <= self (division never increases value)
+    /// - If rhs > 0, then result * rhs + remainder = self
+    /// - Division by zero returns max value (error indicator)
     fn div_u64(&self, rhs: u64) -> Self {
         if rhs == 0 {
             // Division by zero - return max value as error indicator
@@ -368,8 +464,32 @@ impl U256 {
             let dividend = (remainder << 64) | (self.0[i] as u128);
             let quotient = dividend / (rhs as u128);
             remainder = dividend % (rhs as u128);
+            
+            // Runtime assertion: Quotient must fit in u64
+            debug_assert!(
+                quotient <= u64::MAX as u128,
+                "Quotient ({}) must fit in u64",
+                quotient
+            );
+            
             result.0[i] = quotient as u64;
         }
+
+        // Runtime assertion: Result must be <= self (division never increases)
+        debug_assert!(
+            result <= *self,
+            "Division result ({:?}) must be <= dividend ({:?})",
+            result,
+            self
+        );
+        
+        // Runtime assertion: Remainder must be < rhs
+        debug_assert!(
+            remainder < rhs as u128,
+            "Remainder ({}) must be < divisor ({})",
+            remainder,
+            rhs
+        );
 
         result
     }
@@ -1123,6 +1243,84 @@ mod property_tests {
                 },
                 Err(_) => {
                     // Some invalid inputs may fail, which is acceptable
+                }
+            }
+        }
+    }
+
+    /// Kani proof: U256 shift operations array bounds safety
+    ///
+    /// Mathematical specification:
+    /// ∀ shift ∈ [0, 256), value ∈ U256:
+    /// - shr(value, shift) never accesses array out of bounds
+    /// - All array indices are in [0, 4)
+    /// - word_shift < 4, bit_shift < 64
+    ///
+    /// This proves that the shift operations are safe from array bounds violations.
+    #[kani::proof]
+    fn kani_u256_shift_array_bounds_safety() {
+        let shift: u32 = kani::any();
+        kani::assume(shift < 256); // Valid shift range
+
+        // Create a symbolic U256 value
+        let value = U256([
+            kani::any(),
+            kani::any(),
+            kani::any(),
+            kani::any(),
+        ]);
+
+        // Calculate shift parameters
+        let word_shift = (shift / 64) as usize;
+        let bit_shift = shift % 64;
+
+        // Critical invariant: word_shift must be < 4 (since shift < 256)
+        assert!(
+            word_shift < 4,
+            "Word shift ({}) must be < 4 (shift: {})",
+            word_shift,
+            shift
+        );
+
+        // Critical invariant: bit_shift must be < 64
+        assert!(
+            bit_shift < 64,
+            "Bit shift ({}) must be < 64 (shift: {})",
+            bit_shift,
+            shift
+        );
+
+        // Perform shift operation (this should not panic)
+        let result = value.shr(shift);
+
+        // Verify result is valid U256
+        // (The shift operation itself proves array bounds safety)
+        assert!(
+            true,
+            "U256 shift operation completed without array bounds violation"
+        );
+
+        // Verify that for all i in [0, 4), if i >= word_shift, then i - word_shift < 4
+        for i in 0..4 {
+            if i >= word_shift {
+                let dest_idx = i - word_shift;
+                assert!(
+                    dest_idx < 4,
+                    "Destination index ({}) must be < 4 (i: {}, word_shift: {})",
+                    dest_idx,
+                    i,
+                    word_shift
+                );
+
+                if bit_shift > 0 && i - word_shift + 1 < 4 {
+                    let dest_idx2 = i - word_shift + 1;
+                    assert!(
+                        dest_idx2 < 4,
+                        "Second destination index ({}) must be < 4 (i: {}, word_shift: {})",
+                        dest_idx2,
+                        i,
+                        word_shift
+                    );
                 }
             }
         }

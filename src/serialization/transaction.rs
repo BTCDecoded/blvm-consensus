@@ -67,6 +67,14 @@ pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
             + 1 // output count varint
             + tx.outputs.iter().map(|o| 9 + o.script_pubkey.len() + 1).sum::<usize>() // outputs: 8+varint+script
             + 4; // locktime
+        
+        // Runtime assertion: Estimated size must be reasonable
+        debug_assert!(
+            estimated_size <= 1_000_000,
+            "Transaction size estimate ({}) must not exceed MAX_TX_SIZE (1MB)",
+            estimated_size
+        );
+        
         Vec::with_capacity(estimated_size.min(1_000_000)) // Cap at 1MB (max transaction size)
     };
 

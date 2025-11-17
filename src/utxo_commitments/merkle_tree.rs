@@ -121,9 +121,26 @@ impl UtxoMerkleTree {
             .update(key, utxo_value)
             .map_err(|e| UtxoCommitmentError::MerkleTreeError(format!("Update failed: {:?}", e)))?;
 
-        // Update tracking
-        self.total_supply += utxo.value as u64;
-        self.utxo_count += 1;
+        // Update tracking with checked arithmetic
+        let old_supply = self.total_supply;
+        self.total_supply = self.total_supply
+            .checked_add(utxo.value as u64)
+            .ok_or_else(|| {
+                UtxoCommitmentError::MerkleTreeError("Total supply overflow".to_string())
+            })?;
+        self.utxo_count = self.utxo_count
+            .checked_add(1)
+            .ok_or_else(|| {
+                UtxoCommitmentError::MerkleTreeError("UTXO count overflow".to_string())
+            })?;
+        
+        // Runtime assertion: Supply must increase
+        debug_assert!(
+            self.total_supply >= old_supply,
+            "Total supply ({}) must be >= previous supply ({})",
+            self.total_supply,
+            old_supply
+        );
 
         // Convert H256 to Hash
         let mut hash = [0u8; 32];
@@ -145,9 +162,40 @@ impl UtxoMerkleTree {
             .update(key, zero_value)
             .map_err(|e| UtxoCommitmentError::MerkleTreeError(format!("Remove failed: {:?}", e)))?;
 
-        // Update tracking
+        // Update tracking with checked arithmetic
+        let old_supply = self.total_supply;
+        let old_count = self.utxo_count;
+        
         self.total_supply = self.total_supply.saturating_sub(utxo.value as u64);
         self.utxo_count = self.utxo_count.saturating_sub(1);
+        
+        // Runtime assertion: Supply must decrease (or saturate at 0)
+        debug_assert!(
+            self.total_supply <= old_supply,
+            "Total supply ({}) must be <= previous supply ({})",
+            self.total_supply,
+            old_supply
+        );
+        
+        // Runtime assertion: Count must decrease (or saturate at 0)
+        debug_assert!(
+            self.utxo_count <= old_count,
+            "UTXO count ({}) must be <= previous count ({})",
+            self.utxo_count,
+            old_count
+        );
+        
+        // Runtime assertion: Supply and count must be non-negative
+        debug_assert!(
+            self.total_supply >= 0,
+            "Total supply ({}) must be non-negative",
+            self.total_supply
+        );
+        debug_assert!(
+            self.utxo_count >= 0,
+            "UTXO count ({}) must be non-negative",
+            self.utxo_count
+        );
 
         // Convert H256 to Hash
         let mut hash = [0u8; 32];

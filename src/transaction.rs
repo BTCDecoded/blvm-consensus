@@ -286,10 +286,27 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 fn calculate_transaction_size(tx: &Transaction) -> usize {
     // Simplified size calculation
     // In reality, this would be the serialized size
-    4 + // version
-    tx.inputs.len() * 41 + // inputs (simplified)
-    tx.outputs.len() * 9 + // outputs (simplified)
-    4 // lock_time
+    let size = 4 + // version
+        tx.inputs.len() * 41 + // inputs (simplified)
+        tx.outputs.len() * 9 + // outputs (simplified)
+        4; // lock_time
+    
+    // Runtime assertion: Transaction size must be positive
+    debug_assert!(
+        size > 0,
+        "Transaction size ({}) must be positive",
+        size
+    );
+    
+    // Runtime assertion: Transaction size must not exceed MAX_TX_SIZE
+    debug_assert!(
+        size <= MAX_TX_SIZE as usize,
+        "Transaction size ({}) must not exceed MAX_TX_SIZE ({})",
+        size,
+        MAX_TX_SIZE
+    );
+    
+    size
 }
 
 // ============================================================================

@@ -22,9 +22,31 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
         return 0;
     }
 
+    // Runtime assertion: Halving period must be valid
+    debug_assert!(
+        halving_period < 64,
+        "Halving period ({}) must be < 64",
+        halving_period
+    );
+
     // Calculate subsidy: 50 BTC * 2^(-halving_period)
     let base_subsidy = INITIAL_SUBSIDY; // 50 BTC in satoshis
-    base_subsidy >> halving_period
+    let subsidy = base_subsidy >> halving_period;
+
+    // Runtime assertion: Subsidy must be non-negative and <= initial subsidy
+    debug_assert!(
+        subsidy >= 0,
+        "Subsidy ({}) must be non-negative",
+        subsidy
+    );
+    debug_assert!(
+        subsidy <= INITIAL_SUBSIDY,
+        "Subsidy ({}) must be <= initial subsidy ({})",
+        subsidy,
+        INITIAL_SUBSIDY
+    );
+
+    subsidy
 }
 
 /// TotalSupply: ℕ → ℤ
@@ -35,8 +57,36 @@ pub fn total_supply(height: Natural) -> Integer {
     let mut total = 0i64;
 
     for h in 0..=height {
-        total += get_block_subsidy(h);
+        let subsidy = get_block_subsidy(h);
+        // Use checked arithmetic to prevent overflow
+        total = total.checked_add(subsidy).unwrap_or_else(|| {
+            // If overflow occurs, clamp to MAX_MONEY
+            debug_assert!(
+                false,
+                "Total supply calculation overflow at height {}",
+                h
+            );
+            MAX_MONEY
+        });
+        
+        // Early exit if we've reached max money
+        if total >= MAX_MONEY {
+            break;
+        }
     }
+
+    // Runtime assertion: Total supply must be non-negative and <= MAX_MONEY
+    debug_assert!(
+        total >= 0,
+        "Total supply ({}) must be non-negative",
+        total
+    );
+    debug_assert!(
+        total <= MAX_MONEY,
+        "Total supply ({}) must be <= MAX_MONEY ({})",
+        total,
+        MAX_MONEY
+    );
 
     total
 }
@@ -77,11 +127,29 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
         ConsensusError::EconomicValidation("Fee calculation underflow".to_string())
     })?;
+    
+    // Runtime assertion: Fee must be non-negative after checked subtraction
+    debug_assert!(
+        fee >= 0,
+        "Fee ({}) must be non-negative (input: {}, output: {})",
+        fee,
+        total_input,
+        total_output
+    );
+    
     if fee < 0 {
         return Err(ConsensusError::EconomicValidation(
             "Negative fee".to_string(),
         ));
     }
+
+    // Runtime assertion: Fee cannot exceed total input
+    debug_assert!(
+        fee <= total_input,
+        "Fee ({}) cannot exceed total input ({})",
+        fee,
+        total_input
+    );
 
     Ok(fee)
 }
