@@ -127,39 +127,5 @@ strip = false
 lto = "thin"  # Faster than "fat" for iterative benchmarking
 codegen-units = 16  # Faster compilation
 
-# Benchmark targets
-[[bench]]
-name = "transaction_validation"
-harness = false
-
-[[bench]]
-name = "hash_operations"
-harness = false
-
-[[bench]]
-name = "block_validation"
-harness = false
-
-[[bench]]
-name = "block_validation_realistic"
-harness = false
-
-[[bench]]
-name = "mempool_operations"
-harness = false
-
-[[bench]]
-name = "segwit_operations"
-harness = false
-
-[[bench]]
-name = "utxo_commitments"
-harness = false
-
-[[bench]]
-name = "bllvm_optimizations"
-harness = false
-
-[[bench]]
-name = "performance_focused"
-harness = false
+# Benchmarks have been moved to bllvm-bench crate
+# See: https://github.com/BTCDecoded/bllvm-bench
