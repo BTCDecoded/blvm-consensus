@@ -436,9 +436,25 @@ pub fn connect_block(
                         )
                     })?;
 
+                    // Runtime assertion: Fee must be non-negative after checked subtraction
+                    debug_assert!(
+                        fee >= 0,
+                        "Fee ({}) must be non-negative (input: {}, output: {})",
+                        fee,
+                        total_input,
+                        total_output
+                    );
+
                     if fee < 0 {
                         (ValidationResult::Invalid("Negative fee".to_string()), 0)
                     } else {
+                        // Runtime assertion: Fee cannot exceed total input
+                        debug_assert!(
+                            fee <= total_input,
+                            "Fee ({}) cannot exceed total input ({})",
+                            fee,
+                            total_input
+                        );
                         // Verify UTXOs exist and check other input validation rules
                         // Use check_tx_inputs for full validation (null prevout checks, coinbase maturity, etc.)
                         let (input_valid, _) = check_tx_inputs(tx, &utxo_set, height)?;

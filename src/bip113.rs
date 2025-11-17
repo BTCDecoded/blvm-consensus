@@ -62,7 +62,29 @@ pub fn get_median_time_past(headers: &[BlockHeader]) -> u64 {
     } else if timestamps.len() % 2 == 0 {
         // Even number: average of two middle values
         let mid = timestamps.len() / 2;
-        (timestamps[mid - 1] + timestamps[mid]) / 2
+        let lower = timestamps[mid - 1];
+        let upper = timestamps[mid];
+        
+        // Runtime assertion: Lower must be <= upper (timestamps should be sorted)
+        debug_assert!(
+            lower <= upper,
+            "Lower median timestamp ({}) must be <= upper ({})",
+            lower,
+            upper
+        );
+        
+        let median = (lower + upper) / 2;
+        
+        // Runtime assertion: Median must be between lower and upper
+        debug_assert!(
+            median >= lower && median <= upper,
+            "Median ({}) must be between lower ({}) and upper ({})",
+            median,
+            lower,
+            upper
+        );
+        
+        median
     } else {
         // Odd number: middle value
         timestamps[timestamps.len() / 2]

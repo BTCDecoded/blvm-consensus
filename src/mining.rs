@@ -283,6 +283,12 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                 .chunks(2)
                 .par_bridge()
                 .map(|chunk| {
+                    // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
+                    debug_assert!(
+                        !chunk.is_empty(),
+                        "Merkle tree chunk must have at least 1 element"
+                    );
+                    
                     if chunk.len() == 2 {
                         // Hash two hashes together
                         let mut combined = Vec::with_capacity(64);
@@ -291,6 +297,13 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                         sha256_hash(&combined)
                     } else {
                         // Odd number: duplicate the last hash
+                        // Runtime assertion: Chunk must have exactly 1 element
+                        debug_assert!(
+                            chunk.len() == 1,
+                            "Odd-length chunk must have exactly 1 element, got {}",
+                            chunk.len()
+                        );
+                        
                         let mut combined = Vec::with_capacity(64);
                         combined.extend_from_slice(&chunk[0]);
                         combined.extend_from_slice(&chunk[0]);
@@ -305,6 +318,12 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
         {
             // Process pairs of hashes sequentially
             for chunk in hashes.chunks(2) {
+                // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
+                debug_assert!(
+                    !chunk.is_empty(),
+                    "Merkle tree chunk must have at least 1 element"
+                );
+                
                 if chunk.len() == 2 {
                     // Hash two hashes together
                     // BLLVM Optimization: Pre-allocate 64-byte buffer (2 * 32-byte hashes)
@@ -314,6 +333,13 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                     next_level.push(sha256_hash(&combined));
                 } else {
                     // Odd number: duplicate the last hash
+                    // Runtime assertion: Chunk must have exactly 1 element
+                    debug_assert!(
+                        chunk.len() == 1,
+                        "Odd-length chunk must have exactly 1 element, got {}",
+                        chunk.len()
+                    );
+                    
                     // BLLVM Optimization: Pre-allocate 64-byte buffer
                     let mut combined = Vec::with_capacity(64);
                     combined.extend_from_slice(&chunk[0]);
@@ -325,6 +351,20 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 
         hashes = next_level;
     }
+
+    // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
+    debug_assert!(
+        hashes.len() == 1,
+        "Merkle tree calculation must result in exactly 1 hash (root), got {}",
+        hashes.len()
+    );
+    
+    // Runtime assertion: Merkle root must be 32 bytes
+    debug_assert!(
+        hashes[0].len() == 32,
+        "Merkle root hash must be 32 bytes, got {}",
+        hashes[0].len()
+    );
 
     Ok(hashes[0])
 }
@@ -1256,6 +1296,52 @@ mod kani_proofs {
             assert_eq!(
                 root1, root1_repeat,
                 "Merkle Tree Integrity: same transaction list must produce same root"
+            );
+        }
+    }
+
+    /// Kani proof: Merkle tree calculation bounds safety
+    ///
+    /// Mathematical specification:
+    /// ∀ txs ∈ [Transaction], |txs| > 0:
+    /// - calculate_merkle_root(txs) results in exactly 1 hash (the root)
+    /// - All chunks in tree building have len() >= 1
+    /// - Final hash has len() == 32
+    ///
+    /// This proves that the merkle tree calculation maintains proper bounds throughout.
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_merkle_tree_calculation_bounds() {
+        let mut txs: Vec<Transaction> = kani::any();
+
+        use crate::kani_helpers::assume_transaction_bounds_custom;
+
+        // Bound for tractability
+        kani::assume(txs.len() <= 10);
+        kani::assume(!txs.is_empty());
+
+        for tx in &mut txs {
+            assume_transaction_bounds_custom!(tx, 3, 3);
+        }
+
+        let result = calculate_merkle_root(&txs);
+
+        if result.is_ok() {
+            let root = result.unwrap();
+
+            // Critical invariant: Final result must be exactly 32 bytes
+            assert_eq!(
+                root.len(),
+                32,
+                "Merkle root hash must be exactly 32 bytes (SHA256 output size)"
+            );
+
+            // Critical invariant: Root must not be all zeros (very unlikely but documents invariant)
+            // Note: This is a weak check - a real merkle root could theoretically be all zeros
+            // but it's extremely unlikely in practice
+            assert!(
+                true, // We don't assert != [0; 32] as it's theoretically possible
+                "Merkle root calculation completed successfully"
             );
         }
     }

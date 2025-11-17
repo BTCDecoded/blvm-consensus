@@ -374,5 +374,17 @@ fn estimate_transaction_size(tx: &Transaction) -> u64 {
         .map(|out| 8 + out.script_pubkey.len() as u64)
         .sum::<u64>();
 
-    base_size + input_size + output_size
+    let total_size = base_size
+        .checked_add(input_size)
+        .and_then(|sum| sum.checked_add(output_size))
+        .unwrap_or(u64::MAX); // Overflow protection
+    
+    // Runtime assertion: Estimated size must be reasonable
+    debug_assert!(
+        total_size <= 1_000_000,
+        "Transaction size estimate ({}) must not exceed MAX_TX_SIZE (1MB)",
+        total_size
+    );
+
+    total_size
 }

@@ -249,6 +249,14 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
                 "Operation limit exceeded".to_string(),
             ));
         }
+        
+        // Runtime assertion: Operation count must be within bounds
+        debug_assert!(
+            op_count <= MAX_SCRIPT_OPS,
+            "Operation count ({}) must not exceed MAX_SCRIPT_OPS ({})",
+            op_count,
+            MAX_SCRIPT_OPS
+        );
 
         // Check stack size
         if stack.len() > MAX_STACK_SIZE {
@@ -256,11 +264,27 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
                 "Stack overflow".to_string(),
             ));
         }
+        
+        // Runtime assertion: Stack size must be within bounds
+        debug_assert!(
+            stack.len() <= MAX_STACK_SIZE,
+            "Stack size ({}) must not exceed MAX_STACK_SIZE ({})",
+            stack.len(),
+            MAX_STACK_SIZE
+        );
 
         // Execute opcode
         if !execute_opcode(*opcode, stack, flags)? {
             return Ok(false);
         }
+        
+        // Runtime assertion: Stack size must remain within bounds after opcode execution
+        debug_assert!(
+            stack.len() <= MAX_STACK_SIZE,
+            "Stack size ({}) must not exceed MAX_STACK_SIZE ({}) after opcode execution",
+            stack.len(),
+            MAX_STACK_SIZE
+        );
     }
 
     // Final stack check: exactly one non-zero value
@@ -524,6 +548,14 @@ fn eval_script_with_context_full(
                 "Stack overflow".to_string(),
             ));
         }
+        
+        // Runtime assertion: Stack size must be within bounds
+        debug_assert!(
+            stack.len() <= MAX_STACK_SIZE,
+            "Stack size ({}) must not exceed MAX_STACK_SIZE ({})",
+            stack.len(),
+            MAX_STACK_SIZE
+        );
 
         // Execute opcode with full transaction context
         if !execute_opcode_with_context_full(

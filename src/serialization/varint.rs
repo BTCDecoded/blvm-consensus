@@ -53,16 +53,61 @@ pub fn encode_varint(value: u64) -> Vec<u8> {
     if value < 0xfd {
         vec![value as u8]
     } else if value <= 0xffff {
+        // Runtime assertion: Value must be >= 0xfd for 2-byte encoding
+        debug_assert!(
+            value >= 0xfd,
+            "Value ({}) must be >= 0xfd for 2-byte encoding",
+            value
+        );
+        
         let mut result = vec![0xfd];
         result.extend_from_slice(&(value as u16).to_le_bytes());
+        
+        // Runtime assertion: Result must be exactly 3 bytes
+        debug_assert!(
+            result.len() == 3,
+            "2-byte VarInt encoding must produce exactly 3 bytes, got {}",
+            result.len()
+        );
+        
         result
     } else if value <= 0xffffffff {
+        // Runtime assertion: Value must be > 0xffff for 4-byte encoding
+        debug_assert!(
+            value > 0xffff,
+            "Value ({}) must be > 0xffff for 4-byte encoding",
+            value
+        );
+        
         let mut result = vec![0xfe];
         result.extend_from_slice(&(value as u32).to_le_bytes());
+        
+        // Runtime assertion: Result must be exactly 5 bytes
+        debug_assert!(
+            result.len() == 5,
+            "4-byte VarInt encoding must produce exactly 5 bytes, got {}",
+            result.len()
+        );
+        
         result
     } else {
+        // Runtime assertion: Value must be > 0xffffffff for 8-byte encoding
+        debug_assert!(
+            value > 0xffffffff,
+            "Value ({}) must be > 0xffffffff for 8-byte encoding",
+            value
+        );
+        
         let mut result = vec![0xff];
         result.extend_from_slice(&value.to_le_bytes());
+        
+        // Runtime assertion: Result must be exactly 9 bytes
+        debug_assert!(
+            result.len() == 9,
+            "8-byte VarInt encoding must produce exactly 9 bytes, got {}",
+            result.len()
+        );
+        
         result
     }
 }
@@ -107,13 +152,30 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
                     VarIntError::InsufficientBytes.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Must have at least 3 bytes
+            debug_assert!(
+                data.len() >= 3,
+                "2-byte VarInt decoding requires at least 3 bytes, got {}",
+                data.len()
+            );
+            
             let value = u16::from_le_bytes([data[1], data[2]]) as u64;
+            
             // Bitcoin Core rejects values < 0xfd encoded with 0xfd prefix
             if value < 0xfd {
                 return Err(ConsensusError::Serialization(
                     VarIntError::InvalidEncoding.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Decoded value must be >= 0xfd
+            debug_assert!(
+                value >= 0xfd,
+                "Decoded 2-byte VarInt value ({}) must be >= 0xfd",
+                value
+            );
+            
             Ok((value, 3))
         }
 
@@ -124,13 +186,30 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
                     VarIntError::InsufficientBytes.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Must have at least 5 bytes
+            debug_assert!(
+                data.len() >= 5,
+                "4-byte VarInt decoding requires at least 5 bytes, got {}",
+                data.len()
+            );
+            
             let value = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as u64;
+            
             // Bitcoin Core rejects values <= 0xffff encoded with 0xfe prefix
             if value <= 0xffff {
                 return Err(ConsensusError::Serialization(
                     VarIntError::InvalidEncoding.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Decoded value must be > 0xffff
+            debug_assert!(
+                value > 0xffff,
+                "Decoded 4-byte VarInt value ({}) must be > 0xffff",
+                value
+            );
+            
             Ok((value, 5))
         }
 
@@ -141,15 +220,32 @@ pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
                     VarIntError::InsufficientBytes.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Must have at least 9 bytes
+            debug_assert!(
+                data.len() >= 9,
+                "8-byte VarInt decoding requires at least 9 bytes, got {}",
+                data.len()
+            );
+            
             let value = u64::from_le_bytes([
                 data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8],
             ]);
+            
             // Bitcoin Core rejects values <= 0xffffffff encoded with 0xff prefix
             if value <= 0xffffffff {
                 return Err(ConsensusError::Serialization(
                     VarIntError::InvalidEncoding.to_string(),
                 ));
             }
+            
+            // Runtime assertion: Decoded value must be > 0xffffffff
+            debug_assert!(
+                value > 0xffffffff,
+                "Decoded 8-byte VarInt value ({}) must be > 0xffffffff",
+                value
+            );
+            
             Ok((value, 9))
         }
 
@@ -340,12 +436,69 @@ mod kani_proofs {
         let decoded_result = decode_varint(&encoded);
 
         if decoded_result.is_ok() {
-            let (decoded_value, _bytes_read) = decoded_result.unwrap();
+            let (decoded_value, bytes_read) = decoded_result.unwrap();
 
             // Round-trip property: decode(encode(value)) = value
             assert_eq!(
                 decoded_value, value,
                 "VarInt encoding round-trip: decoded value must match original"
+            );
+            
+            // Critical invariant: Bytes consumed must match encoded length
+            assert_eq!(
+                bytes_read,
+                encoded.len(),
+                "VarInt round-trip: bytes consumed ({}) must match encoded length ({})",
+                bytes_read,
+                encoded.len()
+            );
+        }
+    }
+    
+    /// Kani proof: VarInt encoding length correctness
+    ///
+    /// Mathematical specification:
+    /// ∀ value ∈ [0, 2^64):
+    /// - If value < 0xfd: |encode(value)| = 1
+    /// - If value <= 0xffff: |encode(value)| = 3
+    /// - If value <= 0xffffffff: |encode(value)| = 5
+    /// - Otherwise: |encode(value)| = 9
+    ///
+    /// This ensures VarInt encoding uses the correct number of bytes.
+    #[kani::proof]
+    fn kani_varint_encoding_length_correctness() {
+        let value: u64 = kani::any();
+        
+        let encoded = encode_varint(value);
+        
+        // Critical invariant: Encoded length must match specification
+        if value < 0xfd {
+            assert_eq!(
+                encoded.len(),
+                1,
+                "VarInt encoding length: value < 0xfd must produce 1 byte, got {}",
+                encoded.len()
+            );
+        } else if value <= 0xffff {
+            assert_eq!(
+                encoded.len(),
+                3,
+                "VarInt encoding length: value <= 0xffff must produce 3 bytes, got {}",
+                encoded.len()
+            );
+        } else if value <= 0xffffffff {
+            assert_eq!(
+                encoded.len(),
+                5,
+                "VarInt encoding length: value <= 0xffffffff must produce 5 bytes, got {}",
+                encoded.len()
+            );
+        } else {
+            assert_eq!(
+                encoded.len(),
+                9,
+                "VarInt encoding length: value > 0xffffffff must produce 9 bytes, got {}",
+                encoded.len()
             );
         }
     }
