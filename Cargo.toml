@@ -85,6 +85,10 @@ benchmarking = []
 # Enables UTXO set commitments and peer consensus sync
 utxo-commitments = ["sparse-merkle-tree"]
 
+# CTV (BIP119 CheckTemplateVerify) - proposed soft fork
+# Enables OP_CHECKTEMPLATEVERIFY opcode support
+ctv = []
+
 # Note: Kani proofs use #[cfg(kani)] which is set by the Kani toolchain, not cargo features
 # To run Kani proofs, use: cargo kani --features utxo-commitments
 
