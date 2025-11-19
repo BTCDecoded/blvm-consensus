@@ -1,15 +1,18 @@
 # Historical Documentation
 
-This directory contains historical implementation, testing, and status documents that document the development process of consensus-proof.
+Historical documentation from this repository has been moved to the centralized archive:
 
-## Organization
+**Location**: `bllvm-docs/archive/bllvm-consensus/`
 
-- **`implementation/`** - Historical implementation completion documents
-- **`testing/`** - Testing gap resolution and test infrastructure status
-- **`priority1/`** - Priority 1 task status and progress documents
+This includes:
+- Implementation milestone documents
+- Testing gap resolution phases
+- Benchmark results
+- Optimization summaries
+- Priority 1 status updates
 
-## Note
-
-These documents are preserved for historical reference. They document completed milestones and implementation phases but may not reflect the current state of the codebase.
-
-
+For current documentation, see:
+- [README.md](../../README.md)
+- [CONTRIBUTING.md](../../CONTRIBUTING.md)
+- [SECURITY.md](../../SECURITY.md)
+- Active documentation in `docs/`

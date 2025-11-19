@@ -382,7 +382,7 @@ pub enum MempoolResult {
 /// #         version: 1, prev_block_hash: [0; 32], merkle_root,
 /// #         timestamp: 1234567890, bits: 0x1d00ffff, nonce: 0,
 /// #     },
-/// #     transactions: vec![coinbase_tx],
+/// #     transactions: vec![coinbase_tx].into(),
 /// # };
 /// # let witnesses = vec![];
 /// # let mut utxo_set = UtxoSet::new();
