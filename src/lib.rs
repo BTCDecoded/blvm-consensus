@@ -261,7 +261,7 @@ impl ConsensusProof {
     ///         bits: 0x1d00ffff,
     ///         nonce: 0,
     ///     },
-    ///     transactions: vec![coinbase_tx],
+    ///     transactions: vec![coinbase_tx].into(),
     /// };
     ///
     /// // Note: This is a simplified example. In practice, blocks need valid proof-of-work
@@ -686,7 +686,7 @@ impl ConsensusProof {
     ///             script_pubkey: vec![],
     ///         }],
     ///         lock_time: 0,
-    ///     }],
+    ///     }].into(),
     /// };
     ///
     /// let result = consensus.mine_block(block, 1000);
@@ -860,7 +860,7 @@ impl ConsensusProof {
     ///             script_pubkey: vec![],
     ///         }],
     ///         lock_time: 0,
-    ///     }],
+    ///     }].into(),
     /// };
     ///
     /// let witnesses = vec![];
