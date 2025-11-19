@@ -92,3 +92,45 @@ pub const COINBASE_MATURITY: u64 = 100;
 ///
 /// Reference: Bitcoin Core `consensus.h` MAX_BLOCK_SIGOPS_COST = 80000
 pub const MAX_BLOCK_SIGOPS_COST: u64 = 80_000;
+
+/// Witness commitment hash length (BIP141)
+///
+/// The witness commitment in the coinbase transaction contains:
+/// - OP_RETURN (0x6a): 1 byte
+/// - Push opcode (0x24): 1 byte
+/// - Commitment hash: 32 bytes
+/// Total: 34 bytes
+///
+/// Reference: BIP141 - Witness commitment format
+pub const WITNESS_COMMITMENT_HASH_LENGTH: usize = 32;
+
+/// Witness commitment script length (BIP141)
+///
+/// Total length of witness commitment script:
+/// - OP_RETURN (0x6a): 1 byte
+/// - Push opcode (0x24): 1 byte  
+/// - Commitment hash: 32 bytes
+/// Total: 34 bytes
+pub const WITNESS_COMMITMENT_SCRIPT_LENGTH: usize = 34;
+
+/// Taproot script length (BIP341)
+///
+/// Taproot P2TR script format: OP_1 <32-byte-program>
+/// - OP_1 (0x51): 1 byte
+/// - Push opcode (0x20): 1 byte
+/// - Program hash: 32 bytes
+/// Total: 34 bytes
+pub const TAPROOT_SCRIPT_LENGTH: usize = 34;
+
+/// Taproot program hash length (BIP341)
+///
+/// Taproot witness program (P2TR) is 32 bytes
+pub const TAPROOT_PROGRAM_LENGTH: usize = 32;
+
+/// SegWit witness program lengths (BIP141)
+///
+/// SegWit v0 programs:
+/// - P2WPKH: 20 bytes
+/// - P2WSH: 32 bytes
+pub const SEGWIT_P2WPKH_LENGTH: usize = 20;
+pub const SEGWIT_P2WSH_LENGTH: usize = 32;

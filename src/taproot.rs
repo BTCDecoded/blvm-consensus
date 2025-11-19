@@ -18,8 +18,10 @@ pub const TAPROOT_SCRIPT_PREFIX: u8 = 0x51; // OP_1
 
 /// Validate Taproot output script
 pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
-    // Check if script is P2TR: OP_1 <33-byte-key>
-    if script.len() != 34 {
+    use crate::constants::TAPROOT_SCRIPT_LENGTH;
+    
+    // Check if script is P2TR: OP_1 <32-byte-program>
+    if script.len() != TAPROOT_SCRIPT_LENGTH {
         return Ok(false);
     }
 

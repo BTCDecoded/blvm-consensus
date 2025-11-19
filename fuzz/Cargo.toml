@@ -103,3 +103,10 @@ path = "fuzz_targets/differential_fuzzing.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "reorganization"
+path = "fuzz_targets/reorganization.rs"
+test = false
+doc = false
+bench = false

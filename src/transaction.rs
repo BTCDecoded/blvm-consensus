@@ -275,9 +275,7 @@ pub fn check_tx_inputs(
     // Use checked subtraction to prevent underflow (shouldn't happen due to check above, but be safe)
     let fee = total_input_value
         .checked_sub(total_output_value)
-        .ok_or_else(|| {
-            ConsensusError::TransactionValidation("Fee calculation underflow".into())
-        })?;
+        .ok_or_else(make_fee_calculation_underflow_error)?;
 
     Ok((ValidationResult::Valid, fee))
 }

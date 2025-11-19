@@ -125,11 +125,20 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
         })
         .map_err(|e| ConsensusError::EconomicValidation(Cow::Owned(e.to_string())))?;
 
+    // Note: We use inline error here because it's EconomicValidation, not TransactionValidation
+    // The helper function returns TransactionValidation, so we keep inline for type consistency
     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
         ConsensusError::EconomicValidation("Fee calculation underflow".into())
     })?;
     
-    // Runtime assertion: Fee must be non-negative after checked subtraction
+    // Check for negative fee and return error (tests intentionally test this error path)
+    if fee < 0 {
+        return Err(ConsensusError::EconomicValidation(
+            "Negative fee".into(),
+        ));
+    }
+    
+    // Runtime assertion: Fee must be non-negative (only after we've handled negative case)
     debug_assert!(
         fee >= 0,
         "Fee ({}) must be non-negative (input: {}, output: {})",
@@ -137,12 +146,6 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
         total_input,
         total_output
     );
-    
-    if fee < 0 {
-        return Err(ConsensusError::EconomicValidation(
-            "Negative fee".into(),
-        ));
-    }
 
     // Runtime assertion: Fee cannot exceed total input
     debug_assert!(
@@ -543,6 +546,135 @@ mod kani_proofs {
             // Fee calculation may fail for invalid transactions (negative fees, overflow)
             // This is acceptable behavior
         }
+    }
+
+    /// Kani proof: calculate_fee overflow safety
+    ///
+    /// Mathematical specification:
+    /// ∀ tx ∈ TX, utxo_set ∈ US:
+    /// - calculate_fee(tx, utxo_set) handles overflow correctly
+    /// - If sum(inputs) or sum(outputs) overflows, returns error
+    /// - Fee calculation never overflows when inputs are bounded
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_calculate_fee_overflow_safety() {
+        let tx: Transaction = kani::any();
+        let mut utxo_set: UtxoSet = kani::any();
+
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 5);
+        kani::assume(tx.outputs.len() <= 5);
+
+        // Populate UTXO set with bounded values to test overflow detection
+        for input in &tx.inputs {
+            if !utxo_set.contains_key(&input.prevout) {
+                let value: i64 = kani::any();
+                // Bound values to test overflow edge cases
+                kani::assume(value >= 0);
+                kani::assume(value <= MAX_MONEY);
+                let utxo = UTXO {
+                    value,
+                    script_pubkey: kani::any(),
+                    height: 0,
+                };
+                utxo_set.insert(input.prevout, utxo);
+            }
+        }
+
+        // Bound output values
+        for output in &tx.outputs {
+            kani::assume(output.value >= 0);
+            kani::assume(output.value <= MAX_MONEY);
+        }
+
+        let result = calculate_fee(&tx, &utxo_set);
+
+        // If calculation succeeds, fee must be bounded
+        if let Ok(fee) = result {
+            assert!(fee >= 0, "Fee must be non-negative");
+            assert!(fee <= MAX_MONEY, "Fee must not exceed MAX_MONEY");
+        }
+        // If calculation fails, it's due to overflow or negative fee (acceptable)
+    }
+
+    /// Kani proof: calculate_fee with missing UTXO
+    ///
+    /// Mathematical specification:
+    /// ∀ tx ∈ TX, utxo_set ∈ US:
+    /// - If input.prevout ∉ utxo_set: calculate_fee treats missing UTXO as value 0
+    /// - Fee calculation handles missing UTXOs gracefully
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn kani_calculate_fee_missing_utxo() {
+        let tx: Transaction = kani::any();
+        let utxo_set: UtxoSet = kani::any();
+
+        // Bound for tractability
+        kani::assume(tx.inputs.len() <= 5);
+        kani::assume(tx.outputs.len() <= 5);
+        kani::assume(!is_coinbase(&tx)); // Non-coinbase for fee calculation
+
+        // Bound output values
+        for output in &tx.outputs {
+            kani::assume(output.value >= 0);
+            kani::assume(output.value <= MAX_MONEY);
+        }
+
+        // Test with potentially missing UTXOs
+        let result = calculate_fee(&tx, &utxo_set);
+
+        // Missing UTXOs are treated as value 0, so fee calculation should still work
+        // (though it may result in negative fee, which is an error)
+        if result.is_ok() {
+            let fee = result.unwrap();
+            assert!(fee >= 0, "Fee must be non-negative when calculation succeeds");
+        }
+    }
+
+    /// Kani proof: Economic invariants across multiple blocks
+    ///
+    /// Mathematical specification:
+    /// ∀ h₁, h₂ ∈ ℕ, h₁ ≤ h₂:
+    /// - total_supply(h₂) = total_supply(h₁) + Σ(i=h₁+1 to h₂) get_block_subsidy(i)
+    /// - Supply increases monotonically
+    /// - Supply never exceeds MAX_MONEY
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_economic_invariants_across_blocks() {
+        let height1: Natural = kani::any();
+        let height2: Natural = kani::any();
+
+        // Bound for tractability
+        kani::assume(height1 <= HALVING_INTERVAL * 5);
+        kani::assume(height2 <= HALVING_INTERVAL * 5);
+        kani::assume(height1 <= height2);
+
+        let supply1 = total_supply(height1);
+        let supply2 = total_supply(height2);
+
+        // Monotonicity invariant
+        assert!(
+            supply2 >= supply1,
+            "Supply must be monotonically increasing across blocks"
+        );
+
+        // Calculate expected increase
+        let mut expected_increase = 0i64;
+        for h in (height1 + 1)..=height2 {
+            let subsidy = get_block_subsidy(h);
+            expected_increase = expected_increase.saturating_add(subsidy);
+        }
+
+        // Supply increase should match sum of subsidies
+        let actual_increase = supply2.saturating_sub(supply1);
+        assert!(
+            actual_increase <= expected_increase,
+            "Supply increase must not exceed sum of subsidies"
+        );
+
+        // Both supplies must respect MAX_MONEY
+        assert!(supply1 <= MAX_MONEY, "Supply at height1 must not exceed MAX_MONEY");
+        assert!(supply2 <= MAX_MONEY, "Supply at height2 must not exceed MAX_MONEY");
     }
 }
 

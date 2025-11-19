@@ -109,10 +109,11 @@ pub fn weight_to_vsize(weight: Natural) -> Natural {
         weight / 4
     );
     
-    // Runtime assertion: vsize must be < (weight / 4) + 1 (ceiling property)
+    // Runtime assertion: vsize must be <= (weight / 4) + 1 (ceiling property)
+    // Note: When weight % 4 == 0, result == weight/4, otherwise result == (weight/4) + 1
     debug_assert!(
-        (result as u64) < ((weight / 4) + 1),
-        "Vsize ({}) must be < (weight / 4) + 1 ({})",
+        (result as u64) <= ((weight / 4) + 1),
+        "Vsize ({}) must be <= (weight / 4) + 1 ({})",
         result,
         (weight / 4) + 1
     );
@@ -166,14 +167,16 @@ pub fn extract_witness_program(
 /// BIP141: SegWit v0 programs are 20 or 32 bytes (P2WPKH or P2WSH)
 /// BIP341: Taproot v1 programs are 32 bytes (P2TR)
 pub fn validate_witness_program_length(program: &ByteString, version: WitnessVersion) -> bool {
+    use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
+    
     match version {
         WitnessVersion::SegWitV0 => {
             // P2WPKH: 20 bytes, P2WSH: 32 bytes
-            program.len() == 20 || program.len() == 32
+            program.len() == SEGWIT_P2WPKH_LENGTH || program.len() == SEGWIT_P2WSH_LENGTH
         }
         WitnessVersion::TaprootV1 => {
             // P2TR: 32 bytes
-            program.len() == 32
+            program.len() == TAPROOT_PROGRAM_LENGTH
         }
     }
 }
@@ -416,19 +419,23 @@ mod kani_proofs {
         let result = validate_witness_program_length(&program, version);
 
         // Critical invariant: result must match specification
+        use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
+        
         match version {
             WitnessVersion::SegWitV0 => {
                 assert_eq!(
                     result,
-                    program.len() == 20 || program.len() == 32,
-                    "Witness program length validation: SegWit v0 must be 20 or 32 bytes"
+                    program.len() == SEGWIT_P2WPKH_LENGTH || program.len() == SEGWIT_P2WSH_LENGTH,
+                    "Witness program length validation: SegWit v0 must be {} or {} bytes",
+                    SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH
                 );
             }
             WitnessVersion::TaprootV1 => {
                 assert_eq!(
                     result,
-                    program.len() == 32,
-                    "Witness program length validation: Taproot v1 must be 32 bytes"
+                    program.len() == TAPROOT_PROGRAM_LENGTH,
+                    "Witness program length validation: Taproot v1 must be {} bytes",
+                    TAPROOT_PROGRAM_LENGTH
                 );
             }
         }

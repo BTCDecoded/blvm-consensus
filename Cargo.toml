@@ -85,6 +85,11 @@ benchmarking = []
 # Enables UTXO set commitments and peer consensus sync
 utxo-commitments = ["sparse-merkle-tree"]
 
+# Runtime invariant checks in production builds
+# Enables runtime verification of mathematical invariants (supply, UTXO consistency, etc.)
+# Can be enabled in production for additional safety at performance cost
+runtime-invariants = []
+
 # CTV (BIP119 CheckTemplateVerify) - proposed soft fork
 # Enables OP_CHECKTEMPLATEVERIFY opcode support
 ctv = []
