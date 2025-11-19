@@ -25,7 +25,7 @@ smallvec = { version = "1.11", optional = true, features = ["serde"] }
 # Consensus-critical cryptography - EXACT VERSIONS
 secp256k1 = "=0.28.2"
 # Pure Rust secp256k1 implementation (Phase 3.2 - migration in progress)
-k256 = { version = "0.13", optional = true, features = ["ecdsa", "sha256"] }
+k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Enable SIMD optimizations for hashing
 # The "asm" feature enables optimized assembly implementations
 # Note: sha2-asm doesn't support Windows, so we use target-specific dependencies below
