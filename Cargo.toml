@@ -28,7 +28,7 @@ secp256k1 = "=0.28.2"
 k256 = { version = "0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Enable SIMD optimizations for hashing
 # The "asm" feature enables optimized assembly implementations
-sha2 = { version = "=0.10.9", features = ["asm"] }
+# Note: sha2-asm doesn't support Windows, so it's configured per-target below
 ripemd = "=0.1.3"
 bitcoin_hashes = "=0.11.0"
 
@@ -108,6 +108,14 @@ optional = true
 [dependencies.sparse-merkle-tree]
 version = "0.6"
 optional = true
+
+# Target-specific dependency configuration
+# sha2-asm doesn't support Windows targets, so disable asm feature for Windows
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+sha2 = { version = "=0.10.9", features = ["asm"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+sha2 = { version = "=0.10.9" }
 
 [profile.release]
 # Aggressive optimizations for production builds
