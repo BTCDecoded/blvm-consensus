@@ -113,10 +113,7 @@ optional = true
 # Target-specific dependency configuration
 # sha2-asm doesn't support Windows targets, so disable asm feature for Windows
 # Override the main sha2 dependency for Windows targets only
-[target.'cfg(target_os = "windows")'.dependencies]
-sha2 = { version = "=0.10.9", default-features = false }
-
-# Also handle the GNU Windows target explicitly (for cross-compilation)
+# Using the specific target triple for cross-compilation (x86_64-pc-windows-gnu)
 [target.x86_64-pc-windows-gnu.dependencies]
 sha2 = { version = "=0.10.9", default-features = false }
 
