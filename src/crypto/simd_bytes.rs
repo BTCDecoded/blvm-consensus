@@ -73,7 +73,7 @@ mod tests {
     fn test_copy_bytes_small() {
         let src = [1, 2, 3, 4, 5];
         let mut dst = [0u8; 10];
-        copy_bytes_simd(&mut dst, &src);
+            copy_bytes_simd(&mut dst, &src);
         assert_eq!(&dst[..5], &src);
     }
 
@@ -81,7 +81,7 @@ mod tests {
     fn test_copy_bytes_large() {
         let src: Vec<u8> = (0..128).collect();
         let mut dst = vec![0u8; 128];
-        copy_bytes_simd(&mut dst, &src);
+            copy_bytes_simd(&mut dst, &src);
         assert_eq!(dst, src);
     }
 
@@ -89,7 +89,7 @@ mod tests {
     fn test_copy_bytes_exact_32() {
         let src: Vec<u8> = (0..32).collect();
         let mut dst = vec![0u8; 32];
-        copy_bytes_simd(&mut dst, &src);
+            copy_bytes_simd(&mut dst, &src);
         assert_eq!(dst, src);
     }
 }

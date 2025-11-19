@@ -227,11 +227,11 @@ fn test_cve_2018_17144_double_spend_in_block() {
             tx2, // Double-spend!
         ].into_boxed_slice(),
     };
-    
+
     // Block should be rejected due to double-spend
     let witnesses = vec![vec![], vec![], vec![]]; // Empty witnesses
     let result = connect_block(&block, &witnesses, utxo_set, 1, None);
-    
+
     // Block should be invalid due to double-spend
     if let Ok((validation_result, _)) = result {
         assert!(
