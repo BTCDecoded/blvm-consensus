@@ -76,7 +76,8 @@ impl Value for UtxoValue {
 #[cfg(feature = "utxo-commitments")]
 pub struct UtxoMerkleTree {
     tree: SparseMerkleTree<UtxoHasher, UtxoValue, DefaultStore<UtxoValue>>,
-    utxo_index: HashMap<OutPoint, usize>, // Map OutPoint to leaf position (if needed)
+    #[allow(dead_code)] // Reserved for future use: Map OutPoint to leaf position
+    utxo_index: HashMap<OutPoint, usize>,
     total_supply: u64,
     utxo_count: u64,
 }
@@ -186,14 +187,16 @@ impl UtxoMerkleTree {
         );
         
         // Runtime assertion: Supply and count must be non-negative
+        // Note: u64 is always >= 0, but we keep the assertion for documentation
+        // and to catch any potential type changes in the future
         debug_assert!(
-            self.total_supply >= 0,
-            "Total supply ({}) must be non-negative",
+            self.total_supply <= u64::MAX,
+            "Total supply ({}) must be within u64 bounds",
             self.total_supply
         );
         debug_assert!(
-            self.utxo_count >= 0,
-            "UTXO count ({}) must be non-negative",
+            self.utxo_count <= u64::MAX,
+            "UTXO count ({}) must be within u64 bounds",
             self.utxo_count
         );
 
