@@ -28,7 +28,8 @@ secp256k1 = "=0.28.2"
 k256 = { version = "0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Enable SIMD optimizations for hashing
 # The "asm" feature enables optimized assembly implementations
-# Note: sha2-asm doesn't support Windows, so it's configured per-target below
+# Note: sha2-asm doesn't support Windows, so we override it for Windows targets below
+sha2 = { version = "=0.10.9", features = ["asm"] }
 ripemd = "=0.1.3"
 bitcoin_hashes = "=0.11.0"
 
@@ -111,14 +112,11 @@ optional = true
 
 # Target-specific dependency configuration
 # sha2-asm doesn't support Windows targets, so disable asm feature for Windows
-# Use exact target triple for cross-compilation
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-sha2 = { version = "=0.10.9", features = ["asm"] }
-
+# Override the main sha2 dependency for Windows targets only
 [target.'cfg(target_os = "windows")'.dependencies]
 sha2 = { version = "=0.10.9", default-features = false }
 
-# Also handle the GNU Windows target explicitly
+# Also handle the GNU Windows target explicitly (for cross-compilation)
 [target.x86_64-pc-windows-gnu.dependencies]
 sha2 = { version = "=0.10.9", default-features = false }
 
