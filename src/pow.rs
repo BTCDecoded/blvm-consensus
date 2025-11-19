@@ -1348,8 +1348,7 @@ mod property_tests {
             // Right shift then left shift loses lower bits, so we check that upper bits are preserved
             if shift < 32 {
                 let u256_value2 = U256::from_u32(value);
-                let shifted_right = u256_value2.shr(shift);
-                let shifted_back = shifted_right.shl(shift);
+                let _shifted_right = u256_value2.shr(shift);
                 // After right shift then left shift, lower 'shift' bits are lost
                 // So we check that the upper (32 - shift) bits match
                 let upper_bits_original = value >> shift;

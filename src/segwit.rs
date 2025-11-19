@@ -866,8 +866,8 @@ mod property_tests {
             tx in create_transaction_strategy(),
             witness in prop::option::of(create_witness_strategy())
         ) {
-            let weight = calculate_transaction_weight(&tx, witness.as_ref()).unwrap();
-            // Weight is always non-negative (Natural type)
+            let _weight = calculate_transaction_weight(&tx, witness.as_ref()).unwrap();
+            // Weight is always non-negative (Natural type) - verified by type system
         }
     }
 

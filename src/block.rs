@@ -14,13 +14,13 @@ use crate::script::verify_script_with_context_full;
 
 // Cold error construction helpers - these paths are rarely taken
 #[cold]
-fn make_arithmetic_overflow_error() -> ConsensusError {
-    ConsensusError::TransactionValidation("Arithmetic overflow".into())
-}
-
-#[cold]
-fn make_fee_overflow_error() -> ConsensusError {
-    ConsensusError::BlockValidation("Total fees overflow".into())
+fn make_fee_overflow_error(transaction_index: Option<usize>) -> ConsensusError {
+    let message = if let Some(i) = transaction_index {
+        format!("Total fees overflow at transaction {i}")
+    } else {
+        "Total fees overflow".to_string()
+    };
+    ConsensusError::BlockValidation(message.into())
 }
 use crate::segwit::{
     compute_witness_merkle_root, is_segwit_transaction, validate_witness_commitment, Witness,
@@ -390,9 +390,7 @@ pub fn connect_block(
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                    ConsensusError::BlockValidation(format!(
-                        "Total fees overflow at transaction {i}"
-                    ).into())
+                    make_fee_overflow_error(Some(i))
                 })?;
             }
         }
@@ -533,9 +531,7 @@ pub fn connect_block(
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                    ConsensusError::BlockValidation(format!(
-                        "Total fees overflow at transaction {i}"
-                    ).into())
+                    make_fee_overflow_error(Some(i))
                 })?;
             }
         }
@@ -616,7 +612,7 @@ pub fn connect_block(
 
             // Use checked arithmetic to prevent fee overflow
             total_fees = total_fees.checked_add(fee).ok_or_else(|| {
-                ConsensusError::BlockValidation(format!("Total fees overflow at transaction {i}").into())
+                make_fee_overflow_error(Some(i))
             })?;
         }
     }

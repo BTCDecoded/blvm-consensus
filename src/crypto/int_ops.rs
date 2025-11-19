@@ -8,6 +8,12 @@
 use crate::constants::MAX_MONEY;
 use crate::error::{ConsensusError, Result};
 
+// Cold error construction helper - this path is rarely taken
+#[cold]
+fn make_arithmetic_overflow_error() -> ConsensusError {
+    ConsensusError::TransactionValidation("Arithmetic overflow".into())
+}
+
 /// Safe maximum value for fast-path arithmetic
 ///
 /// Values below this threshold are guaranteed to not overflow when
@@ -33,9 +39,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Manual overflow check: a + b > i64::MAX is equivalent to a > i64::MAX - b
     if a >= 0 && b >= 0 {
         if a > i64::MAX - b {
-            return Err(ConsensusError::TransactionValidation(
-                "Arithmetic overflow".into(),
-            ));
+            return Err(make_arithmetic_overflow_error());
         }
         Ok(a + b)
     } else if a < 0 && b < 0 {
@@ -50,7 +54,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     } else {
         // Mixed signs: use checked arithmetic (overflow not possible, but safer)
         a.checked_add(b)
-            .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".into()))
+            .ok_or_else(make_arithmetic_overflow_error)
     }
 }
 
@@ -59,7 +63,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
 pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
     a.checked_add(b)
-        .ok_or_else(|| ConsensusError::TransactionValidation("Arithmetic overflow".into()))
+        .ok_or_else(make_arithmetic_overflow_error)
 }
 
 /// Fast-path subtraction with overflow checking
