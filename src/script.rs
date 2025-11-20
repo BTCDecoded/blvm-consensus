@@ -14,6 +14,17 @@ use ripemd::Ripemd160;
 use secp256k1::{ecdsa::Signature, Context, Message, PublicKey, Secp256k1, Verification};
 use sha2::{Digest, Sha256};
 
+// Cold error construction helpers - these paths are rarely taken
+#[cold]
+fn make_operation_limit_error() -> ConsensusError {
+    ConsensusError::ScriptExecution("Operation limit exceeded".into())
+}
+
+#[cold]
+fn make_stack_overflow_error() -> ConsensusError {
+    ConsensusError::ScriptExecution("Stack overflow".into())
+}
+
 #[cfg(feature = "production")]
 use smallvec::SmallVec;
 
@@ -49,11 +60,12 @@ static SCRIPT_CACHE: OnceLock<RwLock<lru::LruCache<u64, bool>>> = OnceLock::new(
 #[cfg(feature = "production")]
 fn get_script_cache() -> &'static RwLock<lru::LruCache<u64, bool>> {
     SCRIPT_CACHE.get_or_init(|| {
-        // Bounded cache: 10,000 entries (reasonable for production workloads)
+        // Bounded cache: 50,000 entries (optimized for production workloads)
         // LRU eviction policy prevents unbounded memory growth
+        // Increased from 10k to 50k for better hit rates in large mempools
         use lru::LruCache;
         use std::num::NonZeroUsize;
-        RwLock::new(LruCache::new(NonZeroUsize::new(10_000).unwrap()))
+        RwLock::new(LruCache::new(NonZeroUsize::new(50_000).unwrap()))
     })
 }
 
@@ -118,8 +130,9 @@ fn get_hash_cache() -> &'static RwLock<lru::LruCache<[u8; 32], Vec<u8>>> {
     HASH_CACHE.get_or_init(|| {
         use lru::LruCache;
         use std::num::NonZeroUsize;
-        // Cache 5,000 hash results (smaller than script cache since entries are larger)
-        RwLock::new(LruCache::new(NonZeroUsize::new(5_000).unwrap()))
+        // Cache 25,000 hash results (increased from 5k to 25k for better hit rates)
+        // Smaller than script cache since entries are larger (Vec<u8> vs bool)
+        RwLock::new(LruCache::new(NonZeroUsize::new(25_000).unwrap()))
     })
 }
 
@@ -210,6 +223,10 @@ fn compute_hash_cache_key(input: &[u8], op_hash160: bool) -> [u8; 32] {
 ///
 /// In production mode, stacks should be obtained from pool using get_pooled_stack()
 /// for optimal performance. This function works with any Vec<ByteString>.
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn eval_script(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
     // Pre-allocate stack capacity to reduce allocations during execution
     // Most scripts don't exceed 20 stack items in practice
@@ -260,9 +277,7 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
 
         // Check stack size
         if stack.len() > MAX_STACK_SIZE {
-            return Err(ConsensusError::ScriptExecution(
-                "Stack overflow".into(),
-            ));
+            return Err(make_stack_overflow_error());
         }
         
         // Runtime assertion: Stack size must be within bounds
@@ -300,6 +315,10 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
 /// 4. Return final stack has exactly one true value
 ///
 /// Performance: Pre-allocates stack capacity, caches verification results in production mode
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn verify_script(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -399,6 +418,10 @@ pub fn verify_script(
 ///
 /// This version includes the full transaction context needed for proper
 /// ECDSA signature verification with correct sighash calculation.
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn verify_script_with_context(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -431,6 +454,10 @@ pub fn verify_script_with_context(
 /// * `block_height` - Optional current block height (required for block-height CLTV)
 /// * `median_time_past` - Optional median time-past (required for timestamp CLTV per BIP113)
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn verify_script_with_context_full(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -544,9 +571,7 @@ fn eval_script_with_context_full(
 
         // Check stack size
         if stack.len() > MAX_STACK_SIZE {
-            return Err(ConsensusError::ScriptExecution(
-                "Stack overflow".into(),
-            ));
+            return Err(make_stack_overflow_error());
         }
         
         // Runtime assertion: Stack size must be within bounds

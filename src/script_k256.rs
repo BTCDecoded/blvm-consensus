@@ -7,7 +7,7 @@
 #[cfg(feature = "k256")]
 use k256::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
-    elliptic_curve::{generic_array::GenericArray, sec1::FromEncodedPoint},
+    elliptic_curve::generic_array::GenericArray,
     EncodedPoint,
 };
 
@@ -24,6 +24,10 @@ use k256::{
 /// # Returns
 /// `true` if signature is valid, `false` otherwise
 #[cfg(feature = "k256")]
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn verify_signature_k256(
     pubkey_bytes: &[u8],
     signature_bytes: &[u8],
@@ -47,7 +51,11 @@ pub fn verify_signature_k256(
             // Try parsing as compact 64-byte format if DER fails
             if signature_bytes.len() == 64 {
                 // Compact format: r || s (32 bytes each)
+                // Note: Using deprecated generic_array API from elliptic_curve
+                // TODO: Migrate to generic-array 1.x API when k256 updates its dependency
+                #[allow(deprecated)]
                 let r = GenericArray::from_slice(&signature_bytes[..32]);
+                #[allow(deprecated)]
                 let s = GenericArray::from_slice(&signature_bytes[32..]);
                 match Signature::from_scalars(*r, *s) {
                     Ok(sig) => sig,

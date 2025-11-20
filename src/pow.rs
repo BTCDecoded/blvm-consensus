@@ -190,6 +190,10 @@ fn get_next_work_required_internal(
 ///
 /// Check if the block header satisfies the proof of work requirement.
 /// Formula: SHA256(SHA256(header)) < ExpandTarget(header.bits)
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
     // Serialize header
     let header_bytes = serialize_header(header);
