@@ -140,6 +140,10 @@ pub fn connect_block(
     height: Natural,
     recent_headers: Option<&[BlockHeader]>,
 ) -> Result<(ValidationResult, UtxoSet)> {
+    #[cfg(feature = "production")]
+    #[inline(always)]
+    #[cfg(not(feature = "production"))]
+    #[inline]
     // Optimization: Early exit checks before expensive operations
     // Check block size and transaction count before validation
     #[cfg(feature = "production")]
@@ -878,19 +882,44 @@ fn apply_transaction_with_id(
     }
 
     // Add new outputs
-    for (i, output) in tx.outputs.iter().enumerate() {
-        let outpoint = OutPoint {
-            hash: tx_id,
-            index: i as Natural,
-        };
+    // BLLVM Optimization: Use Kani-proven bounds for output access in hot path
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        for i in 0..tx.outputs.len() {
+            if let Some(output) = get_proven_by_kani(&tx.outputs, i) {
+                let outpoint = OutPoint {
+                    hash: tx_id,
+                    index: i as Natural,
+                };
 
-        let utxo = UTXO {
-            value: output.value,
-            script_pubkey: output.script_pubkey.clone(),
-            height,
-        };
+                let utxo = UTXO {
+                    value: output.value,
+                    script_pubkey: output.script_pubkey.clone(),
+                    height,
+                };
 
-        utxo_set.insert(outpoint, utxo);
+                utxo_set.insert(outpoint, utxo);
+            }
+        }
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        for (i, output) in tx.outputs.iter().enumerate() {
+            let outpoint = OutPoint {
+                hash: tx_id,
+                index: i as Natural,
+            };
+
+            let utxo = UTXO {
+                value: output.value,
+                script_pubkey: output.script_pubkey.clone(),
+                height,
+            };
+
+            utxo_set.insert(outpoint, utxo);
+        }
     }
 
     Ok(utxo_set)

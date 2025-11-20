@@ -152,9 +152,24 @@ pub fn create_block_template(
     let target = expand_target(block.header.bits)?;
 
     let header = block.header.clone();
+    
+    // BLLVM Optimization: Use Kani-proven bounds for coinbase access (block has been validated)
+    #[cfg(feature = "production")]
+    let coinbase_tx = {
+        use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        get_proven_by_kani(&block.transactions, 0)
+            .ok_or_else(|| crate::error::ConsensusError::BlockValidation(
+                "Block has no transactions".into()
+            ))?
+            .clone()
+    };
+    
+    #[cfg(not(feature = "production"))]
+    let coinbase_tx = block.transactions[0].clone();
+    
     Ok(BlockTemplate {
         header: block.header,
-        coinbase_tx: block.transactions[0].clone(),
+        coinbase_tx,
         transactions: block.transactions[1..].to_vec(),
         target,
         height,
@@ -206,6 +221,10 @@ fn create_coinbase_transaction(
 
 /// Calculate merkle root using proper Bitcoin Merkle tree construction
 #[track_caller] // Better error messages showing caller location
+#[cfg(feature = "production")]
+#[inline(always)]
+#[cfg(not(feature = "production"))]
+#[inline]
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -215,76 +234,110 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 
     // Calculate transaction hashes with batch optimization (if available)
     // Uses BLLVM SIMD vectorization + Kani-proven bounds for optimal performance
-    let mut hashes: Vec<Hash> = {
-        #[cfg(feature = "production")]
-        {
-            use crate::optimizations::simd_vectorization;
+    // BLLVM Optimization: Use cache-aligned structures throughout merkle tree building
+    #[cfg(feature = "production")]
+    let mut hashes: Vec<crate::optimizations::CacheAlignedHash> = {
+        use crate::optimizations::simd_vectorization;
 
-            // Serialize all transactions in parallel (if rayon available)
-            // Then batch hash all serialized forms using double SHA256
-            // BLLVM Optimization: Pre-allocate serialization buffers
-            let serialized_txs: Vec<Vec<u8>> = {
-                #[cfg(feature = "rayon")]
-                {
-                    use rayon::prelude::*;
-                    transactions
-                        .par_iter()
-                        .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
-                        .collect()
-                }
-                #[cfg(not(feature = "rayon"))]
-                {
-                    transactions
-                        .iter()
-                        .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
-                        .collect()
-                }
-            };
-
-            // Batch hash all serialized transactions using double SHA256
-            // BLLVM Optimization: Use cache-aligned structures for better performance
-            let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
-            let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&tx_data_refs);
-            // Convert to regular hashes for compatibility
-            aligned_hashes
-                .iter()
-                .map(|h| *h.as_bytes())
-                .collect::<Vec<[u8; 32]>>()
-        }
-
-        #[cfg(not(feature = "production"))]
-        {
-            // Sequential fallback for non-production builds
-            let mut hashes = Vec::with_capacity(transactions.len());
-            for tx in transactions {
-                hashes.push(calculate_tx_hash(tx));
+        // Serialize all transactions in parallel (if rayon available)
+        // Then batch hash all serialized forms using double SHA256
+        // BLLVM Optimization: Pre-allocate serialization buffers
+        let serialized_txs: Vec<Vec<u8>> = {
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+                transactions
+                    .par_iter()
+                    .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
+                    .collect()
             }
-            hashes
+            #[cfg(not(feature = "rayon"))]
+            {
+                transactions
+                    .iter()
+                    .map(|tx| serialize_tx_for_hash(tx)) // Uses prealloc_tx_buffer internally
+                    .collect()
+            }
+        };
+
+        // Batch hash all serialized transactions using double SHA256
+        // BLLVM Optimization: Keep cache-aligned structures for better cache locality
+        let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
+        simd_vectorization::batch_double_sha256_aligned(&tx_data_refs)
+    };
+
+    #[cfg(not(feature = "production"))]
+    let mut hashes: Vec<Hash> = {
+        // Sequential fallback for non-production builds
+        let mut hashes = Vec::with_capacity(transactions.len());
+        for tx in transactions {
+            hashes.push(calculate_tx_hash(tx));
         }
+        hashes
     };
 
     // Build Merkle tree bottom-up
     // BLLVM Optimization: Pre-allocate next level and combined buffers
     // Optimization: Process multiple tree levels in parallel where safe
-    while hashes.len() > 1 {
-        #[cfg(feature = "production")]
-        let mut next_level = {
+    // BLLVM Optimization: Use cache-aligned structures in production mode for better cache locality
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::CacheAlignedHash;
+        
+        while hashes.len() > 1 {
             use crate::optimizations::MAX_TRANSACTIONS_PROVEN;
-            Vec::with_capacity(MAX_TRANSACTIONS_PROVEN.min(hashes.len() / 2 + 1))
-        };
+            let mut next_level: Vec<CacheAlignedHash> = Vec::with_capacity(
+                MAX_TRANSACTIONS_PROVEN.min(hashes.len() / 2 + 1)
+            );
 
-        #[cfg(not(feature = "production"))]
-        let mut next_level = Vec::with_capacity(hashes.len() / 2 + 1);
+            // Optimization: Parallelize hash pair processing for large trees
+            // Tree levels are independent, so we can process chunks in parallel
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+                let chunk_results: Vec<CacheAlignedHash> = hashes
+                    .chunks(2)
+                    .par_bridge()
+                    .map(|chunk| {
+                        // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
+                        debug_assert!(
+                            !chunk.is_empty(),
+                            "Merkle tree chunk must have at least 1 element"
+                        );
+                        
+                        if chunk.len() == 2 {
+                            // Hash two hashes together
+                            // BLLVM Optimization: Use cache-aligned hash bytes directly
+                            let mut combined = Vec::with_capacity(64);
+                            combined.extend_from_slice(chunk[0].as_bytes());
+                            combined.extend_from_slice(chunk[1].as_bytes());
+                            let hash = sha256_hash(&combined);
+                            CacheAlignedHash::new(hash)
+                        } else {
+                            // Odd number: duplicate the last hash
+                            // Runtime assertion: Chunk must have exactly 1 element
+                            debug_assert!(
+                                chunk.len() == 1,
+                                "Odd-length chunk must have exactly 1 element, got {}",
+                                chunk.len()
+                            );
+                            
+                            // BLLVM Optimization: Use cache-aligned hash bytes directly
+                            let mut combined = Vec::with_capacity(64);
+                            combined.extend_from_slice(chunk[0].as_bytes());
+                            combined.extend_from_slice(chunk[0].as_bytes());
+                            let hash = sha256_hash(&combined);
+                            CacheAlignedHash::new(hash)
+                        }
+                    })
+                    .collect();
+                next_level = chunk_results;
+            }
 
-        // Optimization: Parallelize hash pair processing for large trees
-        // Tree levels are independent, so we can process chunks in parallel
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        {
-            use rayon::prelude::*;
-            let chunk_results: Vec<Hash> = hashes
-                .chunks(2)
-                .par_bridge()
-                .map(|chunk| {
+            #[cfg(not(feature = "rayon"))]
+            {
+                // Process pairs of hashes sequentially
+                for chunk in hashes.chunks(2) {
                     // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
                     debug_assert!(
                         !chunk.is_empty(),
@@ -293,10 +346,12 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                     
                     if chunk.len() == 2 {
                         // Hash two hashes together
+                        // BLLVM Optimization: Use cache-aligned hash bytes directly
                         let mut combined = Vec::with_capacity(64);
-                        combined.extend_from_slice(&chunk[0]);
-                        combined.extend_from_slice(&chunk[1]);
-                        sha256_hash(&combined)
+                        combined.extend_from_slice(chunk[0].as_bytes());
+                        combined.extend_from_slice(chunk[1].as_bytes());
+                        let hash = sha256_hash(&combined);
+                        next_level.push(CacheAlignedHash::new(hash));
                     } else {
                         // Odd number: duplicate the last hash
                         // Runtime assertion: Chunk must have exactly 1 element
@@ -306,18 +361,35 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                             chunk.len()
                         );
                         
+                        // BLLVM Optimization: Use cache-aligned hash bytes directly
                         let mut combined = Vec::with_capacity(64);
-                        combined.extend_from_slice(&chunk[0]);
-                        combined.extend_from_slice(&chunk[0]);
-                        sha256_hash(&combined)
+                        combined.extend_from_slice(chunk[0].as_bytes());
+                        combined.extend_from_slice(chunk[0].as_bytes());
+                        let hash = sha256_hash(&combined);
+                        next_level.push(CacheAlignedHash::new(hash));
                     }
-                })
-                .collect();
-            next_level = chunk_results;
-        }
+                }
+            }
 
-        #[cfg(not(all(feature = "production", feature = "rayon")))]
-        {
+            hashes = next_level;
+        }
+        
+        // Convert final cache-aligned hash to regular Hash for return
+        // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
+        debug_assert!(
+            hashes.len() == 1,
+            "Merkle tree calculation must result in exactly 1 hash (root), got {}",
+            hashes.len()
+        );
+        
+        return Ok(*hashes[0].as_bytes());
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        while hashes.len() > 1 {
+            let mut next_level = Vec::with_capacity(hashes.len() / 2 + 1);
+
             // Process pairs of hashes sequentially
             for chunk in hashes.chunks(2) {
                 // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
@@ -349,26 +421,29 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                     next_level.push(sha256_hash(&combined));
                 }
             }
-        }
 
-        hashes = next_level;
+            hashes = next_level;
+        }
     }
 
-    // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
-    debug_assert!(
-        hashes.len() == 1,
-        "Merkle tree calculation must result in exactly 1 hash (root), got {}",
-        hashes.len()
-    );
-    
-    // Runtime assertion: Merkle root must be 32 bytes
-    debug_assert!(
-        hashes[0].len() == 32,
-        "Merkle root hash must be 32 bytes, got {}",
-        hashes[0].len()
-    );
+    #[cfg(not(feature = "production"))]
+    {
+        // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
+        debug_assert!(
+            hashes.len() == 1,
+            "Merkle tree calculation must result in exactly 1 hash (root), got {}",
+            hashes.len()
+        );
+        
+        // Runtime assertion: Merkle root must be 32 bytes
+        debug_assert!(
+            hashes[0].len() == 32,
+            "Merkle root hash must be 32 bytes, got {}",
+            hashes[0].len()
+        );
 
-    Ok(hashes[0])
+        Ok(hashes[0])
+    }
 }
 
 /// Serialize transaction for hashing (used for batch hashing optimization)
