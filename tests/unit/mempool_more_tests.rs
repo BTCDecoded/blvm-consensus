@@ -1,16 +1,13 @@
-use bllvm_consensus::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
+use bllvm_consensus::mempool;
+use bllvm_consensus::{Transaction, TransactionInput, TransactionOutput};
 
-fn utxo(value: i64) -> (UtxoSet, OutPoint) {
-    let mut set = UtxoSet::new();
-    let txid = [1u8;32];
-    let op = OutPoint { hash: txid, index: 0 };
-    set.insert(op.clone(), bllvm_consensus::UTXO { value, script_pubkey: vec![0x51], height: 1 });
-    (set, op)
-}
+#[path = "../test_helpers.rs"]
+mod test_helpers;
+use test_helpers::create_test_utxo;
 
 #[test]
 fn test_negative_fee_rejected() {
-    let (set, prev) = utxo(1000);
+    let (set, prev) = create_test_utxo(1000);
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput { prevout: prev, script_sig: vec![0x51], sequence: 0xffffffff }],
@@ -33,15 +30,6 @@ fn test_non_standard_script_flagged() {
     // Whether standard depends on policy; just exercise the path
     let _ = mempool::is_standard_tx(&tx);
 }
-
-
-
-
-
-
-
-
-
 
 
 

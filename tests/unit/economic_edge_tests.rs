@@ -1,30 +1,13 @@
-use bllvm_consensus::{economic, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
+use bllvm_consensus::economic;
+use bllvm_consensus::{UtxoSet, OutPoint};
 
-fn create_tx_with_value(value: i64) -> Transaction {
-    Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
-            script_sig: vec![0x51],
-            sequence: 0xffffffff,
-        }],
-        outputs: vec![TransactionOutput { value, script_pubkey: vec![0x51] }],
-        lock_time: 0,
-    }
-}
+#[path = "../test_helpers.rs"]
+mod test_helpers;
+use test_helpers::{create_tx_with_value, create_coinbase_tx, create_test_utxo};
 
 #[test]
 fn test_calculate_fee_coinbase() {
-    let coinbase_tx = Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-            script_sig: vec![0x51],
-            sequence: 0xffffffff,
-        }],
-        outputs: vec![TransactionOutput { value: 50_000_000_000, script_pubkey: vec![0x51] }],
-        lock_time: 0,
-    };
+    let coinbase_tx = create_coinbase_tx(50_000_000_000);
     
     let utxo = UtxoSet::new();
     let fee = economic::calculate_fee(&coinbase_tx, &utxo);
@@ -51,15 +34,10 @@ fn test_calculate_fee_negative() {
     assert!(fee.is_err());
 }
 
-#[test]
-fn test_get_block_subsidy_high_halving() {
-    // Test subsidy calculation at very high halving intervals
-    let height_after_many_halvings = 2_100_000; // Way beyond 33 halvings
-    let subsidy = economic::get_block_subsidy(height_after_many_halvings);
-    
-    // Should be 0 after all halvings
-    assert_eq!(subsidy, 0);
-}
+// Note: High halving tests are covered by:
+// - economic_tests.rs: test_get_block_subsidy_max_halvings (tests HALVING_INTERVAL * 64)
+// - consensus_property_tests.rs: prop_block_subsidy_halving_schedule (property test up to 10 halvings)
+// This test was redundant and removed.
 
 #[test]
 fn test_total_supply_convergence() {
@@ -79,15 +57,6 @@ fn test_supply_limit() {
     // Should be 21M BTC in satoshis
     assert_eq!(limit, 2_100_000_000_000);
 }
-
-
-
-
-
-
-
-
-
 
 
 

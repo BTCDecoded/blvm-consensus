@@ -1,17 +1,9 @@
-use bllvm_consensus::{mempool, Transaction, TransactionInput, TransactionOutput, OutPoint, UtxoSet};
+use bllvm_consensus::mempool;
+use bllvm_consensus::UtxoSet;
 
-fn create_rbf_tx(sequence: u32) -> Transaction {
-    Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32], index: 0 },
-            script_sig: vec![0x51],
-            sequence,
-        }],
-        outputs: vec![TransactionOutput { value: 1000, script_pubkey: vec![0x51] }],
-        lock_time: 0,
-    }
-}
+#[path = "../test_helpers.rs"]
+mod test_helpers;
+use test_helpers::{create_rbf_tx, create_test_utxo};
 
 #[test]
 fn test_rbf_sequence_checks() {
@@ -41,24 +33,6 @@ fn test_mempool_duplicate_detection() {
     // Should fail due to duplicate
     assert!(result.is_err());
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

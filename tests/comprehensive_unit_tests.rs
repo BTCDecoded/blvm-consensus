@@ -297,49 +297,11 @@ fn test_verify_script_large_scripts() {
 // ECONOMIC TESTS
 // ============================================================================
 
-#[test]
-fn test_get_block_subsidy_genesis() {
-    let subsidy = get_block_subsidy(0);
-    assert_eq!(subsidy, INITIAL_SUBSIDY);
-}
-
-#[test]
-fn test_get_block_subsidy_first_halving() {
-    let subsidy = get_block_subsidy(HALVING_INTERVAL);
-    assert_eq!(subsidy, INITIAL_SUBSIDY / 2);
-}
-
-#[test]
-fn test_get_block_subsidy_second_halving() {
-    let subsidy = get_block_subsidy(HALVING_INTERVAL * 2);
-    assert_eq!(subsidy, INITIAL_SUBSIDY / 4);
-}
-
-#[test]
-fn test_get_block_subsidy_max_halvings() {
-    // After 64 halvings, subsidy should be 0
-    assert_eq!(get_block_subsidy(HALVING_INTERVAL * 64), 0);
-}
-
-#[test]
-fn test_total_supply_convergence() {
-    // Test that total supply approaches 21M BTC
-    let supply_at_halving = total_supply(HALVING_INTERVAL);
-    // At the first halving, we have 210,000 blocks of 50 BTC each
-    let expected_at_halving = (HALVING_INTERVAL as i64) * INITIAL_SUBSIDY;
-    // The difference is due to bit shifting in get_block_subsidy
-    // Allow for significant rounding differences due to bit operations
-    let difference = (supply_at_halving - expected_at_halving).abs();
-    assert!(difference <= 3_000_000_000); // Allow for significant rounding differences
-}
-
-#[test]
-fn test_supply_limit() {
-    // Test that supply limit is respected
-    assert!(validate_supply_limit(0).unwrap());
-    assert!(validate_supply_limit(HALVING_INTERVAL).unwrap());
-    assert!(validate_supply_limit(HALVING_INTERVAL * 10).unwrap());
-}
+// Note: Detailed economic tests (block subsidy, total supply, etc.) are in:
+// - tests/unit/economic_tests.rs (basic tests)
+// - tests/unit/economic_edge_tests.rs (edge cases)
+// - tests/consensus_property_tests.rs (property-based tests)
+// This file focuses on integration and cross-module tests.
 
 #[test]
 fn test_calculate_fee() {
@@ -795,29 +757,8 @@ fn test_difficulty_adjustment_boundaries() {
     );
 }
 
-#[test]
-fn test_supply_calculation_boundaries() {
-    // Test supply calculation at various heights
-    let heights = vec![
-        0,
-        1,
-        HALVING_INTERVAL,
-        HALVING_INTERVAL * 2,
-        HALVING_INTERVAL * 10,
-    ];
-
-    for height in heights {
-        let supply = total_supply(height);
-        assert!(supply >= 0);
-        assert!(supply <= MAX_MONEY);
-    }
-
-    // Test supply at very high height (beyond normal operation)
-    let high_height = HALVING_INTERVAL * 100;
-    let supply = total_supply(high_height);
-    assert!(supply >= 0);
-    assert!(supply <= MAX_MONEY);
-}
+// Note: test_supply_calculation_boundaries is in tests/regression/edge_cases.rs
+// This duplicate has been removed to avoid redundancy.
 
 #[test]
 fn test_sequence_number_boundaries() {
