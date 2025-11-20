@@ -51,9 +51,9 @@ use bllvm_consensus::{Transaction, TransactionInput, TransactionOutput, OutPoint
 /// * `prevout_index` - Previous transaction output index (default: 0)
 pub fn create_test_tx(
     value: i64,
-    sequence: Option<u32>,
+    sequence: Option<u64>,
     prevout_hash: Option<[u8; 32]>,
-    prevout_index: Option<u32>,
+    prevout_index: Option<u64>,
 ) -> Transaction {
     Transaction {
         version: 1,
@@ -74,7 +74,7 @@ pub fn create_test_tx(
 }
 
 /// Create an RBF transaction (sequence < 0xffffffff)
-pub fn create_rbf_tx(sequence: u32) -> Transaction {
+pub fn create_rbf_tx(sequence: u64) -> Transaction {
     create_test_tx(1000, Some(sequence), None, None)
 }
 
@@ -119,4 +119,23 @@ pub fn create_test_utxo(value: i64) -> (UtxoSet, OutPoint) {
         },
     );
     (set, op)
+}
+
+/// Create a UTXO set with a single UTXO (alternative name for compatibility)
+pub fn create_test_utxo_set() -> UtxoSet {
+    let (set, _) = create_test_utxo(10000);
+    set
+}
+
+/// Create an invalid transaction (empty inputs)
+pub fn create_invalid_transaction() -> Transaction {
+    Transaction {
+        version: 1,
+        inputs: vec![], // Empty inputs - invalid
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51],
+        }],
+        lock_time: 0,
+    }
 }

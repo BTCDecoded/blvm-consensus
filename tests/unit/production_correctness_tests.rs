@@ -11,34 +11,9 @@ mod tests {
     use bllvm_consensus::block::*;
     use std::time::Instant;
 
-    // Helper functions
-    fn create_test_transaction() -> Transaction {
-        Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [1; 32], index: 0 },
-                script_sig: vec![0x51], // OP_1
-                sequence: 0xffffffff,
-            }],
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![0x51], // OP_1
-            }],
-            lock_time: 0,
-        }
-    }
-
-    fn create_test_utxo_set() -> UtxoSet {
-        let mut utxo_set = UtxoSet::new();
-        let outpoint = OutPoint { hash: [1; 32], index: 0 };
-        let utxo = UTXO {
-            value: 10000,
-            script_pubkey: vec![0x51], // OP_1
-            height: 0,
-        };
-        utxo_set.insert(outpoint, utxo);
-        utxo_set
-    }
+    #[path = "../test_helpers.rs"]
+    mod test_helpers;
+    use test_helpers::{create_test_tx, create_test_utxo_set};
 
     fn create_test_block() -> Block {
         Block {

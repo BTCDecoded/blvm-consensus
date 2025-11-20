@@ -10,8 +10,8 @@ fn test_rbf_sequence_checks() {
     let pool = mempool::Mempool::new();
     
     // RBF transaction (sequence < 0xffffffff)
-    let rbf_tx = create_rbf_tx(0xfffffffe);
-    let non_rbf_tx = create_rbf_tx(0xffffffff);
+    let rbf_tx = create_rbf_tx(0xfffffffeu64);
+    let non_rbf_tx = create_rbf_tx(0xffffffffu64);
     
     // Test RBF replacement logic
     let can_replace = mempool::replacement_checks(&rbf_tx, &non_rbf_tx, &pool);
@@ -22,7 +22,7 @@ fn test_rbf_sequence_checks() {
 #[test]
 fn test_mempool_duplicate_detection() {
     let mut pool = mempool::Mempool::new();
-    let tx = create_rbf_tx(0xffffffff);
+    let tx = create_rbf_tx(0xffffffffu64);
     let utxo = UtxoSet::new();
     
     // First acceptance should work

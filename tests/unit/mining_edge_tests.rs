@@ -1,24 +1,15 @@
-use bllvm_consensus::{mining, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block};
+use bllvm_consensus::{mining, BlockHeader, Block};
 
-fn create_coinbase_tx() -> Transaction {
-    Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-            script_sig: vec![0x51],
-            sequence: 0xffffffff,
-        }],
-        outputs: vec![TransactionOutput { value: 50_000_000_000, script_pubkey: vec![0x51] }],
-        lock_time: 0,
-    }
-}
+#[path = "../test_helpers.rs"]
+mod test_helpers;
+use test_helpers::create_coinbase_tx;
 
 #[test]
 fn test_merkle_root_odd_transactions() {
     // Test Merkle root calculation with odd number of transactions
-    let tx1 = create_coinbase_tx();
-    let tx2 = create_coinbase_tx();
-    let tx3 = create_coinbase_tx();
+    let tx1 = create_coinbase_tx(50_000_000_000);
+    let tx2 = create_coinbase_tx(50_000_000_000);
+    let tx3 = create_coinbase_tx(50_000_000_000);
     
     let transactions = vec![tx1, tx2, tx3];
     let merkle_root = mining::calculate_merkle_root(&transactions);
@@ -30,7 +21,7 @@ fn test_merkle_root_odd_transactions() {
 #[test]
 fn test_merkle_root_single_transaction() {
     // Test Merkle root with single transaction
-    let tx = create_coinbase_tx();
+    let tx = create_coinbase_tx(50_000_000_000);
     let transactions = vec![tx];
     let merkle_root = mining::calculate_merkle_root(&transactions);
     
@@ -79,7 +70,7 @@ fn test_mine_block_failure() {
             bits: 0x00000001, // Extremely difficult target
             nonce: 0,
         },
-        transactions: vec![create_coinbase_tx()],
+        transactions: vec![create_coinbase_tx(50_000_000_000)],
     };
     
     let result = mining::mine_block(block, 10); // Only 10 attempts

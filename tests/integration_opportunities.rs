@@ -7,7 +7,7 @@ use bllvm_consensus::transaction::is_coinbase;
 use bllvm_consensus::*;
 
 mod test_helpers;
-use test_helpers::{adjusted_timeout, is_ci};
+use test_helpers::{adjusted_timeout, is_ci, create_test_tx, create_test_utxo_set, create_invalid_transaction};
 
 /// Test integration between mempool and block creation
 #[test]
@@ -15,7 +15,7 @@ fn test_mempool_to_block_integration() {
     let consensus = ConsensusProof::new();
 
     // 1. Create a valid transaction
-    let tx = create_valid_transaction();
+    let tx = create_test_tx(1000, None, None, None);
     let utxo_set = create_test_utxo_set();
     let mempool = mempool::Mempool::new();
 
@@ -98,7 +98,7 @@ fn test_script_transaction_integration() {
     let consensus = ConsensusProof::new();
 
     // 1. Create transaction with specific script
-    let mut tx = create_valid_transaction();
+    let mut tx = create_test_tx(1000, None, None, None);
     tx.inputs[0].script_sig = vec![0x51]; // OP_1
     tx.outputs[0].script_pubkey = vec![0x51]; // OP_1
 
@@ -221,7 +221,7 @@ fn test_performance_integration() {
     // 2. Create multiple transactions
     let mut mempool_txs = Vec::new();
     for i in 0..100 {
-        let mut tx = create_valid_transaction();
+        let mut tx = create_test_tx(1000, None, None, None);
         tx.inputs[0].prevout = OutPoint {
             hash: [(i % 1000) as u8; 32],
             index: 0,
@@ -297,51 +297,7 @@ fn test_performance_integration() {
 // HELPER FUNCTIONS
 // ============================================================================
 
-fn create_valid_transaction() -> Transaction {
-    Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint {
-                hash: [1; 32],
-                index: 0,
-            },
-            script_sig: vec![0x51],
-            sequence: 0xffffffff,
-        }],
-        outputs: vec![TransactionOutput {
-            value: 1000,
-            script_pubkey: vec![0x51],
-        }],
-        lock_time: 0,
-    }
-}
-
-fn create_invalid_transaction() -> Transaction {
-    Transaction {
-        version: 1,
-        inputs: vec![], // Empty inputs - invalid
-        outputs: vec![TransactionOutput {
-            value: 1000,
-            script_pubkey: vec![0x51],
-        }],
-        lock_time: 0,
-    }
-}
-
-fn create_test_utxo_set() -> UtxoSet {
-    let mut utxo_set = UtxoSet::new();
-    let outpoint = OutPoint {
-        hash: [1; 32],
-        index: 0,
-    };
-    let utxo = UTXO {
-        value: 10000,
-        script_pubkey: vec![0x51],
-        height: 0,
-    };
-    utxo_set.insert(outpoint, utxo);
-    utxo_set
-}
+// Transaction and UTXO creation helpers are now in test_helpers.rs
 
 fn create_valid_block_header() -> BlockHeader {
     BlockHeader {
