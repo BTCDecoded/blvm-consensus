@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e61c65c585d7cbea961450981902707984ee619e3681e2e8d9cbb9e1ce380277 # shrinks to tx = Transaction { version: 0, inputs: [], outputs: [TransactionOutput { value: -1737798952788811122, script_pubkey: [] }, TransactionOutput { value: -5195671064146524135, script_pubkey: [] }, TransactionOutput { value: -2289902019919440551, script_pubkey: [] }], lock_time: 0 }, utxo_set = {}, height = 0

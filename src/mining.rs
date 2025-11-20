@@ -221,10 +221,8 @@ fn create_coinbase_transaction(
 
 /// Calculate merkle root using proper Bitcoin Merkle tree construction
 #[track_caller] // Better error messages showing caller location
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -424,10 +422,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 
             hashes = next_level;
         }
-    }
 
-    #[cfg(not(feature = "production"))]
-    {
         // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
         debug_assert!(
             hashes.len() == 1,

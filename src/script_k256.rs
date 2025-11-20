@@ -24,10 +24,8 @@ use k256::{
 /// # Returns
 /// `true` if signature is valid, `false` otherwise
 #[cfg(feature = "k256")]
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_signature_k256(
     pubkey_bytes: &[u8],
     signature_bytes: &[u8],

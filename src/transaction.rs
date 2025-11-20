@@ -89,8 +89,9 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 /// 8. If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
 ///
 /// Performance optimization (Phase 6.3): Uses fast-path checks before full validation.
-#[inline]
 #[track_caller] // Better error messages showing caller location
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Phase 6.3: Fast-path early exit for obviously invalid transactions
     #[cfg(feature = "production")]
@@ -107,18 +108,41 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 
     // 2. Check output values are valid and calculate total sum in one pass (Orange Paper Section 5.1, rules 2 & 3)
     // ∀o ∈ outs: 0 ≤ o.value ≤ M_max ∧ ∑_{o ∈ outs} o.value ≤ M_max
+    // BLLVM Optimization: Use Kani-proven bounds for output access in hot path
     let mut total_output_value = 0i64;
-    for (i, output) in tx.outputs.iter().enumerate() {
-        if output.value < 0 || output.value > MAX_MONEY {
-            return Ok(ValidationResult::Invalid(format!(
-                "Invalid output value {} at index {}",
-                output.value, i
-            )));
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        for i in 0..tx.outputs.len() {
+            if let Some(output) = get_proven_by_kani(&tx.outputs, i) {
+                if output.value < 0 || output.value > MAX_MONEY {
+                    return Ok(ValidationResult::Invalid(format!(
+                        "Invalid output value {} at index {}",
+                        output.value, i
+                    )));
+                }
+                // Accumulate sum with overflow check
+                total_output_value = total_output_value
+                    .checked_add(output.value)
+                    .ok_or_else(make_output_sum_overflow_error)?;
+            }
         }
-        // Accumulate sum with overflow check
-        total_output_value = total_output_value
-            .checked_add(output.value)
-            .ok_or_else(make_output_sum_overflow_error)?;
+    }
+    
+    #[cfg(not(feature = "production"))]
+    {
+        for (i, output) in tx.outputs.iter().enumerate() {
+            if output.value < 0 || output.value > MAX_MONEY {
+                return Ok(ValidationResult::Invalid(format!(
+                    "Invalid output value {} at index {}",
+                    output.value, i
+                )));
+            }
+            // Accumulate sum with overflow check
+            total_output_value = total_output_value
+                .checked_add(output.value)
+                .ok_or_else(make_output_sum_overflow_error)?;
+        }
     }
 
     // 2b. Check total output sum doesn't exceed MAX_MONEY (Orange Paper Section 5.1, rule 3)
@@ -188,7 +212,8 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 /// 4. Let total_out = Σₒ o.value
 /// 5. If total_in < total_out: return (invalid, 0)
 /// 6. Return (valid, total_in - total_out)
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn check_tx_inputs(
     tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -201,12 +226,31 @@ pub fn check_tx_inputs(
 
     // Check that non-coinbase inputs don't have null prevouts (Orange Paper Section 5.1, rule 6)
     // ∀i ∈ ins: ¬i.prevout.IsNull()
-    for (i, input) in tx.inputs.iter().enumerate() {
-        if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
-            return Ok((
-                ValidationResult::Invalid(format!("Non-coinbase input {i} has null prevout")),
-                0,
-            ));
+    // BLLVM Optimization: Use Kani-proven bounds for input access in hot path
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        for i in 0..tx.inputs.len() {
+            if let Some(input) = get_proven_by_kani(&tx.inputs, i) {
+                if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
+                    return Ok((
+                        ValidationResult::Invalid(format!("Non-coinbase input {i} has null prevout")),
+                        0,
+                    ));
+                }
+            }
+        }
+    }
+    
+    #[cfg(not(feature = "production"))]
+    {
+        for (i, input) in tx.inputs.iter().enumerate() {
+            if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
+                return Ok((
+                    ValidationResult::Invalid(format!("Non-coinbase input {i} has null prevout")),
+                    0,
+                ));
+            }
         }
     }
 

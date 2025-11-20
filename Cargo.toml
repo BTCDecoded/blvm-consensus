@@ -64,6 +64,8 @@ optional = true
 default = []
 # Enable formal verification tools
 verify = ["kani-verifier"]
+# Enable k256 (uses deprecated generic_array from elliptic_curve, will be fixed when k256 updates)
+k256 = ["dep:k256"]
 
 # Enable fuzzing tests (Bolero framework)
 # Note: bolero is a dev-dependency, this feature is just for conditional compilation

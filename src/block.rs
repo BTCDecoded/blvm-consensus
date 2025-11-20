@@ -344,6 +344,14 @@ pub fn connect_block(
                             .par_iter()
                             .map(|(j, opt_script_pubkey)| {
                                 if let Some(script_pubkey) = opt_script_pubkey {
+                                    // BLLVM Optimization: Use Kani-proven bounds for input access in hot path
+                                    #[cfg(feature = "production")]
+                                    let input = crate::optimizations::kani_optimized_access::get_proven_by_kani(&tx.inputs, *j)
+                                        .ok_or_else(|| ConsensusError::TransactionValidation(
+                                            format!("Input index {} out of bounds", j).into()
+                                        ))?;
+                                    
+                                    #[cfg(not(feature = "production"))]
                                     let input = &tx.inputs[*j];
                                     let witness_elem = witnesses.get(i).and_then(|w| w.get(*j));
                                     let median_time_past = recent_headers
@@ -632,11 +640,23 @@ pub fn connect_block(
 
         // Validate coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
         // If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
-        if coinbase.inputs[0].script_sig.len() < 2 || coinbase.inputs[0].script_sig.len() > 100 {
+        // BLLVM Optimization: Use Kani-proven bounds for coinbase input access
+        #[cfg(feature = "production")]
+        let script_sig_len = {
+            use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+            get_proven_by_kani(&coinbase.inputs, 0)
+                .map(|input| input.script_sig.len())
+                .unwrap_or(0)
+        };
+        
+        #[cfg(not(feature = "production"))]
+        let script_sig_len = coinbase.inputs[0].script_sig.len();
+        
+        if script_sig_len < 2 || script_sig_len > 100 {
             return Ok((
                 ValidationResult::Invalid(format!(
                     "Coinbase scriptSig length {} must be between 2 and 100 bytes",
-                    coinbase.inputs[0].script_sig.len()
+                    script_sig_len
                 )),
                 utxo_set,
             ));

@@ -223,20 +223,23 @@ fn compute_hash_cache_key(input: &[u8], op_hash160: bool) -> [u8; 32] {
 ///
 /// In production mode, stacks should be obtained from pool using get_pooled_stack()
 /// for optimal performance. This function works with any Vec<ByteString>.
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn eval_script(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
     // Pre-allocate stack capacity to reduce allocations during execution
     // Most scripts don't exceed 20 stack items in practice
-    // Note: Pooled stacks already have capacity >= 20
     if stack.capacity() < 20 {
         stack.reserve(20);
     }
-    eval_script_impl(script, stack, flags)
+    #[cfg(feature = "production")]
+    {
+        eval_script_impl(script, stack, flags)
+    }
+    #[cfg(not(feature = "production"))]
+    {
+        eval_script_inner(script, stack, flags)
+    }
 }
-
 #[cfg(feature = "production")]
 fn eval_script_impl(script: &ByteString, stack: &mut Vec<ByteString>, flags: u32) -> Result<bool> {
     // Use SmallVec for small stacks (most scripts have < 8 items)
@@ -315,10 +318,8 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
 /// 4. Return final stack has exactly one true value
 ///
 /// Performance: Pre-allocates stack capacity, caches verification results in production mode
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_script(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -414,14 +415,13 @@ pub fn verify_script(
     }
 }
 
+
 /// VerifyScript with transaction context for signature verification
 ///
 /// This version includes the full transaction context needed for proper
 /// ECDSA signature verification with correct sighash calculation.
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_script_with_context(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -454,10 +454,8 @@ pub fn verify_script_with_context(
 /// * `block_height` - Optional current block height (required for block-height CLTV)
 /// * `median_time_past` - Optional median time-past (required for timestamp CLTV per BIP113)
 #[allow(clippy::too_many_arguments)]
-#[cfg(feature = "production")]
-#[inline(always)]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_script_with_context_full(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
