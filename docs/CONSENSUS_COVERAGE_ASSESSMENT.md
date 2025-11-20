@@ -14,14 +14,14 @@
 
 | Verification Technique | Count | Status |
 |----------------------|-------|--------|
-| **Kani Formal Proofs** | **187** | ✅ All critical functions |
+| **Kani Formal Proofs** | **184** | ✅ All critical functions |
 | **Property Tests** | **55** | ✅ All mathematical invariants |
 | **Runtime Assertions** | **855** | ✅ All critical paths |
 | **Fuzz Targets** | **13** | ✅ Edge case discovery |
 | **MIRI Integration** | ✅ | ✅ Undefined behavior detection |
 | **Mathematical Specs** | **15+** | ✅ Complete formal documentation |
 
-**Total Verification**: **187 Kani proofs + 55 property tests + 855 runtime assertions + 13 fuzz targets + MIRI**
+**Total Verification**: **184 Kani proofs + 141 property tests + 855 runtime assertions + 12 fuzz targets + MIRI**
 
 ---
 
@@ -145,7 +145,7 @@
 ## Verification Techniques Coverage
 
 ### 1. Formal Verification (Kani) - ✅ Comprehensive
-- **187 proofs** across **25 files**
+- **184 proofs** across **25 files**
 - **All critical consensus functions** have proofs
 - **Bounded model checking** for all paths
 - **Mathematical specifications** verified
@@ -234,7 +234,7 @@
 - **No property-based testing** (Proptest)
 
 ### Our Implementation
-- ✅ **187 Kani proofs** (formal verification)
+- ✅ **184 Kani proofs** (formal verification)
 - ✅ **55 property tests** (mathematical invariants)
 - ✅ **855 runtime assertions** (invariant checks)
 - ✅ **13 fuzz targets** (edge case discovery)
@@ -250,7 +250,7 @@
 ### ✅ YES - We Are Covering Consensus as Much as Reasonably Expected
 
 **Evidence**:
-1. **187 Kani proofs** covering all critical consensus functions
+1. **184 Kani proofs** covering all critical consensus functions
 2. **55 property tests** verifying all mathematical invariants
 3. **855 runtime assertions** checking all critical paths
 4. **13 fuzz targets** discovering edge cases
