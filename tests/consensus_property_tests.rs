@@ -546,8 +546,12 @@ proptest! {
         }
         // If durations are too small, skip the ratio check (too noisy)
 
-        // Both should complete very quickly (< 1ms)
-        let max_time_ms = 1u128;
+        // Both should complete very quickly (< 1ms normally, more lenient under coverage)
+        let max_time_ms = if std::env::var("TARPAULIN").is_ok() {
+            10u128 // More lenient under coverage
+        } else {
+            1u128
+        };
         prop_assert!(duration1.as_millis() < max_time_ms,
             "Subsidy calculation should be fast: {}ms (max: {}ms)",
             duration1.as_millis(), max_time_ms);
