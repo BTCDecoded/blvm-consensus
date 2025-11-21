@@ -384,7 +384,8 @@ proptest! {
         // SHA256 should complete in reasonable time
         // For 1KB data, should be < 10ms even on slow systems
         // Under coverage (tarpaulin), allow more time due to instrumentation overhead
-        let max_time_ms = if std::env::var("TARPAULIN").is_ok() {
+        // Check for tarpaulin via CARGO_TARPAULIN or just be more lenient
+        let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
             100u128 // Much more lenient under coverage
         } else {
             10u128
@@ -418,7 +419,7 @@ proptest! {
 
         // For 1KB data, should be < 20ms even on slow systems
         // Under coverage (tarpaulin), allow more time due to instrumentation overhead
-        let max_time_ms = if std::env::var("TARPAULIN").is_ok() {
+        let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
             200u128 // Much more lenient under coverage
         } else {
             20u128
@@ -547,7 +548,7 @@ proptest! {
         // If durations are too small, skip the ratio check (too noisy)
 
         // Both should complete very quickly (< 1ms normally, more lenient under coverage)
-        let max_time_ms = if std::env::var("TARPAULIN").is_ok() {
+        let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
             10u128 // More lenient under coverage
         } else {
             1u128
