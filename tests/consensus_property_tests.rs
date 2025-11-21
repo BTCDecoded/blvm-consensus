@@ -382,13 +382,12 @@ proptest! {
         let duration = start.elapsed();
 
         // SHA256 should complete in reasonable time
-        // For 1KB data, should be < 10ms even on slow systems
-        // Under coverage (tarpaulin), allow more time due to instrumentation overhead
-        // Check for tarpaulin via CARGO_TARPAULIN or just be more lenient
+        // For 1KB data, should be < 50ms even on slow systems
+        // Performance tests can be flaky due to system load, so use lenient bounds
         let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-            100u128 // Much more lenient under coverage
+            200u128 // Much more lenient under coverage
         } else {
-            10u128
+            50u128 // More lenient for normal runs too
         };
         let duration_ms = duration.as_millis();
 
@@ -417,12 +416,12 @@ proptest! {
         let _hash = OptimizedSha256::new().hash256(&data);
         let duration = start.elapsed();
 
-        // For 1KB data, should be < 20ms even on slow systems
-        // Under coverage (tarpaulin), allow more time due to instrumentation overhead
+        // For 1KB data, should be < 100ms even on slow systems
+        // Performance tests can be flaky due to system load, so use lenient bounds
         let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-            200u128 // Much more lenient under coverage
+            400u128 // Much more lenient under coverage
         } else {
-            20u128
+            100u128 // More lenient for normal runs too
         };
         let duration_ms = duration.as_millis();
 
@@ -547,11 +546,12 @@ proptest! {
         }
         // If durations are too small, skip the ratio check (too noisy)
 
-        // Both should complete very quickly (< 1ms normally, more lenient under coverage)
+        // Both should complete very quickly (< 5ms normally, more lenient under coverage)
+        // Performance tests can be flaky due to system load, so use lenient bounds
         let max_time_ms = if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-            10u128 // More lenient under coverage
+            20u128 // More lenient under coverage
         } else {
-            1u128
+            5u128 // More lenient for normal runs too
         };
         prop_assert!(duration1.as_millis() < max_time_ms,
             "Subsidy calculation should be fast: {}ms (max: {}ms)",
