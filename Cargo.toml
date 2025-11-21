@@ -57,7 +57,7 @@ tokio = { version = "1.35", features = ["rt", "macros"] }
 criterion = "0.5"
 
 [dependencies.kani-verifier]
-version = "=0.41.0"
+version = "0.66"
 optional = true
 
 [features]
