@@ -364,15 +364,7 @@ jobs:
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "✅ Releasing version: ${VERSION_TAG}"
       
-      - name: Update version in Cargo.toml
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # Use more specific sed pattern to only match package version, not dependency versions
-          sed -i '/^\[package\]/,/^\[/{s/^version = ".*"/version = "'"${VERSION}"'"/}' Cargo.toml
-          echo "Updated Cargo.toml to version ${VERSION}"
-          grep "^version = " Cargo.toml | head -1
-      
-      - name: Update Cargo.lock before any cargo commands
+      - name: Update Cargo.lock first (before version change)
         if: env.CARGO_REGISTRY_TOKEN != ''
         run: |
           # Remove old lock file and regenerate to ensure latest dependency versions
@@ -385,7 +377,27 @@ jobs:
             grep -A 2 "name = \"kani-verifier\"" Cargo.lock | head -3
           fi
       
-      - name: Commit Cargo.toml changes for publish
+      - name: Update version in Cargo.toml
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Use more specific sed pattern to only match package version in [package] section
+          sed -i '/^\[package\]/,/^\[/{/^version = /{s/^version = ".*"/version = "'"${VERSION}"'"/}}' Cargo.toml
+          echo "Updated Cargo.toml to version ${VERSION}"
+          echo "Package version line:"
+          grep "^version = " Cargo.toml | head -1
+          echo "Verifying kani-verifier is unchanged:"
+          grep -A 1 "\[dependencies.kani-verifier\]" Cargo.toml
+      
+      - name: Regenerate Cargo.lock after version change
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          # Regenerate lock file after version change to ensure consistency
+          rm -f Cargo.lock
+          cargo update
+          echo "✅ Cargo.lock regenerated after version update"
+      
+      - name: Commit Cargo.toml and Cargo.lock changes
         if: env.CARGO_REGISTRY_TOKEN != ''
         run: |
           git config user.name "github-actions[bot]"
