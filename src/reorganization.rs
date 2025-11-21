@@ -591,26 +591,30 @@ mod property_tests {
     use super::*;
     use proptest::prelude::*;
 
+    /// Helper to get chain length range based on coverage mode
+    fn chain_len_range() -> std::ops::Range<usize> {
+        if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
+            1..3 // Reduced range under coverage
+        } else {
+            1..5
+        }
+    }
+
+    /// Helper to get chain length range for deterministic test
+    fn chain_len_range_det() -> std::ops::Range<usize> {
+        if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
+            0..3 // Reduced range under coverage
+        } else {
+            0..10
+        }
+    }
+
     /// Property test: should_reorganize selects chain with maximum work
     proptest! {
         #[test]
         fn prop_should_reorganize_max_work(
-            new_chain in proptest::collection::vec(
-                any::<Block>(),
-                if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-                    1..3  // Reduced range under coverage
-                } else {
-                    1..5
-                }
-            ),
-            current_chain in proptest::collection::vec(
-                any::<Block>(),
-                if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-                    1..3  // Reduced range under coverage
-                } else {
-                    1..5
-                }
-            )
+            new_chain in proptest::collection::vec(any::<Block>(), chain_len_range()),
+            current_chain in proptest::collection::vec(any::<Block>(), chain_len_range())
         ) {
             // Calculate work for both chains - handle errors from invalid blocks
             let new_work = calculate_chain_work(&new_chain);
@@ -636,14 +640,7 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_calculate_chain_work_deterministic(
-            chain in proptest::collection::vec(
-                any::<Block>(),
-                if std::env::var("CARGO_TARPAULIN").is_ok() || std::env::var("TARPAULIN").is_ok() {
-                    0..3  // Reduced range under coverage
-                } else {
-                    0..10
-                }
-            )
+            chain in proptest::collection::vec(any::<Block>(), chain_len_range_det())
         ) {
             // Calculate work twice - handle errors from invalid blocks
             let work1 = calculate_chain_work(&chain);
