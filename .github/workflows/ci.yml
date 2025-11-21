@@ -109,7 +109,7 @@ jobs:
       - name: Coverage
         run: |
           cargo install cargo-tarpaulin --version 0.27.0
-          cargo tarpaulin --out xml --output-dir coverage
+          cargo tarpaulin --out xml --output-dir coverage --test-timeout 60
       
       - name: Upload coverage
         uses: codecov/codecov-action@v3
