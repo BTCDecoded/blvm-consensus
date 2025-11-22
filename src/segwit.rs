@@ -546,11 +546,11 @@ mod kani_proofs {
             let witness_count: usize = kani::any();
             kani::assume(witness_count <= 3);
             let mut witnesses = Vec::new();
-            for i in 0..witness_count {
+            for _i in 0..witness_count {
                 let element_len: usize = kani::any();
                 kani::assume(element_len <= 5);
                 let mut element = Vec::new();
-                for j in 0..element_len {
+                for _j in 0..element_len {
                     let byte: u8 = kani::any();
                     element.push(byte);
                 }
@@ -808,7 +808,7 @@ mod kani_proofs {
         kani::assume(tx_count <= 3);
 
         let mut transactions = Vec::new();
-        for i in 0..tx_count {
+        for _i in 0..tx_count {
             transactions.push(create_bounded_transaction());
         }
 
@@ -833,16 +833,16 @@ mod kani_proofs {
     /// Helper function to create bounded witnesses for Kani
     fn create_bounded_witnesses(block: &Block) -> Vec<Witness> {
         let mut witnesses = Vec::new();
-        for i in 0..block.transactions.len() {
+        for _i in 0..block.transactions.len() {
             let element_count: usize = kani::any();
             kani::assume(element_count <= 3);
 
             let mut witness = Vec::new();
-            for j in 0..element_count {
+            for _j in 0..element_count {
                 let element_len: usize = kani::any();
                 kani::assume(element_len <= 5);
                 let mut element = Vec::new();
-                for k in 0..element_len {
+                for _k in 0..element_len {
                     let byte: u8 = kani::any();
                     element.push(byte);
                 }

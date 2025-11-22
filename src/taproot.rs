@@ -673,7 +673,7 @@ mod kani_proofs {
         kani::assume(script_len <= 50); // Bounded for tractability
 
         let mut script = Vec::new();
-        for i in 0..script_len {
+        for _i in 0..script_len {
             let byte: u8 = kani::any();
             script.push(byte);
         }
@@ -703,7 +703,7 @@ mod kani_proofs {
         kani::assume(script_len <= 50);
 
         let mut script = Vec::new();
-        for i in 0..script_len {
+        for _i in 0..script_len {
             let byte: u8 = kani::any();
             script.push(byte);
         }
