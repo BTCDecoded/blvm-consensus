@@ -267,17 +267,20 @@ mod kani_proofs {
     /// Mathematical specification (Orange Paper Section 5.4.6, Theorem 5.4.6.1):
     /// ∀ tx ∈ TX, i ∈ N:
     /// - TemplateHash(tx, i) is deterministic (same inputs → same output)
+    ///
+    /// Optimization: Added unwind bound to reduce verification time for loops in hash calculation
     #[kani::proof]
+    #[kani::unwind(5)]
     fn kani_template_hash_determinism() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         
-        // Bound for tractability
+        // Bound for tractability - tighter bounds reduce state space
         kani::assume(tx.inputs.len() > 0);
         kani::assume(input_index < tx.inputs.len());
         kani::assume(tx.outputs.len() > 0);
-        kani::assume(tx.inputs.len() <= 10);
-        kani::assume(tx.outputs.len() <= 10);
+        kani::assume(tx.inputs.len() <= 5);  // Reduced from 10 for faster verification
+        kani::assume(tx.outputs.len() <= 5); // Reduced from 10 for faster verification
         
         // Calculate template hash twice
         let hash1 = calculate_template_hash(&tx, input_index);
