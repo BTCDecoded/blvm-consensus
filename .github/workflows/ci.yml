@@ -257,20 +257,23 @@ jobs:
         with:
           toolchain: 1.88.0
       
-      - name: Install Kani
+      - name: Verify Kani is available
         run: |
-          echo "Installing Kani model checker..."
-          curl -fsSL https://model-checking.github.io/kani/install.sh | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          # Verify installation
-          export PATH="$HOME/.cargo/bin:$PATH"
-          if ! command -v kani &> /dev/null; then
-            echo "❌ Kani installation failed - kani command not found"
-            echo "Checking cargo bin directory:"
-            ls -la "$HOME/.cargo/bin/" | grep -i kani || echo "No kani files found"
+          echo "Checking for Kani model checker..."
+          # Check if kani is available (should be pre-installed on runner)
+          if command -v kani &> /dev/null; then
+            echo "✅ Found kani command: $(which kani)"
+            kani --version || echo "Version check failed, but kani exists"
+          elif command -v cargo &> /dev/null && cargo kani --version &> /dev/null; then
+            echo "✅ Found cargo kani subcommand"
+            cargo kani --version
+          else
+            echo "❌ Kani not found on runner"
+            echo "PATH: $PATH"
+            echo "Please ensure Kani is installed on the runner"
+            echo "Install with: curl -fsSL https://model-checking.github.io/kani/install.sh | sh -s -- -y"
             exit 1
           fi
-          echo "✅ Kani installed successfully: $(kani --version 2>&1 || echo 'version check failed')"
       
       - name: Run Kani proofs
         run: |
