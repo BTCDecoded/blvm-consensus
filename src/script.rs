@@ -3377,11 +3377,11 @@ mod property_tests {
 }
 
 #[cfg(kani)]
-mod kani_proofs {
+mod kani_proofs_2 {
     use super::*;
     use kani::*;
 
-    /// Kani proof: Stack size limits are enforced
+    /// Kani proof: Stack size limits are enforced (second module)
     ///
     /// Mathematical specification (Orange Paper Section 5.2):
     /// ∀ stack ∈ ST, opcode ∈ Opcodes:

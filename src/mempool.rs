@@ -1632,7 +1632,7 @@ mod tests {
 }
 
 #[cfg(kani)]
-mod kani_proofs {
+mod kani_proofs_2 {
     use super::*;
     use crate::economic::calculate_fee;
     use kani::*;
