@@ -460,8 +460,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_calculate_fee_correctness() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -532,8 +532,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_calculate_fee_overflow_safety() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -580,8 +580,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_calculate_fee_missing_utxo() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);

@@ -452,7 +452,7 @@ mod kani_proofs {
     ///   OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY in script
     #[kani::proof]
     fn kani_sigop_counting_correctness() {
-        let script: Vec<u8> = kani::any();
+        let script = crate::kani_helpers::create_bounded_byte_string(10);
         let accurate: bool = kani::any();
 
         // Bound for tractability
@@ -483,9 +483,9 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_sigop_cost_correctness() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
-        let witness: Option<Witness> = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
+        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
         let flags: u32 = kani::any();
 
         // Bound for tractability

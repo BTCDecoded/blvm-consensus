@@ -271,7 +271,7 @@ mod kani_proofs {
     /// Verifies that block hash verification correctly matches commitments to headers.
     #[kani::proof]
     fn kani_block_hash_verification() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
         let block_hash = super::compute_block_hash(&header);
 
         // Correct commitment

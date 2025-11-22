@@ -6,6 +6,8 @@
 //! Reference: LLVM-style optimization for formal verification
 
 use crate::constants::*;
+use crate::types::*;
+use std::collections::{HashMap, HashSet};
 
 /// Bitcoin transaction limits for Kani proofs
 ///
@@ -211,4 +213,241 @@ macro_rules! assume_witness_bounds {
             kani::assume(element.len() <= $crate::constants::MAX_SCRIPT_ELEMENT_SIZE);
         }
     };
+}
+
+// ============================================================================
+// Helper functions for types that don't implement kani::Arbitrary
+// ============================================================================
+
+/// Create a bounded Vec<u8> for Kani proofs
+pub fn create_bounded_byte_string(max_len: usize) -> Vec<u8> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = Vec::new();
+    for _i in 0..len {
+        result.push(kani::any());
+    }
+    result
+}
+
+/// Create a bounded Vec<Vec<u8>> (Witness) for Kani proofs
+pub fn create_bounded_witness(max_elements: usize, max_element_len: usize) -> Vec<Vec<u8>> {
+    let element_count: usize = kani::any();
+    kani::assume(element_count <= max_elements);
+    let mut result = Vec::new();
+    for _i in 0..element_count {
+        result.push(create_bounded_byte_string(max_element_len));
+    }
+    result
+}
+
+/// Create a bounded Vec<Vec<Vec<u8>>> (Vec<Witness>) for Kani proofs
+pub fn create_bounded_witness_vec(max_witnesses: usize, max_elements: usize, max_element_len: usize) -> Vec<Vec<Vec<u8>>> {
+    let witness_count: usize = kani::any();
+    kani::assume(witness_count <= max_witnesses);
+    let mut result = Vec::new();
+    for _i in 0..witness_count {
+        result.push(create_bounded_witness(max_elements, max_element_len));
+    }
+    result
+}
+
+/// Create a bounded Transaction for Kani proofs
+pub fn create_bounded_transaction() -> Transaction {
+    let input_count: usize = kani::any();
+    let output_count: usize = kani::any();
+    kani::assume(input_count <= proof_limits::MAX_TX_INPUTS_FOR_PROOF);
+    kani::assume(output_count <= proof_limits::MAX_TX_OUTPUTS_FOR_PROOF);
+
+    let mut inputs = Vec::new();
+    for i in 0..input_count {
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 5);
+        let mut script = Vec::new();
+        for _j in 0..script_len {
+            script.push(kani::any());
+        }
+        inputs.push(TransactionInput {
+            prevout: OutPoint {
+                hash: kani::any(),
+                index: i as u64,
+            },
+            script_sig: script,
+            sequence: kani::any(),
+        });
+    }
+
+    let mut outputs = Vec::new();
+    for _i in 0..output_count {
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 10);
+        let mut script = Vec::new();
+        for _j in 0..script_len {
+            script.push(kani::any());
+        }
+        let value: i64 = kani::any();
+        kani::assume(value >= 0);
+        kani::assume(value <= MAX_MONEY);
+        outputs.push(TransactionOutput {
+            value,
+            script_pubkey: script,
+        });
+    }
+
+    Transaction {
+        version: kani::any(),
+        inputs: inputs.into(),
+        outputs: outputs.into(),
+        lock_time: kani::any(),
+    }
+}
+
+/// Create a bounded UtxoSet for Kani proofs
+pub fn create_bounded_utxo_set() -> UtxoSet {
+    let map_size: usize = kani::any();
+    kani::assume(map_size <= proof_limits::MAX_TX_INPUTS_FOR_PROOF);
+
+    let mut utxo_set = UtxoSet::new();
+    for i in 0..map_size {
+        let prevout = OutPoint {
+            hash: kani::any(),
+            index: i as u64,
+        };
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 10);
+        let mut script = Vec::new();
+        for _j in 0..script_len {
+            script.push(kani::any());
+        }
+        let value: i64 = kani::any();
+        kani::assume(value >= 0);
+        kani::assume(value <= MAX_MONEY);
+        utxo_set.insert(
+            prevout,
+            UTXO {
+                value,
+                script_pubkey: script,
+                height: kani::any(),
+            },
+        );
+    }
+    utxo_set
+}
+
+/// Create a bounded BlockHeader for Kani proofs
+pub fn create_bounded_block_header() -> BlockHeader {
+    BlockHeader {
+        version: kani::any(),
+        prev_block_hash: kani::any(),
+        merkle_root: kani::any(),
+        timestamp: kani::any(),
+        bits: kani::any(),
+        nonce: kani::any(),
+    }
+}
+
+/// Create a bounded Block for Kani proofs
+pub fn create_bounded_block() -> Block {
+    let tx_count: usize = kani::any();
+    kani::assume(tx_count > 0);
+    kani::assume(tx_count <= proof_limits::MAX_TRANSACTIONS_PER_BLOCK);
+
+    let mut transactions = Vec::new();
+    for _i in 0..tx_count {
+        transactions.push(create_bounded_transaction());
+    }
+
+    Block {
+        header: create_bounded_block_header(),
+        transactions: transactions.into(),
+    }
+}
+
+/// Create a bounded Vec<BlockHeader> for Kani proofs
+pub fn create_bounded_block_header_vec(max_len: usize) -> Vec<BlockHeader> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = Vec::new();
+    for _i in 0..len {
+        result.push(create_bounded_block_header());
+    }
+    result
+}
+
+/// Create a bounded Vec<Block> for Kani proofs
+pub fn create_bounded_block_vec(max_len: usize) -> Vec<Block> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = Vec::new();
+    for _i in 0..len {
+        result.push(create_bounded_block());
+    }
+    result
+}
+
+/// Create a bounded Vec<TransactionOutput> for Kani proofs
+pub fn create_bounded_transaction_output_vec(max_len: usize) -> Vec<TransactionOutput> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = Vec::new();
+    for _i in 0..len {
+        let script_len: usize = kani::any();
+        kani::assume(script_len <= 10);
+        let mut script = Vec::new();
+        for _j in 0..script_len {
+            script.push(kani::any());
+        }
+        let value: i64 = kani::any();
+        kani::assume(value >= 0);
+        kani::assume(value <= MAX_MONEY);
+        result.push(TransactionOutput {
+            value,
+            script_pubkey: script,
+        });
+    }
+    result
+}
+
+/// Create a bounded Vec<u64> for Kani proofs
+pub fn create_bounded_u64_vec(max_len: usize) -> Vec<u64> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = Vec::new();
+    for _i in 0..len {
+        result.push(kani::any());
+    }
+    result
+}
+
+/// Create a bounded Mempool (HashSet<[u8; 32]>) for Kani proofs
+pub fn create_bounded_mempool(max_len: usize) -> HashSet<[u8; 32]> {
+    let len: usize = kani::any();
+    kani::assume(len <= max_len);
+    let mut result = HashSet::new();
+    for _i in 0..len {
+        result.insert(kani::any());
+    }
+    result
+}
+
+/// Create a bounded SighashType for Kani proofs
+pub fn create_bounded_sighash_type() -> crate::transaction_hash::SighashType {
+    let variant: u8 = kani::any();
+    kani::assume(variant <= 3);
+    match variant {
+        0 => crate::transaction_hash::SighashType::All,
+        1 => crate::transaction_hash::SighashType::None,
+        2 => crate::transaction_hash::SighashType::Single,
+        _ => crate::transaction_hash::SighashType::All,
+    }
+}
+
+/// Create a bounded WitnessVersion for Kani proofs
+pub fn create_bounded_witness_version() -> crate::witness::WitnessVersion {
+    let variant: u8 = kani::any();
+    kani::assume(variant <= 1);
+    match variant {
+        0 => crate::witness::WitnessVersion::V0,
+        _ => crate::witness::WitnessVersion::V0,
+    }
 }

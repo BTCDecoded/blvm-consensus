@@ -727,13 +727,14 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_mempool_no_duplicates() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
-        let mut mempool: Mempool = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
+        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
         let height: Natural = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::{assume_mempool_bounds, assume_transaction_bounds_custom};
+        use crate::assume_mempool_bounds;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 3, 3);
         assume_mempool_bounds!(mempool, 5);
 
@@ -765,12 +766,13 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_mempool_conflict_detection() {
-        let tx: Transaction = kani::any();
-        let mut mempool: Mempool = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
         let height: Natural = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::{assume_mempool_bounds, assume_transaction_bounds_custom};
+        use crate::assume_mempool_bounds;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 3, 3);
         assume_mempool_bounds!(mempool, 5);
 
@@ -799,7 +801,7 @@ mod kani_proofs {
     fn kani_is_final_tx_correctness() {
         use crate::constants::LOCKTIME_THRESHOLD;
 
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let height: Natural = kani::any();
         let block_time: Natural = kani::any();
 
@@ -839,10 +841,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_is_standard_tx_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Check standard transaction rules
@@ -886,7 +888,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_signals_rbf_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -917,8 +919,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_has_conflict_with_tx_correctness() {
-        let new_tx: Transaction = kani::any();
-        let existing_tx: Transaction = kani::any();
+        let new_tx = crate::kani_helpers::create_bounded_transaction();
+        let existing_tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(new_tx.inputs.len() <= 5);
@@ -955,8 +957,8 @@ mod kani_proofs {
     fn kani_update_mempool_after_block_correctness() {
         use crate::block::calculate_tx_id;
 
-        let mut mempool: Mempool = kani::any();
-        let block: Block = kani::any();
+        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
+        let block = crate::kani_helpers::create_bounded_block();
 
         // Bound for tractability
         kani::assume(block.transactions.len() <= 5);
@@ -1086,13 +1088,13 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_rbf_fee_requirement() {
-        let new_tx: Transaction = kani::any();
-        let existing_tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
-        let mempool: Mempool = kani::any();
+        let new_tx = crate::kani_helpers::create_bounded_transaction();
+        let existing_tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
+        let mempool = crate::kani_helpers::create_bounded_mempool(5);
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(new_tx, 3, 3);
         assume_transaction_bounds_custom!(existing_tx, 3, 3);
 
@@ -1652,13 +1654,13 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_rbf_replacement_rules() {
-        let new_tx: Transaction = kani::any();
-        let existing_tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
-        let mempool: Mempool = kani::any();
+        let new_tx = crate::kani_helpers::create_bounded_transaction();
+        let existing_tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
+        let mempool = crate::kani_helpers::create_bounded_mempool(5);
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(new_tx, 5, 5);
         assume_transaction_bounds_custom!(existing_tx, 5, 5);
 
@@ -1751,11 +1753,11 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_mempool_conflict_detection() {
-        let tx: Transaction = kani::any();
-        let mut mempool: Mempool = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Check for conflicts
@@ -1784,13 +1786,13 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_accept_to_memory_pool_correctness() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
-        let mempool: Mempool = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
+        let mempool = crate::kani_helpers::create_bounded_mempool(5);
         let height: Natural = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Ensure inputs exist for non-coinbase transactions

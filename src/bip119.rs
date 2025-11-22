@@ -269,7 +269,7 @@ mod kani_proofs {
     /// - TemplateHash(tx, i) is deterministic (same inputs → same output)
     #[kani::proof]
     fn kani_template_hash_determinism() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         
         // Bound for tractability
@@ -294,8 +294,8 @@ mod kani_proofs {
     /// - TemplateHash(tx1, i) ≠ TemplateHash(tx2, i) with overwhelming probability
     #[kani::proof]
     fn kani_template_hash_uniqueness() {
-        let tx1: Transaction = kani::any();
-        let tx2: Transaction = kani::any();
+        let tx1 = crate::kani_helpers::create_bounded_transaction();
+        let tx2 = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         
         // Bound for tractability
@@ -325,7 +325,7 @@ mod kani_proofs {
     /// - TemplateHash(tx, i1) ≠ TemplateHash(tx, i2)
     #[kani::proof]
     fn kani_template_hash_input_dependency() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let i1: usize = kani::any();
         let i2: usize = kani::any();
         
@@ -350,7 +350,7 @@ mod kani_proofs {
     /// - OP_CHECKTEMPLATEVERIFY(tx, i, h) = true ⟹ TemplateHash(tx, i) = h
     #[kani::proof]
     fn kani_ctv_opcode_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         let template_hash: [u8; 32] = kani::any();
         
@@ -378,7 +378,7 @@ mod kani_proofs {
     /// Verifies that template hash calculation never panics on valid inputs
     #[kani::proof]
     fn kani_template_hash_bounds() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         
         // Bound for tractability

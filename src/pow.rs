@@ -758,7 +758,7 @@ mod kani_proofs {
     /// Kani proof: check_proof_of_work is deterministic
     #[kani::proof]
     fn kani_check_proof_of_work_deterministic() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Use valid target to avoid expansion errors
         kani::assume(header.bits >= 0x03000000);
@@ -787,7 +787,7 @@ mod kani_proofs {
         use crate::pow::serialize_header;
         use sha2::{Digest, Sha256};
 
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Use valid target to avoid expansion errors
         kani::assume(header.bits >= 0x03000000);
@@ -823,10 +823,11 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_get_next_work_required_bounds() {
-        use crate::kani_helpers::{assume_pow_bounds, unwind_bounds};
+        use crate::assume_pow_bounds;
+        use crate::kani_helpers::unwind_bounds;
 
-        let current_header: BlockHeader = kani::any();
-        let prev_headers: Vec<BlockHeader> = kani::any();
+        let current_header = crate::kani_helpers::create_bounded_block_header();
+        let prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
 
         // Bound for tractability using standardized helpers
         assume_pow_bounds!(prev_headers);
@@ -942,7 +943,7 @@ mod kani_proofs {
     ///   SHA256(SHA256(H)) < expand_target(H.bits)
     #[kani::proof]
     fn kani_proof_of_work_validation_correctness() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Use valid target range
         kani::assume(header.bits >= 0x03000000);
@@ -1047,11 +1048,11 @@ mod kani_proofs {
     #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_difficulty_adjustment_convergence() {
         use crate::kani_helpers::unwind_bounds;
-        let current_header: BlockHeader = kani::any();
-        let mut prev_headers: Vec<BlockHeader> = kani::any();
+        let current_header = crate::kani_helpers::create_bounded_block_header();
+        let mut prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_pow_bounds;
+        use crate::assume_pow_bounds;
         assume_pow_bounds!(prev_headers);
 
         // Set up headers with controlled timestamps
@@ -1105,11 +1106,11 @@ mod kani_proofs {
     #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
     fn kani_difficulty_adjustment_direction() {
         use crate::kani_helpers::unwind_bounds;
-        let current_header: BlockHeader = kani::any();
-        let mut prev_headers: Vec<BlockHeader> = kani::any();
+        let current_header = crate::kani_helpers::create_bounded_block_header();
+        let mut prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_pow_bounds;
+        use crate::assume_pow_bounds;
         assume_pow_bounds!(prev_headers);
 
         let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;

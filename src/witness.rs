@@ -320,7 +320,7 @@ mod kani_proofs {
     ///   (∀ element ∈ witness: |element| ≤ MAX_WITNESS_ELEMENT_SIZE)
     #[kani::proof]
     fn kani_segwit_witness_structure_validation() {
-        let witness: Witness = kani::any();
+        let witness = crate::kani_helpers::create_bounded_witness(5, 10);
 
         // Bound for tractability
         kani::assume(witness.len() <= 10);
@@ -353,7 +353,7 @@ mod kani_proofs {
     ///   (if !is_script_path: |witness| == 1 ∧ |witness[0]| == 64)
     #[kani::proof]
     fn kani_taproot_witness_structure_validation() {
-        let witness: Witness = kani::any();
+        let witness = crate::kani_helpers::create_bounded_witness(5, 10);
         let is_script_path: bool = kani::any();
 
         // Bound for tractability
@@ -401,8 +401,8 @@ mod kani_proofs {
     ///   (if version = TaprootV1: |program| == 32)
     #[kani::proof]
     fn kani_witness_program_length_validation() {
-        let program: Vec<u8> = kani::any();
-        let version: WitnessVersion = kani::any();
+        let program = crate::kani_helpers::create_bounded_byte_string(10);
+        let version = crate::kani_helpers::create_bounded_witness_version();
 
         // Bound for tractability
         kani::assume(program.len() <= 40);

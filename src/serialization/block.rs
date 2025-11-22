@@ -309,7 +309,7 @@ mod kani_proofs {
     /// This ensures serialization and deserialization are inverse operations.
     #[kani::proof]
     fn kani_block_header_serialization_round_trip() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Serialize and deserialize
         let serialized = serialize_block_header(&header);
@@ -354,7 +354,7 @@ mod kani_proofs {
     /// This ensures serialization produces consistent results.
     #[kani::proof]
     fn kani_block_header_serialization_determinism() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Serialize twice
         let serialized1 = serialize_block_header(&header);
