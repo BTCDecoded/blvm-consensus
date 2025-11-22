@@ -1041,14 +1041,23 @@ jobs:
           fi
           echo "- **Repository**: [GitHub](https://github.com/${{ github.repository }})" >> /tmp/release_notes.md
           
+          # Determine publish status message
+          PUBLISH_STATUS_MSG="❌ Failed or skipped"
+          if [ "$PUBLISH_STATUS" = "true" ]; then
+            PUBLISH_STATUS_MSG="✅ Yes"
+          elif [ "${{ steps.check-version.outputs.exists }}" = "true" ]; then
+            PUBLISH_STATUS_MSG="⚠️  Already exists"
+          fi
+          
           cat >> /tmp/release_notes.md << EOF
           
           ### 📝 Changes
           
           This release includes $COMMIT_COUNT commits since the last release.
           
-          **Published to crates.io**: ${{ steps.publish.outputs.published == 'true' && '✅ Yes' || (steps.check-version.outputs.exists == 'true' && '⚠️  Already exists' || '❌ Failed or skipped') }}
+          **Published to crates.io**: $PUBLISH_STATUS_MSG
           
+          See [full commit history](https://github.com/${{ github.repository }}/compare/$COMMIT_RANGE) for details.
           EOF
           
           # Add warning if publish failed
@@ -1056,9 +1065,6 @@ jobs:
             echo "" >> /tmp/release_notes.md
             echo "⚠️  **Note**: This version was not published to crates.io. Check the workflow logs for details." >> /tmp/release_notes.md
           fi
-          
-          See [full commit history](https://github.com/${{ github.repository }}/compare/$COMMIT_RANGE) for details.
-          EOF
           
           echo "notes<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/release_notes.md >> $GITHUB_OUTPUT
