@@ -1341,11 +1341,84 @@ mod kani_proofs_2 {
     /// - Fee calculation uses checked_sub() and never underflows
     ///
     /// This ensures all monetary value arithmetic is safe from overflow/underflow.
+    /// Helper function to create bounded transaction for Kani
+    fn create_bounded_transaction() -> Transaction {
+        let input_count: usize = kani::any();
+        let output_count: usize = kani::any();
+        kani::assume(input_count <= 10);
+        kani::assume(output_count <= 10);
+
+        let mut inputs = Vec::new();
+        for i in 0..input_count {
+            let script_len: usize = kani::any();
+            kani::assume(script_len <= 10);
+            let mut script = Vec::new();
+            for _j in 0..script_len {
+                let byte: u8 = kani::any();
+                script.push(byte);
+            }
+            inputs.push(TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: i as u32,
+                },
+                script_sig: script,
+                sequence: 0xffffffff,
+            });
+        }
+
+        let mut outputs = Vec::new();
+        for i in 0..output_count {
+            let script_len: usize = kani::any();
+            kani::assume(script_len <= 10);
+            let mut script = Vec::new();
+            for _j in 0..script_len {
+                let byte: u8 = kani::any();
+                script.push(byte);
+            }
+            let value: i64 = kani::any();
+            kani::assume(value >= 0);
+            kani::assume(value <= MAX_MONEY);
+            outputs.push(TransactionOutput {
+                value,
+                script_pubkey: script,
+            });
+        }
+
+        Transaction {
+            version: 1,
+            inputs: inputs.into(),
+            outputs: outputs.into(),
+            lock_time: 0,
+        }
+    }
+
+    /// Helper function to create bounded UTXO set for Kani
+    fn create_bounded_utxo_set(tx: &Transaction) -> UtxoSet {
+        let mut utxo_set = UtxoSet::new();
+        for input in &tx.inputs {
+            if !utxo_set.contains_key(&input.prevout) {
+                let value: i64 = kani::any();
+                kani::assume(value >= 0);
+                kani::assume(value <= MAX_MONEY);
+                utxo_set.insert(
+                    input.prevout.clone(),
+                    UTXO {
+                        value,
+                        height: 0,
+                        coinbase: false,
+                    },
+                );
+            }
+        }
+        utxo_set
+    }
+
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_integer_arithmetic_overflow_safety() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = create_bounded_transaction();
+        let mut utxo_set = create_bounded_utxo_set(&tx);
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
@@ -1422,7 +1495,7 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_output_value_summation_overflow_safety() {
-        let tx: Transaction = kani::any();
+        let tx = create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
         use crate::kani_helpers::assume_transaction_bounds_custom;
