@@ -803,13 +803,29 @@ jobs:
           }
           echo "✅ Smoke tests passed"
       
-      - name: Commit Cargo.toml and Cargo.lock changes
+      - name: Commit Cargo.toml changes
         if: env.CARGO_REGISTRY_TOKEN != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
-          git commit -m "Bump version to ${{ steps.version.outputs.version }} for release" || true
+          
+          # Only commit Cargo.toml (Cargo.lock is ignored for libraries)
+          git add Cargo.toml
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit in Cargo.toml"
+          else
+            git commit -m "Bump version to ${{ steps.version.outputs.version }} for release" || true
+            
+            # Push if REPO_ACCESS_TOKEN is available
+            if [ -n "${{ secrets.REPO_ACCESS_TOKEN }}" ]; then
+              git remote set-url origin "https://${{ secrets.REPO_ACCESS_TOKEN }}@github.com/${{ github.repository }}.git"
+              git push origin HEAD:${{ github.ref }} || true
+            else
+              echo "⚠️  REPO_ACCESS_TOKEN not set, skipping push"
+            fi
+          fi
       
       - name: Check for crates.io token
         run: |
