@@ -249,6 +249,7 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 120  # Allow up to 2 hours for Kani verification
     steps:
       - uses: actions/checkout@v4
       
@@ -276,14 +277,20 @@ jobs:
           fi
       
       - name: Run Kani proofs
+        timeout-minutes: 110  # Slightly less than job timeout
         run: |
           echo "🔍 Running Kani formal verification (184 proofs)..."
+          echo "Note: 'aborting path' messages are normal - Kani prunes infeasible execution paths"
           # Use cargo kani to automatically find and run all proofs in the crate
           # cargo kani will discover all #[kani::proof] functions
-          cargo kani --features verify || {
-            echo "❌ Kani verification failed"
-            echo "This is critical for consensus correctness - review proofs before release"
-            exit 1
+          # Suppress verbose output by redirecting stderr, but keep important messages
+          cargo kani --features verify 2>&1 | grep -v "aborting path on assume(false)" || {
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -ne 0 ]; then
+              echo "❌ Kani verification failed"
+              echo "This is critical for consensus correctness - review proofs before release"
+              exit $EXIT_CODE
+            fi
           }
           echo "✅ All Kani proofs verified successfully"
       
