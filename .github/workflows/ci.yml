@@ -275,7 +275,7 @@ jobs:
             exit 1
           fi
       
-      - name: Run Kani proofs
+      - name: Verify
         run: |
           echo "🔍 Running Kani formal verification (184 proofs)..."
           # Use cargo kani to automatically find and run all proofs in the crate
