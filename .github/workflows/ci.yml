@@ -85,11 +85,10 @@ jobs:
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
     if: |
-      (github.event_name != 'push' || github.event.head_commit == null || 
-       (!contains(github.event.head_commit.message, '[skip ci]') &&
-        !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]'))) &&
-      ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' }}
+      github.event_name != 'push' || github.event.head_commit == null || 
+      (!contains(github.event.head_commit.message, '[skip ci]') &&
+       !contains(github.event.head_commit.message, '[ci skip]') &&
+       !contains(github.event.head_commit.message, '[no ci]'))
     steps:
       - name: Check if tests should be skipped
         id: skip_check
@@ -353,11 +352,10 @@ jobs:
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
     if: |
-      (github.event_name != 'push' || github.event.head_commit == null || 
-       (!contains(github.event.head_commit.message, '[skip ci]') &&
-        !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]'))) &&
-      ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' }}
+      github.event_name != 'push' || github.event.head_commit == null || 
+      (!contains(github.event.head_commit.message, '[skip ci]') &&
+       !contains(github.event.head_commit.message, '[ci skip]') &&
+       !contains(github.event.head_commit.message, '[no ci]'))
     steps:
       - name: Check if verification should be skipped
         id: skip_check
