@@ -321,6 +321,7 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' }}
     steps:
       - name: Check if verification should be skipped
         id: skip_check
@@ -553,7 +554,9 @@ jobs:
     name: Build
     needs: [setup, test, clippy, fmt, docs, security, verify]
     runs-on: [self-hosted, Linux, X64, builds]
-    if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
+    if: |
+      (github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch') &&
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' || always() && needs.verify.result == 'success' || always() && needs.verify.result == 'skipped')
     steps:
       - uses: actions/checkout@v4
       
