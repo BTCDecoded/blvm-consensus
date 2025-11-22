@@ -286,6 +286,11 @@ jobs:
     name: Docs
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - uses: actions/checkout@v4
       
