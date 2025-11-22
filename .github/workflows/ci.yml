@@ -164,7 +164,7 @@ jobs:
           echo "Test output hash: $UNIT_TESTS_HASH"
       
       - name: Upload test data for attestation
- && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: test-attestation-data
@@ -419,7 +419,7 @@ jobs:
           fi
       
       - name: Upload Kani output for attestation (Fast)
- && steps.proof_tier.outputs.tier == 'fast' && github.ref == 'refs/heads/main'
+        if: steps.proof_tier.outputs.tier == 'fast' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: kani-attestation-data
@@ -427,7 +427,7 @@ jobs:
           retention-days: 90
       
       - name: Run Kani proofs (Fast + Medium - PRs)
- && steps.proof_tier.outputs.tier == 'fast_medium'
+        if: steps.proof_tier.outputs.tier == 'fast_medium'
         run: |
           echo "🔍 Running Kani proofs - Fast + Medium tier (174 proofs, unwind <= 9)..."
           echo "Note: Running with minimal parallelism (2 jobs) to avoid OOM"
@@ -462,7 +462,7 @@ jobs:
           fi
       
       - name: Upload Kani output for attestation (Fast + Medium)
- && steps.proof_tier.outputs.tier == 'fast_medium' && github.ref == 'refs/heads/main'
+        if: steps.proof_tier.outputs.tier == 'fast_medium' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: kani-attestation-data
@@ -470,7 +470,7 @@ jobs:
           retention-days: 90
       
       - name: Run Kani proofs (All - main branch)
- && steps.proof_tier.outputs.tier == 'all'
+        if: steps.proof_tier.outputs.tier == 'all'
         run: |
           echo "🐌 Running Kani proofs - All tier (195 proofs, all unwind bounds)..."
           echo "Note: Running with minimal parallelism (2 jobs) to avoid OOM"
@@ -497,7 +497,7 @@ jobs:
           echo "Kani output hash: $KANI_OUTPUT_HASH"
       
       - name: Upload Kani output for attestation
- && steps.proof_tier.outputs.tier == 'all' && github.ref == 'refs/heads/main'
+        if: steps.proof_tier.outputs.tier == 'all' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: kani-attestation-data
