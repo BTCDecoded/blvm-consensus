@@ -1052,7 +1052,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Download attestation artifacts
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (github.event.inputs.skip_verification == 'true' || github.event.inputs.skip_tests == 'true')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
         uses: actions/download-artifact@v4
         with:
           pattern: '*-attestation-data'
@@ -1060,7 +1060,7 @@ jobs:
           path: attestation-data
       
       - name: Collect build metadata
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (github.event.inputs.skip_verification == 'true' || github.event.inputs.skip_tests == 'true')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
         id: metadata
         run: |
           # Get toolchain versions
@@ -1137,7 +1137,7 @@ jobs:
           echo "  Cargo.lock hash: $CARGO_LOCK_HASH"
       
       - name: Create build attestation
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (github.event.inputs.skip_verification == 'true' || github.event.inputs.skip_tests == 'true')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
         id: attestation
         run: |
           # Create predicate JSON file
@@ -1158,7 +1158,7 @@ jobs:
           cat predicate.json
       
       - name: Attest build provenance
-        if: ${{ !(github.event_name == 'workflow_dispatch' && (github.event.inputs.skip_verification == 'true' || github.event.inputs.skip_tests == 'true')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
         uses: actions/attest-build-provenance@v1
         with:
           subject-name: "bllvm-consensus"
