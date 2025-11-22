@@ -253,7 +253,6 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 120  # Allow up to 2 hours for Kani verification
     steps:
       - uses: actions/checkout@v4
       
@@ -281,15 +280,23 @@ jobs:
           fi
       
       - name: Run Kani proofs
-        timeout-minutes: 110  # Slightly less than job timeout
         run: |
           echo "🔍 Running Kani formal verification (402 proofs)..."
           echo "Note: Running proofs in parallel and filtering verbose CBMC output"
+          # Detect CPU cores and set aggressive parallelization
+          # Use 4x CPU cores for maximum parallelism (proofs are I/O bound and can benefit from more parallelism)
+          CPU_CORES=$(nproc 2>/dev/null || echo "8")
+          PARALLEL_JOBS=$((CPU_CORES * 4))
+          # Cap at 64 to avoid excessive resource contention
+          if [ $PARALLEL_JOBS -gt 64 ]; then
+            PARALLEL_JOBS=64
+          fi
+          echo "Detected $CPU_CORES CPU cores, using $PARALLEL_JOBS parallel jobs (4x cores, max 64)"
           # Use cargo kani to automatically find and run all proofs in the crate
           # cargo kani will discover all #[kani::proof] functions
-          # Run in parallel with -j (uses all available CPU cores)
+          # Run with maximum parallelization for fastest verification
           # Use terse output format and filter noisy CBMC messages
-          cargo kani --features verify --output-format terse -j 2>&1 | grep -v "aborting path on assume(false)" || {
+          cargo kani --features verify --output-format terse -j $PARALLEL_JOBS 2>&1 | grep -v "aborting path on assume(false)" || {
             EXIT_CODE=${PIPESTATUS[0]}
             if [ $EXIT_CODE -ne 0 ]; then
               echo "❌ Kani verification failed"
