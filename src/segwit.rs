@@ -1145,7 +1145,7 @@ mod property_tests {
 }
 
 #[cfg(kani)]
-mod kani_proofs {
+mod kani_proofs_2 {
     use super::*;
     use crate::block::Block;
     use crate::transaction::Transaction;
@@ -1402,7 +1402,7 @@ mod kani_proofs {
         );
 
         // Critical invariant: vsize must be < (weight / 4) + 1
-        assert!(vsize as u64 < (weight / 4) + 1,
+        assert!((vsize as u64) < ((weight / 4) + 1),
             "Weight to vsize conversion: vsize must be < (weight / 4) + 1");
     }
 

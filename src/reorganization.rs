@@ -946,7 +946,7 @@ mod tests {
 }
 
 #[cfg(kani)]
-mod kani_proofs {
+mod kani_proofs_2 {
     use super::*;
     use crate::block::connect_block;
     use crate::transaction::is_coinbase;
