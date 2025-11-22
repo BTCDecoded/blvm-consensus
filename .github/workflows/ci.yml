@@ -245,9 +245,67 @@ jobs:
       - name: Audit
         run: cargo audit
 
+  verify:
+    name: Mathematical Verification
+    needs: setup
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+      
+      - name: Install Kani
+        run: |
+          curl -fsSL https://model-checking.github.io/kani/install.sh | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Run Kani proofs
+        run: |
+          echo "🔍 Running Kani formal verification (184 proofs)..."
+          cargo kani --features verify || {
+            echo "❌ Kani verification failed"
+            echo "This is critical for consensus correctness - review proofs before release"
+            exit 1
+          }
+          echo "✅ All Kani proofs verified successfully"
+      
+      - name: Run property tests with all features
+        run: |
+          echo "🧪 Running property-based tests with all features (35+ tests)..."
+          cargo test --all-features --test consensus_property_tests --verbose || {
+            echo "❌ Property tests failed"
+            echo "Mathematical invariants must hold - review failures before release"
+            exit 1
+          }
+          echo "✅ All property tests passed"
+      
+      - name: MIRI undefined behavior checks
+        continue-on-error: true
+        run: |
+          echo "🔍 Running MIRI checks for undefined behavior..."
+          rustup toolchain install nightly --component miri || {
+            echo "⚠️  Could not install MIRI, skipping (non-blocking)"
+            exit 0
+          }
+          cargo +nightly miri setup || {
+            echo "⚠️  MIRI setup failed, skipping (non-blocking)"
+            exit 0
+          }
+          # Run a subset of critical tests under MIRI (full suite can be slow)
+          echo "Running critical property tests under MIRI..."
+          cargo +nightly miri test --all-features --test consensus_property_tests --lib -- --test-threads=1 || {
+            echo "⚠️  MIRI checks found potential undefined behavior (non-blocking)"
+            echo "Review MIRI output for details"
+            exit 0
+          }
+          echo "✅ MIRI checks passed"
+
   build:
     name: Build
-    needs: [setup, test, clippy, fmt, docs, security]
+    needs: [setup, test, clippy, fmt, docs, security, verify]
     runs-on: [self-hosted, linux, x64]
     if: github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'repository_dispatch'
     steps:
@@ -323,6 +381,48 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.88.0
+      
+      - name: Check for breaking changes
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          echo "🔍 Checking for breaking changes in commit messages..."
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMIT_RANGE="${LAST_TAG}..HEAD"
+          else
+            COMMIT_RANGE="HEAD~20..HEAD"
+          fi
+          
+          # Check for breaking change indicators
+          if git log "$COMMIT_RANGE" --pretty=format:"%s" | grep -qiE "(breaking|!|major|incompatible)"; then
+            echo "⚠️  WARNING: Potential breaking changes detected in commit messages"
+            echo "   Consider bumping major or minor version instead of patch"
+            git log "$COMMIT_RANGE" --pretty=format:"  - %s" | grep -iE "(breaking|!|major|incompatible)" || true
+          else
+            echo "✅ No obvious breaking changes detected"
+          fi
+      
+      - name: Check CHANGELOG
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          echo "📝 Checking CHANGELOG.md..."
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "⚠️  CHANGELOG.md not found (optional but recommended)"
+            exit 0
+          fi
+          
+          # Check if there's an [Unreleased] section with content
+          if grep -q "^## \[Unreleased\]" CHANGELOG.md; then
+            UNRELEASED_LINES=$(sed -n '/^## \[Unreleased\]/,/^## /p' CHANGELOG.md | grep -c "^-" || echo "0")
+            if [ "$UNRELEASED_LINES" -gt 0 ]; then
+              echo "✅ CHANGELOG.md has [Unreleased] entries ($UNRELEASED_LINES items)"
+            else
+              echo "⚠️  CHANGELOG.md has [Unreleased] section but no entries"
+            fi
+          else
+            echo "⚠️  CHANGELOG.md doesn't have [Unreleased] section"
+          fi
       
       - name: Determine version
         id: version
@@ -415,6 +515,22 @@ jobs:
             grep -A 1 "name = \"bllvm-consensus\"" Cargo.lock | grep "version" | head -1
           fi
       
+      - name: Pre-release smoke test
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          echo "🧪 Running smoke tests with new version..."
+          # Quick compile check
+          cargo check --quiet || {
+            echo "❌ Compilation failed after version update"
+            exit 1
+          }
+          # Run a quick test to ensure nothing broke
+          cargo test --lib --quiet -- --test-threads=1 || {
+            echo "❌ Tests failed after version update"
+            exit 1
+          }
+          echo "✅ Smoke tests passed"
+      
       - name: Commit Cargo.toml and Cargo.lock changes
         if: env.CARGO_REGISTRY_TOKEN != ''
         run: |
@@ -493,7 +609,7 @@ jobs:
           sleep 30
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      
+
       - name: Create git tag
         run: |
           VERSION_TAG="${{ steps.version.outputs.version_tag }}"
@@ -509,20 +625,68 @@ jobs:
             echo "✅ Created and pushed tag ${VERSION_TAG}"
           fi
       
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_TAG="${{ steps.version.outputs.version_tag }}"
+          CRATE_NAME=$(grep -E '^name = ' Cargo.toml | sed -E 's/^name = "([^"]+)".*/\1/')
+          DESCRIPTION=$(grep -E '^description = ' Cargo.toml | sed -E 's/^description = "([^"]+)".*/\1/' || echo "Bitcoin consensus implementation")
+          
+          # Get commit range for this release
+          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            COMMIT_RANGE="${{ github.event.before }}..${{ github.sha }}"
+            COMMIT_COUNT=$(git rev-list --count "$COMMIT_RANGE" 2>/dev/null || echo "?")
+          else
+            COMMIT_RANGE="HEAD~10..HEAD"
+            COMMIT_COUNT="?"
+          fi
+          
+          cat > /tmp/release_notes.md << EOF
+          ## $VERSION_TAG
+          
+          **$DESCRIPTION**
+          
+          ### 📦 Installation
+          
+          Add to your \`Cargo.toml\`:
+          
+          \`\`\`toml
+          [dependencies]
+          $CRATE_NAME = "$VERSION"
+          \`\`\`
+          
+          Or install via cargo:
+          
+          \`\`\`bash
+          cargo add $CRATE_NAME@$VERSION
+          \`\`\`
+          
+          ### 🔗 Links
+          
+          - **Crates.io**: [${CRATE_NAME} v${VERSION}](https://crates.io/crates/${CRATE_NAME}/${VERSION})
+          - **Documentation**: [docs.rs/${CRATE_NAME}/${VERSION}](https://docs.rs/${CRATE_NAME}/${VERSION})
+          - **Repository**: [GitHub](https://github.com/${{ github.repository }})
+          
+          ### 📝 Changes
+          
+          This release includes $COMMIT_COUNT commits since the last release.
+          
+          **Published to crates.io**: ${{ steps.check-version.outputs.exists == 'false' && '✅ Yes' || '⚠️  Already exists or skipped' }}
+          
+          See [full commit history](https://github.com/${{ github.repository }}/compare/$COMMIT_RANGE) for details.
+          EOF
+          
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.version_tag }}
           name: Release ${{ steps.version.outputs.version_tag }}
-          body: |
-            ## ${{ steps.version.outputs.version_tag }}
-            
-            Automated release of bllvm-consensus.
-            
-            **Published to crates.io**: ${{ steps.check-version.outputs.exists == 'false' && '✅ Yes' || '⚠️  Already exists or skipped' }}
-            
-            ### Changes
-            See [commit history](https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.sha }})
+          body: ${{ steps.release_notes.outputs.notes }}
           draft: false
           prerelease: false
         env:
