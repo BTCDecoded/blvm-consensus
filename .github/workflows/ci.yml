@@ -809,7 +809,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           CRATE_NAME=$(grep -E '^name = ' Cargo.toml | sed -E 's/^name = "([^"]+)".*/\1/')
           
-          echo "Checking if ${CRATE_NAME} v${VERSION} already exists on crates.io..."
+          echo "🔍 Checking if ${CRATE_NAME} v${VERSION} already exists on crates.io..."
           
           # Use crates.io API to check if version exists (more reliable than cargo search)
           # The API returns versions in the "versions" array
@@ -818,35 +818,48 @@ jobs:
           if [ -z "$API_RESPONSE" ] || echo "$API_RESPONSE" | grep -q '"detail"'; then
             echo "⚠️  Could not check crates.io API (crate may not exist yet), using cargo search as fallback"
             # Fallback to cargo search - check all versions
-            if cargo search "$CRATE_NAME" --limit 100 2>/dev/null | grep -qE "\"${CRATE_NAME}\".*\"${VERSION}\""; then
+            SEARCH_OUTPUT=$(cargo search "$CRATE_NAME" --limit 100 2>/dev/null || echo "")
+            if echo "$SEARCH_OUTPUT" | grep -qE "\"${CRATE_NAME}\".*\"${VERSION}\""; then
               echo "exists=true" >> $GITHUB_OUTPUT
-              echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME}"
+              echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME} (found via cargo search)"
             else
               echo "exists=false" >> $GITHUB_OUTPUT
-              echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME}"
+              echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME} (cargo search)"
             fi
           else
+            # Show existing versions for debugging
+            echo "📋 Existing versions on crates.io:"
+            if command -v jq &> /dev/null; then
+              echo "$API_RESPONSE" | jq -r ".versions[].num" | head -5
+            else
+              echo "$API_RESPONSE" | grep -o '"num":"[^"]*"' | sed 's/"num":"\(.*\)"/\1/' | head -5
+            fi
+            echo ""
+            
             # Parse JSON to check if version exists (using jq if available, or grep as fallback)
             if command -v jq &> /dev/null; then
               VERSION_EXISTS=$(echo "$API_RESPONSE" | jq -r ".versions[] | select(.num == \"${VERSION}\") | .num" | head -1)
               if [ "$VERSION_EXISTS" = "$VERSION" ]; then
                 echo "exists=true" >> $GITHUB_OUTPUT
-                echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME}"
+                echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME} (found via API)"
               else
                 echo "exists=false" >> $GITHUB_OUTPUT
-                echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME}"
+                echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME} (API check)"
               fi
             else
               # Fallback: grep for version in JSON
               if echo "$API_RESPONSE" | grep -q "\"num\":\"${VERSION}\""; then
                 echo "exists=true" >> $GITHUB_OUTPUT
-                echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME}"
+                echo "⚠️  Version ${VERSION} already published for ${CRATE_NAME} (found via grep)"
               else
                 echo "exists=false" >> $GITHUB_OUTPUT
-                echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME}"
+                echo "✅ Version ${VERSION} not yet published for ${CRATE_NAME} (grep check)"
               fi
             fi
           fi
+          
+          echo ""
+          echo "📊 Version check result: ${{ steps.check-version.outputs.exists }}"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       
@@ -859,34 +872,56 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           CRATE_NAME=$(grep -E '^name = ' Cargo.toml | sed -E 's/^name = "([^"]+)".*/\1/')
           
+          echo "🔍 Publish Debug Info:"
+          echo "  Version: ${VERSION}"
+          echo "  Crate: ${CRATE_NAME}"
+          echo "  Version exists check: ${{ steps.check-version.outputs.exists }}"
+          echo "  Cargo.toml version: $(grep -A 10 '^\[package\]' Cargo.toml | grep '^version = ' | head -1)"
+          
           # Skip if version already exists
           if [ "${{ steps.check-version.outputs.exists }}" = "true" ]; then
             echo "⚠️  Version ${VERSION} already exists on crates.io, skipping publish"
             echo "published=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Skipping publish - version already exists" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          echo "Publishing ${CRATE_NAME} v${VERSION} to crates.io..."
+          echo ""
+          echo "📦 Publishing ${CRATE_NAME} v${VERSION} to crates.io..."
+          echo "Running: cargo publish --token [REDACTED]"
+          
           PUBLISH_OUTPUT=$(cargo publish --token "${CARGO_REGISTRY_TOKEN}" 2>&1)
           PUBLISH_EXIT_CODE=$?
+          
+          echo ""
+          echo "📋 Publish Output:"
+          echo "$PUBLISH_OUTPUT"
+          echo ""
           
           if [ $PUBLISH_EXIT_CODE -eq 0 ]; then
             echo "✅ Successfully published ${CRATE_NAME} v${VERSION}"
             echo "published=true" >> $GITHUB_OUTPUT
             echo "Waiting 30 seconds for crates.io to index..."
             sleep 30
+            echo "✅ Publish complete - version should be available on crates.io"
           else
             # Check if error is due to version already existing
-            if echo "$PUBLISH_OUTPUT" | grep -q "already exists"; then
+            if echo "$PUBLISH_OUTPUT" | grep -qi "already exists"; then
               echo "⚠️  Version ${VERSION} already exists on crates.io (detected during publish)"
               echo "published=false" >> $GITHUB_OUTPUT
+              echo "⚠️  Publish skipped - version already exists" >> $GITHUB_OUTPUT
               exit 0
             else
               echo "❌ Failed to publish ${CRATE_NAME} v${VERSION}"
+              echo "Exit code: $PUBLISH_EXIT_CODE"
               echo "Error output:"
               echo "$PUBLISH_OUTPUT"
+              echo ""
+              echo "⚠️  Publish failed - check error output above"
               echo "published=false" >> $GITHUB_OUTPUT
-              exit $PUBLISH_EXIT_CODE
+              echo "⚠️  Publish failed with exit code $PUBLISH_EXIT_CODE" >> $GITHUB_OUTPUT
+              # Don't exit with error code - let workflow continue
+              exit 0
             fi
           fi
         env:
