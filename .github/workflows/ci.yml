@@ -981,15 +981,24 @@ jobs:
           
           ### 🔗 Links
           
-          - **Crates.io**: [${CRATE_NAME} v${VERSION}](https://crates.io/crates/${CRATE_NAME}/${VERSION})
-          - **Documentation**: [docs.rs/${CRATE_NAME}/${VERSION}](https://docs.rs/${CRATE_NAME}/${VERSION})
-          - **Repository**: [GitHub](https://github.com/${{ github.repository }})
+          # Only link to crates.io if publish succeeded
+          PUBLISH_STATUS="${{ steps.publish.outputs.published }}"
+          if [ "$PUBLISH_STATUS" = "true" ]; then
+            echo "- **Crates.io**: [${CRATE_NAME} v${VERSION}](https://crates.io/crates/${CRATE_NAME}/${VERSION})"
+            echo "- **Documentation**: [docs.rs/${CRATE_NAME}/${VERSION}](https://docs.rs/${CRATE_NAME}/${VERSION})"
+          else
+            echo "- **Crates.io**: ⚠️  Not published (version may already exist or publish failed)"
+            echo "- **Documentation**: Not available (crate not published)"
+          fi
+          echo "- **Repository**: [GitHub](https://github.com/${{ github.repository }})"
           
           ### 📝 Changes
           
           This release includes $COMMIT_COUNT commits since the last release.
           
           **Published to crates.io**: ${{ steps.publish.outputs.published == 'true' && '✅ Yes' || (steps.check-version.outputs.exists == 'true' && '⚠️  Already exists' || '❌ Failed or skipped') }}
+          
+          ${{ steps.publish.outputs.published != 'true' && '⚠️  **Note**: This version was not published to crates.io. Check the workflow logs for details.' || '' }}
           
           See [full commit history](https://github.com/${{ github.repository }}/compare/$COMMIT_RANGE) for details.
           EOF
