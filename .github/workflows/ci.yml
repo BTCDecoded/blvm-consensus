@@ -1174,12 +1174,11 @@ jobs:
           echo "  cargo version: $CARGO_VERSION"
           echo "  Cargo.lock hash: $CARGO_LOCK_HASH"
       
-      - name: Create build attestation
+      - name: Create build metadata JSON
         if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
-        id: attestation
         run: |
-          # Create predicate JSON file
-          cat > predicate.json << EOF
+          # Create metadata JSON file for artifact storage
+          cat > build-metadata.json << EOF
           {
             "kani_verified": ${{ steps.metadata.outputs.kani_verified == 'true' && 'true' || 'false' }},
             "kani_proofs": ${{ steps.metadata.outputs.kani_proofs }},
@@ -1193,7 +1192,15 @@ jobs:
             "cargo_lock_hash": "${{ steps.metadata.outputs.cargo_lock_hash }}"
           }
           EOF
-          cat predicate.json
+          cat build-metadata.json
+      
+      - name: Upload build metadata
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata.json
+          retention-days: 365
       
       - name: Attest build provenance
         if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.skip_verification != 'true' && github.event.inputs.skip_tests != 'true') }}
@@ -1201,8 +1208,8 @@ jobs:
         with:
           subject-name: "bllvm-consensus"
           subject-digest: "sha256:${{ steps.metadata.outputs.cargo_lock_hash }}"
-          predicate-type: "https://bllvm.dev/predicate/v1"
-          predicate-file: predicate.json
+          push-to-registry: false
+          show-summary: true
       
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
