@@ -1382,7 +1382,7 @@ mod kani_proofs {
     ///
     /// This proves that the merkle tree calculation maintains proper bounds throughout.
     #[kani::proof]
-    #[kani::unwind(10)]
+    #[kani::unwind(5)] // unwind_bounds::MERKLE_ROOT_CALC
     fn kani_merkle_tree_calculation_bounds() {
         let mut txs = crate::kani_helpers::create_bounded_transaction_vec(3);
 
@@ -1482,7 +1482,7 @@ mod kani_proofs {
     ///
     /// This ensures block creation follows Orange Paper specification exactly.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
+    #[kani::unwind(3)] // unwind_bounds::MINING_BLOCK_CREATION
     fn kani_create_new_block_correctness() {
         use crate::assume_mining_bounds;
         use crate::economic::get_block_subsidy;
@@ -1572,7 +1572,7 @@ mod kani_proofs {
     ///
     /// This ensures mining process correctly finds valid proof of work or reports failure.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
+    #[kani::unwind(10)] // unwind_bounds::MINING_BLOCK_MINING
     fn kani_mine_block_correctness() {
         use crate::assume_mining_attempts;
         use crate::kani_helpers::unwind_bounds;
@@ -1645,7 +1645,7 @@ mod kani_proofs {
     ///
     /// This ensures block template contains all required fields for mining.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
+    #[kani::unwind(3)] // unwind_bounds::MINING_BLOCK_CREATION
     fn kani_create_block_template_completeness() {
         use crate::assume_mining_bounds;
         use crate::kani_helpers::unwind_bounds;
@@ -1737,7 +1737,7 @@ mod kani_proofs {
     ///
     /// This ensures mining process tries nonces systematically.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
+    #[kani::unwind(10)] // unwind_bounds::MINING_BLOCK_MINING
     fn kani_mine_block_nonce_progression() {
         use crate::assume_mining_attempts;
         use crate::kani_helpers::unwind_bounds;

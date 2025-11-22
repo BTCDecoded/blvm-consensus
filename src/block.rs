@@ -1064,7 +1064,7 @@ mod kani_proofs {
 
     /// Kani proof: apply_transaction preserves UTXO set consistency
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::BLOCK_VALIDATION)]
+    #[kani::unwind(10)] // unwind_bounds::BLOCK_VALIDATION
     fn kani_apply_transaction_consistency() {
         use crate::assume_transaction_bounds_custom;
         use crate::kani_helpers::unwind_bounds;

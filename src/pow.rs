@@ -821,7 +821,7 @@ mod kani_proofs {
 
     /// Kani proof: get_next_work_required respects bounds
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
+    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
     fn kani_get_next_work_required_bounds() {
         use crate::assume_pow_bounds;
         use crate::kani_helpers::unwind_bounds;
@@ -858,7 +858,7 @@ mod kani_proofs {
     /// - adjustment = clamp(timeSpan / expectedTime, 0.25, 4.0)
     /// - Ensures difficulty never changes more than 4x per adjustment period
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
+    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
     fn kani_difficulty_adjustment_clamping() {
         use crate::kani_helpers::unwind_bounds;
         let time_span: u64 = kani::any();
@@ -1045,7 +1045,7 @@ mod kani_proofs {
     ///
     /// This ensures difficulty converges to maintain target block time.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
+    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
     fn kani_difficulty_adjustment_convergence() {
         use crate::kani_helpers::unwind_bounds;
         let current_header = crate::kani_helpers::create_bounded_block_header();
@@ -1103,7 +1103,7 @@ mod kani_proofs {
     /// - If timeSpan > expectedTime: new_target > old_target (difficulty decreases)
     /// - If timeSpan < expectedTime: new_target < old_target (difficulty increases)
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::POW_DIFFICULTY_ADJUSTMENT)]
+    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
     fn kani_difficulty_adjustment_direction() {
         use crate::kani_helpers::unwind_bounds;
         let current_header = crate::kani_helpers::create_bounded_block_header();

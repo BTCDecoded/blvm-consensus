@@ -389,7 +389,7 @@ mod kani_proofs {
 
     /// Kani proof: check_transaction validates structure correctly
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_structure() {
         use crate::assume_transaction_bounds_custom;
         use crate::kani_helpers::unwind_bounds;
@@ -646,7 +646,7 @@ mod kani_proofs {
     ///
     /// This ensures transactions cannot create money out of thin air.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_transaction_value_consistency() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
@@ -927,7 +927,7 @@ mod kani_proofs_2 {
     ///    ∀i,j ∈ tx.inputs: i ≠ j ⟹ i.prevout ≠ j.prevout ∧
     ///    (IsCoinbase(tx) ⟹ 2 <= |tx.inputs[0].scriptSig| <= 100))
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_invariants() {
         let tx = crate::kani_helpers::create_bounded_transaction();
 
@@ -1009,7 +1009,7 @@ mod kani_proofs_2 {
     ///   (fee = sum(inputs.value) - sum(outputs.value) ∧
     ///    fee >= 0)
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_tx_inputs_fee_calculation() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
@@ -1068,7 +1068,7 @@ mod kani_proofs_2 {
     ///
     /// This is a fundamental economic security property ensuring no money creation.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_conservation_of_value() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
@@ -1132,7 +1132,7 @@ mod kani_proofs_2 {
     /// ∀ tx ∈ TX: CheckTransaction(tx) = valid ⟹
     ///   ∀i,j ∈ tx.inputs: i ≠ j ⟹ i.prevout ≠ j.prevout
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_no_duplicates() {
         let tx = crate::kani_helpers::create_bounded_transaction();
 
@@ -1189,7 +1189,7 @@ mod kani_proofs_2 {
     ///
     /// This ensures coinbase outputs cannot be spent until 100 blocks deep.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_coinbase_maturity_enforcement() {
         use crate::constants::COINBASE_MATURITY;
 
@@ -1245,7 +1245,7 @@ mod kani_proofs_2 {
     /// ∀ tx ∈ TX: ¬IsCoinbase(tx) ⟹ CheckTxInputs(tx) = valid ⟹
     ///   ∀i ∈ tx.inputs: ¬i.prevout.IsNull()
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_tx_inputs_no_null_prevout() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
@@ -1297,7 +1297,7 @@ mod kani_proofs_2 {
     /// ∀ tx ∈ TX: CheckTransaction(tx) = valid ⟹
     ///   ∑_{o ∈ tx.outputs} o.value ≤ M_max
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_total_output_sum() {
         let tx = crate::kani_helpers::create_bounded_transaction();
 
@@ -1355,7 +1355,7 @@ mod kani_proofs_2 {
     }
 
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_integer_arithmetic_overflow_safety() {
         let tx = create_bounded_transaction();
         let mut utxo_set = create_bounded_utxo_set(&tx);
@@ -1433,7 +1433,7 @@ mod kani_proofs_2 {
     ///
     /// This ensures total output value calculation is safe from overflow.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_output_value_summation_overflow_safety() {
         let tx = create_bounded_transaction();
 
@@ -1489,7 +1489,7 @@ mod kani_proofs_2 {
     ///
     /// This ensures fast-path optimization matches full validation results exactly.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_fast_path_correctness() {
         let tx = crate::kani_helpers::create_bounded_transaction();
 
@@ -1545,7 +1545,7 @@ mod kani_proofs_2 {
     ///
     /// This ensures fee calculation uses consistent size measurements.
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_transaction_size_consistency() {
         use crate::segwit::calculate_base_size;
 
@@ -1586,7 +1586,7 @@ mod kani_proofs_2 {
     /// ∀ tx ∈ TX: IsCoinbase(tx) ⟹ CheckTransaction(tx) = valid ⟹
     ///   2 ≤ |tx.inputs[0].scriptSig| ≤ 100
     #[kani::proof]
-    #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
+    #[kani::unwind(3)] // unwind_bounds::TRANSACTION_VALIDATION
     fn kani_check_transaction_coinbase_script_sig_length() {
         let tx = crate::kani_helpers::create_bounded_transaction();
 
