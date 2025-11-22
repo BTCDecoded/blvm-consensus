@@ -232,8 +232,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(3)] // unwind_bounds::SIMPLE - very small bound to avoid sort_unstable complexity
     fn kani_bip113_median_time_ge_minimum() {
+        // Constrain header_count before any loops to help Kani prune paths early
         let header_count: usize = kani::any();
         kani::assume(header_count <= 3); // Very small bound to avoid sort_unstable unwinding issues
+        kani::assume(header_count > 0); // Ensure at least one header for meaningful proof
 
         let mut headers = Vec::new();
         let mut min_timestamp = u64::MAX;
