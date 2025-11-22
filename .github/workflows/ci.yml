@@ -259,13 +259,42 @@ jobs:
       
       - name: Install Kani
         run: |
+          echo "Installing Kani model checker..."
           curl -fsSL https://model-checking.github.io/kani/install.sh | sh -s -- -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          # Verify installation
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v kani &> /dev/null; then
+            echo "❌ Kani installation failed - kani command not found"
+            echo "Checking cargo bin directory:"
+            ls -la "$HOME/.cargo/bin/" | grep -i kani || echo "No kani files found"
+            exit 1
+          fi
+          echo "✅ Kani installed successfully: $(kani --version 2>&1 || echo 'version check failed')"
       
       - name: Run Kani proofs
         run: |
           echo "🔍 Running Kani formal verification (184 proofs)..."
-          cargo kani --features verify || {
+          # Ensure Kani is in PATH (GITHUB_PATH should handle this, but be explicit)
+          export PATH="$HOME/.cargo/bin:$PATH"
+          # Verify kani is available - try both 'kani' and 'cargo kani'
+          if command -v kani &> /dev/null; then
+            echo "✅ Found kani command: $(which kani)"
+            KANI_CMD="kani"
+          elif cargo kani --version &> /dev/null; then
+            echo "✅ Found cargo kani subcommand"
+            KANI_CMD="cargo kani"
+          else
+            echo "❌ Kani command not found"
+            echo "PATH: $PATH"
+            echo "Cargo bin contents:"
+            ls -la "$HOME/.cargo/bin/" 2>/dev/null || echo "Cargo bin directory not found"
+            echo "Trying to find kani in common locations:"
+            find "$HOME" -name "kani" -type f 2>/dev/null | head -5 || echo "No kani found"
+            exit 1
+          fi
+          # Run Kani proofs
+          $KANI_CMD --features verify || {
             echo "❌ Kani verification failed"
             echo "This is critical for consensus correctness - review proofs before release"
             exit 1
