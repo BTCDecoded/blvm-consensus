@@ -35,6 +35,11 @@ jobs:
   setup:
     name: Setup
     runs-on: [self-hosted, Linux, X64, builds]
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     outputs:
       cache-key: ${{ steps.setup-cache.outputs.cache-key }}
     steps:
@@ -79,7 +84,12 @@ jobs:
     name: Test
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' }}
+    if: |
+      ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' }} &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - name: Check if tests should be skipped
         id: skip_check
@@ -214,6 +224,11 @@ jobs:
     name: Clippy
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - uses: actions/checkout@v4
       
@@ -250,6 +265,11 @@ jobs:
     name: Format
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - uses: actions/checkout@v4
       
@@ -304,6 +324,11 @@ jobs:
     name: Security
     needs: setup
     runs-on: [self-hosted, Linux, X64, builds]
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - uses: actions/checkout@v4
       
@@ -322,7 +347,12 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' }}
+    if: |
+      ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' }} &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - name: Check if verification should be skipped
         id: skip_check
@@ -557,6 +587,10 @@ jobs:
     runs-on: [self-hosted, Linux, X64, builds]
     if: |
       (github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch') &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' || (always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped'))) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' || (always() && (needs.test.result == 'success' || needs.test.result == 'skipped')))
     steps:
@@ -619,7 +653,11 @@ jobs:
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
-      !contains(github.event.head_commit.message, '[skip release]') &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]') &&
+        !contains(github.event.head_commit.message, '[skip release]'))) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' || (always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped'))) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' || (always() && (needs.test.result == 'success' || needs.test.result == 'skipped')))
     permissions:
@@ -816,7 +854,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit in Cargo.toml"
           else
-            git commit -m "Bump version to ${{ steps.version.outputs.version }} for release" || true
+            git commit -m "Bump version to ${{ steps.version.outputs.version }} for release [skip ci]" || true
             
             # Push if REPO_ACCESS_TOKEN is available
             if [ -n "${{ secrets.REPO_ACCESS_TOKEN }}" ]; then
