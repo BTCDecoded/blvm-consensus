@@ -1484,8 +1484,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
     fn kani_create_new_block_correctness() {
-        use crate::economic::get_block_subsidy;
         use crate::assume_mining_bounds;
+        use crate::economic::get_block_subsidy;
         use crate::kani_helpers::unwind_bounds;
         use crate::pow::get_next_work_required;
 

@@ -239,7 +239,11 @@ pub fn create_bounded_witness(max_elements: usize, max_element_len: usize) -> Ve
 }
 
 /// Create a bounded Vec<Vec<Vec<u8>>> (Vec<Witness>) for Kani proofs
-pub fn create_bounded_witness_vec(max_witnesses: usize, max_elements: usize, max_element_len: usize) -> Vec<Vec<Vec<u8>>> {
+pub fn create_bounded_witness_vec(
+    max_witnesses: usize,
+    max_elements: usize,
+    max_element_len: usize,
+) -> Vec<Vec<Vec<u8>>> {
     let witness_count: usize = kani::any();
     kani::assume(witness_count <= max_witnesses);
     let mut result = Vec::new();
