@@ -734,7 +734,7 @@ mod kani_proofs {
     /// - validate_taproot_key_aggregation is deterministic
     #[kani::proof]
     fn kani_taproot_key_aggregation_deterministic() {
-        let internal_pubkey: [u8; 32] = kani::any();
+        let _internal_pubkey: [u8; 32] = kani::any();
         let merkle_root: Hash = kani::any();
 
         // Use a valid public key for testing
@@ -751,15 +751,15 @@ mod kani_proofs {
         // Results should be identical (deterministic)
         assert_eq!(result1.is_ok(), result2.is_ok());
         if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.unwrap(), result2.unwrap());
+            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
         }
 
         // If tweak computation succeeds, validate aggregation should work
-        if let Ok(output_key) = result1 {
+        if let Ok(output_key) = &result1 {
             let validation_result1 =
-                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, &output_key).unwrap();
+                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, output_key).unwrap();
             let validation_result2 =
-                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, &output_key).unwrap();
+                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, output_key).unwrap();
 
             assert_eq!(validation_result1, validation_result2);
             assert!(validation_result1); // Should be true for correct aggregation
@@ -780,13 +780,13 @@ mod kani_proofs {
         kani::assume(proof_len <= 5);
 
         let mut script = Vec::new();
-        for i in 0..script_len {
+        for _i in 0..script_len {
             let byte: u8 = kani::any();
             script.push(byte);
         }
 
         let mut merkle_proof = Vec::new();
-        for i in 0..proof_len {
+        for _i in 0..proof_len {
             let hash: Hash = kani::any();
             merkle_proof.push(hash);
         }
@@ -800,11 +800,11 @@ mod kani_proofs {
         // Results should be identical (deterministic)
         assert_eq!(result1.is_ok(), result2.is_ok());
         if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.unwrap(), result2.unwrap());
+            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
         }
 
         // If validation succeeds, computed root should match provided root
-        if result1.is_ok() && result1.unwrap() {
+        if result1.is_ok() && *result1.as_ref().unwrap() {
             let computed_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
             assert_eq!(computed_root, merkle_root);
         }
@@ -861,11 +861,11 @@ mod kani_proofs {
         kani::assume(prevouts_len <= 5);
 
         let mut prevouts = Vec::new();
-        for i in 0..prevouts_len {
+        for _i in 0..prevouts_len {
             let script_len: usize = kani::any();
             kani::assume(script_len <= 10);
             let mut script = Vec::new();
-            for j in 0..script_len {
+            for _j in 0..script_len {
                 let byte: u8 = kani::any();
                 script.push(byte);
             }
@@ -893,12 +893,11 @@ mod kani_proofs {
         // Results should be identical (deterministic)
         assert_eq!(result1.is_ok(), result2.is_ok());
         if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.unwrap(), result2.unwrap());
+            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
         }
 
         // Hash should be 32 bytes
-        if result1.is_ok() {
-            let hash = result1.unwrap();
+        if let Ok(hash) = &result1 {
             assert_eq!(hash.len(), 32);
         }
     }
@@ -1295,14 +1294,12 @@ mod kani_proofs {
         // Calculate tweak
         let tweak_result = compute_taproot_tweak(&internal_pubkey, &merkle_root);
 
-        if tweak_result.is_ok() {
-            let output_key = tweak_result.unwrap();
-
+        if let Ok(output_key) = tweak_result {
             // Verify key aggregation: validate that output_key matches expected computation
             let validation_result =
                 validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key);
 
-            if validation_result.is_ok() && validation_result.unwrap() {
+            if validation_result.is_ok() && *validation_result.as_ref().unwrap() {
                 // Key aggregation is correct: OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
                 assert!(
                     true,
