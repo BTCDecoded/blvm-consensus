@@ -923,13 +923,22 @@ jobs:
           echo "  Version: ${VERSION}"
           echo "  Crate: ${CRATE_NAME}"
           echo "  Version exists check: ${{ steps.check-version.outputs.exists }}"
-          echo "  Cargo.toml version: $(grep -A 10 '^\[package\]' Cargo.toml | grep '^version = ' | head -1)"
+          
+          # Verify Cargo.toml version matches expected version
+          ACTUAL_VERSION=$(grep -A 10 '^\[package\]' Cargo.toml | grep '^version = ' | head -1 | sed -E 's/^version = "([^"]+)".*/\1/')
+          echo "  Cargo.toml version: ${ACTUAL_VERSION}"
+          
+          if [ "$ACTUAL_VERSION" != "$VERSION" ]; then
+            echo "❌ CRITICAL: Cargo.toml version (${ACTUAL_VERSION}) does not match expected version (${VERSION})"
+            echo "❌ Cannot publish - version mismatch. Check if 'Update version in Cargo.toml' step ran successfully."
+            echo "published=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
           
           # Skip if version already exists
           if [ "${{ steps.check-version.outputs.exists }}" = "true" ]; then
             echo "⚠️  Version ${VERSION} already exists on crates.io, skipping publish"
             echo "published=false" >> $GITHUB_OUTPUT
-            echo "⚠️  Skipping publish - version already exists" >> $GITHUB_OUTPUT
             exit 0
           fi
           
@@ -956,7 +965,6 @@ jobs:
             if echo "$PUBLISH_OUTPUT" | grep -qi "already exists"; then
               echo "⚠️  Version ${VERSION} already exists on crates.io (detected during publish)"
               echo "published=false" >> $GITHUB_OUTPUT
-              echo "⚠️  Publish skipped - version already exists" >> $GITHUB_OUTPUT
               exit 0
             else
               echo "❌ Failed to publish ${CRATE_NAME} v${VERSION}"
@@ -966,7 +974,6 @@ jobs:
               echo ""
               echo "⚠️  Publish failed - check error output above"
               echo "published=false" >> $GITHUB_OUTPUT
-              echo "⚠️  Publish failed with exit code $PUBLISH_EXIT_CODE" >> $GITHUB_OUTPUT
               # Don't exit with error code - let workflow continue
               exit 0
             fi
