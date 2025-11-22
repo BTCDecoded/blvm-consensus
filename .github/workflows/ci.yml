@@ -636,7 +636,7 @@ jobs:
           toolchain: 1.88.0
       
       - name: Check for breaking changes
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           echo "🔍 Checking for breaking changes in commit messages..."
           # Get commits since last tag
@@ -657,7 +657,7 @@ jobs:
           fi
       
       - name: Check CHANGELOG
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           echo "📝 Checking CHANGELOG.md..."
           if [ ! -f "CHANGELOG.md" ]; then
@@ -735,7 +735,7 @@ jobs:
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
       
       - name: Update Cargo.lock first (before version change)
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           # Remove old lock file and regenerate to ensure latest dependency versions
           rm -f Cargo.lock
@@ -748,7 +748,7 @@ jobs:
           fi
       
       - name: Update version in Cargo.toml
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           echo "Updating package version to ${VERSION}"
@@ -772,7 +772,7 @@ jobs:
           grep -A 1 "\[dependencies.kani-verifier\]" Cargo.toml
       
       - name: Regenerate Cargo.lock after version change
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           # Regenerate lock file after version change to ensure consistency
           rm -f Cargo.lock
@@ -786,7 +786,7 @@ jobs:
           fi
       
       - name: Pre-release smoke test
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           echo "🧪 Running smoke tests with new version..."
           # Quick compile check
@@ -802,7 +802,7 @@ jobs:
           echo "✅ Smoke tests passed"
       
       - name: Commit Cargo.toml and Cargo.lock changes
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -818,14 +818,14 @@ jobs:
           fi
       
       - name: Configure cargo for crates.io
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           cargo login "${CARGO_REGISTRY_TOKEN}"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       
       - name: Verify package version before packaging
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           EXPECTED_VERSION="${{ steps.version.outputs.version }}"
           ACTUAL_VERSION=$(grep -A 10 '^\[package\]' Cargo.toml | grep '^version = ' | head -1 | sed -E 's/^version = "([^"]+)".*/\1/')
@@ -838,19 +838,19 @@ jobs:
           echo "✅ Version matches: ${ACTUAL_VERSION}"
       
       - name: Verify package
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           cargo package --list
       
       - name: Dry-run publish
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         run: |
           cargo publish --dry-run
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       
       - name: Check if version already exists
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         id: check-version
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -911,7 +911,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       
       - name: Publish to crates.io
-        if: env.CARGO_REGISTRY_TOKEN != ''
+        if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
         id: publish
         continue-on-error: true
         run: |
