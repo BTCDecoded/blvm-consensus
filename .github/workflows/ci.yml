@@ -321,7 +321,7 @@ jobs:
           for proof in $FAST_PROOFS; do
             HARNESS_ARGS="$HARNESS_ARGS --harness $proof"
           done
-          cargo kani --features verify --output-format terse --solver cadical -j 2 $HARNESS_ARGS 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
+          cargo kani --features verify --output-format terse --solver cadical --jobs 2 $HARNESS_ARGS 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
@@ -347,7 +347,7 @@ jobs:
           for proof in $FAST_MEDIUM_PROOFS; do
             HARNESS_ARGS="$HARNESS_ARGS --harness $proof"
           done
-          cargo kani --features verify --output-format terse --solver cadical -j 2 $HARNESS_ARGS 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
+          cargo kani --features verify --output-format terse --solver cadical --jobs 2 $HARNESS_ARGS 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
@@ -366,7 +366,7 @@ jobs:
           trap "rm -f $TEMP_OUTPUT" EXIT
           set +e
           # Run all proofs (no filter)
-          cargo kani --features verify --output-format terse --solver cadical -j 2 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
+          cargo kani --features verify --output-format terse --solver cadical --jobs 2 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then

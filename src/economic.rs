@@ -546,7 +546,7 @@ mod kani_proofs {
         let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
 
         // Bound for tractability - optimized bounds reduce state space
-        kani::assume(tx.inputs.len() <= 3);  // Reduced from 5 for faster verification
+        kani::assume(tx.inputs.len() <= 3); // Reduced from 5 for faster verification
         kani::assume(tx.outputs.len() <= 3); // Reduced from 5 for faster verification
 
         // Populate UTXO set with bounded values to test overflow detection
