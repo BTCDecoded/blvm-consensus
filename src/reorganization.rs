@@ -447,8 +447,8 @@ mod kani_proofs {
     #[kani::unwind(10)]
     fn kani_should_reorganize_max_work() {
         // Generate symbolic chains
-        let new_chain: Vec<Block> = kani::any();
-        let current_chain: Vec<Block> = kani::any();
+        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
+        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
 
         // Assume non-empty chains for meaningful comparison
         kani::assume(new_chain.len() > 0);
@@ -478,7 +478,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_calculate_chain_work_deterministic() {
-        let chain: Vec<Block> = kani::any();
+        let chain = crate::kani_helpers::create_bounded_block_vec(3);
         kani::assume(chain.len() <= 3); // Bound for tractability
 
         // Calculate work twice
@@ -527,9 +527,9 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_reorganize_chain_utxo_consistency() {
-        let new_chain: Vec<Block> = kani::any();
-        let current_chain: Vec<Block> = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
+        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -962,9 +962,9 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_reorganization_utxo_set_preservation() {
-        let new_chain: Vec<Block> = kani::any();
-        let current_chain: Vec<Block> = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
+        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let current_height: Natural = kani::any();
 
         // Bound for tractability
@@ -1070,8 +1070,8 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_disconnect_connect_idempotency() {
-        let block: Block = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability

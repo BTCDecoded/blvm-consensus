@@ -1066,10 +1066,11 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::BLOCK_VALIDATION)]
     fn kani_apply_transaction_consistency() {
-        use crate::kani_helpers::{assume_transaction_bounds_custom, unwind_bounds};
+        use crate::assume_transaction_bounds_custom;
+        use crate::kani_helpers::unwind_bounds;
 
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
@@ -1120,8 +1121,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(10)]
     fn kani_apply_transaction_with_id_correctness() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -1198,8 +1199,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(10)]
     fn kani_apply_transaction_mathematical_correctness() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -1330,8 +1331,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(10)]
     fn kani_no_double_spending() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -1395,8 +1396,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_utxo_consistency() {
-        let block: Block = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -1467,8 +1468,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_coinbase() {
-        let block: Block = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -1520,8 +1521,8 @@ mod kani_proofs {
     fn kani_script_flags_calculation_correctness() {
         use crate::segwit::is_segwit_transaction;
 
-        let tx: Transaction = kani::any();
-        let witness: Option<Witness> = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -1573,7 +1574,7 @@ mod kani_proofs {
     ///    header.merkle_root ≠ [0u8; 32])
     #[kani::proof]
     fn kani_validate_block_header_complete() {
-        let mut header: BlockHeader = kani::any();
+        let mut header = crate::kani_helpers::create_bounded_block_header();
 
         // Test that invalid headers are rejected
         header.version = 0;
@@ -1616,7 +1617,7 @@ mod kani_proofs {
     /// Kani proof: calculate_tx_id is deterministic
     #[kani::proof]
     fn kani_calculate_tx_id_deterministic() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -1641,8 +1642,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_id_uniqueness() {
-        let tx1: Transaction = kani::any();
-        let tx2: Transaction = kani::any();
+        let tx1 = crate::kani_helpers::create_bounded_transaction();
+        let tx2 = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx1.inputs.len() <= 5);
@@ -1688,7 +1689,7 @@ mod kani_proofs {
         use crate::serialization::transaction::serialize_transaction;
         use sha2::{Digest, Sha256};
 
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -1721,8 +1722,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_block_coinbase_fee_limit() {
-        let block: Block = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -2033,8 +2034,8 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_utxo_consistency() {
-        let block: Block = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -2081,8 +2082,8 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_sequential_ordering() {
-        let block: Block = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability - need at least 2 transactions to test ordering
@@ -2170,7 +2171,7 @@ mod kani_proofs_2 {
         use crate::constants::MAX_BLOCK_SIZE;
         use crate::serialization::block::serialize_block_header;
 
-        let block: Block = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
 
         // Bound for tractability
         kani::assume(block.transactions.len() <= 10);
@@ -2234,7 +2235,7 @@ mod kani_proofs_2 {
     fn kani_block_weight_limits() {
         use crate::segwit::calculate_block_weight;
 
-        let block: Block = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
         let witnesses: Vec<crate::segwit::Witness> = kani::any();
 
         // Bound for tractability
@@ -2280,8 +2281,8 @@ mod kani_proofs_2 {
     fn kani_fee_accumulation_overflow_safety() {
         use crate::economic::calculate_fee;
 
-        let block: Block = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -2352,8 +2353,8 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_fee_subsidy_validation() {
-        let block: Block = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability
@@ -2411,8 +2412,8 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_coinbase_script_sig_length() {
-        let mut block: Block = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let mut block = crate::kani_helpers::create_bounded_block();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability

@@ -540,10 +540,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_sighash_determinism() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        let prevouts: Vec<TransactionOutput> = kani::any();
-        let sighash_type: SighashType = kani::any();
+        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
+        let sighash_type = crate::kani_helpers::create_bounded_sighash_type();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -580,9 +580,9 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_sighash_type_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        let prevouts: Vec<TransactionOutput> = kani::any();
+        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -626,10 +626,10 @@ mod kani_proofs {
     fn kani_transaction_sighash_correctness() {
         use sha2::{Digest, Sha256};
 
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        let prevouts: Vec<TransactionOutput> = kani::any();
-        let sighash_type: SighashType = kani::any();
+        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
+        let sighash_type = crate::kani_helpers::create_bounded_sighash_type();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);

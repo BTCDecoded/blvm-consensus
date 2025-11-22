@@ -2467,7 +2467,7 @@ mod kani_proofs {
         let script_len: usize = kani::any();
         kani::assume(script_len <= MAX_SCRIPT_SIZE);
 
-        let script: Vec<u8> = kani::any();
+        let script = crate::kani_helpers::create_bounded_byte_string(10);
         kani::assume(script.len() <= script_len);
 
         let mut stack = Vec::new();
@@ -2661,8 +2661,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_script_stack_size_bounds() {
-        let script: Vec<u8> = kani::any();
-        use crate::kani_helpers::assume_script_bounds;
+        let script = crate::kani_helpers::create_bounded_byte_string(10);
+        use crate::assume_script_bounds;
         assume_script_bounds!(script, 20); // Small scripts for tractability
 
         let mut stack = Vec::new();
@@ -2795,13 +2795,13 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_verify_script_correctness() {
-        let script_sig: Vec<u8> = kani::any();
-        let script_pubkey: Vec<u8> = kani::any();
+        let script_sig = crate::kani_helpers::create_bounded_byte_string(10);
+        let script_pubkey = crate::kani_helpers::create_bounded_byte_string(10);
         let witness: Option<Vec<u8>> = kani::any();
         let flags: u32 = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_script_bounds;
+        use crate::assume_script_bounds;
         assume_script_bounds!(script_sig, 10);
         assume_script_bounds!(script_pubkey, 10);
         if let Some(ref w) = witness {
@@ -2862,8 +2862,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_script_execution_final_stack_validation() {
-        let script: Vec<u8> = kani::any();
-        let mut stack: Vec<Vec<u8>> = kani::any();
+        let script = crate::kani_helpers::create_bounded_byte_string(10);
+        let mut stack = crate::kani_helpers::create_bounded_witness(5, 10);
         let flags: u32 = kani::any();
 
         // Bound for tractability
@@ -3423,7 +3423,7 @@ mod kani_proofs_2 {
         let flags: u32 = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_script_bounds;
+        use crate::assume_script_bounds;
         assume_script_bounds!(script, MAX_SCRIPT_OPS + 10);
 
         // Script execution should respect operation count limits
@@ -3447,9 +3447,9 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_bip65_cltv_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        let locktime_bytes: ByteString = kani::any();
+        let locktime_bytes = crate::kani_helpers::create_bounded_byte_string(10);
         let block_height: Option<u64> = kani::any();
         let median_time_past: Option<u64> = kani::any();
 
@@ -3750,9 +3750,9 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_bip112_csv_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        let sequence_bytes: ByteString = kani::any();
+        let sequence_bytes = crate::kani_helpers::create_bounded_byte_string(10);
 
         // Bound for tractability
         kani::assume(tx.inputs.len() > 0);

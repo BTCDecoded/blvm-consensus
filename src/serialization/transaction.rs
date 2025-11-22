@@ -356,7 +356,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_serialization_round_trip() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -445,7 +445,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_serialization_determinism() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);

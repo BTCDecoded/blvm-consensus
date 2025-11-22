@@ -391,9 +391,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_structure() {
-        use crate::kani_helpers::{assume_transaction_bounds_custom, unwind_bounds};
+        use crate::assume_transaction_bounds_custom;
+        use crate::kani_helpers::unwind_bounds;
 
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
         assume_transaction_bounds_custom!(tx, 10, 10);
@@ -475,12 +476,12 @@ mod kani_proofs {
     /// Kani proof: check_tx_inputs handles coinbase correctly
     #[kani::proof]
     fn kani_check_tx_inputs_coinbase() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         let result = check_tx_inputs(&tx, &utxo_set, height)
@@ -507,7 +508,7 @@ mod kani_proofs {
     /// Kani proof: is_coinbase correctly identifies coinbase transactions
     #[kani::proof]
     fn kani_is_coinbase_correct() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         let is_cb = is_coinbase(&tx);
 
@@ -619,7 +620,7 @@ mod kani_proofs {
             }]
             .into(),
             outputs: vec![TransactionOutput {
-                value: value as u64,
+                value: value,
                 script_pubkey: vec![0x51].into(),
             }]
             .into(),
@@ -647,12 +648,12 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_transaction_value_consistency() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         let result = check_tx_inputs(&tx, &utxo_set, height);
@@ -928,10 +929,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_invariants() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         let result = check_transaction(&tx);
@@ -1010,12 +1011,12 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_tx_inputs_fee_calculation() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Populate UTXO set with values for transaction inputs
@@ -1023,7 +1024,7 @@ mod kani_proofs_2 {
             if !utxo_set.contains_key(&input.prevout) {
                 let utxo = UTXO {
                     value: kani::any(),
-                    script_pubkey: kani::any(),
+                    script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
                 };
                 utxo_set.insert(input.prevout, utxo);
@@ -1069,12 +1070,12 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_conservation_of_value() {
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Skip coinbase (has special rules: fee = 0)
@@ -1085,7 +1086,7 @@ mod kani_proofs_2 {
             if !utxo_set.contains_key(&input.prevout) {
                 let utxo = UTXO {
                     value: kani::any(),
-                    script_pubkey: kani::any(),
+                    script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
                 };
                 utxo_set.insert(input.prevout, utxo);
@@ -1133,10 +1134,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_no_duplicates() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         // Check if transaction has duplicate prevouts
@@ -1192,12 +1193,12 @@ mod kani_proofs_2 {
     fn kani_coinbase_maturity_enforcement() {
         use crate::constants::COINBASE_MATURITY;
 
-        let tx: Transaction = kani::any();
-        let mut utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Skip coinbase transactions (they don't spend coinbase outputs)
@@ -1246,12 +1247,12 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_tx_inputs_no_null_prevout() {
-        let tx: Transaction = kani::any();
-        let utxo_set: UtxoSet = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Skip coinbase transactions (they have null prevouts by definition)
@@ -1298,10 +1299,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_total_output_sum() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         // Calculate total output sum
@@ -1343,75 +1344,14 @@ mod kani_proofs_2 {
     /// This ensures all monetary value arithmetic is safe from overflow/underflow.
     /// Helper function to create bounded transaction for Kani
     fn create_bounded_transaction() -> Transaction {
-        let input_count: usize = kani::any();
-        let output_count: usize = kani::any();
-        kani::assume(input_count <= 10);
-        kani::assume(output_count <= 10);
-
-        let mut inputs = Vec::new();
-        for i in 0..input_count {
-            let script_len: usize = kani::any();
-            kani::assume(script_len <= 10);
-            let mut script = Vec::new();
-            for _j in 0..script_len {
-                let byte: u8 = kani::any();
-                script.push(byte);
-            }
-            inputs.push(TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32],
-                    index: i as u32,
-                },
-                script_sig: script,
-                sequence: 0xffffffff,
-            });
-        }
-
-        let mut outputs = Vec::new();
-        for i in 0..output_count {
-            let script_len: usize = kani::any();
-            kani::assume(script_len <= 10);
-            let mut script = Vec::new();
-            for _j in 0..script_len {
-                let byte: u8 = kani::any();
-                script.push(byte);
-            }
-            let value: i64 = kani::any();
-            kani::assume(value >= 0);
-            kani::assume(value <= MAX_MONEY);
-            outputs.push(TransactionOutput {
-                value,
-                script_pubkey: script,
-            });
-        }
-
-        Transaction {
-            version: 1,
-            inputs: inputs.into(),
-            outputs: outputs.into(),
-            lock_time: 0,
-        }
+        use crate::kani_helpers::create_bounded_transaction;
+        create_bounded_transaction()
     }
 
     /// Helper function to create bounded UTXO set for Kani
-    fn create_bounded_utxo_set(tx: &Transaction) -> UtxoSet {
-        let mut utxo_set = UtxoSet::new();
-        for input in &tx.inputs {
-            if !utxo_set.contains_key(&input.prevout) {
-                let value: i64 = kani::any();
-                kani::assume(value >= 0);
-                kani::assume(value <= MAX_MONEY);
-                utxo_set.insert(
-                    input.prevout.clone(),
-                    UTXO {
-                        value,
-                        height: 0,
-                        coinbase: false,
-                    },
-                );
-            }
-        }
-        utxo_set
+    fn create_bounded_utxo_set(_tx: &Transaction) -> UtxoSet {
+        use crate::kani_helpers::create_bounded_utxo_set;
+        create_bounded_utxo_set()
     }
 
     #[kani::proof]
@@ -1422,7 +1362,7 @@ mod kani_proofs_2 {
         let height: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         // Bound values to reasonable ranges (but still test overflow boundaries)
@@ -1498,7 +1438,7 @@ mod kani_proofs_2 {
         let tx = create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         // Bound individual output values
@@ -1551,10 +1491,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_fast_path_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 10, 10);
 
         // Get fast-path result
@@ -1609,10 +1549,10 @@ mod kani_proofs_2 {
     fn kani_transaction_size_consistency() {
         use crate::segwit::calculate_base_size;
 
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Calculate size using different implementations
@@ -1648,10 +1588,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::TRANSACTION_VALIDATION)]
     fn kani_check_transaction_coinbase_script_sig_length() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability using standardized helpers
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         // Only test coinbase transactions

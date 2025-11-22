@@ -224,7 +224,7 @@ pub struct Block {
 }
 
 /// UTXO: 𝒰 = ℤ × 𝕊 × ℕ
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UTXO {
     pub value: Integer,
     pub script_pubkey: ByteString,

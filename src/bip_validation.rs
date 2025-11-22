@@ -425,7 +425,7 @@ mod kani_proofs {
             header: kani::any(),
             transactions: transactions_vec.into_boxed_slice(),
         };
-        let utxo_set: UtxoSet = kani::any();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         
         let result = check_bip30(&block, &utxo_set);
         
@@ -531,8 +531,8 @@ mod kani_proofs {
     /// - BIP147Check(s, p, h) = true ⟹ (ContainsMultisig(p) ⟹ IsNullDummy(s))
     #[kani::proof]
     fn kani_bip147_null_dummy_enforcement() {
-        let script_sig: Vec<u8> = kani::any();
-        let script_pubkey: Vec<u8> = kani::any();
+        let script_sig = crate::kani_helpers::create_bounded_byte_string(10);
+        let script_pubkey = crate::kani_helpers::create_bounded_byte_string(10);
         let height: Natural = kani::any();
         
         // Bound for tractability

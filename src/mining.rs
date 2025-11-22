@@ -1182,7 +1182,7 @@ mod kani_proofs {
     fn kani_block_hash_calculation_correctness() {
         use sha2::{Digest, Sha256};
 
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Serialize header (same as in calculate_block_hash)
         let mut data = Vec::new();
@@ -1215,7 +1215,7 @@ mod kani_proofs {
     /// - calculate_block_hash(header) is deterministic (same header → same hash)
     #[kani::proof]
     fn kani_block_hash_determinism() {
-        let header: BlockHeader = kani::any();
+        let header = crate::kani_helpers::create_bounded_block_header();
 
         // Calculate hash twice
         let hash1 = calculate_block_hash(&header);
@@ -1241,7 +1241,7 @@ mod kani_proofs {
     fn kani_coinbase_transaction_creation_correctness() {
         let height: Natural = kani::any();
         let subsidy: Integer = kani::any();
-        let script: Vec<u8> = kani::any();
+        let script = crate::kani_helpers::create_bounded_byte_string(10);
         let address: Vec<u8> = kani::any();
 
         // Bound for tractability
@@ -1311,7 +1311,7 @@ mod kani_proofs {
         let txs1: Vec<Transaction> = kani::any();
         let txs2: Vec<Transaction> = kani::any();
 
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
 
         // Bound for tractability
         kani::assume(txs1.len() <= 5);
@@ -1385,7 +1385,7 @@ mod kani_proofs {
     fn kani_merkle_tree_calculation_bounds() {
         let mut txs: Vec<Transaction> = kani::any();
 
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
 
         // Bound for tractability
         kani::assume(txs.len() <= 10);
@@ -1429,10 +1429,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_merkle_root_edge_cases() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 3, 3);
 
         // Edge case 1: Single transaction
@@ -1484,14 +1484,15 @@ mod kani_proofs {
     #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
     fn kani_create_new_block_correctness() {
         use crate::economic::get_block_subsidy;
-        use crate::kani_helpers::{assume_mining_bounds, unwind_bounds};
+        use crate::assume_mining_bounds;
+        use crate::kani_helpers::unwind_bounds;
         use crate::pow::get_next_work_required;
 
-        let utxo_set: UtxoSet = kani::any();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let mempool_txs: Vec<Transaction> = kani::any();
         let height: Natural = kani::any();
         let prev_header: BlockHeader = kani::any();
-        let prev_headers: Vec<BlockHeader> = kani::any();
+        let prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
         let coinbase_script: Vec<u8> = kani::any();
         let coinbase_address: Vec<u8> = kani::any();
 
@@ -1572,10 +1573,11 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
     fn kani_mine_block_correctness() {
-        use crate::kani_helpers::{assume_mining_attempts, unwind_bounds};
+        use crate::assume_mining_attempts;
+        use crate::kani_helpers::unwind_bounds;
         use crate::pow::check_proof_of_work;
 
-        let mut block: Block = kani::any();
+        let mut block = crate::kani_helpers::create_bounded_block();
         let max_attempts: Natural = kani::any();
 
         // Bound for tractability using standardized helpers
@@ -1644,13 +1646,14 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::MINING_BLOCK_CREATION)]
     fn kani_create_block_template_completeness() {
-        use crate::kani_helpers::{assume_mining_bounds, unwind_bounds};
+        use crate::assume_mining_bounds;
+        use crate::kani_helpers::unwind_bounds;
 
-        let utxo_set: UtxoSet = kani::any();
+        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
         let mempool_txs: Vec<Transaction> = kani::any();
         let height: Natural = kani::any();
         let prev_header: BlockHeader = kani::any();
-        let prev_headers: Vec<BlockHeader> = kani::any();
+        let prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
         let coinbase_script: Vec<u8> = kani::any();
         let coinbase_address: Vec<u8> = kani::any();
 
@@ -1735,9 +1738,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(unwind_bounds::MINING_BLOCK_MINING)]
     fn kani_mine_block_nonce_progression() {
-        use crate::kani_helpers::{assume_mining_attempts, unwind_bounds};
+        use crate::assume_mining_attempts;
+        use crate::kani_helpers::unwind_bounds;
 
-        let mut block: Block = kani::any();
+        let mut block = crate::kani_helpers::create_bounded_block();
         let max_attempts: Natural = kani::any();
 
         // Bound for tractability using standardized helpers

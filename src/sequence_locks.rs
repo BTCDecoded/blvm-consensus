@@ -407,10 +407,10 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_sequence_locks_calculation_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
         let flags: u32 = kani::any();
-        let prev_heights: Vec<u64> = kani::any();
-        let headers: Vec<BlockHeader> = kani::any();
+        let prev_heights = crate::kani_helpers::create_bounded_u64_vec(10);
+        let headers = crate::kani_helpers::create_bounded_block_header_vec(10);
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);

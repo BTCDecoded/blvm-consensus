@@ -1163,11 +1163,11 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_witness_commitment_validation() {
-        let coinbase_tx: Transaction = kani::any();
+        let coinbase_tx = crate::kani_helpers::create_bounded_transaction();
         let witness_merkle_root: Hash = kani::any();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         // Note: coinbase has only outputs, no inputs (or null input)
         kani::assume(coinbase_tx.outputs.len() <= 5);
 
@@ -1203,11 +1203,11 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_transaction_weight_correctness() {
-        let tx: Transaction = kani::any();
-        let witness: Option<Witness> = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
@@ -1245,11 +1245,11 @@ mod kani_proofs_2 {
     fn kani_transaction_weight_limits() {
         use crate::constants::MAX_TX_SIZE;
 
-        let tx: Transaction = kani::any();
-        let witness: Option<Witness> = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
@@ -1286,10 +1286,10 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_base_size_calculation_correctness() {
-        let tx: Transaction = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
 
         let base_size = calculate_base_size(&tx);
@@ -1333,11 +1333,11 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_total_size_calculation_correctness() {
-        let tx: Transaction = kani::any();
-        let witness: Option<Witness> = kani::any();
+        let tx = crate::kani_helpers::create_bounded_transaction();
+        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
 
         // Bound for tractability
-        use crate::kani_helpers::assume_transaction_bounds_custom;
+        use crate::assume_transaction_bounds_custom;
         assume_transaction_bounds_custom!(tx, 5, 5);
         if let Some(ref w) = witness {
             kani::assume(w.len() <= 5);
@@ -1417,9 +1417,9 @@ mod kani_proofs_2 {
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_witness_merkle_root_integrity() {
-        let block: Block = kani::any();
-        let witnesses1: Vec<Witness> = kani::any();
-        let witnesses2: Vec<Witness> = kani::any();
+        let block = crate::kani_helpers::create_bounded_block();
+        let witnesses1 = crate::kani_helpers::create_bounded_witness_vec(10, 5, 10);
+        let witnesses2 = crate::kani_helpers::create_bounded_witness_vec(10, 5, 10);
 
         // Bound for tractability
         kani::assume(block.transactions.len() <= 5);
