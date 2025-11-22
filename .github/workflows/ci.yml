@@ -384,7 +384,7 @@ jobs:
           echo "Description: ${{ steps.proof_tier.outputs.description }}"
       
       - name: Run Kani proofs (Fast - every push)
- && steps.proof_tier.outputs.tier == 'fast'
+        if: steps.proof_tier.outputs.tier == 'fast'
         run: |
           echo "⚡ Running Kani proofs - Fast tier (103 proofs, unwind <= 3)..."
           echo "Note: Running with minimal parallelism (2 jobs) to avoid OOM"
