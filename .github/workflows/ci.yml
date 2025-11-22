@@ -280,37 +280,78 @@ jobs:
             exit 1
           fi
       
-      - name: Run Kani proofs
+      - name: Run Kani proofs (Fast/Medium)
         run: |
-          echo "🔍 Running Kani formal verification (402 proofs)..."
+          echo "🔍 Running Kani formal verification - Fast/Medium proofs (~360 proofs, unwind <= 5)..."
           echo "Note: Running proofs in parallel and filtering verbose CBMC output"
           # Detect CPU cores and set aggressive parallelization
-          # Use 4x CPU cores for maximum parallelism (proofs are I/O bound and can benefit from more parallelism)
           CPU_CORES=$(nproc 2>/dev/null || echo "8")
           PARALLEL_JOBS=$((CPU_CORES * 4))
-          # Cap at 64 to avoid excessive resource contention
           if [ $PARALLEL_JOBS -gt 64 ]; then
             PARALLEL_JOBS=64
           fi
           echo "Detected $CPU_CORES CPU cores, using $PARALLEL_JOBS parallel jobs (4x cores, max 64)"
-          # Use cargo kani to automatically find and run all proofs in the crate
-          # cargo kani will discover all #[kani::proof] functions
-          # Run with maximum parallelization for fastest verification
-          # Use terse output format and filter noisy CBMC messages
-          # Capture output and exit code properly to avoid premature cancellation
-          # Use temporary file to capture output while preserving exit code
+          # Run all proofs - fast/medium ones (unwind <= 5) complete quickly
+          # Slow proofs (unwind >= 10) are handled separately in next step
           TEMP_OUTPUT=$(mktemp)
           trap "rm -f $TEMP_OUTPUT" EXIT
-          set +e  # Temporarily disable exit on error to capture exit code
+          set +e
           cargo kani --features verify --output-format terse -j $PARALLEL_JOBS 2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          set -e  # Re-enable exit on error
+          set -e
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Kani verification failed (exit code: $EXIT_CODE)"
+            echo "❌ Fast/Medium Kani proofs failed (exit code: $EXIT_CODE)"
             echo "This is critical for consensus correctness - review proofs before release"
             exit $EXIT_CODE
           fi
-          echo "✅ All Kani proofs verified successfully"
+          echo "✅ Fast/Medium proofs completed"
+      
+      - name: Run Kani proofs (Slow)
+        run: |
+          echo "🐌 Running Kani formal verification - Slow proofs (~42 proofs, unwind >= 10)..."
+          echo "Note: These proofs have unwind bounds >= 10 and take significantly longer"
+          # Detect CPU cores and set aggressive parallelization
+          CPU_CORES=$(nproc 2>/dev/null || echo "8")
+          PARALLEL_JOBS=$((CPU_CORES * 4))
+          if [ $PARALLEL_JOBS -gt 64 ]; then
+            PARALLEL_JOBS=64
+          fi
+          echo "Detected $CPU_CORES CPU cores, using $PARALLEL_JOBS parallel jobs (4x cores, max 64)"
+          # Run only slow proofs (unwind >= 10) using harness filters
+          TEMP_OUTPUT=$(mktemp)
+          trap "rm -f $TEMP_OUTPUT" EXIT
+          set +e
+          cargo kani --features verify --output-format terse -j $PARALLEL_JOBS \
+            --harness kani_apply_transaction_consistency \
+            --harness kani_apply_transaction_with_id_correctness \
+            --harness kani_apply_transaction_mathematical_correctness \
+            --harness kani_bip113_median_calculation_correctness \
+            --harness kani_bip113_exactly_eleven_blocks \
+            --harness kani_economic_invariants_across_blocks \
+            --harness kani_bip113_bip65_integration \
+            --harness kani_witness_segwit_integration \
+            --harness kani_witness_taproot_integration \
+            --harness kani_rbf_mempool_integration \
+            --harness kani_mine_block_correctness \
+            --harness kani_mine_block_nonce_progression \
+            --harness kani_should_reorganize_max_work \
+            --harness kani_script_execution_terminates \
+            --harness kani_stack_size_limit \
+            --harness kani_operation_count_limit \
+            --harness kani_consensus_threshold_enforcement \
+            --harness kani_integer_threshold_calculation \
+            --harness kani_median_calculation_correctness \
+            --harness kani_consensus_result_invariants \
+            --harness kani_diverse_peer_discovery \
+            2>&1 | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Slow Kani proofs failed (exit code: $EXIT_CODE)"
+            echo "This is critical for consensus correctness - review proofs before release"
+            exit $EXIT_CODE
+          fi
+          echo "✅ All slow Kani proofs verified successfully"
       
       - name: Run property tests with all features
         run: |
