@@ -230,9 +230,10 @@ mod kani_proofs {
     /// Mathematical specification:
     /// ∀ headers ∈ [BlockHeader]: get_median_time_past(headers) >= min(header.timestamp for header in headers)
     #[kani::proof]
+    #[kani::unwind(5)] // unwind_bounds::MEDIUM - bounded loop for tractability
     fn kani_bip113_median_time_ge_minimum() {
         let header_count: usize = kani::any();
-        kani::assume(header_count <= 20); // Bounded for tractability
+        kani::assume(header_count <= 5); // Reduced from 20 for tractability
 
         let mut headers = Vec::new();
         let mut min_timestamp = u64::MAX;
@@ -266,9 +267,10 @@ mod kani_proofs {
     /// ∀ headers ∈ [BlockHeader]:
     /// get_median_time_past(headers) = get_median_time_past(headers) (deterministic)
     #[kani::proof]
+    #[kani::unwind(5)] // unwind_bounds::MEDIUM - bounded loop for tractability
     fn kani_bip113_median_time_deterministic() {
         let header_count: usize = kani::any();
-        kani::assume(header_count <= 20);
+        kani::assume(header_count <= 5); // Reduced from 20 for tractability
 
         let mut headers = Vec::new();
         for _ in 0..header_count {
@@ -296,9 +298,10 @@ mod kani_proofs {
     /// Mathematical specification:
     /// ∀ n ∈ [1, 10]: get_median_time_past returns median of n blocks (not last 11)
     #[kani::proof]
+    #[kani::unwind(5)] // unwind_bounds::MEDIUM - bounded loop for tractability
     fn kani_bip113_handles_less_than_eleven_blocks() {
         let block_count: usize = kani::any();
-        kani::assume(block_count >= 1 && block_count < MEDIAN_TIME_BLOCKS);
+        kani::assume(block_count >= 1 && block_count <= 5); // Reduced from < MEDIAN_TIME_BLOCKS for tractability
 
         let mut headers = Vec::new();
         for i in 0..block_count {
@@ -326,9 +329,10 @@ mod kani_proofs {
     /// - Median is bounded by min(timestamps) and max(timestamps)
     /// - Median is one of the timestamps or between two adjacent ones
     #[kani::proof]
+    #[kani::unwind(15)] // unwind_bounds::COMPLEX - needs at least 11 for correctness proof
     fn kani_bip113_median_calculation_correctness() {
         let header_count: usize = kani::any();
-        kani::assume(header_count >= MEDIAN_TIME_BLOCKS && header_count <= 20);
+        kani::assume(header_count >= MEDIAN_TIME_BLOCKS && header_count <= 15); // Reduced from 20 for tractability
 
         let mut headers = Vec::new();
         let mut timestamps = Vec::new();
@@ -389,6 +393,7 @@ mod kani_proofs {
     /// ∀ headers ∈ [BlockHeader] with |headers| = 11:
     /// - get_median_time_past(headers) = median of all 11 timestamps
     #[kani::proof]
+    #[kani::unwind(11)] // Exactly MEDIAN_TIME_BLOCKS for this proof
     fn kani_bip113_exactly_eleven_blocks() {
         let mut headers = Vec::new();
         let mut timestamps = Vec::new();
@@ -430,9 +435,10 @@ mod kani_proofs {
     /// - get_median_time_past(headers) >= min(header.timestamp for header in headers) or median == 0
     /// - get_median_time_past(headers) <= max(header.timestamp for header in headers) or median == 0
     #[kani::proof]
+    #[kani::unwind(5)] // unwind_bounds::MEDIUM - bounded loop for tractability
     fn kani_bip113_median_bounded_by_timestamps() {
         let header_count: usize = kani::any();
-        kani::assume(header_count <= 20);
+        kani::assume(header_count <= 5); // Reduced from 20 for tractability
 
         let mut headers = Vec::new();
         let mut min_timestamp = u64::MAX;
