@@ -869,7 +869,18 @@ jobs:
           
           # Use crates.io API to check if version exists (more reliable than cargo search)
           # The API returns versions in the "versions" array
-          API_RESPONSE=$(curl -s "https://crates.io/api/v1/crates/${CRATE_NAME}/versions" 2>/dev/null || echo "")
+          # Retry up to 3 times with exponential backoff
+          API_RESPONSE=""
+          for i in 1 2 3; do
+            API_RESPONSE=$(curl -s --max-time 10 "https://crates.io/api/v1/crates/${CRATE_NAME}/versions" 2>/dev/null || echo "")
+            if [ -n "$API_RESPONSE" ] && ! echo "$API_RESPONSE" | grep -q '"detail"'; then
+              break
+            fi
+            if [ $i -lt 3 ]; then
+              echo "⚠️  API check attempt $i failed, retrying in $((i*2)) seconds..."
+              sleep $((i*2))
+            fi
+          done
           
           if [ -z "$API_RESPONSE" ] || echo "$API_RESPONSE" | grep -q '"detail"'; then
             echo "⚠️  Could not check crates.io API (crate may not exist yet), using cargo search as fallback"
@@ -974,6 +985,8 @@ jobs:
             if echo "$PUBLISH_OUTPUT" | grep -qi "already exists"; then
               echo "⚠️  Version ${VERSION} already exists on crates.io (detected during publish)"
               echo "published=false" >> $GITHUB_OUTPUT
+              # Update exists status since we confirmed it exists
+              echo "exists=true" >> $GITHUB_OUTPUT
               exit 0
             else
               echo "❌ Failed to publish ${CRATE_NAME} v${VERSION}"
@@ -986,6 +999,47 @@ jobs:
               # Don't exit with error code - let workflow continue
               exit 0
             fi
+          fi
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Final verification - check if version exists on crates.io
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        id: final-verify
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CRATE_NAME=$(grep -E '^name = ' Cargo.toml | sed -E 's/^name = "([^"]+)".*/\1/')
+          
+          echo "🔍 Final verification: Checking if ${CRATE_NAME} v${VERSION} exists on crates.io..."
+          
+          # Wait a bit for crates.io to index if it was just published
+          sleep 5
+          
+          # Use crates.io API to verify version exists
+          API_RESPONSE=$(curl -s --max-time 10 "https://crates.io/api/v1/crates/${CRATE_NAME}/versions" 2>/dev/null || echo "")
+          
+          if [ -n "$API_RESPONSE" ] && ! echo "$API_RESPONSE" | grep -q '"detail"'; then
+            if command -v jq &> /dev/null; then
+              VERSION_EXISTS=$(echo "$API_RESPONSE" | jq -r ".versions[] | select(.num == \"${VERSION}\") | .num" | head -1)
+              if [ "$VERSION_EXISTS" = "$VERSION" ]; then
+                echo "✅ Verified: Version ${VERSION} exists on crates.io"
+                echo "exists=true" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️  Version ${VERSION} not found on crates.io (may need more time to index)"
+                echo "exists=false" >> $GITHUB_OUTPUT
+              fi
+            else
+              if echo "$API_RESPONSE" | grep -q "\"num\":\"${VERSION}\""; then
+                echo "✅ Verified: Version ${VERSION} exists on crates.io"
+                echo "exists=true" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️  Version ${VERSION} not found on crates.io (may need more time to index)"
+                echo "exists=false" >> $GITHUB_OUTPUT
+              fi
+            fi
+          else
+            echo "⚠️  Could not verify via API, assuming version check from earlier step is correct"
+            echo "exists=${{ steps.check-version.outputs.exists }}" >> $GITHUB_OUTPUT
           fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -1048,11 +1102,21 @@ jobs:
           
           # Add links conditionally based on publish status
           PUBLISH_STATUS="${{ steps.publish.outputs.published }}"
-          if [ "$PUBLISH_STATUS" = "true" ]; then
+          # Use final verification if available (more reliable), otherwise use initial check
+          FINAL_EXISTS="${{ steps.final-verify.outputs.exists }}"
+          INITIAL_EXISTS="${{ steps.check-version.outputs.exists }}"
+          if [ "$FINAL_EXISTS" = "true" ] || [ "$FINAL_EXISTS" = "false" ]; then
+            VERSION_EXISTS="$FINAL_EXISTS"
+          else
+            VERSION_EXISTS="$INITIAL_EXISTS"
+          fi
+          
+          # Check if version exists on crates.io (either just published or already existed)
+          if [ "$PUBLISH_STATUS" = "true" ] || [ "$VERSION_EXISTS" = "true" ]; then
             echo "- **Crates.io**: [${CRATE_NAME} v${VERSION}](https://crates.io/crates/${CRATE_NAME}/${VERSION})" >> /tmp/release_notes.md
             echo "- **Documentation**: [docs.rs/${CRATE_NAME}/${VERSION}](https://docs.rs/${CRATE_NAME}/${VERSION})" >> /tmp/release_notes.md
           else
-            echo "- **Crates.io**: ⚠️  Not published (version may already exist or publish failed)" >> /tmp/release_notes.md
+            echo "- **Crates.io**: ⚠️  Not published (publish failed or was skipped)" >> /tmp/release_notes.md
             echo "- **Documentation**: Not available (crate not published)" >> /tmp/release_notes.md
           fi
           echo "- **Repository**: [GitHub](https://github.com/${{ github.repository }})" >> /tmp/release_notes.md
@@ -1061,7 +1125,7 @@ jobs:
           PUBLISH_STATUS_MSG="❌ Failed or skipped"
           if [ "$PUBLISH_STATUS" = "true" ]; then
             PUBLISH_STATUS_MSG="✅ Yes"
-          elif [ "${{ steps.check-version.outputs.exists }}" = "true" ]; then
+          elif [ "$VERSION_EXISTS" = "true" ]; then
             PUBLISH_STATUS_MSG="⚠️  Already exists"
           fi
           
@@ -1079,8 +1143,8 @@ jobs:
           See [full commit history](https://github.com/${REPO_NAME}/compare/${COMMIT_RANGE}) for details.
           EOF
           
-          # Add warning if publish failed
-          if [ "$PUBLISH_STATUS" != "true" ]; then
+          # Add warning only if publish failed AND version doesn't exist
+          if [ "$PUBLISH_STATUS" != "true" ] && [ "$VERSION_EXISTS" != "true" ]; then
             echo "" >> /tmp/release_notes.md
             echo "⚠️  **Note**: This version was not published to crates.io. Check the workflow logs for details." >> /tmp/release_notes.md
           fi
