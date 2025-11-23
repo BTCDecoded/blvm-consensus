@@ -99,8 +99,8 @@ fn test_segwit_weight_discount() {
 
     // SegWit transaction should have different weight calculation
     // (witness data counted 1x instead of 4x)
-    let weight_no = weight_no_witness.unwrap();
-    let weight_with = weight_with_witness.unwrap();
+    let _weight_no = weight_no_witness.unwrap();
+    let _weight_with = weight_with_witness.unwrap();
 
     // Weights may be equal if witness is empty, but calculation method differs
     // weight_no and weight_with are u64 (Natural), always non-negative
@@ -168,8 +168,8 @@ fn test_weight_calculation_segwit_activation() {
     // Before SegWit: blocks use size (1MB limit)
     // After SegWit: blocks use weight (4MB limit)
 
-    let pre_segwit_height = 481823;
-    let post_segwit_height = 481824;
+    let _pre_segwit_height = 481823;
+    let _post_segwit_height = 481824;
 
     let tx = Transaction {
         version: 1,

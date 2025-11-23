@@ -14,6 +14,7 @@
 use bllvm_consensus::block::connect_block;
 use bllvm_consensus::segwit::Witness;
 use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
+use bllvm_consensus::types::Network;
 use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
 
 /// Genesis block (height 0) - the first Bitcoin block
@@ -31,7 +32,7 @@ fn test_genesis_block_validation() {
         if let Ok((block, witnesses)) = deserialize_block_with_witnesses(&bytes) {
             let utxo_set = UtxoSet::new();
             // connect_block expects &[Witness] where Witness is Vec<ByteString> (one per transaction)
-            let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+            let result = connect_block(&block, &witnesses, utxo_set, 0, None, Network::Mainnet);
 
             // Genesis block should validate (or fail gracefully with missing context)
             assert!(result.is_ok());
@@ -67,7 +68,7 @@ fn test_segwit_activation_block() {
         load_mainnet_block_from_disk(&block_dir, segwit_activation_height)
     {
         let utxo_set = UtxoSet::new();
-        let result = connect_block(&block, &witnesses, utxo_set, segwit_activation_height, None, crate::types::Network::Mainnet);
+        let result = connect_block(&block, &witnesses, utxo_set, segwit_activation_height, None, Network::Mainnet);
 
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
@@ -113,8 +114,7 @@ fn test_taproot_activation_block() {
             utxo_set,
             taproot_activation_height,
             None,
-            crate::types::Network::Mainnet,
-            None,
+            Network::Mainnet,
         );
 
         // Block should deserialize and validate (may fail due to missing UTXO context)
@@ -357,7 +357,7 @@ pub fn validate_mainnet_block(
     let block_bytes = hex::decode(block_hex)?;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_bytes)?;
 
-    connect_block(&block, &witnesses, prev_utxo_set, height, None, crate::types::Network::Mainnet).map_err(|e| e.into())
+    connect_block(&block, &witnesses, prev_utxo_set, height, None, Network::Mainnet).map_err(|e| e.into())
 }
 
 #[cfg(test)]
