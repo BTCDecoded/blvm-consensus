@@ -1142,10 +1142,16 @@ jobs:
           
           # Add links conditionally based on publish status
           PUBLISH_STATUS="${{ steps.publish.outputs.published }}"
+          PUBLISH_EXISTS="${{ steps.publish.outputs.exists }}"
           # Use final verification if available (more reliable), otherwise use initial check
           FINAL_EXISTS="${{ steps.final-verify.outputs.exists }}"
           INITIAL_EXISTS="${{ steps.check-version.outputs.exists }}"
-          if [ "$FINAL_EXISTS" = "true" ] || [ "$FINAL_EXISTS" = "false" ]; then
+          
+          # Priority: publish step exists > final verification > initial check
+          # The publish step is most reliable since it directly interacts with crates.io
+          if [ "$PUBLISH_EXISTS" = "true" ]; then
+            VERSION_EXISTS="true"
+          elif [ "$FINAL_EXISTS" = "true" ] || [ "$FINAL_EXISTS" = "false" ]; then
             VERSION_EXISTS="$FINAL_EXISTS"
           else
             VERSION_EXISTS="$INITIAL_EXISTS"
