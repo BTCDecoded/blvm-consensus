@@ -85,7 +85,8 @@ mod tests {
             ],
         };
         
-        let (result, _) = connect_block(&block, utxo_set, 0).unwrap();
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
         
         // Should produce valid result (or invalid, but should be deterministic)
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
@@ -162,7 +163,8 @@ mod tests {
         };
         
         // Should handle error correctly
-        let result = connect_block(&block, utxo_set, 0);
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
         // May succeed or fail depending on when error is caught
         assert!(result.is_ok() || result.is_err(),
                 "Parallel verification must handle errors correctly");
@@ -218,7 +220,8 @@ mod tests {
             transactions: vec![coinbase_tx].into(),
         };
         
-        let (result, _) = connect_block(&block, UtxoSet::new(), 0).unwrap();
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = connect_block(&block, &witnesses, UtxoSet::new(), 0, None, crate::types::Network::Mainnet).unwrap();
         // Should handle empty non-coinbase transactions correctly
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
     }
@@ -276,7 +279,8 @@ mod tests {
             ],
         };
         
-        let (result, _) = connect_block(&block, utxo_set, 0).unwrap();
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
         // Single input should work correctly in parallel mode
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
     }

@@ -29,7 +29,8 @@ fn test_connect_block_smoke() {
     let coinbase = tx_p2pkh(50_000_000_000);
     let block = Block { header: header_prev(), transactions: vec![coinbase] };
     let utxo = UtxoSet::new();
-    let _ = block::connect_block(&block, utxo, 1);
+    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let _ = block::connect_block(&block, &witnesses, utxo, 1, None, crate::types::Network::Mainnet);
 }
 
 

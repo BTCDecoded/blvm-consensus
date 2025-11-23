@@ -43,7 +43,7 @@ proptest! {
         let witness: segwit::Witness = vec![vec![0x51; 50]; input_count];
         
         // Calculate weight
-        let result = segwit::calculate_transaction_weight(&tx, Some(&witness));
+        let result = segwit::calculate_transaction_weight(&tx, Some(&witness), crate::types::Network::Mainnet);
         
         prop_assert!(result.is_ok());
         if result.is_ok() {

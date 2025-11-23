@@ -114,7 +114,7 @@ pub async fn replay_historical_blocks(
                 // Validate block
                 // connect_block expects &[Witness] where each Witness is Vec<ByteString> (one per transaction)
                 use bllvm_consensus::block::connect_block;
-                match connect_block(&block, &witnesses, utxo_set.clone(), current_height, None) {
+                match connect_block(&block, &witnesses, utxo_set.clone(), current_height, None, crate::types::Network::Mainnet) {
                     Ok((validation_result, new_utxo_set)) => {
                         match validation_result {
                             bllvm_consensus::ValidationResult::Valid => {

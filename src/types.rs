@@ -59,6 +59,46 @@ pub type Natural = u64;
 /// Integer type  
 pub type Integer = i64;
 
+/// Network type for consensus validation
+///
+/// Used to determine activation heights for various BIPs and consensus rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Network {
+    /// Bitcoin mainnet
+    Mainnet,
+    /// Bitcoin testnet
+    Testnet,
+    /// Bitcoin regtest (local testing)
+    Regtest,
+}
+
+impl Network {
+    /// Get network from environment variable or default to mainnet
+    ///
+    /// Checks `BITCOIN_NETWORK` environment variable:
+    /// - "testnet" -> Network::Testnet
+    /// - "regtest" -> Network::Regtest
+    /// - otherwise -> Network::Mainnet
+    pub fn from_env() -> Self {
+        match std::env::var("BITCOIN_NETWORK").as_deref() {
+            Ok("testnet") => Network::Testnet,
+            Ok("regtest") => Network::Regtest,
+            _ => Network::Mainnet,
+        }
+    }
+
+    /// Get human-readable part (HRP) for Bech32 encoding
+    ///
+    /// Used by bllvm-protocol for address encoding (BIP173/350/351)
+    pub fn hrp(&self) -> &'static str {
+        match self {
+            Network::Mainnet => "bc",
+            Network::Testnet => "tb",
+            Network::Regtest => "bcrt",
+        }
+    }
+}
+
 /// Block height: newtype wrapper for type safety
 ///
 /// Prevents mixing up block heights with other u64 values (e.g., timestamps, counts).
