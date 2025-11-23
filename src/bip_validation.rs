@@ -509,21 +509,22 @@ mod kani_proofs {
         assert!(result.is_ok(), "BIP90 check should never panic");
 
         // Version enforcement invariants
+        let result_value = result.unwrap_or(true);
         if height >= 227_836 && version < 2 {
             assert!(
-                !result.unwrap_or(true),
+                !result_value,
                 "BIP90: Version 1 invalid after BIP34 activation"
             );
         }
         if height >= 363_724 && version < 3 {
             assert!(
-                !result.unwrap_or(true),
+                !result_value,
                 "BIP90: Version 2 invalid after BIP66 activation"
             );
         }
         if height >= 388_381 && version < 4 {
             assert!(
-                !result.unwrap_or(true),
+                !result_value,
                 "BIP90: Version 3 invalid after BIP65 activation"
             );
         }
