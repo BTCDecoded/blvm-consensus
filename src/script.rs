@@ -421,6 +421,7 @@ pub fn verify_script(
 /// ECDSA signature verification with correct sighash calculation.
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
+#[allow(clippy::too_many_arguments)]
 pub fn verify_script_with_context(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -1596,10 +1597,8 @@ fn verify_signature<C: Context + Verification>(
     }
 
     // BIP66: Check strict DER encoding if flag is set (SCRIPT_VERIFY_DERSIG = 0x04)
-    if flags & 0x04 != 0 {
-        if !crate::bip_validation::check_bip66(signature_bytes, height, network)? {
-            return Ok(false);
-        }
+    if flags & 0x04 != 0 && !crate::bip_validation::check_bip66(signature_bytes, height, network)? {
+        return Ok(false);
     }
 
     // Parse public key
