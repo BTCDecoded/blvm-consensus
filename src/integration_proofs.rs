@@ -559,6 +559,7 @@ mod kani_proofs {
             &prevouts,
             None,
             None,
+            crate::types::Network::Mainnet,
         );
 
         assert!(
@@ -578,6 +579,7 @@ mod kani_proofs {
             &prevouts,
             None,
             None,
+            crate::types::Network::Mainnet,
         );
 
         // Invalid input index should still be handled (may return false, not crash)
