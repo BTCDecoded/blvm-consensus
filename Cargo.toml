@@ -1,6 +1,6 @@
 [package]
 name = "bllvm-consensus"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Bitcoin Commons Team"]
 description = "Bitcoin Commons BLLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
