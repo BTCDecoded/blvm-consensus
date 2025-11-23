@@ -273,6 +273,7 @@ jobs:
           CACHE_ROOT="/tmp/runner-cache"
           CACHE_KEY="${{ needs.setup.outputs.cache-key }}"
           echo "CARGO_CACHE_DIR=$CACHE_ROOT/cargo/$CACHE_KEY" >> $GITHUB_ENV
+          echo "TARGET_CACHE_DIR=$CACHE_ROOT/target/$CACHE_KEY" >> $GITHUB_ENV
       
       - name: Restore registry
         run: |
@@ -288,10 +289,24 @@ jobs:
             rsync -a --delete "$CARGO_CACHE_DIR/git/" "$HOME/.cargo/git/" || true
           fi
       
+      - name: Restore target
+        run: |
+          if [ -d "$TARGET_CACHE_DIR" ] && [ "$(ls -A $TARGET_CACHE_DIR 2>/dev/null)" ]; then
+            rsync -a --delete "$TARGET_CACHE_DIR/" ./target/ || true
+          fi
+      
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.88.0
+      
+      - name: Clean target to avoid dep info corruption
+        run: |
+          # Clean only the problematic dep info files, not the entire target
+          # This helps avoid race conditions with concurrent builds
+          if [ -d "./target" ]; then
+            find ./target -name "*.d" -type f -delete 2>/dev/null || true
+          fi
       
       - name: Docs
         run: cargo doc --no-deps
