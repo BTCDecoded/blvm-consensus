@@ -2530,11 +2530,13 @@ mod kani_proofs_2 {
                 },
                 script_sig: crate::kani_helpers::create_bounded_byte_string(10), // Variable length scriptSig
                 sequence: 0xffffffff,
-            }].into();
+            }]
+            .into();
             coinbase.outputs = vec![TransactionOutput {
                 value: 50_0000_0000, // 50 BTC
                 script_pubkey: vec![0x51],
-            }].into();
+            }]
+            .into();
         }
 
         let witnesses: Vec<crate::segwit::Witness> =
