@@ -2512,7 +2512,7 @@ mod tests {
             0,
             crate::types::Network::Regtest,
         );
-        assert!(!result);
+        assert!(!result.unwrap_or(false));
     }
 
     #[test]
