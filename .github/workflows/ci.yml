@@ -572,13 +572,18 @@ jobs:
     needs: [setup, test, clippy, fmt, docs, security, verify]
     runs-on: [self-hosted, Linux, X64, builds]
     if: |
+      always() &&
+      needs.setup.result == 'success' &&
       (github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' || (always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped'))) &&
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' || (always() && (needs.test.result == 'success' || needs.test.result == 'skipped')))
+      ((github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' && github.event.inputs.skip_verification == 'true') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' && (needs.verify.result == 'success' || needs.verify.result == 'skipped')) ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.skip_verification == 'true' && (needs.test.result == 'success' || needs.test.result == 'skipped')) ||
+       (needs.test.result == 'success' && needs.verify.result == 'success' && needs.clippy.result == 'success' && 
+        needs.fmt.result == 'success' && needs.docs.result == 'success' && needs.security.result == 'success'))
     steps:
       - uses: actions/checkout@v4
       
@@ -637,6 +642,8 @@ jobs:
     needs: [build, test, verify]
     runs-on: [self-hosted, Linux, X64, builds]
     if: |
+      always() &&
+      needs.build.result == 'success' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
@@ -644,8 +651,10 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]') &&
         !contains(github.event.head_commit.message, '[skip release]'))) &&
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_verification != 'true' || (always() && (needs.verify.result == 'success' || needs.verify.result == 'skipped'))) &&
-      (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true' || (always() && (needs.test.result == 'success' || needs.test.result == 'skipped')))
+      ((github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' && github.event.inputs.skip_verification == 'true') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.skip_tests == 'true' && (needs.verify.result == 'success' || needs.verify.result == 'skipped')) ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.skip_verification == 'true' && (needs.test.result == 'success' || needs.test.result == 'skipped')) ||
+       (needs.test.result == 'success' && needs.verify.result == 'success'))
     permissions:
       contents: write
       id-token: write
