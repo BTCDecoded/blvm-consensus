@@ -233,7 +233,8 @@ fn test_coinbase_value_overflow() {
     };
     
     // Block validation should reject coinbase exceeding MAX_MONEY
-    let result = connect_block(&block, utxo_set, 0);
+    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
     assert!(result.is_ok()); // connect_block returns Result<(ValidationResult, UtxoSet), Error>
     
     let (validation_result, _) = result.unwrap();

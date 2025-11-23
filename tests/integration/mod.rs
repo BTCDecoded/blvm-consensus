@@ -28,6 +28,12 @@ mod historical_replay;
 // BIP compliance tests
 mod bip_compliance_tests;
 
+// BIP enforcement tests - verify BIP checks are called in connect_block
+mod bip_enforcement_tests;
+
+// BIP integration smoke tests - lightweight verification
+mod bip_integration_smoke_tests;
+
 
 
 

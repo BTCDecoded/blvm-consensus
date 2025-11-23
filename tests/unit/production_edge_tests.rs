@@ -35,7 +35,8 @@ mod tests {
             ],
         };
         
-        let (result, _) = connect_block(&block, UtxoSet::new(), 0).unwrap();
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = connect_block(&block, &witnesses, UtxoSet::new(), 0, None, crate::types::Network::Mainnet).unwrap();
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
                 "Production mode must handle empty blocks correctly");
     }
@@ -99,7 +100,8 @@ mod tests {
             ],
         };
         
-        let (result, _) = connect_block(&block, utxo_set, 0).unwrap();
+        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
                 "Production mode must handle max-inputs transactions correctly");
     }

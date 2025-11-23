@@ -125,7 +125,8 @@ pub fn run_core_block_tests(vectors: &[BlockTestVector]) -> Result<(), Box<dyn s
     let mut failed = 0;
     
     for (i, vector) in vectors.iter().enumerate() {
-        let result = connect_block(&vector.block, vector.prev_utxo_set.clone(), vector.height);
+        let witnesses: Vec<segwit::Witness> = vector.block.transactions.iter().map(|_| Vec::new()).collect();
+        let result = connect_block(&vector.block, &witnesses, vector.prev_utxo_set.clone(), vector.height, None, crate::types::Network::Mainnet);
         
         match result {
             Ok((validation_result, _utxo_set)) => {

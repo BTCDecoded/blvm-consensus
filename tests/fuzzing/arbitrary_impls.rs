@@ -159,7 +159,8 @@ mod tests {
         proptest!(|(block: Block)| {
             // Should be able to generate arbitrary blocks
             let utxo_set = UtxoSet::new();
-            let _result = connect_block(&block, utxo_set, 0);
+            let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+            let _result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
         });
     }
 }

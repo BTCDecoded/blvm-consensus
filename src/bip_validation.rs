@@ -69,11 +69,11 @@ pub fn check_bip30(block: &Block, utxo_set: &UtxoSet) -> Result<bool> {
 /// - Mainnet: Block 227,836
 /// - Testnet: Block 211,111
 /// - Regtest: Block 0 (always active)
-pub fn check_bip34(block: &Block, height: Natural, network: Bip34Network) -> Result<bool> {
+pub fn check_bip34(block: &Block, height: Natural, network: crate::types::Network) -> Result<bool> {
     let activation_height = match network {
-        Bip34Network::Mainnet => 227_836,
-        Bip34Network::Testnet => 211_111,
-        Bip34Network::Regtest => 0,
+        crate::types::Network::Mainnet => 227_836,
+        crate::types::Network::Testnet => 211_111,
+        crate::types::Network::Regtest => 0,
     };
     
     // BIP34 only applies after activation height
@@ -216,13 +216,7 @@ fn extract_height_from_script_sig(script_sig: &[u8]) -> Result<Natural> {
     ))
 }
 
-/// Network type for BIP34 activation heights
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Bip34Network {
-    Mainnet,
-    Testnet,
-    Regtest,
-}
+// Network type is now in crate::types::Network
 
 /// BIP66: Strict DER Signature Validation
 ///
@@ -235,11 +229,11 @@ pub enum Bip34Network {
 /// - Mainnet: Block 363,724
 /// - Testnet: Block 330,776
 /// - Regtest: Block 0 (always active)
-pub fn check_bip66(signature: &[u8], height: Natural, network: Bip66Network) -> Result<bool> {
+pub fn check_bip66(signature: &[u8], height: Natural, network: crate::types::Network) -> Result<bool> {
     let activation_height = match network {
-        Bip66Network::Mainnet => 363_724,
-        Bip66Network::Testnet => 330_776,
-        Bip66Network::Regtest => 0,
+        crate::types::Network::Mainnet => 363_724,
+        crate::types::Network::Testnet => 330_776,
+        crate::types::Network::Regtest => 0,
     };
     
     // BIP66 only applies after activation height
@@ -270,13 +264,7 @@ fn is_strict_der(signature: &[u8]) -> Result<bool> {
     }
 }
 
-/// Network type for BIP66 activation heights
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Bip66Network {
-    Mainnet,
-    Testnet,
-    Regtest,
-}
+// Network type is now in crate::types::Network
 
 /// BIP90: Block Version Enforcement
 ///
@@ -289,11 +277,11 @@ pub enum Bip66Network {
 /// - BIP34: Mainnet 227,836 (requires version >= 2)
 /// - BIP66: Mainnet 363,724 (requires version >= 3)
 /// - BIP65: Mainnet 388,381 (requires version >= 4)
-pub fn check_bip90(block_version: i64, height: Natural, network: Bip90Network) -> Result<bool> {
+pub fn check_bip90(block_version: i64, height: Natural, network: crate::types::Network) -> Result<bool> {
     let (bip34_height, bip66_height, bip65_height) = match network {
-        Bip90Network::Mainnet => (227_836, 363_724, 388_381),
-        Bip90Network::Testnet => (211_111, 330_776, 388_381), // Approximate testnet heights
-        Bip90Network::Regtest => (0, 0, 0), // Always active in regtest
+        crate::types::Network::Mainnet => (227_836, 363_724, 388_381),
+        crate::types::Network::Testnet => (211_111, 330_776, 388_381), // Approximate testnet heights
+        crate::types::Network::Regtest => (0, 0, 0), // Always active in regtest
     };
     
     // Check minimum version requirements
@@ -310,13 +298,7 @@ pub fn check_bip90(block_version: i64, height: Natural, network: Bip90Network) -
     Ok(true)
 }
 
-/// Network type for BIP90 activation heights
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Bip90Network {
-    Mainnet,
-    Testnet,
-    Regtest,
-}
+// Network type is now in crate::types::Network
 
 /// BIP147: NULLDUMMY Enforcement
 ///
@@ -457,7 +439,7 @@ mod kani_proofs {
         let height: Natural = kani::any();
         kani::assume(height <= 1_000_000);
         
-        let result = check_bip34(&block, height, Bip34Network::Mainnet);
+        let result = check_bip34(&block, height, crate::types::Network::Mainnet);
         
         // Should never panic
         assert!(result.is_ok(), "BIP34 check should never panic");
@@ -482,7 +464,7 @@ mod kani_proofs {
         kani::assume(signature.len() <= 73); // Max signature size
         kani::assume(height <= 1_000_000);
         
-        let result = check_bip66(&signature, height, Bip66Network::Mainnet);
+        let result = check_bip66(&signature, height, crate::types::Network::Mainnet);
         
         // Should never panic
         assert!(result.is_ok(), "BIP66 check should never panic");
@@ -507,7 +489,7 @@ mod kani_proofs {
         kani::assume(version >= 1 && version <= 10);
         kani::assume(height <= 1_000_000);
         
-        let result = check_bip90(version, height, Bip90Network::Mainnet);
+        let result = check_bip90(version, height, crate::types::Network::Mainnet);
         
         // Should never panic
         assert!(result.is_ok(), "BIP90 check should never panic");
@@ -623,7 +605,7 @@ mod tests {
         };
         
         // Before activation, BIP34 should pass
-        let result = check_bip34(&block, 100_000, Bip34Network::Mainnet).unwrap();
+        let result = check_bip34(&block, 100_000, crate::types::Network::Mainnet).unwrap();
         assert!(result, "BIP34 should pass before activation");
     }
     
@@ -659,30 +641,30 @@ mod tests {
             transactions: transactions.into_boxed_slice(),
         };
         
-        let result = check_bip34(&block, height, Bip34Network::Mainnet).unwrap();
+        let result = check_bip34(&block, height, crate::types::Network::Mainnet).unwrap();
         assert!(result, "BIP34 should pass with correct height encoding");
     }
     
     #[test]
     fn test_bip90_version_enforcement() {
         // Test version 1 before BIP34 activation
-        let result = check_bip90(1, 100_000, Bip90Network::Mainnet).unwrap();
+        let result = check_bip90(1, 100_000, crate::types::Network::Mainnet).unwrap();
         assert!(result, "Version 1 should be valid before BIP34");
         
         // Test version 1 after BIP34 activation (should fail)
-        let result = check_bip90(1, 227_836, Bip90Network::Mainnet).unwrap();
+        let result = check_bip90(1, 227_836, crate::types::Network::Mainnet).unwrap();
         assert!(!result, "Version 1 should be invalid after BIP34 activation");
         
         // Test version 2 after BIP34 activation (should pass)
-        let result = check_bip90(2, 227_836, Bip90Network::Mainnet).unwrap();
+        let result = check_bip90(2, 227_836, crate::types::Network::Mainnet).unwrap();
         assert!(result, "Version 2 should be valid after BIP34 activation");
         
         // Test version 2 after BIP66 activation (should fail)
-        let result = check_bip90(2, 363_724, Bip90Network::Mainnet).unwrap();
+        let result = check_bip90(2, 363_724, crate::types::Network::Mainnet).unwrap();
         assert!(!result, "Version 2 should be invalid after BIP66 activation");
         
         // Test version 3 after BIP66 activation (should pass)
-        let result = check_bip90(3, 363_724, Bip90Network::Mainnet).unwrap();
+        let result = check_bip90(3, 363_724, crate::types::Network::Mainnet).unwrap();
         assert!(result, "Version 3 should be valid after BIP66 activation");
     }
     
@@ -773,7 +755,7 @@ mod tests {
         };
         
         // BIP34 should fail with wrong height
-        let result = check_bip34(&block, height, Bip34Network::Mainnet).unwrap();
+        let result = check_bip34(&block, height, crate::types::Network::Mainnet).unwrap();
         assert!(!result, "BIP34 should fail with incorrect height encoding");
     }
     
@@ -781,12 +763,12 @@ mod tests {
     fn test_bip66_strict_der() {
         // Valid DER signature (minimal example)
         let valid_der = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00];
-        let result = check_bip66(&valid_der, 363_724, Bip66Network::Mainnet).unwrap();
+        let result = check_bip66(&valid_der, 363_724, crate::types::Network::Mainnet).unwrap();
         // Note: This may fail if signature is not actually valid DER, but the check should not panic
         assert!(result || !result, "BIP66 check should handle invalid DER gracefully");
         
         // Before activation, should always pass
-        let result = check_bip66(&valid_der, 100_000, Bip66Network::Mainnet).unwrap();
+        let result = check_bip66(&valid_der, 100_000, crate::types::Network::Mainnet).unwrap();
         assert!(result, "BIP66 should pass before activation");
     }
     

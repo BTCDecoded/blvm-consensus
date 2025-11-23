@@ -107,7 +107,7 @@ pub fn reorganize_chain_with_witnesses(
         let recent_headers = new_chain_headers;
 
         let (validation_result, new_utxo_set) =
-            connect_block(block, &witnesses, utxo_set, new_height, recent_headers)?;
+            connect_block(block, &witnesses, utxo_set, new_height, recent_headers, crate::types::Network::Mainnet)?;
 
         if !matches!(validation_result, ValidationResult::Valid) {
             return Err(crate::error::ConsensusError::ConsensusRuleViolation(
@@ -1104,7 +1104,7 @@ mod kani_proofs_2 {
         // Connect block
         let witnesses: Vec<crate::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
-        let connect_result = connect_block(&block, &witnesses, utxo_set.clone(), height, None);
+        let connect_result = connect_block(&block, &witnesses, utxo_set.clone(), height, None, crate::types::Network::Mainnet);
 
         if connect_result.is_ok() {
             let (validation_result, connected_utxo_set) = connect_result.unwrap();

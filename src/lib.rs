@@ -59,6 +59,7 @@ pub use script::{
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use transaction_hash::clear_sighash_templates;
 pub mod bip113;
+pub mod bip_validation;
 pub mod block;
 pub mod crypto;
 pub mod economic;
@@ -278,7 +279,8 @@ impl ConsensusProof {
         // Callers should use validate_block_with_context for full witness support
         let witnesses: Vec<segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
-        block::connect_block(block, &witnesses, utxo_set, height, None)
+        let network = types::Network::from_env();
+        block::connect_block(block, &witnesses, utxo_set, height, None, network)
     }
 
     /// Validate a complete block with witness data and recent headers
@@ -290,7 +292,8 @@ impl ConsensusProof {
         height: Natural,
         recent_headers: Option<&[BlockHeader]>,
     ) -> Result<(ValidationResult, UtxoSet)> {
-        block::connect_block(block, witnesses, utxo_set, height, recent_headers)
+        let network = types::Network::from_env();
+        block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)
     }
 
     /// Verify script execution

@@ -934,7 +934,7 @@ proptest! {
         // Connect block1
         let mut utxo_set = UtxoSet::new();
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
-        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None);
+        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, crate::types::Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set1)) = result1 {
             // Calculate supply after block1
@@ -946,7 +946,7 @@ proptest! {
 
             // Connect block2
             let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
-            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None);
+            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, crate::types::Network::Mainnet);
 
             if let Ok((ValidationResult::Valid, utxo_set2)) = result2 {
                 // Calculate supply after block2
@@ -1176,7 +1176,7 @@ proptest! {
         // Connect block1
         let mut utxo_set = UtxoSet::new();
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
-        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None);
+        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, crate::types::Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set1)) = result1 {
             // Verify invariants after block1
@@ -1191,7 +1191,7 @@ proptest! {
 
             // Connect block2
             let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
-            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None);
+            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, crate::types::Network::Mainnet);
 
             if let Ok((ValidationResult::Valid, utxo_set2)) = result2 {
                 // Verify invariants after block2 (composition)
@@ -1253,7 +1253,7 @@ proptest! {
         // Connect block
         let utxo_set_before = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = block::connect_block(&block, &witnesses, utxo_set_before.clone(), height as u64, None);
+        let result = block::connect_block(&block, &witnesses, utxo_set_before.clone(), height as u64, None, crate::types::Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set_after_connect)) = result {
             // Simulate disconnect via reorganization (disconnect and reconnect same block)

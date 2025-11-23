@@ -86,7 +86,8 @@ pub async fn compare_block_validation(
 ) -> Result<ComparisonResult, Box<dyn std::error::Error>> {
     // Validate block locally
     let initial_utxo_set = UtxoSet::new();
-    let local_result = connect_block(block, initial_utxo_set, 0)?;
+    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let local_result = connect_block(block, &witnesses, initial_utxo_set, 0, None, crate::types::Network::Mainnet)?;
     let local_valid = matches!(local_result.0, ValidationResult::Valid);
     
     // Serialize block to hex for Core RPC

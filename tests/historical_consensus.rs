@@ -291,7 +291,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
 
     // Block should be rejected due to double-spend
     let witnesses = vec![vec![], vec![], vec![]]; // Empty witnesses
-    let result = connect_block(&block, &witnesses, utxo_set, 1, None);
+    let result = connect_block(&block, &witnesses, utxo_set, 1, None, crate::types::Network::Mainnet);
 
     // Block should be invalid due to double-spend
     if let Ok((validation_result, _)) = result {
@@ -332,7 +332,7 @@ fn test_pre_segwit_block_validation() {
     // Block should validate at pre-SegWit height
     // (Note: This is a placeholder - actual validation would check witness data)
     let witnesses = vec![];
-    let result = connect_block(&block, &witnesses, utxo_set, pre_segwit_height, None);
+    let result = connect_block(&block, &witnesses, utxo_set, pre_segwit_height, None, crate::types::Network::Mainnet);
 
     // Result may be invalid due to missing transactions, but structure should be valid
     assert!(result.is_ok() || result.is_err());
@@ -364,7 +364,7 @@ fn test_post_segwit_block_validation() {
 
     // Block should validate at post-SegWit height
     let witnesses = vec![];
-    let result = connect_block(&block, &witnesses, utxo_set, post_segwit_height, None);
+    let result = connect_block(&block, &witnesses, utxo_set, post_segwit_height, None, crate::types::Network::Mainnet);
 
     // Result may be invalid due to missing transactions, but structure should be valid
     assert!(result.is_ok() || result.is_err());
@@ -396,7 +396,7 @@ fn test_post_taproot_block_validation() {
 
     // Block should validate at post-Taproot height
     let witnesses = vec![];
-    let result = connect_block(&block, &witnesses, utxo_set, post_taproot_height, None);
+    let result = connect_block(&block, &witnesses, utxo_set, post_taproot_height, None, crate::types::Network::Mainnet);
 
     // Result may be invalid due to missing transactions, but structure should be valid
     assert!(result.is_ok() || result.is_err());

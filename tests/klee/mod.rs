@@ -60,7 +60,8 @@ pub fn klee_check_block_harness() {
     };
     
     let utxo_set = UtxoSet::new();
-    let _result = connect_block(&block, utxo_set, klee_int("height"));
+    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let _result = connect_block(&block, &witnesses, utxo_set, klee_int("height"), None, crate::types::Network::Mainnet);
 }
 
 // Placeholder KLEE intrinsic functions

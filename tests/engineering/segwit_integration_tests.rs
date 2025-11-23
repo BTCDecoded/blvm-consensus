@@ -92,7 +92,7 @@ fn test_segwit_transaction_weight() {
     
     let witness = vec![vec![0x51; 100]]; // 100-byte witness
     
-    let weight = calculate_transaction_weight(&tx, Some(&witness)).unwrap();
+    let weight = calculate_transaction_weight(&tx, Some(&witness), crate::types::Network::Mainnet).unwrap();
     
     // Weight = 4 * base_size + total_size
     // base_size includes transaction without witness
@@ -506,7 +506,7 @@ fn test_segwit_no_witness_weight() {
     };
     
     let weight_no_witness = calculate_transaction_weight(&tx, None).unwrap();
-    let weight_with_empty_witness = calculate_transaction_weight(&tx, Some(&vec![])).unwrap();
+    let weight_with_empty_witness = calculate_transaction_weight(&tx, Some(&vec![]), crate::types::Network::Mainnet).unwrap();
     
     // Weight should be same with no witness or empty witness
     assert_eq!(weight_no_witness, weight_with_empty_witness);
@@ -585,7 +585,7 @@ fn test_segwit_weight_base_size() {
     };
     
     let weight_no_witness = calculate_transaction_weight(&tx, None).unwrap();
-    let weight_with_witness = calculate_transaction_weight(&tx, Some(&vec![vec![0x51; 100]])).unwrap();
+    let weight_with_witness = calculate_transaction_weight(&tx, Some(&vec![vec![0x51; 100]]), crate::types::Network::Mainnet).unwrap();
     
     // Weight with witness should be larger
     assert!(weight_with_witness > weight_no_witness);
@@ -610,7 +610,7 @@ fn test_segwit_weight_precise_calculation() {
     
     let witness = vec![vec![0x51; 100]]; // 100-byte witness
     
-    let weight = calculate_transaction_weight(&tx, Some(&witness)).unwrap();
+    let weight = calculate_transaction_weight(&tx, Some(&witness), crate::types::Network::Mainnet).unwrap();
     
     // Base size (without witness) * 4 + total size (with witness)
     // This verifies the weight formula is applied correctly
@@ -656,8 +656,8 @@ fn test_segwit_block_weight_sum() {
     let block_weight = calculate_block_weight(&block, &witnesses).unwrap();
     
     // Calculate individual transaction weights
-    let tx0_weight = calculate_transaction_weight(&block.transactions[0], Some(&witnesses[0])).unwrap();
-    let tx1_weight = calculate_transaction_weight(&block.transactions[1], Some(&witnesses[1])).unwrap();
+    let tx0_weight = calculate_transaction_weight(&block.transactions[0], Some(&witnesses[0]), crate::types::Network::Mainnet).unwrap();
+    let tx1_weight = calculate_transaction_weight(&block.transactions[1], Some(&witnesses[1]), crate::types::Network::Mainnet).unwrap();
     
     // Block weight should equal sum of transaction weights
     assert_eq!(block_weight, tx0_weight + tx1_weight);

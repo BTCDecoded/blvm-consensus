@@ -326,7 +326,7 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
-    timeout-minutes: 360  # 6 hours for all proofs (195 proofs can take a long time)
+      timeout-minutes: 360  # 6 hours for all proofs (195 proofs can take a long time)
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
