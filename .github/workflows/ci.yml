@@ -125,18 +125,16 @@ jobs:
         with:
           toolchain: 1.88.0
       
-      - name: Run tests
-        run: |
-          # Run tests in parallel (default) with minimal output for speed
-          # Use --lib --bins --tests to ensure all test types run
-          cargo test --lib --bins --tests
-      
-      - name: Coverage
+      - name: Run tests with coverage
         id: coverage
         run: |
+          # Install tarpaulin
           cargo install cargo-tarpaulin --version 0.27.0
-          # Use --skip-clean to avoid rebuilding, --timeout to prevent hangs
-          cargo tarpaulin --out xml --output-dir coverage --timeout 120 --skip-clean
+          
+          # Run tests with coverage in one step
+          # Use --lib --bins --tests to ensure all test types run
+          # Use --skip-clean to reuse cached build artifacts, --timeout to prevent hangs
+          cargo tarpaulin --lib --bins --tests --out xml --output-dir coverage --timeout 120 --skip-clean
           # Extract coverage percentage from XML
           if [ -f "coverage/cobertura.xml" ]; then
             COVERAGE_PCT=$(grep -oP 'line-rate="\K[0-9.]+' coverage/cobertura.xml | head -1 | awk '{printf "%.2f", $1 * 100}')
