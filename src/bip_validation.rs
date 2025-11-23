@@ -408,11 +408,10 @@ mod kani_proofs {
     /// - BIP30Check(b, us) = false ⟹ ∃ tx ∈ b.txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
     #[kani::proof]
     fn kani_bip30_duplicate_coinbase_prevention() {
-        // Create block with arbitrary transactions
-        let transactions_vec: Vec<Transaction> = kani::any();
-        kani::assume(transactions_vec.len() <= 10);
+        // Create block with bounded transactions using helper function
+        let transactions_vec = crate::kani_helpers::create_bounded_transaction_vec(10);
         let block = Block {
-            header: kani::any(),
+            header: crate::kani_helpers::create_bounded_block_header(),
             transactions: transactions_vec.into_boxed_slice(),
         };
         let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
@@ -437,11 +436,10 @@ mod kani_proofs {
     /// - BIP34Check(b, h) = true ⟹ ExtractHeight(b.coinbase.scriptSig) = h
     #[kani::proof]
     fn kani_bip34_height_encoding_correctness() {
-        // Create block with arbitrary transactions
-        let transactions_vec: Vec<Transaction> = kani::any();
-        kani::assume(transactions_vec.len() <= 10);
+        // Create block with bounded transactions using helper function
+        let transactions_vec = crate::kani_helpers::create_bounded_transaction_vec(10);
         let block = Block {
-            header: kani::any(),
+            header: crate::kani_helpers::create_bounded_block_header(),
             transactions: transactions_vec.into_boxed_slice(),
         };
         let height: Natural = kani::any();

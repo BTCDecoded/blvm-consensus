@@ -439,7 +439,7 @@ mod kani_proofs {
 
         let tx1 = Transaction {
             version: 1,
-            inputs: tx1_inputs_vec,
+            inputs: tx1_inputs_vec.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
@@ -467,7 +467,7 @@ mod kani_proofs {
 
         let tx2 = Transaction {
             version: 1,
-            inputs: tx2_inputs_vec,
+            inputs: tx2_inputs_vec.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
