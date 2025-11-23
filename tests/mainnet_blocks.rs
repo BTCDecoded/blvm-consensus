@@ -68,7 +68,14 @@ fn test_segwit_activation_block() {
         load_mainnet_block_from_disk(&block_dir, segwit_activation_height)
     {
         let utxo_set = UtxoSet::new();
-        let result = connect_block(&block, &witnesses, utxo_set, segwit_activation_height, None, Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            segwit_activation_height,
+            None,
+            Network::Mainnet,
+        );
 
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
@@ -357,7 +364,15 @@ pub fn validate_mainnet_block(
     let block_bytes = hex::decode(block_hex)?;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_bytes)?;
 
-    connect_block(&block, &witnesses, prev_utxo_set, height, None, Network::Mainnet).map_err(|e| e.into())
+    connect_block(
+        &block,
+        &witnesses,
+        prev_utxo_set,
+        height,
+        None,
+        Network::Mainnet,
+    )
+    .map_err(|e| e.into())
 }
 
 #[cfg(test)]

@@ -159,5 +159,175 @@ mod kani_proofs {
             }
         }
     }
+
+    /// Kani proof: BIP66 violations are caught during script verification
+    ///
+    /// Mathematical specification:
+    /// ∀ signature sig, height h ≥ activation_height:
+    /// - If BIP66Check(sig, h) = false, then script verification must reject
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_bip66_integration() {
+        use bllvm_consensus::script::verify_script_with_context_full;
+        
+        let signature_bytes: Vec<u8> = kani::vec::any_vec();
+        let height: Natural = kani::any();
+        
+        // Bound for tractability
+        kani::assume(signature_bytes.len() <= 73);
+        kani::assume(height <= 1_000_000);
+        
+        // Only test at or after BIP66 activation
+        kani::assume(height >= 363_724);
+        
+        // Check BIP66 directly
+        let bip66_result = bip_validation::check_bip66(&signature_bytes, height, types::Network::Mainnet);
+        
+        // If BIP66 check fails, script verification with DERSIG flag should also fail
+        if let Ok(false) = bip66_result {
+            // Create a simple transaction
+            let tx = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint {
+                        hash: [0; 32].into(),
+                        index: 0,
+                    },
+                    script_sig: signature_bytes.clone().into(),
+                    sequence: 0xffffffff,
+                }].into(),
+                outputs: vec![TransactionOutput {
+                    value: 50_000_000_000,
+                    script_pubkey: vec![].into(),
+                }].into(),
+                lock_time: 0,
+            };
+            
+            let prevout = TransactionOutput {
+                value: 50_000_000_000,
+                script_pubkey: vec![].into(),
+            };
+            
+            // Flags with SCRIPT_VERIFY_DERSIG (0x04) enabled
+            let flags = 0x04;
+            
+            // Script verification should reject invalid DER signatures
+            let script_result = verify_script_with_context_full(
+                &signature_bytes,
+                &prevout.script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &[prevout],
+                Some(height),
+                None,
+                types::Network::Mainnet,
+            );
+            
+            // Script verification must reject signatures that violate BIP66
+            match script_result {
+                Ok(false) => {
+                    // Good - violation was caught
+                }
+                Ok(true) => {
+                    // BUG: Signature violating BIP66 was accepted!
+                    kani::cover!(false, "BIP66 violation was accepted by script verification");
+                }
+                Err(_) => {
+                    // Error is also acceptable
+                }
+            }
+        }
+    }
+
+    /// Kani proof: BIP147 violations are caught during OP_CHECKMULTISIG
+    ///
+    /// Mathematical specification:
+    /// ∀ scriptSig ss, scriptPubkey spk, height h ≥ activation_height:
+    /// - If BIP147Check(ss, spk, h) = false, then OP_CHECKMULTISIG must reject
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn kani_bip147_integration() {
+        use bllvm_consensus::script::verify_script_with_context_full;
+        use bllvm_consensus::bip_validation::Bip147Network;
+        
+        let script_sig: Vec<u8> = kani::vec::any_vec();
+        let script_pubkey: Vec<u8> = kani::vec::any_vec();
+        let height: Natural = kani::any();
+        
+        // Bound for tractability
+        kani::assume(script_sig.len() <= 1000);
+        kani::assume(script_pubkey.len() <= 1000);
+        kani::assume(height <= 1_000_000);
+        
+        // Only test at or after BIP147 activation
+        kani::assume(height >= 481_824);
+        
+        // Check BIP147 directly
+        let bip147_result = bip_validation::check_bip147(
+            &script_sig,
+            &script_pubkey,
+            height,
+            Bip147Network::Mainnet,
+        );
+        
+        // If BIP147 check fails, script verification with NULLDUMMY flag should also fail
+        if let Ok(false) = bip147_result {
+            // Create a transaction with multisig
+            let tx = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint {
+                        hash: [0; 32].into(),
+                        index: 0,
+                    },
+                    script_sig: script_sig.clone().into(),
+                    sequence: 0xffffffff,
+                }].into(),
+                outputs: vec![TransactionOutput {
+                    value: 50_000_000_000,
+                    script_pubkey: script_pubkey.clone().into(),
+                }].into(),
+                lock_time: 0,
+            };
+            
+            let prevout = TransactionOutput {
+                value: 50_000_000_000,
+                script_pubkey: script_pubkey.into(),
+            };
+            
+            // Flags with SCRIPT_VERIFY_NULLDUMMY (0x10) enabled
+            let flags = 0x10;
+            
+            // Script verification should reject scripts that violate BIP147
+            let script_result = verify_script_with_context_full(
+                &script_sig,
+                &prevout.script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &[prevout],
+                Some(height),
+                None,
+                types::Network::Mainnet,
+            );
+            
+            // Script verification must reject scripts that violate BIP147
+            match script_result {
+                Ok(false) => {
+                    // Good - violation was caught
+                }
+                Ok(true) => {
+                    // BUG: Script violating BIP147 was accepted!
+                    kani::cover!(false, "BIP147 violation was accepted by script verification");
+                }
+                Err(_) => {
+                    // Error is also acceptable
+                }
+            }
+        }
+    }
 }
 

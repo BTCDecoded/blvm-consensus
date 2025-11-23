@@ -229,7 +229,14 @@ fn test_coinbase_maturity_block_validation() {
     // Block should be rejected if coinbase spending is immature
     // (This depends on actual validation implementation)
     let witnesses = vec![];
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+    let result = connect_block(
+        &block,
+        &witnesses,
+        utxo_set,
+        height,
+        None,
+        crate::types::Network::Mainnet,
+    );
 
     // Result may be invalid due to immature coinbase
     assert!(result.is_ok() || result.is_err());

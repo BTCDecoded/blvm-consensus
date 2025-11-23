@@ -429,6 +429,7 @@ pub fn verify_script_with_context(
     tx: &Transaction,
     input_index: usize,
     prevouts: &[TransactionOutput],
+    network: crate::types::Network,
 ) -> Result<bool> {
     verify_script_with_context_full(
         script_sig,
@@ -440,18 +441,20 @@ pub fn verify_script_with_context(
         prevouts,
         None, // block_height
         None, // median_time_past
+        network,
     )
 }
 
-/// VerifyScript with full context including block height and median time-past
+/// VerifyScript with full context including block height, median time-past, and network
 ///
-/// This version includes block height and median time-past needed for proper
-/// BIP65 (CLTV) and BIP112 (CSV) validation.
+/// This version includes block height, median time-past, and network needed for proper
+/// BIP65 (CLTV), BIP112 (CSV), BIP66 (Strict DER), and BIP147 (NULLDUMMY) validation.
 ///
 /// # Arguments
 ///
-/// * `block_height` - Optional current block height (required for block-height CLTV)
+/// * `block_height` - Optional current block height (required for block-height CLTV, BIP66, BIP147)
 /// * `median_time_past` - Optional median time-past (required for timestamp CLTV per BIP113)
+/// * `network` - Network type (required for BIP66 and BIP147 activation heights)
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
@@ -465,6 +468,7 @@ pub fn verify_script_with_context_full(
     prevouts: &[TransactionOutput],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
+    network: crate::types::Network,
 ) -> Result<bool> {
     // Pre-allocate stack with capacity hint
     let mut stack = Vec::with_capacity(20);
@@ -479,6 +483,7 @@ pub fn verify_script_with_context_full(
         prevouts,
         block_height,
         median_time_past,
+        network,
     )? {
         return Ok(false);
     }
@@ -493,6 +498,7 @@ pub fn verify_script_with_context_full(
         prevouts,
         block_height,
         median_time_past,
+        network,
     )? {
         return Ok(false);
     }
@@ -508,6 +514,7 @@ pub fn verify_script_with_context_full(
             prevouts,
             block_height,
             median_time_past,
+            network,
         )? {
             return Ok(false);
         }
@@ -526,6 +533,7 @@ fn eval_script_with_context(
     tx: &Transaction,
     input_index: usize,
     prevouts: &[TransactionOutput],
+    network: crate::types::Network,
 ) -> Result<bool> {
     eval_script_with_context_full(
         script,
@@ -536,10 +544,11 @@ fn eval_script_with_context(
         prevouts,
         None, // block_height
         None, // median_time_past
+        network,
     )
 }
 
-/// EvalScript with full context including block height and median time-past
+/// EvalScript with full context including block height, median time-past, and network
 #[allow(clippy::too_many_arguments)]
 fn eval_script_with_context_full(
     script: &ByteString,
@@ -550,6 +559,7 @@ fn eval_script_with_context_full(
     prevouts: &[TransactionOutput],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
+    network: crate::types::Network,
 ) -> Result<bool> {
     // Pre-allocate stack capacity if needed
     if stack.capacity() < 20 {
@@ -589,6 +599,7 @@ fn eval_script_with_context_full(
             prevouts,
             block_height,
             median_time_past,
+            network,
         )? {
             return Ok(false);
         }
@@ -750,20 +761,41 @@ fn execute_opcode(opcode: u8, stack: &mut Vec<ByteString>, flags: u32) -> Result
             let signature_bytes = stack.pop().unwrap();
 
             // Verify signature using secp256k1 (dummy hash for legacy compatibility)
+            // Note: Without transaction context, we use height 0 and Regtest network
+            // This is only used in basic execute_opcode without transaction context
+            let dummy_hash = [0u8; 32];
             #[cfg(feature = "production")]
             let result = SECP256K1_CONTEXT.with(|secp| {
-                let dummy_hash = [0u8; 32];
-                verify_signature(secp, &pubkey_bytes, &signature_bytes, &dummy_hash, flags)
+                verify_signature(
+                    secp,
+                    &pubkey_bytes,
+                    &signature_bytes,
+                    &dummy_hash,
+                    flags,
+                    0,
+                    crate::types::Network::Regtest,
+                )
             });
 
             #[cfg(not(feature = "production"))]
             let result = {
                 let secp = Secp256k1::new();
-                let dummy_hash = [0u8; 32];
-                verify_signature(&secp, &pubkey_bytes, &signature_bytes, &dummy_hash, flags)
+                verify_signature(
+                    &secp,
+                    &pubkey_bytes,
+                    &signature_bytes,
+                    &dummy_hash,
+                    flags,
+                    0,
+                    crate::types::Network::Regtest,
+                )
             };
 
-            stack.push(if result { vec![1] } else { vec![0] });
+            stack.push(if result.unwrap_or(false) {
+                vec![1]
+            } else {
+                vec![0]
+            });
             Ok(true)
         }
 
@@ -776,20 +808,37 @@ fn execute_opcode(opcode: u8, stack: &mut Vec<ByteString>, flags: u32) -> Result
             let signature_bytes = stack.pop().unwrap();
 
             // Verify signature using secp256k1 (dummy hash for legacy compatibility)
+            // Note: Without transaction context, we use height 0 and Regtest network
+            // This is only used in basic execute_opcode without transaction context
+            let dummy_hash = [0u8; 32];
             #[cfg(feature = "production")]
             let result = SECP256K1_CONTEXT.with(|secp| {
-                let dummy_hash = [0u8; 32];
-                verify_signature(secp, &pubkey_bytes, &signature_bytes, &dummy_hash, flags)
+                verify_signature(
+                    secp,
+                    &pubkey_bytes,
+                    &signature_bytes,
+                    &dummy_hash,
+                    flags,
+                    0,
+                    crate::types::Network::Regtest,
+                )
             });
 
             #[cfg(not(feature = "production"))]
             let result = {
                 let secp = Secp256k1::new();
-                let dummy_hash = [0u8; 32];
-                verify_signature(&secp, &pubkey_bytes, &signature_bytes, &dummy_hash, flags)
+                verify_signature(
+                    &secp,
+                    &pubkey_bytes,
+                    &signature_bytes,
+                    &dummy_hash,
+                    flags,
+                    0,
+                    crate::types::Network::Regtest,
+                )
             };
 
-            Ok(result)
+            Ok(result.unwrap_or(false))
         }
 
         // OP_RETURN - always fail
@@ -1060,6 +1109,7 @@ fn execute_opcode_with_context(
     tx: &Transaction,
     input_index: usize,
     prevouts: &[TransactionOutput],
+    network: crate::types::Network,
 ) -> Result<bool> {
     execute_opcode_with_context_full(
         opcode,
@@ -1070,10 +1120,11 @@ fn execute_opcode_with_context(
         prevouts,
         None, // block_height
         None, // median_time_past
+        network,
     )
 }
 
-/// Execute a single opcode with full context including block height and median time-past
+/// Execute a single opcode with full context including block height, median time-past, and network
 #[allow(clippy::too_many_arguments)]
 fn execute_opcode_with_context_full(
     opcode: u8,
@@ -1084,6 +1135,7 @@ fn execute_opcode_with_context_full(
     prevouts: &[TransactionOutput],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
+    network: crate::types::Network,
 ) -> Result<bool> {
     match opcode {
         // OP_CHECKSIG - verify ECDSA signature
@@ -1121,15 +1173,32 @@ fn execute_opcode_with_context_full(
                 };
 
                 // Verify signature with real transaction hash
+                let height = block_height.unwrap_or(0);
                 #[cfg(feature = "production")]
                 let is_valid = SECP256K1_CONTEXT.with(|secp| {
-                    verify_signature(secp, &pubkey_bytes, &signature_bytes, &sighash, flags)
-                });
+                    verify_signature(
+                        secp,
+                        &pubkey_bytes,
+                        &signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )
+                })?;
 
                 #[cfg(not(feature = "production"))]
                 let is_valid = {
                     let secp = Secp256k1::new();
-                    verify_signature(&secp, &pubkey_bytes, &signature_bytes, &sighash, flags)
+                    verify_signature(
+                        &secp,
+                        &pubkey_bytes,
+                        &signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )?
                 };
 
                 stack.push(vec![if is_valid { 1 } else { 0 }]);
@@ -1174,15 +1243,32 @@ fn execute_opcode_with_context_full(
                 };
 
                 // Verify signature with real transaction hash
+                let height = block_height.unwrap_or(0);
                 #[cfg(feature = "production")]
                 let is_valid = SECP256K1_CONTEXT.with(|secp| {
-                    verify_signature(secp, &pubkey_bytes, &signature_bytes, &sighash, flags)
-                });
+                    verify_signature(
+                        secp,
+                        &pubkey_bytes,
+                        &signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )
+                })?;
 
                 #[cfg(not(feature = "production"))]
                 let is_valid = {
                     let secp = Secp256k1::new();
-                    verify_signature(&secp, &pubkey_bytes, &signature_bytes, &sighash, flags)
+                    verify_signature(
+                        &secp,
+                        &pubkey_bytes,
+                        &signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )?
                 };
 
                 if is_valid {
@@ -1316,6 +1402,148 @@ fn execute_opcode_with_context_full(
             Ok(true)
         }
 
+        // OP_CHECKMULTISIG - verify m-of-n multisig
+        // Stack: [dummy] [sig1] [sig2] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]
+        // BIP147: Dummy element must be empty (OP_0) after activation
+        0xae => {
+            // BIP147: Check NULLDUMMY if flag is set (SCRIPT_VERIFY_NULLDUMMY = 0x10)
+            if flags & 0x10 != 0 {
+                let height = block_height.unwrap_or(0);
+                // Convert network type for BIP147
+                use crate::bip_validation::Bip147Network;
+                let bip147_network = match network {
+                    crate::types::Network::Mainnet => Bip147Network::Mainnet,
+                    crate::types::Network::Testnet => Bip147Network::Testnet,
+                    crate::types::Network::Regtest => Bip147Network::Regtest,
+                };
+
+                // Get scriptSig and scriptPubkey from context
+                // For OP_CHECKMULTISIG, we need to check the dummy element
+                // The dummy is the first element consumed, which is the last element pushed
+                // We check if the last stack element before OP_CHECKMULTISIG is OP_0
+                if stack.is_empty() {
+                    return Ok(false);
+                }
+
+                // The dummy element is the last element on the stack before OP_CHECKMULTISIG
+                // For BIP147, it must be empty (OP_0 = 0x00)
+                let dummy = stack.last().unwrap();
+                if !dummy.is_empty() && dummy[0] != 0x00 {
+                    // Check BIP147 - this will handle activation height
+                    // We need scriptSig and scriptPubkey, but we only have the stack
+                    // For now, we'll check the dummy element directly
+                    // A full implementation would need access to the full script context
+                    if height
+                        >= match bip147_network {
+                            Bip147Network::Mainnet => 481_824,
+                            Bip147Network::Testnet => 834_624,
+                            Bip147Network::Regtest => 0,
+                        }
+                    {
+                        return Ok(false); // BIP147 violation: non-empty dummy
+                    }
+                }
+            }
+
+            // OP_CHECKMULTISIG implementation
+            // Stack layout: [dummy] [sig1] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]
+            if stack.len() < 2 {
+                return Ok(false);
+            }
+
+            // Pop n (number of public keys)
+            let n_bytes = stack.pop().unwrap();
+            if n_bytes.is_empty() {
+                return Ok(false);
+            }
+            let n = n_bytes[0] as usize;
+            if n > 20 || stack.len() < n + 1 {
+                return Ok(false);
+            }
+
+            // Pop n public keys
+            let mut pubkeys = Vec::with_capacity(n);
+            for _ in 0..n {
+                pubkeys.push(stack.pop().unwrap());
+            }
+
+            // Pop m (number of required signatures)
+            let m_bytes = stack.pop().unwrap();
+            if m_bytes.is_empty() {
+                return Ok(false);
+            }
+            let m = m_bytes[0] as usize;
+            if m > n || m > 20 || stack.len() < m + 1 {
+                return Ok(false);
+            }
+
+            // Pop m signatures
+            let mut signatures = Vec::with_capacity(m);
+            for _ in 0..m {
+                signatures.push(stack.pop().unwrap());
+            }
+
+            // Pop dummy element (must be empty for BIP147, but we already checked)
+            let _dummy = stack.pop().unwrap();
+
+            // Verify signatures against public keys
+            // We need to match signatures to public keys
+            // For simplicity, we'll verify signatures in order against public keys
+            let height = block_height.unwrap_or(0);
+            let mut sig_index = 0;
+            let mut valid_sigs = 0;
+
+            for pubkey_bytes in &pubkeys {
+                if sig_index >= signatures.len() {
+                    break;
+                }
+
+                let signature_bytes = &signatures[sig_index];
+
+                // Calculate transaction sighash
+                use crate::transaction_hash::{calculate_transaction_sighash, SighashType};
+                let sighash =
+                    calculate_transaction_sighash(tx, input_index, prevouts, SighashType::All)?;
+
+                // Verify signature
+                #[cfg(feature = "production")]
+                let is_valid = SECP256K1_CONTEXT.with(|secp| {
+                    verify_signature(
+                        secp,
+                        pubkey_bytes,
+                        signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )
+                })?;
+
+                #[cfg(not(feature = "production"))]
+                let is_valid = {
+                    let secp = Secp256k1::new();
+                    verify_signature(
+                        &secp,
+                        pubkey_bytes,
+                        signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                    )?
+                };
+
+                if is_valid {
+                    valid_sigs += 1;
+                    sig_index += 1;
+                }
+            }
+
+            // Push result: 1 if valid_sigs >= m, 0 otherwise
+            stack.push(vec![if valid_sigs >= m { 1 } else { 0 }]);
+            Ok(true)
+        }
+
         // For all other opcodes, delegate to the original execute_opcode
         _ => execute_opcode(opcode, stack, flags),
     }
@@ -1350,39 +1578,50 @@ fn verify_signature_fast_path(
 /// Verify ECDSA signature using secp256k1
 ///
 /// Performance optimization (Phase 6.3): Uses fast-path checks before expensive crypto.
+///
+/// BIP66: Enforces strict DER encoding for signatures after activation height.
 fn verify_signature<C: Context + Verification>(
     secp: &Secp256k1<C>,
     pubkey_bytes: &[u8],
     signature_bytes: &[u8],
     sighash: &[u8; 32], // Real transaction hash
-    _flags: u32,
-) -> bool {
+    flags: u32,
+    height: Natural,
+    network: crate::types::Network,
+) -> Result<bool> {
     // Phase 6.3: Fast-path early exit for obviously invalid data
     #[cfg(feature = "production")]
     if let Some(result) = verify_signature_fast_path(pubkey_bytes, signature_bytes, sighash) {
-        return result;
+        return Ok(result);
+    }
+
+    // BIP66: Check strict DER encoding if flag is set (SCRIPT_VERIFY_DERSIG = 0x04)
+    if flags & 0x04 != 0 {
+        if !crate::bip_validation::check_bip66(signature_bytes, height, network)? {
+            return Ok(false);
+        }
     }
 
     // Parse public key
     let pubkey = match PublicKey::from_slice(pubkey_bytes) {
         Ok(pk) => pk,
-        Err(_) => return false,
+        Err(_) => return Ok(false),
     };
 
     // Parse signature (DER format)
     let signature = match Signature::from_der(signature_bytes) {
         Ok(sig) => sig,
-        Err(_) => return false,
+        Err(_) => return Ok(false),
     };
 
     // Use the actual transaction sighash for verification
     let message = match Message::from_digest_slice(sighash) {
         Ok(msg) => msg,
-        Err(_) => return false,
+        Err(_) => return Ok(false),
     };
 
     // Verify signature
-    secp.verify_ecdsa(&message, &signature, &pubkey).is_ok()
+    Ok(secp.verify_ecdsa(&message, &signature, &pubkey).is_ok())
 }
 
 /// Phase 6.1: Batch ECDSA signature verification
@@ -1393,24 +1632,41 @@ fn verify_signature<C: Context + Verification>(
 ///
 /// # Arguments
 /// * `verification_tasks` - Vector of (pubkey_bytes, signature_bytes, sighash) tuples
+/// * `flags` - Script verification flags
+/// * `height` - Block height for BIP66 validation
+/// * `network` - Network type for BIP66 validation
 ///
 /// # Returns
 /// Vector of boolean results, one per signature (in same order)
 #[cfg(feature = "production")]
-pub fn batch_verify_signatures(verification_tasks: &[(&[u8], &[u8], [u8; 32])]) -> Vec<bool> {
+pub fn batch_verify_signatures(
+    verification_tasks: &[(&[u8], &[u8], [u8; 32])],
+    flags: u32,
+    height: Natural,
+    network: crate::types::Network,
+) -> Result<Vec<bool>> {
     if verification_tasks.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // Small batches: sequential (overhead not worth parallelization)
     if verification_tasks.len() < 4 {
-        return verification_tasks
-            .iter()
-            .map(|(pubkey_bytes, signature_bytes, sighash)| {
-                SECP256K1_CONTEXT
-                    .with(|secp| verify_signature(secp, pubkey_bytes, signature_bytes, sighash, 0))
-            })
-            .collect();
+        let mut results = Vec::with_capacity(verification_tasks.len());
+        for (pubkey_bytes, signature_bytes, sighash) in verification_tasks {
+            let result = SECP256K1_CONTEXT.with(|secp| {
+                verify_signature(
+                    secp,
+                    pubkey_bytes,
+                    signature_bytes,
+                    sighash,
+                    flags,
+                    height,
+                    network,
+                )
+            })?;
+            results.push(result);
+        }
+        return Ok(results);
     }
 
     // Medium/Large batches: parallelized using Rayon
@@ -1418,25 +1674,43 @@ pub fn batch_verify_signatures(verification_tasks: &[(&[u8], &[u8], [u8; 32])]) 
     {
         use rayon::prelude::*;
 
-        verification_tasks
+        let results: Result<Vec<bool>> = verification_tasks
             .par_iter()
             .map(|(pubkey_bytes, signature_bytes, sighash)| {
-                SECP256K1_CONTEXT
-                    .with(|secp| verify_signature(secp, pubkey_bytes, signature_bytes, sighash, 0))
+                SECP256K1_CONTEXT.with(|secp| {
+                    verify_signature(
+                        secp,
+                        pubkey_bytes,
+                        signature_bytes,
+                        sighash,
+                        flags,
+                        height,
+                        network,
+                    )
+                })
             })
-            .collect()
+            .collect();
+        results
     }
 
     #[cfg(not(feature = "rayon"))]
     {
         // Fallback to sequential if rayon not available
-        verification_tasks
-            .iter()
-            .map(|(pubkey_bytes, signature_bytes, sighash)| {
-                let secp = Secp256k1::new();
-                verify_signature(&secp, pubkey_bytes, signature_bytes, sighash, 0)
-            })
-            .collect()
+        let mut results = Vec::with_capacity(verification_tasks.len());
+        for (pubkey_bytes, signature_bytes, sighash) in verification_tasks {
+            let secp = Secp256k1::new();
+            let result = verify_signature(
+                &secp,
+                pubkey_bytes,
+                signature_bytes,
+                sighash,
+                flags,
+                height,
+                network,
+            )?;
+            results.push(result);
+        }
+        Ok(results)
     }
 }
 
@@ -2230,7 +2504,15 @@ mod tests {
         let invalid_pubkey = vec![0x00]; // Invalid pubkey
         let signature = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00]; // Valid DER signature
         let dummy_hash = [0u8; 32];
-        let result = verify_signature(&secp, &invalid_pubkey, &signature, &dummy_hash, 0);
+        let result = verify_signature(
+            &secp,
+            &invalid_pubkey,
+            &signature,
+            &dummy_hash,
+            0,
+            0,
+            crate::types::Network::Regtest,
+        );
         assert!(!result);
     }
 
@@ -2244,8 +2526,16 @@ mod tests {
         ]; // Valid pubkey
         let invalid_signature = vec![0x00]; // Invalid signature
         let dummy_hash = [0u8; 32];
-        let result = verify_signature(&secp, &pubkey, &invalid_signature, &dummy_hash, 0);
-        assert!(!result);
+        let result = verify_signature(
+            &secp,
+            &pubkey,
+            &invalid_signature,
+            &dummy_hash,
+            0,
+            0,
+            crate::types::Network::Regtest,
+        );
+        assert!(!result.unwrap_or(false));
     }
 }
 
@@ -2317,6 +2607,7 @@ mod kani_proofs {
             &[],
             Some(tx_locktime as u64),
             None,
+            crate::types::Network::Regtest,
         );
 
         // Should fail due to type mismatch
@@ -2363,6 +2654,7 @@ mod kani_proofs {
             &[],
             None,
             None,
+            crate::types::Network::Regtest,
         );
 
         // Should fail due to zero locktime
@@ -2413,6 +2705,7 @@ mod kani_proofs {
             &[],
             None,
             None,
+            crate::types::Network::Regtest,
         );
 
         // Should fail due to disabled sequence
@@ -3456,6 +3749,7 @@ mod kani_proofs_2 {
             &prevouts,
             block_height,
             median_time_past,
+            crate::types::Network::Regtest,
         );
 
         if result.is_ok() && result.unwrap() {
@@ -3753,6 +4047,7 @@ mod kani_proofs_2 {
             &prevouts,
             None,
             None,
+            crate::types::Network::Regtest,
         );
 
         if result.is_ok() && result.unwrap() {

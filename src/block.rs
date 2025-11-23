@@ -424,6 +424,7 @@ pub fn connect_block(
                                         &prevouts,
                                         Some(height),
                                         median_time_past,
+                                        network,
                                     )
                                 } else {
                                     Ok(false)
@@ -578,6 +579,7 @@ pub fn connect_block(
                                 &prevouts,
                                 Some(height),
                                 median_time_past,
+                                network,
                             )? {
                                 return Ok((
                                     ValidationResult::Invalid(format!(
@@ -660,6 +662,7 @@ pub fn connect_block(
                             &prevouts,
                             Some(height), // Block height for block-height CLTV validation
                             median_time_past, // Median time-past for timestamp CLTV validation (BIP113)
+                            network,          // Network for BIP66 and BIP147 activation heights
                         )? {
                             return Ok((
                                 ValidationResult::Invalid(format!(
@@ -1480,7 +1483,14 @@ mod kani_proofs {
         }
 
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set.clone(), height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set.clone(),
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         match result {
             Ok((validation_result, new_utxo_set)) => {
@@ -1534,7 +1544,14 @@ mod kani_proofs {
         }
 
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         match result {
             Ok((validation_result, _)) => {
@@ -1805,7 +1822,14 @@ mod kani_proofs {
         }
 
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         match result {
             Ok((ValidationResult::Valid, _)) => {
@@ -2103,7 +2127,14 @@ mod kani_proofs_2 {
         let witnesses: Vec<crate::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
 
-        let result = connect_block(&block, &witnesses, utxo_set.clone(), height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set.clone(),
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         if result.is_ok() {
             let (validation_result, new_utxo_set) = result.unwrap();
@@ -2175,7 +2206,14 @@ mod kani_proofs_2 {
         }
 
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set.clone(), height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set.clone(),
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         match result {
             Ok((validation_result, connect_utxo)) => {
@@ -2418,7 +2456,14 @@ mod kani_proofs_2 {
         let witnesses: Vec<crate::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
 
-        let result = connect_block(&block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         if result.is_ok() {
             let (validation_result, _new_utxo_set) = result.unwrap();
@@ -2495,7 +2540,14 @@ mod kani_proofs_2 {
         let witnesses: Vec<crate::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
 
-        let result = connect_block(&block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            height,
+            None,
+            crate::types::Network::Mainnet,
+        );
 
         if result.is_ok() {
             let (validation_result, _new_utxo_set) = result.unwrap();
@@ -2597,7 +2649,15 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, new_utxo_set) = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
 
         assert_eq!(result, ValidationResult::Valid);
         assert_eq!(new_utxo_set.len(), 1); // One new UTXO from coinbase
@@ -2669,7 +2729,15 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
 
         assert!(matches!(result, ValidationResult::Invalid(_)));
     }
@@ -2690,7 +2758,15 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
 
         assert!(matches!(result, ValidationResult::Invalid(_)));
     }
@@ -2730,7 +2806,15 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
 
         assert!(matches!(result, ValidationResult::Invalid(_)));
     }
@@ -2770,7 +2854,15 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
 
         assert!(matches!(result, ValidationResult::Invalid(_)));
     }
@@ -3079,7 +3171,14 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
         let (validation_result, _) = result.unwrap();
@@ -3121,7 +3220,14 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
         let (validation_result, _) = result.unwrap();
@@ -3271,7 +3377,14 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
         let (validation_result, _) = result.unwrap();
@@ -3313,7 +3426,14 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            None,
+            crate::types::Network::Mainnet,
+        );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
         let (validation_result, _) = result.unwrap();

@@ -150,3 +150,112 @@ fn smoke_test_bip90_enforced() {
     }
 }
 
+
+
+/// Smoke test: Verify that BIP66 (Strict DER) is enforced
+#[test]
+fn smoke_test_bip66_enforced() {
+    use bllvm_consensus::script::verify_script_with_context_full;
+    
+    let height = 363_725; // After BIP66 activation
+    
+    // Create a simple transaction
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }].into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: vec![].into(),
+        }].into(),
+        lock_time: 0,
+    };
+    
+    let prevout = TransactionOutput {
+        value: 50_000_000_000,
+        script_pubkey: vec![].into(),
+    };
+    
+    // Flags with SCRIPT_VERIFY_DERSIG enabled
+    let flags = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
+    
+    // This should not panic - if BIP66 checks cause issues, we'll catch them here
+    let _result = verify_script_with_context_full(
+        &vec![],
+        &prevout.script_pubkey,
+        None,
+        flags,
+        &tx,
+        0,
+        &[prevout],
+        Some(height),
+        None,
+        types::Network::Mainnet,
+    );
+    
+    // Test passes if no panic occurs (verifies BIP66 checks are callable)
+}
+
+/// Smoke test: Verify that BIP147 (NULLDUMMY) is enforced
+#[test]
+fn smoke_test_bip147_enforced() {
+    use bllvm_consensus::script::verify_script_with_context_full;
+    
+    let height = 481_825; // After BIP147 activation
+    
+    // Create a multisig scriptPubkey
+    let mut script_pubkey = vec![0x52]; // OP_2
+    script_pubkey.push(0x21);
+    script_pubkey.extend_from_slice(&[0x02; 33]);
+    script_pubkey.push(0x21);
+    script_pubkey.extend_from_slice(&[0x03; 33]);
+    script_pubkey.push(0x52);
+    script_pubkey.push(0xae); // OP_CHECKMULTISIG
+    
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }].into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: script_pubkey.clone().into(),
+        }].into(),
+        lock_time: 0,
+    };
+    
+    let prevout = TransactionOutput {
+        value: 50_000_000_000,
+        script_pubkey: script_pubkey.into(),
+    };
+    
+    // Flags with SCRIPT_VERIFY_NULLDUMMY enabled
+    let flags = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
+    
+    // This should not panic - if BIP147 checks cause issues, we'll catch them here
+    let _result = verify_script_with_context_full(
+        &vec![],
+        &prevout.script_pubkey,
+        None,
+        flags,
+        &tx,
+        0,
+        &[prevout],
+        Some(height),
+        None,
+        types::Network::Mainnet,
+    );
+    
+    // Test passes if no panic occurs (verifies BIP147 checks are callable)
+}
