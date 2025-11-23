@@ -466,7 +466,7 @@ mod kani_proofs {
     /// - BIP66Check(s, h) = true ⟹ IsStrictDER(s) = true
     #[kani::proof]
     fn kani_bip66_strict_der_validation() {
-        let signature: Vec<u8> = kani::any();
+        let signature = crate::kani_helpers::create_bounded_byte_string(73); // Max signature size
         let height: Natural = kani::any();
 
         // Bound for tractability
