@@ -932,7 +932,7 @@ proptest! {
         };
 
         // Connect block1
-        let mut utxo_set = UtxoSet::new();
+        let utxo_set = UtxoSet::new();
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
         let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
 
@@ -1172,7 +1172,7 @@ proptest! {
         };
 
         // Connect block1
-        let mut utxo_set = UtxoSet::new();
+        let utxo_set = UtxoSet::new();
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
         let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
 
