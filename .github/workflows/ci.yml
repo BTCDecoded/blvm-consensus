@@ -326,6 +326,7 @@ jobs:
     name: Verify
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
+    timeout-minutes: 360  # 6 hours for all proofs (195 proofs can take a long time)
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
@@ -405,8 +406,15 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Fast Kani proofs failed (exit code: $EXIT_CODE)"
-            exit $EXIT_CODE
+            if [ $EXIT_CODE -eq 143 ]; then
+              echo "⚠️  Fast Kani proofs were terminated (exit code 143 = SIGTERM)"
+              echo "This usually means the job timed out or was killed due to resource limits"
+              echo "Consider running proofs in smaller batches or increasing timeout"
+              exit $EXIT_CODE
+            else
+              echo "❌ Fast Kani proofs failed (exit code: $EXIT_CODE)"
+              exit $EXIT_CODE
+            fi
           fi
           echo "✅ Fast proofs verified successfully"
           # Hash the Kani output for attestation (only on main branch)
@@ -448,8 +456,15 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Fast + Medium Kani proofs failed (exit code: $EXIT_CODE)"
-            exit $EXIT_CODE
+            if [ $EXIT_CODE -eq 143 ]; then
+              echo "⚠️  Fast + Medium Kani proofs were terminated (exit code 143 = SIGTERM)"
+              echo "This usually means the job timed out or was killed due to resource limits"
+              echo "Consider running proofs in smaller batches or increasing timeout"
+              exit $EXIT_CODE
+            else
+              echo "❌ Fast + Medium Kani proofs failed (exit code: $EXIT_CODE)"
+              exit $EXIT_CODE
+            fi
           fi
           echo "✅ Fast + Medium proofs verified successfully"
           # Hash the Kani output for attestation (only on main branch)
@@ -471,22 +486,38 @@ jobs:
       
       - name: Run Kani proofs (All - main branch)
         if: steps.proof_tier.outputs.tier == 'all'
+        timeout-minutes: 360  # 6 hours - all 195 proofs can take 4-6 hours
         run: |
           echo "🐌 Running Kani proofs - All tier (195 proofs, all unwind bounds)..."
           echo "Note: Running with minimal parallelism (2 jobs) to avoid OOM"
           echo "This includes slow proofs (unwind >= 10) which take significantly longer"
+          echo "Expected duration: 4-6 hours for all proofs"
+          echo "Job timeout: 360 minutes (6 hours)"
           TEMP_OUTPUT=$(mktemp)
           KANI_OUTPUT_FILE="kani_output.txt"
           trap "rm -f $TEMP_OUTPUT" EXIT
           set +e
           # Run all proofs (no filter) and save full output
+          # Note: This can take 4-6 hours for all 195 proofs
           cargo kani --features verify --output-format terse --solver cadical --jobs 2 2>&1 | tee "$KANI_OUTPUT_FILE" | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ All Kani proofs failed (exit code: $EXIT_CODE)"
-            echo "This is critical for consensus correctness - review proofs before release"
-            exit $EXIT_CODE
+            if [ $EXIT_CODE -eq 143 ]; then
+              echo "⚠️  All Kani proofs were terminated (exit code 143 = SIGTERM)"
+              echo "This usually means the job timed out or was killed due to resource limits"
+              echo "The 'all' tier with 195 proofs can take 4-6 hours to complete"
+              echo "Consider:"
+              echo "  1. Increasing the job timeout (currently 360 minutes)"
+              echo "  2. Running proofs in smaller batches"
+              echo "  3. Using a runner with more memory/CPU"
+              echo "  4. Running only fast+medium proofs for PRs"
+              exit $EXIT_CODE
+            else
+              echo "❌ All Kani proofs failed (exit code: $EXIT_CODE)"
+              echo "This is critical for consensus correctness - review proofs before release"
+              exit $EXIT_CODE
+            fi
           fi
           echo "✅ All Kani proofs verified successfully"
           # Hash the Kani output for attestation
