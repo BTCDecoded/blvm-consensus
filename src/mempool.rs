@@ -509,15 +509,25 @@ fn check_mempool_rules(tx: &Transaction, fee: Integer, mempool: &Mempool) -> Res
         fee_rate >= 0.0,
         "Fee rate ({fee_rate:.6}) must be non-negative (fee: {fee}, size: {tx_size})"
     );
-    let min_fee_rate = 1.0; // 1 sat/byte minimum
+    
+    // Get minimum fee rate from configuration (Bitcoin Core: -minrelaytxfee)
+    let config = crate::config::get_consensus_config();
+    let min_fee_rate = config.mempool.min_relay_fee_rate as f64; // sat/vB
+    let min_tx_fee = config.mempool.min_tx_fee; // absolute minimum fee
 
+    // Check absolute minimum fee
+    if fee < min_tx_fee {
+        return Ok(false);
+    }
+
+    // Check fee rate (sat/vB)
     if fee_rate < min_fee_rate {
         return Ok(false);
     }
 
-    // Check mempool size limits (simplified)
-    if mempool.len() > 10000 {
-        // Arbitrary limit
+    // Check mempool size limits using configuration
+    // Use transaction count limit (simpler than size-based for now)
+    if mempool.len() > config.mempool.max_mempool_txs {
         return Ok(false);
     }
 
