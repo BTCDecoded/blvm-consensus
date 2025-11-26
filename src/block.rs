@@ -71,6 +71,15 @@ pub fn get_assume_valid_height() -> u64 {
         }
     }
 
+    // Try to get from global consensus config first
+    let global_config = crate::config::get_consensus_config();
+    let config_height = global_config.get_assume_valid_height();
+    
+    // If config has non-zero value, use it; otherwise fall back to environment variable
+    if config_height != 0 {
+        return config_height;
+    }
+
     // Load from environment variable (supports config files via std::env)
     // Default to 0 (validate all blocks) for maximum safety
     std::env::var("ASSUME_VALID_HEIGHT")
