@@ -295,7 +295,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
     let result = connect_block(&block, &witnesses, utxo_set, 1, None, Network::Mainnet);
 
     // Block should be invalid due to double-spend
-    if let Ok((validation_result, _)) = result {
+    if let Ok((validation_result, _, _undo_log)) = result {
         assert!(
             matches!(validation_result, ValidationResult::Invalid(_)),
             "Block with double-spend (CVE-2018-17144) must be rejected"

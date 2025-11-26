@@ -633,6 +633,99 @@ pub mod kani_optimized_access {
     }
 }
 
+/// Reference implementations for equivalence proofs
+///
+/// These are safe versions of optimized functions, used to prove
+/// that optimizations are correct via Kani formal verification.
+#[cfg(feature = "production")]
+pub mod reference_implementations {
+    /// Reference (safe) implementation of get_proven_by_kani
+    /// This is the version we prove equivalence against
+    #[inline(always)]
+    pub fn get_proven_by_kani_reference<T>(slice: &[T], index: usize) -> Option<&T> {
+        slice.get(index)  // Safe version
+    }
+}
+
+/// Runtime assertions for optimization correctness
+///
+/// These functions provide runtime checks in debug builds to verify
+/// that optimizations match their reference implementations.
+#[cfg(all(feature = "production", any(debug_assertions, feature = "runtime-invariants")))]
+pub mod runtime_assertions {
+    use super::kani_optimized_access::get_proven_by_kani;
+    use super::reference_implementations::get_proven_by_kani_reference;
+
+    /// Checked version of get_proven_by_kani with runtime assertions
+    ///
+    /// This function performs runtime checks in debug builds to ensure
+    /// the optimized implementation matches the reference implementation.
+    #[inline(always)]
+    pub fn get_proven_by_kani_checked<T>(slice: &[T], index: usize) -> Option<&T> {
+        let result_optimized = get_proven_by_kani(slice, index);
+        let result_reference = get_proven_by_kani_reference(slice, index);
+
+        // Runtime check: both must agree
+        debug_assert_eq!(
+            result_optimized.is_some(),
+            result_reference.is_some(),
+            "Optimization correctness check failed: optimized and reference disagree on Some/None"
+        );
+
+        if let (Some(opt_val), Some(ref_val)) = (result_optimized, result_reference) {
+            debug_assert_eq!(
+                opt_val as *const T,
+                ref_val as *const T,
+                "Optimization correctness check failed: optimized and reference return different pointers"
+            );
+        }
+
+        result_optimized
+    }
+}
+
+#[cfg(kani)]
+#[cfg(feature = "production")]
+mod kani_proofs {
+    use super::kani_optimized_access::get_proven_by_kani;
+    use super::reference_implementations::get_proven_by_kani_reference;
+
+    /// Kani proof: get_proven_by_kani is equivalent to reference implementation
+    ///
+    /// This proof verifies that the optimized (unsafe) implementation
+    /// produces the same results as the safe reference implementation.
+    ///
+    /// **Tier**: FAST (unwind 3) - runs on every push, PRs, and main
+    /// **Expected duration**: ~1-2 minutes
+    #[kani::proof]
+    #[kani::unwind(3)]  // FAST tier - simple bounds check, runs on every push
+    fn kani_get_proven_equivalence() {
+        let slice: &[u8] = kani::any();
+        let index: usize = kani::any();
+
+        // Bound for tractability
+        kani::assume(slice.len() <= 100);
+        kani::assume(index <= 100);
+
+        let result_optimized = get_proven_by_kani(slice, index);
+        let result_reference = get_proven_by_kani_reference(slice, index);
+
+        // Critical invariant: both must return same result
+        assert_eq!(
+            result_optimized.is_some(),
+            result_reference.is_some(),
+            "Optimized and reference must agree on Some/None"
+        );
+
+        if let (Some(opt_val), Some(ref_val)) = (result_optimized, result_reference) {
+            assert_eq!(
+                opt_val, ref_val,
+                "Optimized and reference must return same value"
+            );
+        }
+    }
+}
+
 #[cfg(feature = "production")]
 pub use kani_optimized_access::*;
 pub use kani_proven_bounds::*;

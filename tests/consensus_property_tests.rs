@@ -936,7 +936,7 @@ proptest! {
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
         let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
 
-        if let Ok((ValidationResult::Valid, utxo_set1)) = result1 {
+        if let Ok((ValidationResult::Valid, utxo_set1, _undo_log1)) = result1 {
             // Calculate supply after block1
             let supply1: i64 = utxo_set1
                 .values()
@@ -948,7 +948,7 @@ proptest! {
             let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
             let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, Network::Mainnet);
 
-            if let Ok((ValidationResult::Valid, utxo_set2)) = result2 {
+            if let Ok((ValidationResult::Valid, utxo_set2, _undo_log2)) = result2 {
                 // Calculate supply after block2
                 let supply2: i64 = utxo_set2
                     .values()
@@ -1176,7 +1176,7 @@ proptest! {
         let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
         let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
 
-        if let Ok((ValidationResult::Valid, utxo_set1)) = result1 {
+        if let Ok((ValidationResult::Valid, utxo_set1, _undo_log1)) = result1 {
             // Verify invariants after block1
             let supply1: i64 = utxo_set1
                 .values()
@@ -1191,7 +1191,7 @@ proptest! {
             let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
             let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, Network::Mainnet);
 
-            if let Ok((ValidationResult::Valid, utxo_set2)) = result2 {
+            if let Ok((ValidationResult::Valid, utxo_set2, _undo_log2)) = result2 {
                 // Verify invariants after block2 (composition)
                 let supply2: i64 = utxo_set2
                     .values()
@@ -1252,7 +1252,7 @@ proptest! {
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
         let result = block::connect_block(&block, &witnesses, utxo_set_before.clone(), height as u64, None, Network::Mainnet);
 
-        if let Ok((ValidationResult::Valid, utxo_set_after_connect)) = result {
+        if let Ok((ValidationResult::Valid, utxo_set_after_connect, _undo_log)) = result {
             // Simulate disconnect via reorganization (disconnect and reconnect same block)
             let current_chain = vec![block.clone()];
             let new_chain = vec![block];

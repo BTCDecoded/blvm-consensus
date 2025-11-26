@@ -280,7 +280,8 @@ impl ConsensusProof {
         let witnesses: Vec<segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let network = types::Network::from_env();
-        block::connect_block(block, &witnesses, utxo_set, height, None, network)
+        let (result, new_utxo_set, _undo_log) = block::connect_block(block, &witnesses, utxo_set, height, None, network)?;
+        Ok((result, new_utxo_set))
     }
 
     /// Validate a complete block with witness data and recent headers
@@ -293,7 +294,8 @@ impl ConsensusProof {
         recent_headers: Option<&[BlockHeader]>,
     ) -> Result<(ValidationResult, UtxoSet)> {
         let network = types::Network::from_env();
-        block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)
+        let (result, new_utxo_set, _undo_log) = block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)?;
+        Ok((result, new_utxo_set))
     }
 
     /// Verify script execution

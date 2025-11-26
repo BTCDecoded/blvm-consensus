@@ -36,7 +36,7 @@ fn test_genesis_block_validation() {
 
             // Genesis block should validate (or fail gracefully with missing context)
             assert!(result.is_ok());
-            if let Ok((validation_result, _)) = result {
+            if let Ok((validation_result, _, _undo_log)) = result {
                 // Genesis block should be valid
                 match validation_result {
                     ValidationResult::Valid => {
@@ -80,7 +80,7 @@ fn test_segwit_activation_block() {
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
 
-        if let Ok((validation_result, _)) = result {
+        if let Ok((validation_result, _, _undo_log)) = result {
             match validation_result {
                 ValidationResult::Valid => {
                     // Success - SegWit activation block validated correctly
@@ -127,7 +127,7 @@ fn test_taproot_activation_block() {
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
 
-        if let Ok((validation_result, _)) = result {
+        if let Ok((validation_result, _, _undo_log)) = result {
             match validation_result {
                 ValidationResult::Valid => {
                     // Success - Taproot activation block validated correctly
@@ -364,7 +364,7 @@ pub fn validate_mainnet_block(
     let block_bytes = hex::decode(block_hex)?;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_bytes)?;
 
-    connect_block(
+    let (result, new_utxo_set, _undo_log) = connect_block(
         &block,
         &witnesses,
         prev_utxo_set,
@@ -372,7 +372,8 @@ pub fn validate_mainnet_block(
         None,
         Network::Mainnet,
     )
-    .map_err(|e| e.into())
+    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    Ok((result, new_utxo_set))
 }
 
 #[cfg(test)]

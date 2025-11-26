@@ -140,7 +140,7 @@ pub fn connect_block(
     height: Natural,
     recent_headers: Option<&[BlockHeader]>,
     network: crate::types::Network,
-) -> Result<(ValidationResult, UtxoSet)> {
+) -> Result<(ValidationResult, UtxoSet, crate::reorganization::BlockUndoLog)> {
     #[cfg(feature = "production")]
     #[inline(always)]
     #[cfg(not(feature = "production"))]
@@ -154,6 +154,7 @@ pub fn connect_block(
             return Ok((
                 ValidationResult::Invalid("Block has no transactions".to_string()),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
 
@@ -167,6 +168,7 @@ pub fn connect_block(
                     block.transactions.len()
                 )),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
     }
@@ -176,6 +178,7 @@ pub fn connect_block(
         return Ok((
             ValidationResult::Invalid("Invalid block header".to_string()),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -195,6 +198,7 @@ pub fn connect_block(
                 block.header.version, height
             )),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -211,6 +215,7 @@ pub fn connect_block(
         return Ok((
             ValidationResult::Invalid("BIP30: Duplicate coinbase transaction".to_string()),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -229,6 +234,7 @@ pub fn connect_block(
                 "BIP34: Block height {height} not correctly encoded in coinbase"
             )),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -241,6 +247,7 @@ pub fn connect_block(
                 block.transactions.len()
             )),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -471,6 +478,7 @@ pub fn connect_block(
                     return Ok((
                         ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
                         utxo_set,
+                        crate::reorganization::BlockUndoLog::new(),
                     ));
                 }
 
@@ -542,6 +550,7 @@ pub fn connect_block(
                             "Invalid transaction inputs at index {i}"
                         )),
                         utxo_set,
+                        crate::reorganization::BlockUndoLog::new(),
                     ));
                 }
 
@@ -587,6 +596,7 @@ pub fn connect_block(
                                         i, j
                                     )),
                                     utxo_set,
+                                    crate::reorganization::BlockUndoLog::new(),
                                 ));
                             }
                         }
@@ -610,6 +620,7 @@ pub fn connect_block(
                 return Ok((
                     ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
                     utxo_set,
+                    crate::reorganization::BlockUndoLog::new(),
                 ));
             }
 
@@ -619,6 +630,7 @@ pub fn connect_block(
                 return Ok((
                     ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
                     utxo_set,
+                    crate::reorganization::BlockUndoLog::new(),
                 ));
             }
 
@@ -664,12 +676,13 @@ pub fn connect_block(
                             median_time_past, // Median time-past for timestamp CLTV validation (BIP113)
                             network,          // Network for BIP66 and BIP147 activation heights
                         )? {
-                            return Ok((
-                                ValidationResult::Invalid(format!(
-                                    "Invalid script at transaction {i}, input {j}"
-                                )),
-                                utxo_set,
-                            ));
+                        return Ok((
+                            ValidationResult::Invalid(format!(
+                                "Invalid script at transaction {i}, input {j}"
+                            )),
+                            utxo_set,
+                            crate::reorganization::BlockUndoLog::new(),
+                        ));
                         }
                     }
                 }
@@ -688,6 +701,7 @@ pub fn connect_block(
             return Ok((
                 ValidationResult::Invalid("First transaction must be coinbase".to_string()),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
 
@@ -711,6 +725,7 @@ pub fn connect_block(
                     "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
                 )),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
 
@@ -734,6 +749,7 @@ pub fn connect_block(
                     "Coinbase output {coinbase_output} exceeds maximum money supply"
                 )),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
 
@@ -748,6 +764,7 @@ pub fn connect_block(
                     "Coinbase output {coinbase_output} exceeds fees {total_fees} + subsidy {subsidy}"
                 )),
                 utxo_set,
+                crate::reorganization::BlockUndoLog::new(),
             ));
         }
 
@@ -762,6 +779,7 @@ pub fn connect_block(
                         "Invalid witness commitment in coinbase transaction".to_string(),
                     ),
                     utxo_set,
+                    crate::reorganization::BlockUndoLog::new(),
                 ));
             }
         }
@@ -769,6 +787,7 @@ pub fn connect_block(
         return Ok((
             ValidationResult::Invalid("Block must have at least one transaction".to_string()),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -799,6 +818,7 @@ pub fn connect_block(
                 "Block sigop cost {total_sigop_cost} exceeds maximum {MAX_BLOCK_SIGOPS_COST}"
             )),
             utxo_set,
+            crate::reorganization::BlockUndoLog::new(),
         ));
     }
 
@@ -854,9 +874,19 @@ pub fn connect_block(
     };
 
     // 5. Apply all transactions to UTXO set (with pre-computed transaction IDs)
+    // Build undo log for all UTXO changes
+    use crate::reorganization::BlockUndoLog;
+    let mut undo_log = BlockUndoLog::new();
+    
     for (i, tx) in block.transactions.iter().enumerate() {
-        utxo_set = apply_transaction_with_id(tx, tx_ids[i], utxo_set, height)?;
+        let (new_utxo_set, tx_undo_entries) = apply_transaction_with_id(tx, tx_ids[i], utxo_set, height)?;
+        // Add all undo entries from this transaction to the block's undo log
+        undo_log.entries.extend(tx_undo_entries);
+        utxo_set = new_utxo_set;
     }
+    
+    // Reverse entries for efficient undo (most recent first)
+    undo_log.entries.reverse();
 
     // Runtime invariant verification: Supply change must equal subsidy + fees
     // Mathematical specification:
@@ -904,7 +934,7 @@ pub fn connect_block(
         );
     }
 
-    Ok((ValidationResult::Valid, utxo_set))
+    Ok((ValidationResult::Valid, utxo_set, undo_log))
 }
 
 /// ApplyTransaction: 𝒯𝒳 × 𝒰𝒮 → 𝒰𝒮
@@ -916,8 +946,14 @@ pub fn connect_block(
 ///
 /// This function computes the transaction ID internally.
 /// For batch operations, use `apply_transaction_with_id` instead.
+///
+/// Returns both the new UTXO set and undo entries for all UTXO changes.
 #[track_caller] // Better error messages showing caller location
-pub fn apply_transaction(tx: &Transaction, utxo_set: UtxoSet, height: Natural) -> Result<UtxoSet> {
+pub fn apply_transaction(
+    tx: &Transaction,
+    utxo_set: UtxoSet,
+    height: Natural,
+) -> Result<(UtxoSet, Vec<crate::reorganization::UndoEntry>)> {
     let tx_id = calculate_tx_id(tx);
     apply_transaction_with_id(tx, tx_id, utxo_set, height)
 }
@@ -926,12 +962,18 @@ pub fn apply_transaction(tx: &Transaction, utxo_set: UtxoSet, height: Natural) -
 ///
 /// Same as `apply_transaction` but accepts a pre-computed transaction ID
 /// to avoid redundant computation when transaction IDs are batch-computed.
+///
+/// Returns both the new UTXO set and undo entries for all UTXO changes.
 fn apply_transaction_with_id(
     tx: &Transaction,
     tx_id: Hash,
     mut utxo_set: UtxoSet,
     height: Natural,
-) -> Result<UtxoSet> {
+) -> Result<(UtxoSet, Vec<crate::reorganization::UndoEntry>)> {
+    use crate::reorganization::UndoEntry;
+    
+    let mut undo_entries = Vec::new();
+
     // Optimization: Pre-allocate capacity for new UTXOs if HashMap is growing
     // Estimate: current size + new outputs - spent inputs (for non-coinbase)
     #[cfg(feature = "production")]
@@ -945,14 +987,21 @@ fn apply_transaction_with_id(
         }
     }
 
-    // Remove spent inputs (except for coinbase)
+    // Remove spent inputs (except for coinbase) and record in undo log
     if !is_coinbase(tx) {
         for input in &tx.inputs {
-            utxo_set.remove(&input.prevout);
+            // Record the UTXO that existed before (for restoration during disconnect)
+            if let Some(previous_utxo) = utxo_set.remove(&input.prevout) {
+                undo_entries.push(UndoEntry {
+                    outpoint: input.prevout.clone(),
+                    previous_utxo: Some(previous_utxo),
+                    new_utxo: None, // This UTXO is being spent
+                });
+            }
         }
     }
 
-    // Add new outputs
+    // Add new outputs and record in undo log
     // BLLVM Optimization: Use Kani-proven bounds for output access in hot path
     #[cfg(feature = "production")]
     {
@@ -969,6 +1018,13 @@ fn apply_transaction_with_id(
                     script_pubkey: output.script_pubkey.clone(),
                     height,
                 };
+
+                // Record that this UTXO is being created
+                undo_entries.push(UndoEntry {
+                    outpoint: outpoint.clone(),
+                    previous_utxo: None, // This UTXO didn't exist before
+                    new_utxo: Some(utxo.clone()),
+                });
 
                 utxo_set.insert(outpoint, utxo);
             }
@@ -989,11 +1045,18 @@ fn apply_transaction_with_id(
                 height,
             };
 
+            // Record that this UTXO is being created
+            undo_entries.push(UndoEntry {
+                outpoint: outpoint.clone(),
+                previous_utxo: None, // This UTXO didn't exist before
+                new_utxo: Some(utxo.clone()),
+            });
+
             utxo_set.insert(outpoint, utxo);
         }
     }
 
-    Ok(utxo_set)
+    Ok((utxo_set, undo_entries))
 }
 
 /// Validate block header
@@ -1136,7 +1199,7 @@ mod kani_proofs {
         let result = apply_transaction(&tx, utxo_set.clone(), height);
 
         match result {
-            Ok(new_utxo_set) => {
+            Ok((new_utxo_set, _undo_entries)) => {
                 // UTXO set consistency invariants
                 if !is_coinbase(&tx) {
                     // Non-coinbase transactions must remove spent inputs
@@ -1220,8 +1283,8 @@ mod kani_proofs {
         );
 
         if result1.is_ok() && result2.is_ok() {
-            let utxo_set1 = result1.unwrap();
-            let utxo_set2 = result2.unwrap();
+            let (utxo_set1, _) = result1.unwrap();
+            let (utxo_set2, _) = result2.unwrap();
 
             // Critical invariant: UTXO sets must be identical
             assert_eq!(
@@ -1291,7 +1354,7 @@ mod kani_proofs {
         let result = apply_transaction(&tx, utxo_set.clone(), height);
 
         match result {
-            Ok(new_utxo_set) => {
+            Ok((new_utxo_set, _undo_entries)) => {
                 if is_coinbase(&tx) {
                     // Coinbase: us' = us ∪ {(tx.id, i) ↦ tx.outputs[i]}
                     // All original UTXOs must still be present
@@ -1416,7 +1479,7 @@ mod kani_proofs {
         let result = apply_transaction(&tx, utxo_set.clone(), height);
 
         match result {
-            Ok(new_utxo_set) => {
+            Ok((new_utxo_set, _undo_entries)) => {
                 if !is_coinbase(&tx) {
                     // Critical invariant: all spent inputs are removed
                     for input in &tx.inputs {
@@ -1428,7 +1491,7 @@ mod kani_proofs {
                         // Verify input cannot be spent again
                         let second_apply = apply_transaction(&tx, new_utxo_set.clone(), height);
                         if second_apply.is_ok() {
-                            let second_set = second_apply.unwrap();
+                            let (second_set, _) = second_apply.unwrap();
                             assert!(
                                 !second_set.contains_key(&input.prevout),
                                 "Double-spending prevented: cannot spend same input twice"
@@ -1493,7 +1556,7 @@ mod kani_proofs {
         );
 
         match result {
-            Ok((validation_result, new_utxo_set)) => {
+            Ok((validation_result, new_utxo_set, _undo_log)) => {
                 if matches!(validation_result, ValidationResult::Valid) {
                     // For each transaction in block, verify consistency
                     for tx in &block.transactions {
@@ -1554,7 +1617,7 @@ mod kani_proofs {
         );
 
         match result {
-            Ok((validation_result, _)) => {
+            Ok((validation_result, _, _undo_log)) => {
                 match validation_result {
                     ValidationResult::Valid => {
                         // Valid blocks must have coinbase as first transaction
@@ -1832,7 +1895,7 @@ mod kani_proofs {
         );
 
         match result {
-            Ok((ValidationResult::Valid, _)) => {
+            Ok((ValidationResult::Valid, _, _undo_log)) => {
                 // If block is valid, coinbase output must not exceed fees + subsidy
                 if let Some(coinbase) = block.transactions.first() {
                     if coinbase.outputs.len() > 0 {
@@ -1848,7 +1911,7 @@ mod kani_proofs {
                     }
                 }
             }
-            Ok((ValidationResult::Invalid(_), _)) => {
+            Ok((ValidationResult::Invalid(_), _, _undo_log)) => {
                 // Invalid blocks may violate fee limits - this is acceptable
             }
             Err(_) => {
@@ -1966,7 +2029,7 @@ mod property_tests {
             let result = apply_transaction(&bounded_tx, utxo_set.clone(), height);
 
             match result {
-                Ok(new_utxo_set) => {
+                Ok((new_utxo_set, _undo_entries)) => {
                     // UTXO set consistency properties
                     if !is_coinbase(&bounded_tx) {
                         // Non-coinbase transactions must remove spent inputs
@@ -2022,7 +2085,7 @@ mod property_tests {
             let result = connect_block(&bounded_block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
 
             match result {
-                Ok((validation_result, _)) => {
+                Ok((validation_result, _, _undo_log)) => {
                     match validation_result {
                         ValidationResult::Valid => {
                             // Valid blocks must have coinbase as first transaction
@@ -2216,7 +2279,7 @@ mod kani_proofs_2 {
         );
 
         match result {
-            Ok((validation_result, connect_utxo)) => {
+            Ok((validation_result, connect_utxo, _undo_log)) => {
                 if matches!(validation_result, ValidationResult::Valid) {
                     // Sequential application must match ConnectBlock result
                     // (This proves ConnectBlock applies transactions sequentially)
@@ -2651,7 +2714,7 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, new_utxo_set) = connect_block(
+        let (result, new_utxo_set, _undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set,
@@ -2687,7 +2750,7 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let new_utxo_set = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
+        let (new_utxo_set, _undo_entries) = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
 
         assert_eq!(new_utxo_set.len(), 1);
     }
@@ -2731,7 +2794,7 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(
+        let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set,
@@ -2760,7 +2823,7 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(
+        let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set,
@@ -2808,7 +2871,7 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(
+        let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set,
@@ -2856,7 +2919,7 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(
+        let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set,
@@ -2904,7 +2967,7 @@ mod tests {
             lock_time: 0,
         };
 
-        let new_utxo_set = apply_transaction(&regular_tx, utxo_set, 1).unwrap();
+        let (new_utxo_set, _undo_entries) = apply_transaction(&regular_tx, utxo_set, 1).unwrap();
 
         // Should have 1 UTXO (the new output)
         assert_eq!(new_utxo_set.len(), 1);
@@ -2938,7 +3001,7 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let new_utxo_set = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
+        let (new_utxo_set, _undo_entries) = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
 
         assert_eq!(new_utxo_set.len(), 2);
     }
@@ -3183,7 +3246,7 @@ mod tests {
         );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
-        let (validation_result, _) = result.unwrap();
+        let (validation_result, _, _undo_log) = result.unwrap();
         assert!(matches!(validation_result, ValidationResult::Invalid(_)));
     }
 
@@ -3232,7 +3295,7 @@ mod tests {
         );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
-        let (validation_result, _) = result.unwrap();
+        let (validation_result, _, _undo_log) = result.unwrap();
         assert!(matches!(validation_result, ValidationResult::Invalid(_)));
     }
 
@@ -3389,7 +3452,7 @@ mod tests {
         );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
-        let (validation_result, _) = result.unwrap();
+        let (validation_result, _, _undo_log) = result.unwrap();
         assert!(matches!(validation_result, ValidationResult::Invalid(_)));
     }
 
@@ -3438,7 +3501,7 @@ mod tests {
         );
         // The result should be Ok with ValidationResult::Invalid
         assert!(result.is_ok());
-        let (validation_result, _) = result.unwrap();
+        let (validation_result, _, _undo_log) = result.unwrap();
         assert!(matches!(validation_result, ValidationResult::Invalid(_)));
     }
 
@@ -3498,7 +3561,7 @@ mod tests {
             lock_time: 0,
         };
 
-        let new_utxo_set = apply_transaction(&tx, utxo_set, 1).unwrap();
+        let (new_utxo_set, _undo_entries) = apply_transaction(&tx, utxo_set, 1).unwrap();
         assert_eq!(new_utxo_set.len(), 1);
     }
 
@@ -3532,7 +3595,7 @@ mod tests {
             lock_time: 0,
         };
 
-        let new_utxo_set = apply_transaction(&tx, utxo_set, 1).unwrap();
+        let (new_utxo_set, _undo_entries) = apply_transaction(&tx, utxo_set, 1).unwrap();
         assert_eq!(new_utxo_set.len(), 0);
     }
 }
