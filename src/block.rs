@@ -140,7 +140,11 @@ pub fn connect_block(
     height: Natural,
     recent_headers: Option<&[BlockHeader]>,
     network: crate::types::Network,
-) -> Result<(ValidationResult, UtxoSet, crate::reorganization::BlockUndoLog)> {
+) -> Result<(
+    ValidationResult,
+    UtxoSet,
+    crate::reorganization::BlockUndoLog,
+)> {
     #[cfg(feature = "production")]
     #[inline(always)]
     #[cfg(not(feature = "production"))]
@@ -676,13 +680,13 @@ pub fn connect_block(
                             median_time_past, // Median time-past for timestamp CLTV validation (BIP113)
                             network,          // Network for BIP66 and BIP147 activation heights
                         )? {
-                        return Ok((
-                            ValidationResult::Invalid(format!(
-                                "Invalid script at transaction {i}, input {j}"
-                            )),
-                            utxo_set,
-                            crate::reorganization::BlockUndoLog::new(),
-                        ));
+                            return Ok((
+                                ValidationResult::Invalid(format!(
+                                    "Invalid script at transaction {i}, input {j}"
+                                )),
+                                utxo_set,
+                                crate::reorganization::BlockUndoLog::new(),
+                            ));
                         }
                     }
                 }
@@ -877,14 +881,15 @@ pub fn connect_block(
     // Build undo log for all UTXO changes
     use crate::reorganization::BlockUndoLog;
     let mut undo_log = BlockUndoLog::new();
-    
+
     for (i, tx) in block.transactions.iter().enumerate() {
-        let (new_utxo_set, tx_undo_entries) = apply_transaction_with_id(tx, tx_ids[i], utxo_set, height)?;
+        let (new_utxo_set, tx_undo_entries) =
+            apply_transaction_with_id(tx, tx_ids[i], utxo_set, height)?;
         // Add all undo entries from this transaction to the block's undo log
         undo_log.entries.extend(tx_undo_entries);
         utxo_set = new_utxo_set;
     }
-    
+
     // Reverse entries for efficient undo (most recent first)
     undo_log.entries.reverse();
 
@@ -971,7 +976,7 @@ fn apply_transaction_with_id(
     height: Natural,
 ) -> Result<(UtxoSet, Vec<crate::reorganization::UndoEntry>)> {
     use crate::reorganization::UndoEntry;
-    
+
     let mut undo_entries = Vec::new();
 
     // Optimization: Pre-allocate capacity for new UTXOs if HashMap is growing

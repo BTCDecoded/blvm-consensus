@@ -518,22 +518,29 @@ impl ConsensusConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MEDIAN_TIME_PAST_HEADERS") {
+        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MEDIAN_TIME_PAST_HEADERS")
+        {
             if let Ok(count) = val.parse::<usize>() {
                 config.block_validation.median_time_past_headers = count;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_ENABLE_PARALLEL_VALIDATION") {
+        if let Ok(val) =
+            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_ENABLE_PARALLEL_VALIDATION")
+        {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.block_validation.enable_parallel_validation = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_COINBASE_MATURITY_OVERRIDE") {
+        if let Ok(val) =
+            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_COINBASE_MATURITY_OVERRIDE")
+        {
             if let Ok(maturity) = val.parse::<u64>() {
                 config.block_validation.coinbase_maturity_override = maturity;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MAX_BLOCK_SIGOPS_COST_OVERRIDE") {
+        if let Ok(val) =
+            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MAX_BLOCK_SIGOPS_COST_OVERRIDE")
+        {
             if let Ok(cost) = val.parse::<u64>() {
                 config.block_validation.max_block_sigops_cost_override = cost;
             }
@@ -611,7 +618,8 @@ impl ConsensusConfig {
                 config.utxo_commitment.max_historical_commitments = count;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_ENABLE_INCREMENTAL_UPDATES") {
+        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_ENABLE_INCREMENTAL_UPDATES")
+        {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.utxo_commitment.enable_incremental_updates = enabled;
             }
@@ -672,12 +680,14 @@ impl ConsensusConfig {
         }
 
         // Load feature flags
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_EXPERIMENTAL_OPTIMIZATIONS") {
+        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_EXPERIMENTAL_OPTIMIZATIONS")
+        {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_experimental_optimizations = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_BOUNDS_CHECK_OPTIMIZATIONS") {
+        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_BOUNDS_CHECK_OPTIMIZATIONS")
+        {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_bounds_check_optimizations = enabled;
             }
@@ -770,7 +780,9 @@ static GLOBAL_CONSENSUS_CONFIG: std::sync::OnceLock<ConsensusConfig> = std::sync
 /// This should be called once at startup, before any consensus validation.
 /// If not called, defaults will be used.
 pub fn init_consensus_config(config: ConsensusConfig) {
-    GLOBAL_CONSENSUS_CONFIG.set(config).expect("Consensus config already initialized");
+    GLOBAL_CONSENSUS_CONFIG
+        .set(config)
+        .expect("Consensus config already initialized");
 }
 
 /// Get global consensus configuration
@@ -782,4 +794,3 @@ pub fn get_consensus_config() -> ConsensusConfig {
         .cloned()
         .unwrap_or_else(|| ConsensusConfig::from_env())
 }
-

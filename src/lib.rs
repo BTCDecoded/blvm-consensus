@@ -110,8 +110,8 @@ pub use witness::{
 
 // Re-export configuration types
 pub use config::{
-    ConsensusConfig, NetworkMessageLimits, BlockValidationConfig, MempoolConfig, UtxoCommitmentConfig,
-    PerformanceConfig, DebugConfig, FeatureFlagsConfig, AdvancedConfig,
+    AdvancedConfig, BlockValidationConfig, ConsensusConfig, DebugConfig, FeatureFlagsConfig,
+    MempoolConfig, NetworkMessageLimits, PerformanceConfig, UtxoCommitmentConfig,
 };
 
 /// Main consensus proof implementation
@@ -287,7 +287,8 @@ impl ConsensusProof {
         let witnesses: Vec<segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let network = types::Network::from_env();
-        let (result, new_utxo_set, _undo_log) = block::connect_block(block, &witnesses, utxo_set, height, None, network)?;
+        let (result, new_utxo_set, _undo_log) =
+            block::connect_block(block, &witnesses, utxo_set, height, None, network)?;
         Ok((result, new_utxo_set))
     }
 
@@ -301,7 +302,8 @@ impl ConsensusProof {
         recent_headers: Option<&[BlockHeader]>,
     ) -> Result<(ValidationResult, UtxoSet)> {
         let network = types::Network::from_env();
-        let (result, new_utxo_set, _undo_log) = block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)?;
+        let (result, new_utxo_set, _undo_log) =
+            block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)?;
         Ok((result, new_utxo_set))
     }
 

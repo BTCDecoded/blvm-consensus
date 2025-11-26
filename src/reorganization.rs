@@ -31,7 +31,7 @@ pub fn reorganize_chain(
         current_height,
         None::<fn(&Block) -> Option<Vec<Witness>>>, // No witness retrieval
         None::<fn(Natural) -> Option<Vec<BlockHeader>>>, // No header retrieval
-        None::<fn(&Hash) -> Option<BlockUndoLog>>, // No undo log retrieval
+        None::<fn(&Hash) -> Option<BlockUndoLog>>,  // No undo log retrieval
         None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No undo log storage
     )
 }
@@ -83,7 +83,7 @@ pub fn reorganize_chain_with_witnesses(
     for i in (disconnect_start..current_chain.len()).rev() {
         if let Some(block) = current_chain.get(i) {
             let block_hash = calculate_block_hash(&block.header);
-            
+
             // Retrieve undo log from persistent storage via callback
             // The callback should use BlockStore::get_undo_log() which reads from the database
             let undo_log = if let Some(ref get_undo_log) = get_undo_log_for_block {
@@ -98,7 +98,7 @@ pub fn reorganize_chain_with_witnesses(
                 // This should only happen in testing or when undo logs are not needed
                 BlockUndoLog::new()
             };
-            
+
             utxo_set = disconnect_block(block, &undo_log, utxo_set, (i as Natural) + 1)?;
             disconnected_undo_logs.insert(block_hash, undo_log);
         }
@@ -152,16 +152,19 @@ pub fn reorganize_chain_with_witnesses(
 
         // Store undo log for this block (keyed by block hash for future retrieval)
         let block_hash = calculate_block_hash(&block.header);
-        
+
         // Persist undo log to database via callback (required for future reorganizations)
         if let Some(ref store_undo_log) = store_undo_log_for_block {
             if let Err(e) = store_undo_log(&block_hash, &undo_log) {
                 // Log error but continue - undo log storage failure shouldn't block reorganization
                 // In production, this should be logged as a warning
-                eprintln!("Warning: Failed to store undo log for block {:?}: {}", block_hash, e);
+                eprintln!(
+                    "Warning: Failed to store undo log for block {:?}: {}",
+                    block_hash, e
+                );
             }
         }
-        
+
         // Also store in-memory for the reorganization result
         connected_undo_logs.insert(block_hash, undo_log);
 
@@ -359,7 +362,7 @@ fn disconnect_block(
         if entry.new_utxo.is_some() {
             utxo_set.remove(&entry.outpoint);
         }
-        
+
         // Restore previous UTXO (if it was spent by this block)
         if let Some(previous_utxo) = &entry.previous_utxo {
             utxo_set.insert(entry.outpoint.clone(), previous_utxo.clone());
@@ -474,7 +477,7 @@ fn calculate_tx_id(tx: &Transaction) -> Hash {
 /// This is used to store and retrieve undo logs during reorganization.
 fn calculate_block_hash(header: &BlockHeader) -> Hash {
     use sha2::{Digest, Sha256};
-    
+
     // Serialize block header (80 bytes: version, prev_block_hash, merkle_root, timestamp, bits, nonce)
     let mut bytes = Vec::with_capacity(80);
     bytes.extend_from_slice(&header.version.to_le_bytes());
@@ -483,11 +486,11 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
     bytes.extend_from_slice(&header.timestamp.to_le_bytes());
     bytes.extend_from_slice(&header.bits.to_le_bytes());
     bytes.extend_from_slice(&header.nonce.to_le_bytes());
-    
+
     // Double SHA256 (Bitcoin standard)
     let first_hash = Sha256::digest(&bytes);
     let second_hash = Sha256::digest(&first_hash);
-    
+
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&second_hash);
     hash
@@ -960,15 +963,15 @@ mod tests {
             }
         }
     }
-    
+
     #[test]
     fn test_undo_log_storage_and_retrieval() {
         use crate::block::connect_block;
         use crate::segwit::Witness;
-        
+
         let block = create_test_block();
         let mut utxo_set = UtxoSet::new();
-        
+
         // Add some UTXOs that will be spent
         let tx_id = calculate_tx_id(&block.transactions[0]);
         let outpoint = OutPoint {
@@ -981,7 +984,7 @@ mod tests {
             height: 1,
         };
         utxo_set.insert(outpoint.clone(), utxo.clone());
-        
+
         // Connect block and get undo log
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
         let (result, new_utxo_set, undo_log) = connect_block(
@@ -991,48 +994,55 @@ mod tests {
             1,
             None,
             crate::types::Network::Mainnet,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert!(matches!(result, crate::types::ValidationResult::Valid));
-        
+
         // Verify undo log contains entries
-        assert!(!undo_log.entries.is_empty(), "Undo log should contain entries");
-        
+        assert!(
+            !undo_log.entries.is_empty(),
+            "Undo log should contain entries"
+        );
+
         // Calculate block hash
         let block_hash = calculate_block_hash(&block.header);
-        
+
         // Store undo log in a map (simulating persistent storage)
         let mut undo_log_storage: HashMap<Hash, BlockUndoLog> = HashMap::new();
         undo_log_storage.insert(block_hash, undo_log.clone());
-        
+
         // Retrieve undo log
         let retrieved_undo_log = undo_log_storage.get(&block_hash);
-        assert!(retrieved_undo_log.is_some(), "Should be able to retrieve undo log");
-        assert_eq!(retrieved_undo_log.unwrap().entries.len(), undo_log.entries.len());
-        
+        assert!(
+            retrieved_undo_log.is_some(),
+            "Should be able to retrieve undo log"
+        );
+        assert_eq!(
+            retrieved_undo_log.unwrap().entries.len(),
+            undo_log.entries.len()
+        );
+
         // Disconnect block using retrieved undo log
-        let disconnected_utxo_set = disconnect_block(
-            &block,
-            &undo_log,
-            new_utxo_set,
-            1,
-        ).unwrap();
-        
+        let disconnected_utxo_set = disconnect_block(&block, &undo_log, new_utxo_set, 1).unwrap();
+
         // Verify UTXO was restored
-        assert!(disconnected_utxo_set.contains_key(&outpoint), 
-                "Disconnected UTXO set should contain restored UTXO");
+        assert!(
+            disconnected_utxo_set.contains_key(&outpoint),
+            "Disconnected UTXO set should contain restored UTXO"
+        );
     }
-    
+
     #[test]
     fn test_reorganize_with_undo_log_callback() {
         use crate::block::connect_block;
         use crate::segwit::Witness;
-        
+
         // Create a block and connect it to get undo log
         let block = create_test_block();
         let mut utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        
+
         let (result, connected_utxo_set, undo_log) = connect_block(
             &block,
             &witnesses,
@@ -1040,20 +1050,20 @@ mod tests {
             1,
             None,
             crate::types::Network::Mainnet,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert!(matches!(result, crate::types::ValidationResult::Valid));
-        
+
         // Store undo log
         let block_hash = calculate_block_hash(&block.header);
         let mut undo_log_storage: HashMap<Hash, BlockUndoLog> = HashMap::new();
         undo_log_storage.insert(block_hash, undo_log);
-        
+
         // Create callback to retrieve undo log
-        let get_undo_log = |hash: &Hash| -> Option<BlockUndoLog> {
-            undo_log_storage.get(hash).cloned()
-        };
-        
+        let get_undo_log =
+            |hash: &Hash| -> Option<BlockUndoLog> { undo_log_storage.get(hash).cloned() };
+
         // Reorganize with undo log callback
         let new_chain = vec![create_test_block()];
         let current_chain = vec![block];
@@ -1061,7 +1071,7 @@ mod tests {
             .iter()
             .map(|b| b.transactions.iter().map(|_| Vec::new()).collect())
             .collect();
-        
+
         let reorg_result = reorganize_chain_with_witnesses(
             &new_chain,
             &empty_witnesses,
@@ -1074,7 +1084,7 @@ mod tests {
             Some(get_undo_log),
             None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No storage in test
         );
-        
+
         // Reorganization should succeed (or fail gracefully)
         match reorg_result {
             Ok(result) => {
@@ -1229,7 +1239,7 @@ mod tests {
     ///
     /// This ensures mempool consistency after chain reorganization.
     #[kani::proof]
-    #[kani::unwind(7)]  // MEDIUM tier (unwind 4-9) - runs on PRs and main
+    #[kani::unwind(7)] // MEDIUM tier (unwind 4-9) - runs on PRs and main
     fn kani_mempool_removes_invalid_after_reorg() {
         use crate::kani_helpers::create_bounded_block;
         use crate::kani_helpers::create_bounded_mempool;
@@ -1284,7 +1294,8 @@ mod tests {
             &reorg_result,
             &utxo_set,
             None::<fn(&Hash) -> Option<Transaction>>,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Critical invariant: mempool size decreased or stayed same
         assert!(
@@ -1519,7 +1530,7 @@ mod kani_proofs_2 {
     /// This proves that disconnect and connect operations are perfect inverses when using undo logs.
     /// This is a critical invariant for chain reorganization correctness.
     #[kani::proof]
-    #[kani::unwind(5)]  // MEDIUM tier (unwind 4-9) - runs on PRs and main
+    #[kani::unwind(5)] // MEDIUM tier (unwind 4-9) - runs on PRs and main
     fn kani_disconnect_connect_idempotency_with_undo() {
         use crate::kani_helpers::create_bounded_block;
         use crate::kani_helpers::create_bounded_utxo_set;
@@ -1565,7 +1576,9 @@ mod kani_proofs_2 {
             crate::types::Network::Mainnet,
         );
 
-        if let Ok((crate::types::ValidationResult::Valid, connected_utxo_set, undo_log)) = connect_result {
+        if let Ok((crate::types::ValidationResult::Valid, connected_utxo_set, undo_log)) =
+            connect_result
+        {
             // Disconnect using undo log
             let disconnect_result = disconnect_block(&block, &undo_log, connected_utxo_set, height);
 
@@ -1574,13 +1587,11 @@ mod kani_proofs_2 {
                 for (outpoint, original_utxo) in &utxo_set {
                     if let Some(restored_utxo) = disconnected_utxo_set.get(outpoint) {
                         assert_eq!(
-                            restored_utxo.value,
-                            original_utxo.value,
+                            restored_utxo.value, original_utxo.value,
                             "Disconnect must restore original UTXO value"
                         );
                         assert_eq!(
-                            restored_utxo.script_pubkey,
-                            original_utxo.script_pubkey,
+                            restored_utxo.script_pubkey, original_utxo.script_pubkey,
                             "Disconnect must restore original script_pubkey"
                         );
                     }

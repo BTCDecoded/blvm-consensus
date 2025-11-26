@@ -643,7 +643,7 @@ pub mod reference_implementations {
     /// This is the version we prove equivalence against
     #[inline(always)]
     pub fn get_proven_by_kani_reference<T>(slice: &[T], index: usize) -> Option<&T> {
-        slice.get(index)  // Safe version
+        slice.get(index) // Safe version
     }
 }
 
@@ -651,7 +651,10 @@ pub mod reference_implementations {
 ///
 /// These functions provide runtime checks in debug builds to verify
 /// that optimizations match their reference implementations.
-#[cfg(all(feature = "production", any(debug_assertions, feature = "runtime-invariants")))]
+#[cfg(all(
+    feature = "production",
+    any(debug_assertions, feature = "runtime-invariants")
+))]
 pub mod runtime_assertions {
     use super::kani_optimized_access::get_proven_by_kani;
     use super::reference_implementations::get_proven_by_kani_reference;
@@ -698,7 +701,7 @@ mod kani_proofs {
     /// **Tier**: FAST (unwind 3) - runs on every push, PRs, and main
     /// **Expected duration**: ~1-2 minutes
     #[kani::proof]
-    #[kani::unwind(3)]  // FAST tier - simple bounds check, runs on every push
+    #[kani::unwind(3)] // FAST tier - simple bounds check, runs on every push
     fn kani_get_proven_equivalence() {
         let slice: &[u8] = kani::any();
         let index: usize = kani::any();

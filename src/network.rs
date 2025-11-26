@@ -363,7 +363,7 @@ mod kani_proofs {
     ///
     /// This ensures network message size limits are enforced.
     #[kani::proof]
-    #[kani::unwind(3)]  // FAST tier - simple size check, runs on every push
+    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
     fn kani_headers_message_size_limit() {
         let mut headers = HeadersMessage {
             headers: kani::any(),
@@ -395,7 +395,7 @@ mod kani_proofs {
     ///
     /// This ensures inventory messages don't cause DoS.
     #[kani::proof]
-    #[kani::unwind(3)]  // FAST tier - simple size check, runs on every push
+    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
     fn kani_inv_message_size_limit() {
         let inv = InvMessage {
             inventory: kani::any(),
@@ -426,7 +426,7 @@ mod kani_proofs {
     ///
     /// This ensures getdata messages don't cause DoS.
     #[kani::proof]
-    #[kani::unwind(3)]  // FAST tier - simple size check, runs on every push
+    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
     fn kani_getdata_message_size_limit() {
         let getdata = GetDataMessage {
             inventory: kani::any(),
@@ -456,7 +456,7 @@ mod kani_proofs {
     ///
     /// This ensures version messages are validated correctly.
     #[kani::proof]
-    #[kani::unwind(3)]  // FAST tier - simple validation, runs on every push
+    #[kani::unwind(3)] // FAST tier - simple validation, runs on every push
     fn kani_version_message_validation() {
         let version = VersionMessage {
             version: kani::any(),
@@ -487,10 +487,7 @@ mod kani_proofs {
         let result = process_version_message(&version, &mut peer_state, &chain_state);
 
         // Critical invariant: version message processing must not panic
-        assert!(
-            result.is_ok(),
-            "Version message processing must not panic"
-        );
+        assert!(result.is_ok(), "Version message processing must not panic");
     }
 }
 
