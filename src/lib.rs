@@ -42,6 +42,7 @@
 
 #![allow(unused_doc_comments)] // Allow doc comments before macros (proptest, etc.)
 
+pub mod config;
 pub mod constants;
 pub mod script;
 pub mod transaction;
@@ -105,6 +106,12 @@ pub use witness::{
     calculate_transaction_weight_segwit, extract_witness_program, extract_witness_version,
     is_witness_empty, validate_segwit_witness_structure, validate_taproot_witness_structure,
     validate_witness_program_length, weight_to_vsize, Witness, WitnessVersion,
+};
+
+// Re-export configuration types
+pub use config::{
+    ConsensusConfig, NetworkMessageLimits, BlockValidationConfig, MempoolConfig, UtxoCommitmentConfig,
+    PerformanceConfig, DebugConfig, FeatureFlagsConfig, AdvancedConfig,
 };
 
 /// Main consensus proof implementation
