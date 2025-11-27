@@ -111,6 +111,7 @@ fn test_script_transaction_integration() {
         value: 10000,
         script_pubkey: vec![0x51], // OP_1
         height: 0,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 
@@ -216,6 +217,7 @@ fn test_performance_integration() {
             value: 1000,
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
     }

@@ -329,6 +329,7 @@ pub fn create_bounded_utxo_set() -> UtxoSet {
                 value,
                 script_pubkey: script,
                 height: kani::any(),
+                is_coinbase: false,
             },
         );
     }

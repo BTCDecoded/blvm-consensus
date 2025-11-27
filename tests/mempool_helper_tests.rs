@@ -160,6 +160,7 @@ fn test_mempool_fee_calculation() {
         value: 1000,
         script_pubkey: vec![0x51],
         height: 100,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 

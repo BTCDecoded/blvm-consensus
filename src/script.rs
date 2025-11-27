@@ -1601,15 +1601,34 @@ fn verify_signature<C: Context + Verification>(
         return Ok(false);
     }
 
-    // Parse public key
-    let pubkey = match PublicKey::from_slice(pubkey_bytes) {
-        Ok(pk) => pk,
+    // Parse signature (DER format) - needed for both LOW_S check and verification
+    let signature = match Signature::from_der(signature_bytes) {
+        Ok(sig) => sig,
         Err(_) => return Ok(false),
     };
 
-    // Parse signature (DER format)
-    let signature = match Signature::from_der(signature_bytes) {
-        Ok(sig) => sig,
+    // SCRIPT_VERIFY_LOW_S (0x08): Check that S value <= secp256k1 order / 2
+    // Bitcoin Core enforces LOW_S to prevent signature malleability
+    // secp256k1 curve order: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+    // Order / 2: 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+    if flags & 0x08 != 0 {
+        // Check if signature has high S (S > order/2)
+        // We can check this by normalizing the signature and comparing the serialized forms
+        // If normalize_s changes the signature, it means the original had high S
+        let original_der = signature.serialize_der();
+        let mut normalized_sig = signature;
+        normalized_sig.normalize_s();
+        let normalized_der = normalized_sig.serialize_der();
+
+        if original_der != normalized_der {
+            // Signature has high S (normalize_s changed it) - reject if LOW_S flag is set
+            return Ok(false);
+        }
+    }
+
+    // Parse public key
+    let pubkey = match PublicKey::from_slice(pubkey_bytes) {
+        Ok(pk) => pk,
         Err(_) => return Ok(false),
     };
 
@@ -2748,7 +2767,16 @@ mod kani_proofs {
         }
     }
 
-    /// Kani proof: Script operation count bounds (Orange Paper Section 5.2)
+    /// Kani proof: Script operation count bounds
+    ///
+    /// Mathematical specification: Orange Paper Section 5.2 (Script Execution)
+    /// Recursive state definition:
+    /// S₀ = ∅, count₀ = 0
+    /// For i ∈ [0, n): (S_{i+1}, count_{i+1}, result_i) = ExecuteOpcode(op_i, S_i, count_i)
+    /// Loop Invariant: ∀i ∈ [0, n]: |S_i| ≤ L_stack ∧ count_i ≤ L_ops
+    ///
+    /// Reference: THE_ORANGE_PAPER.md Section 5.2 (recursive execution state definition)
+    /// Orange Paper Section 5.2
     ///
     /// Mathematical specification:
     /// ∀ script ∈ ByteString: opcode_count ≤ MAX_SCRIPT_OPS (201)

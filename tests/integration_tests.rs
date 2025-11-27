@@ -116,6 +116,7 @@ fn test_consensus_proof_utxo_validation() {
             value: 1000,
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         },
     );
 
@@ -158,6 +159,7 @@ fn test_consensus_proof_insufficient_funds() {
             value: 1000, // Less than output
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         },
     );
 

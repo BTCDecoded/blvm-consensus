@@ -74,7 +74,7 @@ pub fn get_assume_valid_height() -> u64 {
     // Try to get from global consensus config first
     let global_config = crate::config::get_consensus_config();
     let config_height = global_config.get_assume_valid_height();
-    
+
     // If config has non-zero value, use it; otherwise fall back to environment variable
     if config_height != 0 {
         return config_height;
@@ -1031,6 +1031,7 @@ fn apply_transaction_with_id(
                     value: output.value,
                     script_pubkey: output.script_pubkey.clone(),
                     height,
+                    is_coinbase: is_coinbase(tx),
                 };
 
                 // Record that this UTXO is being created
@@ -1057,6 +1058,7 @@ fn apply_transaction_with_id(
                 value: output.value,
                 script_pubkey: output.script_pubkey.clone(),
                 height,
+                is_coinbase: is_coinbase(tx),
             };
 
             // Record that this UTXO is being created
@@ -1274,6 +1276,7 @@ mod kani_proofs {
                             value: 1000,
                             script_pubkey: vec![],
                             height: height.saturating_sub(1),
+                            is_coinbase: false,
                         },
                     );
                 }
@@ -1358,6 +1361,7 @@ mod kani_proofs {
                             value: 1000,
                             script_pubkey: vec![],
                             height: height.saturating_sub(1),
+                            is_coinbase: false,
                         },
                     );
                 }
@@ -1484,6 +1488,7 @@ mod kani_proofs {
                             value: 1000,
                             script_pubkey: vec![],
                             height: height.saturating_sub(1),
+                            is_coinbase: false,
                         },
                     );
                 }
@@ -1552,6 +1557,7 @@ mod kani_proofs {
                                 value: 1000,
                                 script_pubkey: vec![],
                                 height: height.saturating_sub(1),
+                                is_coinbase: false,
                             },
                         );
                     }
@@ -2011,11 +2017,13 @@ mod property_tests {
                 any::<i64>(),                               // value
                 prop::collection::vec(any::<u8>(), 0..100), // script_pubkey
                 any::<u64>(),                               // height
+                any::<bool>(),                              // is_coinbase
             )
-                .prop_map(|(value, script_pubkey, height)| UTXO {
+                .prop_map(|(value, script_pubkey, height, is_coinbase)| UTXO {
                     value,
                     script_pubkey,
                     height,
+                    is_coinbase,
                 })
                 .boxed()
         }
@@ -2179,13 +2187,19 @@ mod kani_proofs_2 {
 
     /// Kani proof: ConnectBlock UTXO set consistency
     ///
-    /// Mathematical specification (Orange Paper Section 5.3):
+    /// Mathematical specification: Orange Paper Section 5.3 (Block Validation)
     /// ∀ block ∈ B, utxo_set ∈ US, height ∈ N:
     /// - ConnectBlock(block, utxo_set, height) = (valid, new_utxo_set) ⟹
     ///   (∀ tx ∈ block.transactions:
     ///     (tx.inputs spent from old utxo_set) ∧
     ///     (tx.outputs added to new_utxo_set)) ∧
     ///   (new_utxo_set = ApplyTransactions(block.transactions, old_utxo_set))
+    ///
+    /// Loop Invariant (Orange Paper Section 5.3):
+    /// ∀ i ∈ [0, m]: Σ_{op ∈ dom(us_i)} us_i(op).value =
+    ///   Σ_{op ∈ dom(us_0)} us_0(op).value + Σ_{j=0}^{i-1} (subsidy_j + fee(tx_j))
+    ///
+    /// Reference: THE_ORANGE_PAPER.md Section 5.3 (recursive UTXO set updates with value conservation)
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_connect_block_utxo_consistency() {
@@ -2214,7 +2228,7 @@ mod kani_proofs_2 {
         );
 
         if result.is_ok() {
-            let (validation_result, new_utxo_set) = result.unwrap();
+            let (validation_result, new_utxo_set, _undo_log) = result.unwrap();
             if matches!(validation_result, ValidationResult::Valid) {
                 // For each transaction in block, inputs should be removed from old UTXO set
                 // and outputs should be added to new UTXO set
@@ -2267,6 +2281,7 @@ mod kani_proofs_2 {
                                 value: 1000,
                                 script_pubkey: vec![],
                                 height: height.saturating_sub(1),
+                                is_coinbase: false,
                             },
                         );
                     }
@@ -2277,7 +2292,7 @@ mod kani_proofs_2 {
         // Simulate sequential application manually
         let mut sequential_utxo = utxo_set.clone();
         for tx in &block.transactions {
-            if let Ok(new_utxo) = apply_transaction(tx, sequential_utxo.clone(), height) {
+            if let Ok((new_utxo, _undo)) = apply_transaction(tx, sequential_utxo.clone(), height) {
                 sequential_utxo = new_utxo;
             }
         }
@@ -2475,6 +2490,7 @@ mod kani_proofs_2 {
                                 value,
                                 script_pubkey: vec![],
                                 height: height.saturating_sub(1),
+                                is_coinbase: false,
                             },
                         );
                     }
@@ -2543,7 +2559,7 @@ mod kani_proofs_2 {
         );
 
         if result.is_ok() {
-            let (validation_result, _new_utxo_set) = result.unwrap();
+            let (validation_result, _new_utxo_set, _undo_log) = result.unwrap();
             if matches!(validation_result, ValidationResult::Valid) {
                 // Valid blocks must have valid coinbase transaction
                 if !block.transactions.is_empty() {
@@ -2629,7 +2645,7 @@ mod kani_proofs_2 {
         );
 
         if result.is_ok() {
-            let (validation_result, _new_utxo_set) = result.unwrap();
+            let (validation_result, _new_utxo_set, _undo_log) = result.unwrap();
             if !block.transactions.is_empty() {
                 let coinbase = &block.transactions[0];
                 let script_sig_len = coinbase.inputs[0].script_sig.len();
@@ -2959,6 +2975,7 @@ mod tests {
             value: 1000,
             script_pubkey: vec![0x51], // OP_1
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(prev_outpoint, prev_utxo);
 
@@ -3326,6 +3343,7 @@ mod tests {
             value: 100, // Small value
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(prev_outpoint, prev_utxo);
 
@@ -3532,6 +3550,7 @@ mod tests {
             value: 500,
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint1, utxo1);
 
@@ -3543,6 +3562,7 @@ mod tests {
             value: 300,
             script_pubkey: vec![0x52],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint2, utxo2);
 
@@ -3591,6 +3611,7 @@ mod tests {
             value: 1000,
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(prev_outpoint, prev_utxo);
 

@@ -123,6 +123,7 @@ pub fn create_test_utxo(value: i64) -> (UtxoSet, OutPoint) {
             value,
             script_pubkey: vec![0x51],
             height: 1,
+            is_coinbase: false,
         },
     );
     (set, op)

@@ -709,6 +709,7 @@ proptest! {
                     value: 10000,
                     script_pubkey: vec![0; 20],
                     height: 0,
+                    is_coinbase: false,
                 });
                 TransactionInput {
                     prevout: outpoint,
@@ -771,6 +772,7 @@ proptest! {
                     value,
                     script_pubkey: vec![0; 20],
                     height: 0,
+                    is_coinbase: false,
                 });
                 inputs.push(TransactionInput {
                     prevout: outpoint,
@@ -1989,6 +1991,7 @@ proptest! {
                 value,
                 script_pubkey: vec![0x51],
                 height: 0,
+                is_coinbase: false,
             });
         }
 

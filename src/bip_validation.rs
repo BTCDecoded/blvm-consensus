@@ -747,6 +747,7 @@ mod tests {
                 value: 50_0000_0000,
                 script_pubkey: vec![],
                 height: 0,
+                is_coinbase: false,
             },
         );
 

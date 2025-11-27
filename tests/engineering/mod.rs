@@ -10,6 +10,7 @@ pub mod integer_overflow_edge_cases;
 pub mod serialization_edge_cases;
 pub mod resource_limits_edge_cases;
 pub mod parser_edge_cases;
+pub mod transaction_size_edge_cases;
 pub mod bip_test_helpers;
 pub mod bip65_cltv_integration_tests;
 pub mod bip112_csv_integration_tests;

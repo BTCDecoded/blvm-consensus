@@ -264,11 +264,14 @@ pub struct Block {
 }
 
 /// UTXO: 𝒰 = ℤ × 𝕊 × ℕ
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct UTXO {
     pub value: Integer,
     pub script_pubkey: ByteString,
     pub height: Natural,
+    /// Whether this UTXO is from a coinbase transaction
+    /// Coinbase outputs require maturity (COINBASE_MATURITY blocks) before they can be spent
+    pub is_coinbase: bool,
 }
 
 /// UTXO Set: 𝒰𝒮 = 𝒪 → 𝒰

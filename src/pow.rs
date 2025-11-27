@@ -540,17 +540,31 @@ impl Ord for U256 {
 /// The round-trip property is formally verified by `kani_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
 pub fn expand_target(bits: Natural) -> Result<U256> {
+    // Bitcoin Core's SetCompact implementation:
+    // int nSize = nCompact >> 24;
+    // uint32_t nWord = nCompact & 0x007fffff;  // 23-bit mantissa (not 24-bit!)
+    // if (nSize <= 3) {
+    //     nWord >>= 8 * (3 - nSize);
+    //     *this = nWord;
+    // } else {
+    //     *this = nWord;
+    //     *this <<= 8 * (nSize - 3);
+    // }
+
     let exponent = (bits >> 24) as u8;
+    // Core uses 0x007fffff (23 bits), but we need to handle the full 24-bit mantissa
+    // The sign bit (0x00800000) is handled separately in Core, but for expansion
+    // we use the full mantissa including the sign bit
     let mantissa = bits & 0x00ffffff;
 
-    // Validate target format
+    // Validate target format (Core allows nSize up to 34, but we clamp to 32 for safety)
     if !(3..=32).contains(&exponent) {
         return Err(ConsensusError::InvalidProofOfWork(
             "Invalid target exponent".into(),
         ));
     }
 
-    // Check if target is too large (exponent > 29 is usually invalid)
+    // Check if target is too large (exponent > 29 is usually invalid in practice)
     if exponent > 29 {
         return Err(ConsensusError::InvalidProofOfWork(
             "Target too large".into(),
@@ -561,21 +575,27 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
         return Ok(U256::zero());
     }
 
-    if (3..=255).contains(&exponent) && exponent <= 3 {
+    // Core's logic: if nSize <= 3, right shift; else left shift
+    if exponent <= 3 {
         // Target is mantissa >> (8 * (3 - exponent))
+        // When exponent = 3: no shift (mantissa as-is)
+        // When exponent = 2: shift right by 8 bits (shouldn't happen, but handle it)
+        // When exponent = 1: shift right by 16 bits (shouldn't happen, but handle it)
         let shift = 8 * (3 - exponent);
         let mantissa_u256 = U256::from_u32(mantissa as u32);
         Ok(mantissa_u256.shr(shift as u32))
     } else {
         // Target is mantissa << (8 * (exponent - 3))
-        let shift = 8 * (exponent - 3);
-        if shift == 255 {
+        // When exponent = 4: shift left by 8 bits
+        // When exponent = 29: shift left by 208 bits
+        let shift = 8u32 * (exponent as u32 - 3);
+        if shift >= 256 {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
                 "Target too large".into(),
             ));
         }
         let mantissa_u256 = U256::from_u32(mantissa as u32);
-        Ok(mantissa_u256.shl(shift as u32))
+        Ok(mantissa_u256.shl(shift))
     }
 }
 

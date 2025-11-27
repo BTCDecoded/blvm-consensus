@@ -217,6 +217,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
             value: 1000000,
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         },
     );
 
