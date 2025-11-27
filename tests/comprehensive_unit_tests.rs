@@ -348,6 +348,7 @@ fn test_calculate_fee() {
         value: 1000,
         script_pubkey: vec![0x51],
         height: 100,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 
@@ -385,6 +386,7 @@ fn test_calculate_fee_negative() {
         value: 500, // Less than output
         script_pubkey: vec![0x51],
         height: 100,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 
@@ -422,6 +424,7 @@ fn test_calculate_fee_zero() {
         value: 1000,
         script_pubkey: vec![0x51],
         height: 100,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 

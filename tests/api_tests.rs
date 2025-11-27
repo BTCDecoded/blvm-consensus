@@ -95,6 +95,7 @@ fn test_validate_tx_inputs() {
         value: 2000,
         script_pubkey: vec![0x51],
         height: 100,
+        is_coinbase: false,
     };
     utxo_set.insert(outpoint, utxo);
 

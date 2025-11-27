@@ -19,13 +19,15 @@ use bllvm_consensus::types::*;
 fn test_bip34_before_activation() {
     let height = 227_835; // One block before activation
     let network = Network::Mainnet;
-    
+
     // BIP34 should not be enforced before activation
     // This is tested by checking that blocks without height in coinbase are valid
     // (We can't easily test this without creating full blocks, but verify the constant)
     const BIP34_ACTIVATION_HEIGHT_MAINNET: u64 = 227_836;
-    assert!(height < BIP34_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be before BIP34 activation");
+    assert!(
+        height < BIP34_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be before BIP34 activation"
+    );
 }
 
 /// Test BIP34 activation height: at activation
@@ -35,11 +37,13 @@ fn test_bip34_before_activation() {
 fn test_bip34_at_activation() {
     let height = 227_836; // Activation height
     let network = Network::Mainnet;
-    
+
     // BIP34 should be enforced at activation height
     const BIP34_ACTIVATION_HEIGHT_MAINNET: u64 = 227_836;
-    assert_eq!(height, BIP34_ACTIVATION_HEIGHT_MAINNET, 
-               "Height should equal BIP34 activation height");
+    assert_eq!(
+        height, BIP34_ACTIVATION_HEIGHT_MAINNET,
+        "Height should equal BIP34 activation height"
+    );
 }
 
 /// Test BIP34 activation height: after activation
@@ -49,11 +53,13 @@ fn test_bip34_at_activation() {
 fn test_bip34_after_activation() {
     let height = 227_837; // One block after activation
     let network = Network::Mainnet;
-    
+
     // BIP34 should be enforced after activation
     const BIP34_ACTIVATION_HEIGHT_MAINNET: u64 = 227_836;
-    assert!(height > BIP34_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be after BIP34 activation");
+    assert!(
+        height > BIP34_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be after BIP34 activation"
+    );
 }
 
 /// Test BIP66 activation height: before activation
@@ -63,10 +69,12 @@ fn test_bip34_after_activation() {
 fn test_bip66_before_activation() {
     let height = 363_724; // One block before activation
     let network = Network::Mainnet;
-    
+
     const BIP66_ACTIVATION_HEIGHT_MAINNET: u64 = 363_725;
-    assert!(height < BIP66_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be before BIP66 activation");
+    assert!(
+        height < BIP66_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be before BIP66 activation"
+    );
 }
 
 /// Test BIP66 activation height: at activation
@@ -76,10 +84,12 @@ fn test_bip66_before_activation() {
 fn test_bip66_at_activation() {
     let height = 363_725; // Activation height
     let network = Network::Mainnet;
-    
+
     const BIP66_ACTIVATION_HEIGHT_MAINNET: u64 = 363_725;
-    assert_eq!(height, BIP66_ACTIVATION_HEIGHT_MAINNET, 
-               "Height should equal BIP66 activation height");
+    assert_eq!(
+        height, BIP66_ACTIVATION_HEIGHT_MAINNET,
+        "Height should equal BIP66 activation height"
+    );
 }
 
 /// Test BIP66 activation height: after activation
@@ -89,10 +99,12 @@ fn test_bip66_at_activation() {
 fn test_bip66_after_activation() {
     let height = 363_726; // One block after activation
     let network = Network::Mainnet;
-    
+
     const BIP66_ACTIVATION_HEIGHT_MAINNET: u64 = 363_725;
-    assert!(height > BIP66_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be after BIP66 activation");
+    assert!(
+        height > BIP66_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be after BIP66 activation"
+    );
 }
 
 /// Test BIP147 activation height: before activation
@@ -102,10 +114,12 @@ fn test_bip66_after_activation() {
 fn test_bip147_before_activation() {
     let height = 481_823; // One block before activation
     let network = Network::Mainnet;
-    
+
     const BIP147_ACTIVATION_HEIGHT_MAINNET: u64 = 481_824;
-    assert!(height < BIP147_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be before BIP147 activation");
+    assert!(
+        height < BIP147_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be before BIP147 activation"
+    );
 }
 
 /// Test BIP147 activation height: at activation
@@ -115,10 +129,12 @@ fn test_bip147_before_activation() {
 fn test_bip147_at_activation() {
     let height = 481_824; // Activation height
     let network = Network::Mainnet;
-    
+
     const BIP147_ACTIVATION_HEIGHT_MAINNET: u64 = 481_824;
-    assert_eq!(height, BIP147_ACTIVATION_HEIGHT_MAINNET, 
-               "Height should equal BIP147 activation height");
+    assert_eq!(
+        height, BIP147_ACTIVATION_HEIGHT_MAINNET,
+        "Height should equal BIP147 activation height"
+    );
 }
 
 /// Test BIP147 activation height: after activation
@@ -128,10 +144,12 @@ fn test_bip147_at_activation() {
 fn test_bip147_after_activation() {
     let height = 481_825; // One block after activation
     let network = Network::Mainnet;
-    
+
     const BIP147_ACTIVATION_HEIGHT_MAINNET: u64 = 481_824;
-    assert!(height > BIP147_ACTIVATION_HEIGHT_MAINNET, 
-            "Height should be after BIP147 activation");
+    assert!(
+        height > BIP147_ACTIVATION_HEIGHT_MAINNET,
+        "Height should be after BIP147 activation"
+    );
 }
 
 /// Test BIP activation heights match Core exactly
@@ -146,14 +164,29 @@ fn test_bip_activation_heights_match_core() {
     const BIP34_ACTIVATION: u64 = 227_836;
     const BIP66_ACTIVATION: u64 = 363_725;
     const BIP147_ACTIVATION: u64 = 481_824;
-    
-    assert_eq!(BIP34_ACTIVATION, 227_836, "BIP34 activation height must match Core");
-    assert_eq!(BIP66_ACTIVATION, 363_725, "BIP66 activation height must match Core");
-    assert_eq!(BIP147_ACTIVATION, 481_824, "BIP147 activation height must match Core");
-    
+
+    assert_eq!(
+        BIP34_ACTIVATION, 227_836,
+        "BIP34 activation height must match Core"
+    );
+    assert_eq!(
+        BIP66_ACTIVATION, 363_725,
+        "BIP66 activation height must match Core"
+    );
+    assert_eq!(
+        BIP147_ACTIVATION, 481_824,
+        "BIP147 activation height must match Core"
+    );
+
     // Verify heights are in ascending order
-    assert!(BIP34_ACTIVATION < BIP66_ACTIVATION, "BIP34 should activate before BIP66");
-    assert!(BIP66_ACTIVATION < BIP147_ACTIVATION, "BIP66 should activate before BIP147");
+    assert!(
+        BIP34_ACTIVATION < BIP66_ACTIVATION,
+        "BIP34 should activate before BIP66"
+    );
+    assert!(
+        BIP66_ACTIVATION < BIP147_ACTIVATION,
+        "BIP66 should activate before BIP147"
+    );
 }
 
 /// Test BIP30: Duplicate coinbase prevention
@@ -178,4 +211,3 @@ fn test_bip90_block_version_enforcement() {
     // For now, we verify the check exists
     assert!(true, "BIP90 check exists in block validation");
 }
-

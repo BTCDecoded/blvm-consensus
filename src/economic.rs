@@ -484,6 +484,7 @@ mod kani_proofs {
                     value: kani::any(),
                     script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
+                    is_coinbase: false,
                 };
                 utxo_set.insert(input.prevout.clone(), utxo);
             }
@@ -561,6 +562,7 @@ mod kani_proofs {
                     value,
                     script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
+                    is_coinbase: false,
                 };
                 utxo_set.insert(input.prevout.clone(), utxo);
             }
@@ -940,6 +942,7 @@ mod tests {
             value: 1000000000, // 10 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
 
@@ -979,6 +982,7 @@ mod tests {
             value: 500000000, // 5 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint1, utxo1);
 
@@ -990,6 +994,7 @@ mod tests {
             value: 300000000, // 3 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint2, utxo2);
 
@@ -1074,6 +1079,7 @@ mod tests {
             value: 100000000, // 1 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
 

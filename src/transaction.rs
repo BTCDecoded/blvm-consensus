@@ -145,10 +145,13 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         }
     }
 
-    // 2b. Check total output sum doesn't exceed MAX_MONEY (Orange Paper Section 5.1, rule 3)
-    if total_output_value > MAX_MONEY {
+    // 2b. Check total output sum is in valid range (matches Bitcoin Core's MoneyRange check)
+    // MoneyRange(n) = (n >= 0 && n <= MAX_MONEY)
+    // Note: total_output_value should always be >= 0 since we check each output >= 0
+    // and use checked_add, but we check explicitly to match Core's behavior exactly
+    if !(0..=MAX_MONEY).contains(&total_output_value) {
         return Ok(ValidationResult::Invalid(format!(
-            "Total output value {total_output_value} exceeds maximum money supply"
+            "Total output value {total_output_value} is out of valid range [0, {MAX_MONEY}]"
         )));
     }
 
@@ -168,11 +171,20 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         )));
     }
 
-    // 5. Check transaction size limit
-    let tx_size = calculate_transaction_size(tx);
-    if tx_size > MAX_TX_SIZE {
+    // 5. Check transaction size limit (matches Bitcoin Core's CheckTransaction exactly)
+    // Core: GetSerializeSize(TX_NO_WITNESS(tx)) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT
+    // This checks: stripped_size * 4 > 4,000,000, i.e., stripped_size > 1,000,000
+    // Note: Core's comment says "this doesn't take the witness into account, as that hasn't been checked for malleability"
+    // BLLVM: calculate_transaction_size returns stripped size (no witness), matching TX_NO_WITNESS
+    use crate::constants::MAX_BLOCK_WEIGHT;
+    const WITNESS_SCALE_FACTOR: usize = 4;
+    let tx_stripped_size = calculate_transaction_size(tx); // This is TX_NO_WITNESS size
+    if tx_stripped_size * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT {
         return Ok(ValidationResult::Invalid(format!(
-            "Transaction too large: {tx_size} bytes"
+            "Transaction too large: stripped size {} bytes (weight {} > {})",
+            tx_stripped_size,
+            tx_stripped_size * WITNESS_SCALE_FACTOR,
+            MAX_BLOCK_WEIGHT
         )));
     }
 
@@ -217,7 +229,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 pub fn check_tx_inputs(
     tx: &Transaction,
     utxo_set: &UtxoSet,
-    _height: Natural,
+    height: Natural,
 ) -> Result<(ValidationResult, Integer)> {
     // Check if this is a coinbase transaction
     if is_coinbase(tx) {
@@ -273,10 +285,21 @@ pub fn check_tx_inputs(
         // Check if input exists in UTXO set
         if let Some(utxo) = opt_utxo {
             // Check coinbase maturity: coinbase outputs cannot be spent until COINBASE_MATURITY blocks deep
-            // This is enforced by checking if the UTXO was created at height h and current height >= h + COINBASE_MATURITY
-            // Note: For coinbase outputs, we check if height difference is sufficient
-            // If height is available, we should check: height >= utxo.height + COINBASE_MATURITY
-            // For now, we rely on the UTXO height field which should be set correctly during block connection
+            // Bitcoin Core: if (coin.IsCoinBase() && nSpendHeight - coin.nHeight < COINBASE_MATURITY)
+            // We check: if utxo.is_coinbase && height < utxo.height + COINBASE_MATURITY
+            if utxo.is_coinbase {
+                use crate::constants::COINBASE_MATURITY;
+                let required_height = utxo.height.saturating_add(COINBASE_MATURITY);
+                if height < required_height {
+                    return Ok((
+                        ValidationResult::Invalid(format!(
+                            "Premature spend of coinbase output: input {i} created at height {} cannot be spent until height {} (current: {})",
+                            utxo.height, required_height, height
+                        )),
+                        0,
+                    ));
+                }
+            }
 
             // Use checked arithmetic to prevent overflow
             total_input_value = total_input_value.checked_add(utxo.value).ok_or_else(|| {
@@ -338,24 +361,18 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 
 /// Calculate transaction size (simplified)
 #[inline]
-fn calculate_transaction_size(tx: &Transaction) -> usize {
-    // Simplified size calculation
-    // In reality, this would be the serialized size
-    let size = 4 + // version
-        tx.inputs.len() * 41 + // inputs (simplified)
-        tx.outputs.len() * 9 + // outputs (simplified)
-        4; // lock_time
-
-    // Runtime assertion: Transaction size must be positive
-    debug_assert!(size > 0, "Transaction size ({size}) must be positive");
-
-    // Runtime assertion: Transaction size must not exceed MAX_TX_SIZE
-    debug_assert!(
-        size <= MAX_TX_SIZE,
-        "Transaction size ({size}) must not exceed MAX_TX_SIZE ({MAX_TX_SIZE})"
-    );
-
-    size
+/// Calculate transaction size (non-witness serialization)
+///
+/// This function calculates the size of a transaction when serialized
+/// without witness data, matching Bitcoin Core's GetSerializeSize(TX_NO_WITNESS(tx)).
+///
+/// CRITICAL: This must match the actual serialized size exactly to ensure
+/// consensus compatibility with Bitcoin Core.
+pub fn calculate_transaction_size(tx: &Transaction) -> usize {
+    // Use actual serialization to match Bitcoin Core's behavior
+    // This replaces the simplified calculation that didn't account for varint encoding
+    use crate::serialization::transaction::serialize_transaction;
+    serialize_transaction(tx).len()
 }
 
 // ============================================================================
@@ -862,8 +879,14 @@ mod property_tests {
             let size = calculate_transaction_size(&bounded_tx);
 
             // Size calculation properties
-            prop_assert!(size >= 8, "Transaction size must be at least 8 bytes (version + lock_time)");
-            prop_assert!(size <= 4 + 10 * 41 + 10 * 9 + 4, "Transaction size must not exceed maximum");
+            // Minimum: version(4) + input_count_varint(1) + output_count_varint(1) + lock_time(4) = 10 bytes
+            // (Even with 0 inputs/outputs, we need varints for counts)
+            prop_assert!(size >= 10, "Transaction size must be at least 10 bytes (version + varints + lock_time)");
+
+            // Maximum: Use MAX_TX_SIZE as the upper bound (actual serialization can be larger than simplified calculation)
+            // The simplified calculation was: 4 + 10*41 + 10*9 + 4 = 508
+            // But actual serialization with varints and real script sizes can be larger
+            prop_assert!(size <= MAX_TX_SIZE, "Transaction size must not exceed MAX_TX_SIZE ({})", MAX_TX_SIZE);
 
             // Size should be deterministic
             let size2 = calculate_transaction_size(&bounded_tx);
@@ -1026,6 +1049,7 @@ mod kani_proofs_2 {
                     value: kani::any(),
                     script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
+                    is_coinbase: false,
                 };
                 utxo_set.insert(input.prevout.clone(), utxo);
             }
@@ -1088,6 +1112,7 @@ mod kani_proofs_2 {
                     value: kani::any(),
                     script_pubkey: crate::kani_helpers::create_bounded_byte_string(10),
                     height: 0,
+                    is_coinbase: false,
                 };
                 utxo_set.insert(input.prevout.clone(), utxo);
             }
@@ -1215,6 +1240,7 @@ mod kani_proofs_2 {
                     value: 1000,
                     script_pubkey: vec![],
                     height: coinbase_height,
+                    is_coinbase: true, // This is a coinbase UTXO in the test
                 };
                 utxo_set.insert(input.prevout.clone(), utxo);
             }
@@ -1383,6 +1409,7 @@ mod kani_proofs_2 {
                         value,
                         script_pubkey: vec![],
                         height: height.saturating_sub(1),
+                        is_coinbase: false,
                     },
                 );
             }
@@ -1933,8 +1960,8 @@ mod tests {
     #[test]
     fn test_check_transaction_too_large() {
         // Create a transaction that will exceed MAX_TX_SIZE
-        // Since calculate_transaction_size is simplified, we need to create a transaction
-        // with enough inputs to exceed the size limit
+        // calculate_transaction_size now uses actual serialization, so we need to create
+        // a transaction with enough inputs/outputs to exceed the size limit
         let mut inputs = Vec::new();
         for i in 0..25000 {
             // This should create a transaction > 1MB
@@ -1978,6 +2005,7 @@ mod tests {
             value: 1000000000, // 10 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
 
@@ -2048,6 +2076,7 @@ mod tests {
             value: 100000000, // 1 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
 
@@ -2089,6 +2118,7 @@ mod tests {
             value: 500000000, // 5 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint1, utxo1);
 
@@ -2100,6 +2130,7 @@ mod tests {
             value: 300000000, // 3 BTC
             script_pubkey: vec![],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint2, utxo2);
 
@@ -2266,8 +2297,13 @@ mod tests {
         };
 
         let size = calculate_transaction_size(&tx);
-        // Expected: 4 (version) + 2*41 (inputs) + 2*9 (outputs) + 4 (lock_time) = 108
-        // The actual calculation includes script_sig and script_pubkey lengths
-        assert_eq!(size, 108);
+        // Expected actual serialized size:
+        // 4 (version) + 1 (input_count varint) +
+        // 2 * (32 + 4 + 1 + 3 + 4) (inputs: hash + index + script_len_varint + script + sequence) +
+        // 1 (output_count varint) +
+        // 2 * (8 + 1 + 3) (outputs: value + script_len_varint + script) +
+        // 4 (lock_time) = 4 + 1 + 88 + 1 + 24 + 4 = 122
+        // This matches actual serialization (not simplified calculation)
+        assert_eq!(size, 122);
     }
 }

@@ -501,6 +501,7 @@ mod kani_proofs {
                         value: 1000,
                         script_pubkey: vec![],
                         height: 0,
+                        is_coinbase: false,
                     },
                 );
             }

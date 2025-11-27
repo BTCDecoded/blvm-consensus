@@ -509,7 +509,7 @@ fn check_mempool_rules(tx: &Transaction, fee: Integer, mempool: &Mempool) -> Res
         fee_rate >= 0.0,
         "Fee rate ({fee_rate:.6}) must be non-negative (fee: {fee}, size: {tx_size})"
     );
-    
+
     // Get minimum fee rate from configuration (Bitcoin Core: -minrelaytxfee)
     let config = crate::config::get_consensus_config();
     let min_fee_rate = config.mempool.min_relay_fee_rate as f64; // sat/vB
@@ -551,31 +551,57 @@ fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
 
 /// Check if transaction is final (Orange Paper Section 9.1 - Transaction Finality)
 ///
+/// Matches Bitcoin Core's IsFinalTx() exactly.
+///
 /// A transaction is final if:
 /// 1. tx.lock_time == 0 (no locktime restriction), OR
-/// 2. If locktime < LOCKTIME_THRESHOLD (block height): height >= tx.lock_time
-/// 3. If locktime >= LOCKTIME_THRESHOLD (timestamp): block_time >= tx.lock_time
+/// 2. If locktime < LOCKTIME_THRESHOLD (block height): height > tx.lock_time
+/// 3. If locktime >= LOCKTIME_THRESHOLD (timestamp): block_time > tx.lock_time
+/// 4. OR if all inputs have SEQUENCE_FINAL (0xffffffff), locktime is ignored
 ///
 /// Mathematical specification:
 /// ∀ tx ∈ Transaction, height ∈ ℕ, block_time ∈ ℕ:
 /// - is_final_tx(tx, height, block_time) = true ⟹
 ///   (tx.lock_time = 0 ∨
-///   (tx.lock_time < LOCKTIME_THRESHOLD ∧ height >= tx.lock_time) ∨
-///   (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time >= tx.lock_time))
+///   (tx.lock_time < LOCKTIME_THRESHOLD ∧ height > tx.lock_time) ∨
+///   (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time > tx.lock_time) ∨
+///   (∀ input ∈ tx.inputs: input.sequence == SEQUENCE_FINAL))
 pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bool {
+    use crate::constants::SEQUENCE_FINAL;
+
     // If locktime is 0, transaction is always final
     if tx.lock_time == 0 {
         return true;
     }
 
     // Check if locktime is satisfied based on type
-    if (tx.lock_time as u32) < LOCKTIME_THRESHOLD {
-        // Block height locktime: current height must be >= locktime
-        height >= tx.lock_time as Natural
+    // Core's logic: if (tx.nLockTime < (tx.nLockTime < LOCKTIME_THRESHOLD ? nBlockHeight : nBlockTime))
+    // This means: locktime < (condition ? height : block_time)
+    // So: if locktime < threshold, check locktime < height
+    //     if locktime >= threshold, check locktime < block_time
+    let locktime_satisfied = if (tx.lock_time as u32) < LOCKTIME_THRESHOLD {
+        // Block height locktime: check if locktime < height
+        (tx.lock_time as Natural) < height
     } else {
-        // Timestamp locktime: current block time must be >= locktime
-        block_time >= tx.lock_time as Natural
+        // Timestamp locktime: check if locktime < block_time
+        (tx.lock_time as Natural) < block_time
+    };
+
+    if locktime_satisfied {
+        return true;
     }
+
+    // Even if locktime isn't satisfied, transaction is final if all inputs have SEQUENCE_FINAL
+    // This allows transactions to bypass locktime by setting all sequences to 0xffffffff
+    // Core's behavior: if all inputs have SEQUENCE_FINAL, locktime is ignored
+    for input in &tx.inputs {
+        if (input.sequence as u32) != SEQUENCE_FINAL {
+            return false;
+        }
+    }
+
+    // All inputs have SEQUENCE_FINAL - transaction is final regardless of locktime
+    true
 }
 
 /// Check if transaction signals RBF
@@ -690,11 +716,11 @@ pub fn calculate_tx_id(tx: &Transaction) -> Hash {
 }
 
 /// Calculate transaction size (simplified)
+// Use the actual serialization-based size calculation from transaction module
+// This ensures consistency and matches Bitcoin Core's GetSerializeSize(TX_NO_WITNESS(tx))
 fn calculate_transaction_size(tx: &Transaction) -> usize {
-    4 + // version
-    tx.inputs.len() * (32 + 4 + 1 + 4) + // inputs (OutPoint + script_sig_len + sequence) - simplified
-    tx.outputs.len() * (8 + 1) + // outputs (value + script_pubkey_len) - simplified
-    4 // lock_time
+    use crate::transaction::calculate_transaction_size as tx_size;
+    tx_size(tx)
 }
 
 /// Check if transaction is coinbase
@@ -1218,6 +1244,7 @@ mod tests {
             value: 10000,
             script_pubkey: vec![0x51],
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(new_outpoint, new_utxo);
 
@@ -1404,7 +1431,8 @@ mod tests {
         let mut mempool = Mempool::new();
 
         // Fill mempool beyond limit with unique hashes
-        for i in 0..10001 {
+        // Default max_mempool_txs is 100,000, so we need to exceed that
+        for i in 0..100_001 {
             let mut hash = [0u8; 32];
             hash[0] = (i & 0xff) as u8;
             hash[1] = ((i >> 8) & 0xff) as u8;
@@ -1413,8 +1441,8 @@ mod tests {
             mempool.insert(hash);
         }
 
-        // Verify mempool is actually full
-        assert!(mempool.len() > 10000);
+        // Verify mempool is actually full (exceeds max_mempool_txs limit of 100,000)
+        assert!(mempool.len() > 100_000);
 
         let result = check_mempool_rules(&tx, fee, &mempool).unwrap();
         assert!(!result);
@@ -1616,6 +1644,7 @@ mod tests {
             value: 10000,
             script_pubkey: vec![0x51], // OP_1 for valid script
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint, utxo);
         utxo_set
@@ -1683,6 +1712,7 @@ mod kani_proofs_2 {
                         value: 1000,
                         script_pubkey: vec![],
                         height: 0,
+                        is_coinbase: false,
                     },
                 );
             }
@@ -1696,6 +1726,7 @@ mod kani_proofs_2 {
                         value: 1000,
                         script_pubkey: vec![],
                         height: 0,
+                        is_coinbase: false,
                     },
                 );
             }
@@ -1815,6 +1846,7 @@ mod kani_proofs_2 {
                             value: 1000,
                             script_pubkey: vec![],
                             height: height.saturating_sub(1),
+                            is_coinbase: false,
                         },
                     );
                 }

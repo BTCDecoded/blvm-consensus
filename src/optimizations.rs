@@ -88,6 +88,7 @@ pub mod bounds_optimization {
 /// Reference: BLLVM Optimization Pass 3 - Memory Layout Optimization
 #[cfg(feature = "production")]
 #[repr(align(32))]
+#[derive(Clone)]
 pub struct CacheAlignedHash([u8; 32]);
 
 impl CacheAlignedHash {

@@ -10,9 +10,9 @@
 //! - Merkle root != 0
 //! - Proof of work: hash < target
 
+use bllvm_consensus::constants::*;
 use bllvm_consensus::pow::{check_proof_of_work, expand_target};
 use bllvm_consensus::types::*;
-use bllvm_consensus::constants::*;
 use sha2::{Digest, Sha256};
 
 /// Create a valid block header
@@ -33,12 +33,15 @@ fn create_valid_header() -> BlockHeader {
 #[test]
 fn test_block_header_valid() {
     let header = create_valid_header();
-    
+
     // Verify all fields are valid
     assert!(header.version >= 1, "Version should be >= 1");
     assert_ne!(header.timestamp, 0, "Timestamp should not be zero");
     assert_ne!(header.bits, 0, "Bits should not be zero");
-    assert_ne!(header.merkle_root, [0u8; 32], "Merkle root should not be zero");
+    assert_ne!(
+        header.merkle_root, [0u8; 32],
+        "Merkle root should not be zero"
+    );
 }
 
 /// Test block header validation: invalid version (0)
@@ -48,7 +51,7 @@ fn test_block_header_valid() {
 fn test_block_header_invalid_version_zero() {
     let mut header = create_valid_header();
     header.version = 0;
-    
+
     // Version 0 should be invalid
     assert_eq!(header.version, 0, "Version should be 0");
 }
@@ -60,7 +63,7 @@ fn test_block_header_invalid_version_zero() {
 fn test_block_header_invalid_timestamp_zero() {
     let mut header = create_valid_header();
     header.timestamp = 0;
-    
+
     // Timestamp 0 should be invalid
     assert_eq!(header.timestamp, 0, "Timestamp should be 0");
 }
@@ -72,7 +75,7 @@ fn test_block_header_invalid_timestamp_zero() {
 fn test_block_header_invalid_bits_zero() {
     let mut header = create_valid_header();
     header.bits = 0;
-    
+
     // Bits 0 should be invalid
     assert_eq!(header.bits, 0, "Bits should be 0");
 }
@@ -84,9 +87,12 @@ fn test_block_header_invalid_bits_zero() {
 fn test_block_header_invalid_merkle_root_zero() {
     let mut header = create_valid_header();
     header.merkle_root = [0u8; 32];
-    
+
     // Merkle root all zeros should be invalid
-    assert_eq!(header.merkle_root, [0u8; 32], "Merkle root should be all zeros");
+    assert_eq!(
+        header.merkle_root, [0u8; 32],
+        "Merkle root should be all zeros"
+    );
 }
 
 /// Test proof of work verification: valid PoW
@@ -97,10 +103,13 @@ fn test_proof_of_work_valid() {
     // Create a header with valid proof of work
     // For testing, we'll use genesis difficulty which is very easy
     let header = create_valid_header();
-    
+
     // Verify PoW check doesn't panic
     let result = check_proof_of_work(&header);
-    assert!(result.is_ok() || result.is_err(), "PoW check should complete");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "PoW check should complete"
+    );
 }
 
 /// Test proof of work verification: hash >= target (invalid)
@@ -112,10 +121,13 @@ fn test_proof_of_work_invalid_hash_too_large() {
     // This is difficult to test without actually mining, but we can verify
     // the function exists and works
     let header = create_valid_header();
-    
+
     // The check should complete (may pass or fail depending on nonce)
     let result = check_proof_of_work(&header);
-    assert!(result.is_ok() || result.is_err(), "PoW check should complete");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "PoW check should complete"
+    );
 }
 
 /// Test proof of work: target expansion matches header bits
@@ -124,11 +136,11 @@ fn test_proof_of_work_invalid_hash_too_large() {
 #[test]
 fn test_proof_of_work_target_expansion() {
     let header = create_valid_header();
-    
+
     // Expand target from bits
     let result = expand_target(header.bits);
     assert!(result.is_ok(), "Target expansion should succeed");
-    
+
     let target = result.unwrap();
     // Target should be non-zero for valid bits
     // (We can't easily check if it's zero without accessing private methods)
@@ -141,7 +153,7 @@ fn test_proof_of_work_target_expansion() {
 fn test_block_header_version_minimum() {
     let mut header = create_valid_header();
     header.version = 1; // Minimum valid version
-    
+
     assert_eq!(header.version, 1, "Version should be 1 (minimum)");
 }
 
@@ -151,12 +163,14 @@ fn test_block_header_version_minimum() {
 #[test]
 fn test_block_header_timestamp_reasonable() {
     let header = create_valid_header();
-    
+
     // Timestamp should be reasonable (not zero, not in distant future)
     assert!(header.timestamp > 0, "Timestamp should be positive");
     // Genesis timestamp is 1231006505, so any reasonable timestamp should be >= that
-    assert!(header.timestamp >= 1231006505 || header.timestamp < 2000000000, 
-            "Timestamp should be in reasonable range");
+    assert!(
+        header.timestamp >= 1231006505 || header.timestamp < 2000000000,
+        "Timestamp should be in reasonable range"
+    );
 }
 
 /// Test block header: bits valid range
@@ -165,12 +179,14 @@ fn test_block_header_timestamp_reasonable() {
 #[test]
 fn test_block_header_bits_valid_range() {
     let header = create_valid_header();
-    
+
     // Bits should be non-zero and in valid range
     assert_ne!(header.bits, 0, "Bits should not be zero");
     // Genesis bits = 0x1d00ffff, which is valid
-    assert!(header.bits >= 0x03000000 && header.bits <= 0x1d00ffff,
-            "Bits should be in valid range");
+    assert!(
+        header.bits >= 0x03000000 && header.bits <= 0x1d00ffff,
+        "Bits should be in valid range"
+    );
 }
 
 /// Test block header: merkle root hash format
@@ -179,10 +195,17 @@ fn test_block_header_bits_valid_range() {
 #[test]
 fn test_block_header_merkle_root_format() {
     let header = create_valid_header();
-    
+
     // Merkle root should be 32 bytes (array length)
-    assert_eq!(header.merkle_root.len(), 32, "Merkle root should be 32 bytes");
-    assert_ne!(header.merkle_root, [0u8; 32], "Merkle root should not be all zeros");
+    assert_eq!(
+        header.merkle_root.len(),
+        32,
+        "Merkle root should be 32 bytes"
+    );
+    assert_ne!(
+        header.merkle_root, [0u8; 32],
+        "Merkle root should not be all zeros"
+    );
 }
 
 /// Test proof of work: header serialization
@@ -191,7 +214,7 @@ fn test_block_header_merkle_root_format() {
 #[test]
 fn test_proof_of_work_header_serialization() {
     let header = create_valid_header();
-    
+
     // Verify header can be serialized (needed for PoW)
     // Serialize header to bytes
     let mut header_bytes = Vec::new();
@@ -201,14 +224,13 @@ fn test_proof_of_work_header_serialization() {
     header_bytes.extend_from_slice(&(header.timestamp as u32).to_le_bytes());
     header_bytes.extend_from_slice(&(header.bits as u32).to_le_bytes());
     header_bytes.extend_from_slice(&(header.nonce as u32).to_le_bytes());
-    
+
     // Header should be 80 bytes (standard block header size)
     assert_eq!(header_bytes.len(), 80, "Block header should be 80 bytes");
-    
+
     // Double SHA256 should work
     let hash1 = Sha256::digest(&header_bytes);
     let hash2 = Sha256::digest(&hash1);
-    
+
     assert_eq!(hash2.len(), 32, "Double SHA256 should produce 32-byte hash");
 }
-
