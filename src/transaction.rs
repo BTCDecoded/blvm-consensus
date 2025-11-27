@@ -28,9 +28,7 @@ fn make_fee_calculation_underflow_error() -> ConsensusError {
 fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
     // Quick reject: empty inputs or outputs (most common invalid case)
     if tx.inputs.is_empty() || tx.outputs.is_empty() {
-        return Some(ValidationResult::Invalid(
-            "Empty inputs or outputs".to_string(),
-        ));
+        return Some(ValidationResult::Invalid("Empty inputs or outputs".into()));
     }
 
     // Quick reject: obviously too many inputs/outputs (before expensive size calculation)
@@ -49,6 +47,22 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 
     // Quick reject: obviously invalid value ranges (before expensive validation)
     // Check if any output value is negative or exceeds MAX_MONEY
+    // Optimization: Use precomputed constant for u64 comparisons
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
+        for output in &tx.outputs {
+            let value_u64 = output.value as u64;
+            if output.value < 0 || value_u64 > MAX_MONEY_U64 {
+                return Some(ValidationResult::Invalid(format!(
+                    "Invalid output value: {}",
+                    output.value
+                )));
+            }
+        }
+    }
+
+    #[cfg(not(feature = "production"))]
     for output in &tx.outputs {
         if output.value < 0 || output.value > MAX_MONEY {
             return Some(ValidationResult::Invalid(format!(
@@ -59,10 +73,17 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
     }
 
     // Quick reject: coinbase with invalid scriptSig length
-    if tx.inputs.len() == 1
-        && tx.inputs[0].prevout.hash == [0u8; 32]
-        && tx.inputs[0].prevout.index == 0xffffffff
-    {
+    // Optimization: Use constant folding for zero hash check
+    #[cfg(feature = "production")]
+    let is_coinbase_hash = {
+        use crate::optimizations::constant_folding::is_zero_hash;
+        is_zero_hash(&tx.inputs[0].prevout.hash)
+    };
+
+    #[cfg(not(feature = "production"))]
+    let is_coinbase_hash = tx.inputs[0].prevout.hash == [0u8; 32];
+
+    if tx.inputs.len() == 1 && is_coinbase_hash && tx.inputs[0].prevout.index == 0xffffffff {
         let script_sig_len = tx.inputs[0].script_sig.len();
         if !(2..=100).contains(&script_sig_len) {
             return Some(ValidationResult::Invalid(format!(
@@ -113,9 +134,11 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     #[cfg(feature = "production")]
     {
         use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
         for i in 0..tx.outputs.len() {
             if let Some(output) = get_proven_by_kani(&tx.outputs, i) {
-                if output.value < 0 || output.value > MAX_MONEY {
+                let value_u64 = output.value as u64;
+                if output.value < 0 || value_u64 > MAX_MONEY_U64 {
                     return Ok(ValidationResult::Invalid(format!(
                         "Invalid output value {} at index {}",
                         output.value, i
@@ -149,6 +172,20 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // MoneyRange(n) = (n >= 0 && n <= MAX_MONEY)
     // Note: total_output_value should always be >= 0 since we check each output >= 0
     // and use checked_add, but we check explicitly to match Core's behavior exactly
+    // Optimization: Use precomputed constant for comparison
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
+        let total_u64 = total_output_value as u64;
+        if total_output_value < 0 || total_u64 > MAX_MONEY_U64 {
+            return Ok(ValidationResult::Invalid(format!(
+                "Total output value {total_output_value} is out of valid range [0, {}]",
+                MAX_MONEY
+            )));
+        }
+    }
+
+    #[cfg(not(feature = "production"))]
     if !(0..=MAX_MONEY).contains(&total_output_value) {
         return Ok(ValidationResult::Invalid(format!(
             "Total output value {total_output_value} is out of valid range [0, {MAX_MONEY}]"
@@ -241,10 +278,11 @@ pub fn check_tx_inputs(
     // BLLVM Optimization: Use Kani-proven bounds for input access in hot path
     #[cfg(feature = "production")]
     {
+        use crate::optimizations::constant_folding::is_zero_hash;
         use crate::optimizations::kani_optimized_access::get_proven_by_kani;
         for i in 0..tx.inputs.len() {
             if let Some(input) = get_proven_by_kani(&tx.inputs, i) {
-                if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
+                if is_zero_hash(&input.prevout.hash) && input.prevout.index == 0xffffffff {
                     return Ok((
                         ValidationResult::Invalid(format!(
                             "Non-coinbase input {i} has null prevout"
@@ -354,9 +392,21 @@ pub fn check_tx_inputs(
 /// Check if transaction is coinbase
 #[inline]
 pub fn is_coinbase(tx: &Transaction) -> bool {
-    tx.inputs.len() == 1
-        && tx.inputs[0].prevout.hash == [0u8; 32]
-        && tx.inputs[0].prevout.index == 0xffffffff
+    // Optimization: Use constant folding for zero hash check
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::constant_folding::is_zero_hash;
+        tx.inputs.len() == 1
+            && is_zero_hash(&tx.inputs[0].prevout.hash)
+            && tx.inputs[0].prevout.index == 0xffffffff
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        tx.inputs.len() == 1
+            && tx.inputs[0].prevout.hash == [0u8; 32]
+            && tx.inputs[0].prevout.index == 0xffffffff
+    }
 }
 
 /// Calculate transaction size (simplified)

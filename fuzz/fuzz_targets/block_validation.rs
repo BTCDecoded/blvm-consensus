@@ -1,14 +1,14 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
-use consensus_proof::{Block, BlockHeader, UtxoSet};
 use consensus_proof::block::connect_block;
+use consensus_proof::{Block, BlockHeader, UtxoSet};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     // Test block validation robustness
     if data.len() < 88 {
         return; // Need at least block header (88 bytes)
     }
-    
+
     // Create minimal block from fuzzed data
     let header = BlockHeader {
         version: i64::from_le_bytes([
@@ -21,11 +21,13 @@ fuzz_target!(|data: &[u8]| {
             data.get(6).copied().unwrap_or(0),
             data.get(7).copied().unwrap_or(0),
         ]),
-        prev_block_hash: data.get(8..40)
+        prev_block_hash: data
+            .get(8..40)
             .unwrap_or(&[0; 32])
             .try_into()
             .unwrap_or([0; 32]),
-        merkle_root: data.get(40..72)
+        merkle_root: data
+            .get(40..72)
             .unwrap_or(&[0; 32])
             .try_into()
             .unwrap_or([0; 32]),
@@ -52,7 +54,7 @@ fuzz_target!(|data: &[u8]| {
             data.get(87).copied().unwrap_or(0),
         ]) as u64,
     };
-    
+
     // Create transactions from remaining data if available
     let mut transactions = Vec::new();
     if data.len() > 88 {
@@ -78,15 +80,14 @@ fuzz_target!(|data: &[u8]| {
             });
         }
     }
-    
+
     let block = Block {
         header,
         transactions,
     };
-    
+
     let utxo_set = UtxoSet::new();
-    
+
     // Should never panic - test robustness
     let _result = connect_block(&block, utxo_set, 0);
 });
-

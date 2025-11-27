@@ -88,6 +88,9 @@ pub mod taproot;
 #[cfg(feature = "utxo-commitments")]
 pub mod utxo_commitments;
 
+#[cfg(feature = "ctv")]
+pub mod bip119;
+
 #[cfg(feature = "production")]
 pub mod optimizations;
 
@@ -203,6 +206,7 @@ impl ConsensusProof {
     ///     value: 1000000000, // 10 BTC
     ///     script_pubkey: vec![],
     ///     height: 0,
+    ///     is_coinbase: false,
     /// };
     /// utxo_set.insert(outpoint, utxo);
     ///
@@ -586,6 +590,7 @@ impl ConsensusProof {
     ///     value: 100000000,
     ///     script_pubkey: vec![],
     ///     height: 0,
+    ///     is_coinbase: false,
     /// });
     ///
     /// // Note: This will fail replacement checks because new_tx has lower output value

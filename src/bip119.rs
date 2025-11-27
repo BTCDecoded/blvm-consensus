@@ -69,7 +69,6 @@ use crate::error::{ConsensusError, Result};
 use crate::serialization::varint::encode_varint;
 use crate::types::*;
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 
 /// Calculate transaction template hash for BIP119 CTV
 ///
@@ -107,8 +106,14 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
         input_index,
         tx.inputs.len()
     );
-    debug_assert!(!tx.inputs.is_empty(), "Transaction must have at least one input");
-    debug_assert!(!tx.outputs.is_empty(), "Transaction must have at least one output");
+    debug_assert!(
+        !tx.inputs.is_empty(),
+        "Transaction must have at least one input"
+    );
+    debug_assert!(
+        !tx.outputs.is_empty(),
+        "Transaction must have at least one output"
+    );
 
     // Validate inputs
     if input_index >= tx.inputs.len() {
@@ -136,7 +141,17 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
 
     // Build template preimage with pre-allocated capacity for performance
     // Estimate: 4 (version) + 9 (varint max) + inputs*(32+4+4) + 9 (varint max) + outputs*(8+9+script) + 4 (locktime) + 4 (index)
-    let estimated_size = 4 + 9 + (tx.inputs.len() * 40) + 9 + (tx.outputs.iter().map(|o| 8 + 9 + o.script_pubkey.len()).sum::<usize>()) + 4 + 4;
+    let estimated_size = 4
+        + 9
+        + (tx.inputs.len() * 40)
+        + 9
+        + (tx
+            .outputs
+            .iter()
+            .map(|o| 8 + 9 + o.script_pubkey.len())
+            .sum::<usize>())
+        + 4
+        + 4;
     let mut preimage = Vec::with_capacity(estimated_size);
 
     // 1. Transaction version (4 bytes, little-endian)
@@ -274,18 +289,18 @@ mod kani_proofs {
     fn kani_template_hash_determinism() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        
+
         // Bound for tractability - tighter bounds reduce state space
         kani::assume(tx.inputs.len() > 0);
         kani::assume(input_index < tx.inputs.len());
         kani::assume(tx.outputs.len() > 0);
-        kani::assume(tx.inputs.len() <= 5);  // Reduced from 10 for faster verification
+        kani::assume(tx.inputs.len() <= 5); // Reduced from 10 for faster verification
         kani::assume(tx.outputs.len() <= 5); // Reduced from 10 for faster verification
-        
+
         // Calculate template hash twice
         let hash1 = calculate_template_hash(&tx, input_index);
         let hash2 = calculate_template_hash(&tx, input_index);
-        
+
         // Should be identical
         assert_eq!(hash1, hash2, "Template hash must be deterministic");
     }
@@ -300,7 +315,7 @@ mod kani_proofs {
         let tx1 = crate::kani_helpers::create_bounded_transaction();
         let tx2 = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx1.inputs.len() > 0);
         kani::assume(tx2.inputs.len() > 0);
@@ -308,16 +323,18 @@ mod kani_proofs {
         kani::assume(input_index < tx2.inputs.len());
         kani::assume(tx1.outputs.len() > 0);
         kani::assume(tx2.outputs.len() > 0);
-        
+
         // If transactions are different, hashes should be different
         if tx1 != tx2 {
             let hash1 = calculate_template_hash(&tx1, input_index).unwrap_or([0; 32]);
             let hash2 = calculate_template_hash(&tx2, input_index).unwrap_or([0; 32]);
-            
+
             // Collision probability is negligible (2^-256)
             // This proof verifies the implementation doesn't introduce collisions
-            assert!(hash1 != hash2 || tx1 == tx2, 
-                "Different transactions must produce different template hashes");
+            assert!(
+                hash1 != hash2 || tx1 == tx2,
+                "Different transactions must produce different template hashes"
+            );
         }
     }
 
@@ -331,17 +348,17 @@ mod kani_proofs {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let i1: usize = kani::any();
         let i2: usize = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx.inputs.len() > 1);
         kani::assume(i1 < tx.inputs.len());
         kani::assume(i2 < tx.inputs.len());
         kani::assume(i1 != i2);
         kani::assume(tx.outputs.len() > 0);
-        
+
         let hash1 = calculate_template_hash(&tx, i1).unwrap_or([0; 32]);
         let hash2 = calculate_template_hash(&tx, i2).unwrap_or([0; 32]);
-        
+
         // Different input indices must produce different hashes
         assert!(hash1 != hash2, "Template hash must depend on input index");
     }
@@ -356,22 +373,24 @@ mod kani_proofs {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
         let template_hash: [u8; 32] = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx.inputs.len() > 0);
         kani::assume(input_index < tx.inputs.len());
         kani::assume(tx.outputs.len() > 0);
-        
+
         // Calculate actual template hash
         let actual_hash = calculate_template_hash(&tx, input_index);
-        
+
         if let Ok(actual) = actual_hash {
             // If hashes match, CTV should pass
             if actual == template_hash {
                 // Verify using validate_template_hash
                 let result = validate_template_hash(&tx, input_index, &template_hash);
-                assert!(result.is_ok() && result.unwrap(), 
-                    "CTV should pass when template hash matches");
+                assert!(
+                    result.is_ok() && result.unwrap(),
+                    "CTV should pass when template hash matches"
+                );
             }
         }
     }
@@ -383,20 +402,23 @@ mod kani_proofs {
     fn kani_template_hash_bounds() {
         let tx = crate::kani_helpers::create_bounded_transaction();
         let input_index: usize = kani::any();
-        
+
         // Bound for tractability
         kani::assume(tx.inputs.len() > 0);
         kani::assume(input_index < tx.inputs.len());
         kani::assume(tx.outputs.len() > 0);
         kani::assume(tx.inputs.len() <= 100);
         kani::assume(tx.outputs.len() <= 100);
-        
+
         // Should never panic
         let result = calculate_template_hash(&tx, input_index);
-        
+
         // Result should be Ok for valid inputs
-        assert!(result.is_ok(), "Template hash calculation should never panic");
-        
+        assert!(
+            result.is_ok(),
+            "Template hash calculation should never panic"
+        );
+
         // Hash should always be 32 bytes
         if let Ok(hash) = result {
             assert_eq!(hash.len(), 32, "Template hash must be 32 bytes");
@@ -420,11 +442,13 @@ mod tests {
                 },
                 script_sig: vec![0x51], // OP_1 (not included in template)
                 sequence: 0xffffffff,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x76, 0xa9, 0x14, 0x00, 0x87].into(), // P2PKH
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -450,11 +474,13 @@ mod tests {
                 },
                 script_sig: vec![0x52, 0x53], // Different scriptSig
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 5000,
                 script_pubkey: vec![0x51].into(), // OP_1
-            }].into(),
+            }]
+            .into(),
             lock_time: 100,
         };
 
@@ -489,11 +515,13 @@ mod tests {
                     script_sig: vec![],
                     sequence: 0,
                 },
-            ].into(),
+            ]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -501,7 +529,10 @@ mod tests {
         let hash0 = calculate_template_hash(&tx, 0).unwrap();
         let hash1 = calculate_template_hash(&tx, 1).unwrap();
 
-        assert_ne!(hash0, hash1, "Different input indices must produce different template hashes");
+        assert_ne!(
+            hash0, hash1,
+            "Different input indices must produce different template hashes"
+        );
     }
 
     #[test]
@@ -516,11 +547,13 @@ mod tests {
                 },
                 script_sig: vec![0x51], // OP_1
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -533,11 +566,13 @@ mod tests {
                 },
                 script_sig: vec![0x52, 0x53], // Different scriptSig
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -559,11 +594,13 @@ mod tests {
                 },
                 script_sig: vec![],
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -591,7 +628,8 @@ mod tests {
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
         assert!(calculate_template_hash(&tx_no_inputs, 0).is_err());
@@ -606,7 +644,8 @@ mod tests {
                 },
                 script_sig: vec![],
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![].into(),
             lock_time: 0,
         };
@@ -622,11 +661,13 @@ mod tests {
                 },
                 script_sig: vec![],
                 sequence: 0,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
         assert!(calculate_template_hash(&tx, 1).is_err()); // Index 1, but only 1 input (index 0)
@@ -645,4 +686,3 @@ mod tests {
         assert!(!is_ctv_script(&script_without_ctv));
     }
 }
-

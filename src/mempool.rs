@@ -725,9 +725,21 @@ fn calculate_transaction_size(tx: &Transaction) -> usize {
 
 /// Check if transaction is coinbase
 fn is_coinbase(tx: &Transaction) -> bool {
-    tx.inputs.len() == 1
-        && tx.inputs[0].prevout.hash == [0u8; 32]
-        && tx.inputs[0].prevout.index == 0xffffffff
+    // Optimization: Use constant folding for zero hash check
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::constant_folding::is_zero_hash;
+        tx.inputs.len() == 1
+            && is_zero_hash(&tx.inputs[0].prevout.hash)
+            && tx.inputs[0].prevout.index == 0xffffffff
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        tx.inputs.len() == 1
+            && tx.inputs[0].prevout.hash == [0u8; 32]
+            && tx.inputs[0].prevout.index == 0xffffffff
+    }
 }
 
 // ============================================================================

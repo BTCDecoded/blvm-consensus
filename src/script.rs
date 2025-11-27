@@ -61,12 +61,12 @@ static SCRIPT_CACHE: OnceLock<RwLock<lru::LruCache<u64, bool>>> = OnceLock::new(
 #[cfg(feature = "production")]
 fn get_script_cache() -> &'static RwLock<lru::LruCache<u64, bool>> {
     SCRIPT_CACHE.get_or_init(|| {
-        // Bounded cache: 50,000 entries (optimized for production workloads)
+        // Bounded cache: 100,000 entries (optimized for production workloads)
         // LRU eviction policy prevents unbounded memory growth
-        // Increased from 10k to 50k for better hit rates in large mempools
+        // Increased from 50k to 100k for better hit rates in large mempools
         use lru::LruCache;
         use std::num::NonZeroUsize;
-        RwLock::new(LruCache::new(NonZeroUsize::new(50_000).unwrap()))
+        RwLock::new(LruCache::new(NonZeroUsize::new(100_000).unwrap()))
     })
 }
 
@@ -306,7 +306,25 @@ fn eval_script_inner(script: &ByteString, stack: &mut Vec<ByteString>, flags: u3
     }
 
     // Final stack check: exactly one non-zero value
-    Ok(stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0)
+    // Optimization: Use bounds-optimized access in production
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::kani_optimized_access::get_proven_by_kani;
+        if let Some(first_item) = get_proven_by_kani(stack, 0) {
+            if let Some(first_byte) = get_proven_by_kani(first_item, 0) {
+                Ok(stack.len() == 1 && !first_item.is_empty() && *first_byte != 0)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        Ok(stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0)
+    }
 }
 
 /// VerifyScript: 𝒮𝒞 × 𝒮𝒞 × 𝒲 × ℕ → {true, false}

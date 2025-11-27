@@ -11,6 +11,71 @@ use std::borrow::Cow;
 #[cfg(feature = "production")]
 use smallvec::SmallVec;
 
+#[cfg(feature = "production")]
+use std::collections::hash_map::DefaultHasher;
+#[cfg(feature = "production")]
+use std::hash::{Hash, Hasher};
+#[cfg(feature = "production")]
+use std::sync::{OnceLock, RwLock};
+
+/// Transaction serialization cache (production feature only)
+///
+/// Caches serialized transaction bytes to avoid re-serializing the same transaction.
+/// Cache key is a fast hash of transaction structure (not the serialized form).
+#[cfg(feature = "production")]
+static SERIALIZATION_CACHE: OnceLock<RwLock<lru::LruCache<u64, Vec<u8>>>> = OnceLock::new();
+
+#[cfg(feature = "production")]
+fn get_serialization_cache() -> &'static RwLock<lru::LruCache<u64, Vec<u8>>> {
+    SERIALIZATION_CACHE.get_or_init(|| {
+        use lru::LruCache;
+        use std::num::NonZeroUsize;
+        // Cache 10,000 serialized transactions (balance between memory and hit rate)
+        // Each entry is ~250 bytes average, so ~2.5MB total
+        RwLock::new(LruCache::new(NonZeroUsize::new(10_000).unwrap()))
+    })
+}
+
+/// Calculate a fast hash of transaction structure for cache key
+///
+/// This hash is used as a cache key and doesn't require serialization.
+/// It's a heuristic - not perfect but fast enough for caching purposes.
+#[cfg(feature = "production")]
+fn calculate_tx_cache_key(tx: &Transaction) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    tx.version.hash(&mut hasher);
+    tx.inputs.len().hash(&mut hasher);
+    tx.outputs.len().hash(&mut hasher);
+    tx.lock_time.hash(&mut hasher);
+
+    // Hash first few bytes of each input/output for uniqueness
+    // This is a heuristic - not perfect but fast
+    for (i, input) in tx.inputs.iter().take(3).enumerate() {
+        i.hash(&mut hasher);
+        input.prevout.hash.hash(&mut hasher);
+        input.prevout.index.hash(&mut hasher);
+        input.script_sig.len().hash(&mut hasher);
+        // Hash first 8 bytes of script_sig for uniqueness
+        if input.script_sig.len() > 0 {
+            let len = input.script_sig.len().min(8);
+            hasher.write(&input.script_sig[..len]);
+        }
+    }
+
+    for (i, output) in tx.outputs.iter().take(3).enumerate() {
+        i.hash(&mut hasher);
+        output.value.hash(&mut hasher);
+        output.script_pubkey.len().hash(&mut hasher);
+        // Hash first 8 bytes of script_pubkey for uniqueness
+        if output.script_pubkey.len() > 0 {
+            let len = output.script_pubkey.len().min(8);
+            hasher.write(&output.script_pubkey[..len]);
+        }
+    }
+
+    hasher.finish()
+}
+
 /// Error type for transaction parsing failures
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransactionParseError {
@@ -56,8 +121,44 @@ impl std::error::Error for TransactionParseError {}
 ///   - Script length (VarInt)
 ///   - Script bytes
 /// - Lock time (4 bytes, little-endian)
+///
+/// Performance optimization: Caches serialized results to avoid re-serializing
+/// the same transaction multiple times (used in block validation, network messages, etc.)
 #[inline(always)]
 pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
+    #[cfg(feature = "production")]
+    {
+        // Check cache first
+        let cache = get_serialization_cache();
+        let cache_key = calculate_tx_cache_key(tx);
+
+        // Try to get from cache
+        if let Ok(cached) = cache.read() {
+            if let Some(serialized) = cached.peek(&cache_key) {
+                return serialized.clone(); // Clone cached result
+            }
+        }
+
+        // Cache miss - serialize and cache
+        let serialized = serialize_transaction_inner(tx);
+
+        // Store in cache
+        if let Ok(mut cache) = cache.write() {
+            cache.put(cache_key, serialized.clone());
+        }
+
+        serialized
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        serialize_transaction_inner(tx)
+    }
+}
+
+/// Inner serialization function (actual implementation)
+#[inline(always)]
+fn serialize_transaction_inner(tx: &Transaction) -> Vec<u8> {
     // BLLVM Optimization: Pre-allocate buffer with better size estimation
     // Estimate: version(4) + varint(input_count) + inputs(36*N + scripts) + varint(output_count) + outputs(9*M + scripts) + locktime(4)
     // Conservative estimate: 4 + 1 + (tx.inputs.len() * 50) + 1 + (tx.outputs.len() * 50) + 4

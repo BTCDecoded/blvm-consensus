@@ -1,26 +1,26 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
-use bllvm_consensus::{Block, BlockHeader, UtxoSet};
 use bllvm_consensus::reorganization::reorganize_chain;
+use bllvm_consensus::{Block, BlockHeader, UtxoSet};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     // Test chain reorganization robustness
     // Fuzz reorganization logic with random chains
-    
+
     if data.len() < 80 {
         return; // Need at least one block header (80 bytes)
     }
-    
+
     // Create minimal chains from fuzzed data
     // Split data into two parts for current_chain and new_chain
     let split_point = data.len() / 2;
     let current_chain_data = &data[..split_point];
     let new_chain_data = &data[split_point..];
-    
+
     // Create simple blocks from data
     let mut current_chain = Vec::new();
     let mut new_chain = Vec::new();
-    
+
     // Parse current chain (simplified - just create minimal valid blocks)
     let mut offset = 0;
     while offset + 80 <= current_chain_data.len() && current_chain.len() < 5 {
@@ -54,7 +54,7 @@ fuzz_target!(|data: &[u8]| {
                 current_chain_data.get(offset + 79).copied().unwrap_or(0),
             ]),
         };
-        
+
         // Create minimal block with coinbase transaction
         let block = Block {
             header,
@@ -73,13 +73,14 @@ fuzz_target!(|data: &[u8]| {
                     script_pubkey: vec![0x51],
                 }],
                 lock_time: 0,
-            }].into_boxed_slice(),
+            }]
+            .into_boxed_slice(),
         };
-        
+
         current_chain.push(block);
         offset += 80;
     }
-    
+
     // Parse new chain (same logic)
     let mut offset = 0;
     while offset + 80 <= new_chain_data.len() && new_chain.len() < 5 {
@@ -113,7 +114,7 @@ fuzz_target!(|data: &[u8]| {
                 new_chain_data.get(offset + 79).copied().unwrap_or(0),
             ]),
         };
-        
+
         let block = Block {
             header,
             transactions: vec![bllvm_consensus::Transaction {
@@ -131,25 +132,20 @@ fuzz_target!(|data: &[u8]| {
                     script_pubkey: vec![0x51],
                 }],
                 lock_time: 0,
-            }].into_boxed_slice(),
+            }]
+            .into_boxed_slice(),
         };
-        
+
         new_chain.push(block);
         offset += 80;
     }
-    
+
     // Test reorganization
     let utxo_set = UtxoSet::new();
     let current_height = current_chain.len() as u64;
-    
-    let _result = reorganize_chain(
-        &new_chain,
-        &current_chain,
-        utxo_set,
-        current_height,
-    );
-    
+
+    let _result = reorganize_chain(&new_chain, &current_chain, utxo_set, current_height);
+
     // Don't assert on result - just exercise the code path
     // Fuzzing goal is to find crashes, not verify correctness
 });
-

@@ -17,7 +17,7 @@ use crate::constants::*;
 /// These constants are computed at compile time to avoid runtime computation
 /// in hot paths. Reference: BLLVM Optimization Pass 2 - Constant Folding
 #[cfg(feature = "production")]
-mod precomputed_constants {
+pub mod precomputed_constants {
     use super::*;
 
     /// Pre-computed: 2^64 - 1 (used for wrapping arithmetic checks)

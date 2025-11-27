@@ -3,19 +3,19 @@
 // for when reference-node fuzzing infrastructure is set up
 // For now, fuzz the consensus operations that compact blocks depend on
 
-use libfuzzer_sys::fuzz_target;
-use consensus_proof::{Block, BlockHeader, Transaction, TransactionOutput, Hash, UtxoSet};
 use consensus_proof::block::connect_block;
+use consensus_proof::{Block, BlockHeader, Hash, Transaction, TransactionOutput, UtxoSet};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     // Fuzz block operations that compact blocks depend on
     // Tests block validation, UTXO operations, and transaction handling
     // Note: Full compact block fuzzing requires reference-node, see reference-node/fuzz/
-    
+
     if data.len() < 88 {
         return; // Need at least block header (88 bytes)
     }
-    
+
     // Create a minimal block header from fuzzed data
     let header = BlockHeader {
         version: i64::from_le_bytes([
@@ -28,11 +28,13 @@ fuzz_target!(|data: &[u8]| {
             data.get(6).copied().unwrap_or(0),
             data.get(7).copied().unwrap_or(0),
         ]),
-        prev_block_hash: data.get(8..40)
+        prev_block_hash: data
+            .get(8..40)
             .unwrap_or(&[0; 32])
             .try_into()
             .unwrap_or([0; 32]),
-        merkle_root: data.get(40..72)
+        merkle_root: data
+            .get(40..72)
             .unwrap_or(&[0; 32])
             .try_into()
             .unwrap_or([0; 32]),
@@ -59,7 +61,7 @@ fuzz_target!(|data: &[u8]| {
             data.get(87).copied().unwrap_or(0),
         ]) as u64,
     };
-    
+
     // Create minimal block with coinbase transaction
     let block = Block {
         header,
@@ -73,11 +75,10 @@ fuzz_target!(|data: &[u8]| {
             lock_time: 0,
         }],
     };
-    
+
     let utxo_set = UtxoSet::new();
-    
+
     // Test block connection - should never panic
     // This exercises the same code paths that compact blocks use
     let _result = connect_block(&block, utxo_set, 0);
 });
-

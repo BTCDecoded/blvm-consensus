@@ -4,16 +4,18 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     #[cfg(feature = "utxo-commitments")]
     {
-        use consensus_proof::{BlockHeader, Hash, Natural};
-        use consensus_proof::utxo_commitments::verification::{verify_supply, verify_header_chain, verify_commitment_block_hash};
         use consensus_proof::utxo_commitments::data_structures::UtxoCommitment;
-        
+        use consensus_proof::utxo_commitments::verification::{
+            verify_commitment_block_hash, verify_header_chain, verify_supply,
+        };
+        use consensus_proof::{BlockHeader, Hash, Natural};
+
         // Fuzz UTXO commitment verification: merkle tree construction, commitment verification
-        
+
         if data.len() < 88 {
             return; // Need at least block header
         }
-        
+
         // Create block header from fuzzed data
         let header = BlockHeader {
             version: i64::from_le_bytes([
@@ -26,11 +28,13 @@ fuzz_target!(|data: &[u8]| {
                 data.get(6).copied().unwrap_or(0),
                 data.get(7).copied().unwrap_or(0),
             ]),
-            prev_block_hash: data.get(8..40)
+            prev_block_hash: data
+                .get(8..40)
                 .unwrap_or(&[0; 32])
                 .try_into()
                 .unwrap_or([0; 32]),
-            merkle_root: data.get(40..72)
+            merkle_root: data
+                .get(40..72)
                 .unwrap_or(&[0; 32])
                 .try_into()
                 .unwrap_or([0; 32]),
@@ -57,7 +61,7 @@ fuzz_target!(|data: &[u8]| {
                 data.get(87).copied().unwrap_or(0),
             ]) as u64,
         };
-        
+
         // Test header chain verification
         // Create a small chain from fuzzed data
         let mut headers = vec![header.clone()];
@@ -71,7 +75,8 @@ fuzz_target!(|data: &[u8]| {
                     h[0] = 1;
                     h
                 },
-                merkle_root: data.get(88..120)
+                merkle_root: data
+                    .get(88..120)
                     .unwrap_or(&[0; 32])
                     .try_into()
                     .unwrap_or([0; 32]),
@@ -81,10 +86,10 @@ fuzz_target!(|data: &[u8]| {
             };
             headers.push(header2);
         }
-        
+
         // Test header chain verification - should never panic
         let _chain_result = verify_header_chain(&headers);
-        
+
         // Test commitment block hash verification
         let commitment = UtxoCommitment {
             block_height: 100,
@@ -93,9 +98,9 @@ fuzz_target!(|data: &[u8]| {
             merkle_root: [0u8; 32],
             commitment_hash: [0u8; 32],
         };
-        
+
         let _hash_result = verify_commitment_block_hash(&commitment, &header);
-        
+
         // Test supply verification
         let _supply_result = verify_supply(&commitment);
     }

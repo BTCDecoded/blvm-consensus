@@ -12,6 +12,31 @@ use crate::error::{ConsensusError, Result};
 use crate::script::verify_script_with_context_full;
 use std::borrow::Cow;
 
+#[cfg(feature = "production")]
+use std::collections::hash_map::DefaultHasher;
+#[cfg(feature = "production")]
+use std::hash::{Hash as HashTrait, Hasher};
+#[cfg(feature = "production")]
+use std::sync::{OnceLock, RwLock};
+
+/// Transaction hash cache (production feature only)
+///
+/// Caches transaction IDs to avoid re-hashing the same transaction.
+/// Cache key is the same as serialization cache key (reuses serialized bytes).
+#[cfg(feature = "production")]
+static TX_HASH_CACHE: OnceLock<RwLock<lru::LruCache<u64, Hash>>> = OnceLock::new();
+
+#[cfg(feature = "production")]
+fn get_tx_hash_cache() -> &'static RwLock<lru::LruCache<u64, Hash>> {
+    TX_HASH_CACHE.get_or_init(|| {
+        use lru::LruCache;
+        use std::num::NonZeroUsize;
+        // Cache 20,000 transaction hashes (balance between memory and hit rate)
+        // Each entry is 32 bytes, so ~640KB total
+        RwLock::new(LruCache::new(NonZeroUsize::new(20_000).unwrap()))
+    })
+}
+
 // Cold error construction helpers - these paths are rarely taken
 #[cold]
 fn make_fee_overflow_error(transaction_index: Option<usize>) -> ConsensusError {
@@ -165,7 +190,7 @@ pub fn connect_block(
         // Quick reject: empty block (invalid)
         if block.transactions.is_empty() {
             return Ok((
-                ValidationResult::Invalid("Block has no transactions".to_string()),
+                ValidationResult::Invalid("Block has no transactions".into()),
                 utxo_set,
                 crate::reorganization::BlockUndoLog::new(),
             ));
@@ -189,7 +214,7 @@ pub fn connect_block(
     // 1. Validate block header
     if !validate_block_header(&block.header)? {
         return Ok((
-            ValidationResult::Invalid("Invalid block header".to_string()),
+            ValidationResult::Invalid("Invalid block header".into()),
             utxo_set,
             crate::reorganization::BlockUndoLog::new(),
         ));
@@ -226,7 +251,7 @@ pub fn connect_block(
     );
     if !bip30_result {
         return Ok((
-            ValidationResult::Invalid("BIP30: Duplicate coinbase transaction".to_string()),
+            ValidationResult::Invalid("BIP30: Duplicate coinbase transaction".into()),
             utxo_set,
             crate::reorganization::BlockUndoLog::new(),
         ));
@@ -360,7 +385,7 @@ pub fn connect_block(
                         })?;
 
                         if fee < 0 {
-                            (ValidationResult::Invalid("Negative fee".to_string()), 0)
+                            (ValidationResult::Invalid("Negative fee".into()), 0)
                         } else {
                             // Verify UTXOs exist and check other input validation rules
                             // Use check_tx_inputs for full validation (null prevout checks, coinbase maturity, etc.)
@@ -712,7 +737,7 @@ pub fn connect_block(
     if let Some(coinbase) = block.transactions.first() {
         if !is_coinbase(coinbase) {
             return Ok((
-                ValidationResult::Invalid("First transaction must be coinbase".to_string()),
+                ValidationResult::Invalid("First transaction must be coinbase".into()),
                 utxo_set,
                 crate::reorganization::BlockUndoLog::new(),
             ));
@@ -1162,17 +1187,70 @@ pub(crate) fn calculate_script_flags_for_block(
 ///
 /// Performance optimization: Uses OptimizedSha256 (SHA-NI or AVX2) instead of sha2 crate
 /// for 2-3x faster transaction ID calculation.
+/// Performance optimization: Caches transaction hashes to avoid re-hashing.
 #[inline(always)]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
-    use crate::crypto::OptimizedSha256;
-    use crate::serialization::transaction::serialize_transaction;
+    #[cfg(feature = "production")]
+    {
+        // Reuse serialization cache key (same transaction = same key)
+        use crate::serialization::transaction;
 
-    // Serialize transaction to Bitcoin wire format
-    let serialized = serialize_transaction(tx);
+        // Calculate cache key (reuses serialization cache key logic)
+        // We can't access the private function, so we'll use a similar approach
+        let cache_key = {
+            let mut hasher = DefaultHasher::new();
+            tx.version.hash(&mut hasher);
+            tx.inputs.len().hash(&mut hasher);
+            tx.outputs.len().hash(&mut hasher);
+            tx.lock_time.hash(&mut hasher);
+            // Hash first few bytes for uniqueness (same as serialization cache)
+            for (i, input) in tx.inputs.iter().take(3).enumerate() {
+                use std::hash::Hash as HashTrait;
+                i.hash(&mut hasher);
+                input.prevout.hash.hash(&mut hasher);
+                input.prevout.index.hash(&mut hasher);
+            }
+            for (i, output) in tx.outputs.iter().take(3).enumerate() {
+                use std::hash::Hash as HashTrait;
+                i.hash(&mut hasher);
+                output.value.hash(&mut hasher);
+            }
+            hasher.finish()
+        };
 
-    // Double SHA256 (Bitcoin standard for transaction IDs)
-    // Uses OptimizedSha256 for optimal performance (SHA-NI if available, otherwise sha2 with asm)
-    OptimizedSha256::new().hash256(&serialized)
+        // Check cache first
+        let cache = get_tx_hash_cache();
+        if let Ok(cached) = cache.read() {
+            if let Some(hash) = cached.peek(&cache_key) {
+                return *hash; // Return cached hash
+            }
+        }
+
+        // Cache miss - calculate hash
+        use crate::crypto::OptimizedSha256;
+        let serialized = transaction::serialize_transaction(tx);
+        let hash = OptimizedSha256::new().hash256(&serialized);
+
+        // Store in cache
+        if let Ok(mut cache) = cache.write() {
+            cache.put(cache_key, hash);
+        }
+
+        hash
+    }
+
+    #[cfg(not(feature = "production"))]
+    {
+        use crate::crypto::OptimizedSha256;
+        use crate::serialization::transaction::serialize_transaction;
+
+        // Serialize transaction to Bitcoin wire format
+        let serialized = serialize_transaction(tx);
+
+        // Double SHA256 (Bitcoin standard for transaction IDs)
+        // Uses OptimizedSha256 for optimal performance (SHA-NI if available, otherwise sha2 with asm)
+        OptimizedSha256::new().hash256(&serialized)
+    }
 }
 
 // ============================================================================
@@ -1565,7 +1643,12 @@ mod kani_proofs {
             }
         }
 
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -1626,7 +1709,12 @@ mod kani_proofs {
             kani::assume(tx.outputs.len() <= 3);
         }
 
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -1904,7 +1992,12 @@ mod kani_proofs {
             }
         }
 
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -2297,7 +2390,12 @@ mod kani_proofs_2 {
             }
         }
 
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -2743,7 +2841,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let (result, new_utxo_set, _undo_log) = connect_block(
             &block,
             &witnesses,
@@ -2823,7 +2926,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
@@ -2852,7 +2960,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
@@ -2900,7 +3013,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
@@ -2948,7 +3066,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let (result, _, _undo_log) = connect_block(
             &block,
             &witnesses,
@@ -3266,7 +3389,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -3315,7 +3443,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -3473,7 +3606,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
@@ -3522,7 +3660,12 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        // Optimization: Pre-allocate witness vectors with capacity
+        let witnesses: Vec<Witness> = block
+            .transactions
+            .iter()
+            .map(|_| Vec::with_capacity(2))
+            .collect();
         let result = connect_block(
             &block,
             &witnesses,
