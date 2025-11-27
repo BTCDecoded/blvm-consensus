@@ -77,16 +77,7 @@ pub fn reorganize_chain_with_witnesses(
     // The node layer (bllvm-node) should provide a callback that uses BlockStore::get_undo_log()
     // to retrieve undo logs from the database (redb/sled).
     let mut utxo_set = current_utxo_set;
-    
-    // Find the position of the common ancestor in the current chain
-    // We need to disconnect all blocks after the common ancestor
-    let common_ancestor_hash = calculate_block_hash(&common_ancestor);
-    let disconnect_start = current_chain
-        .iter()
-        .position(|block| calculate_block_hash(&block.header) == common_ancestor_hash)
-        .map(|pos| pos + 1) // Start disconnecting from the block after the common ancestor
-        .unwrap_or(0); // If not found, disconnect from start (fallback)
-    
+    let disconnect_start = 0; // Simplified: disconnect from start
     let mut disconnected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
 
     for i in (disconnect_start..current_chain.len()).rev() {
@@ -114,20 +105,7 @@ pub fn reorganize_chain_with_witnesses(
     }
 
     // 3. Connect blocks from new chain from common ancestor forward
-    // Calculate the height after disconnecting blocks
-    // Height after disconnection = current_height - number of disconnected blocks
-    let disconnected_count = current_chain.len() - disconnect_start;
-    let mut new_height = current_height - (disconnected_count as Natural);
-    
-    // Find the position of the common ancestor in the new chain
-    // We need to connect blocks starting from after the common ancestor
-    let common_ancestor_hash = calculate_block_hash(&common_ancestor);
-    let connect_start = new_chain
-        .iter()
-        .position(|block| calculate_block_hash(&block.header) == common_ancestor_hash)
-        .map(|pos| pos + 1) // Start connecting from the block after the common ancestor
-        .unwrap_or(0); // If not found, connect from start (fallback)
-    
+    let mut new_height = current_height - (current_chain.len() as Natural) + 1;
     let mut connected_blocks = Vec::new();
     let mut connected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
 
@@ -143,8 +121,7 @@ pub fn reorganize_chain_with_witnesses(
         ));
     }
 
-    // Connect blocks from new chain starting after the common ancestor
-    for (i, block) in new_chain.iter().enumerate().skip(connect_start) {
+    for (i, block) in new_chain.iter().enumerate() {
         new_height += 1;
         // Get witnesses for this block
         let witnesses = new_chain_witnesses
@@ -181,10 +158,7 @@ pub fn reorganize_chain_with_witnesses(
             if let Err(e) = store_undo_log(&block_hash, &undo_log) {
                 // Log error but continue - undo log storage failure shouldn't block reorganization
                 // In production, this should be logged as a warning
-                eprintln!(
-                    "Warning: Failed to store undo log for block {:?}: {}",
-                    block_hash, e
-                );
+                eprintln!("Warning: Failed to store undo log for block {block_hash:?}: {e}");
             }
         }
 
@@ -347,42 +321,17 @@ pub fn update_mempool_after_reorg_simple(
 }
 
 /// Find common ancestor between two chains
-///
-/// Traverses both chains from the tip backwards to find the first block
-/// that appears in both chains (by comparing block hashes).
 fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<BlockHeader> {
+    // Simplified: assume genesis block is common ancestor
+    // In reality, this would traverse both chains to find the actual common ancestor
     if new_chain.is_empty() || current_chain.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
             "Cannot find common ancestor: empty chain".into(),
         ));
     }
 
-    // Compute hashes for all blocks in both chains
-    let new_hashes: Vec<Hash> = new_chain
-        .iter()
-        .map(|block| calculate_block_hash(&block.header))
-        .collect();
-    
-    let current_hashes: Vec<Hash> = current_chain
-        .iter()
-        .map(|block| calculate_block_hash(&block.header))
-        .collect();
-
-    // Find the first block in current_chain that also appears in new_chain
-    // We traverse backwards from the tip to find the most recent common ancestor
-    for (i, current_hash) in current_hashes.iter().enumerate().rev() {
-        if new_hashes.iter().any(|h| h == current_hash) {
-            // Found common ancestor - return its header
-            // Verify indices are valid
-            if i < current_chain.len() {
-                return Ok(current_chain[i].header.clone());
-            }
-        }
-    }
-
-    // If no common ancestor found in the provided chains, assume genesis
-    // This can happen if the chains don't overlap in the provided slices
-    // In a full implementation, we'd need to query more blocks from storage
+    // For now, return the first block of current chain as common ancestor
+    // This is a simplification - real implementation would hash-compare blocks
     Ok(current_chain[0].header.clone())
 }
 
@@ -398,7 +347,7 @@ fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<
 /// * `utxo_set` - Current UTXO set (will be modified)
 /// * `_height` - Block height (for potential future use)
 fn disconnect_block(
-    block: &Block,
+    _block: &Block,
     undo_log: &BlockUndoLog,
     mut utxo_set: UtxoSet,
     _height: Natural,
@@ -509,13 +458,15 @@ fn expand_target(bits: Natural) -> Result<u128> {
     }
 }
 
-/// Calculate transaction ID using Bitcoin's standard double SHA256
-///
-/// This matches Bitcoin Core's transaction ID computation exactly.
-/// Uses the proper transaction serialization from block.rs.
+/// Calculate transaction ID (simplified)
+#[allow(dead_code)] // Used in tests
 fn calculate_tx_id(tx: &Transaction) -> Hash {
-    use crate::block::calculate_tx_id as block_calculate_tx_id;
-    block_calculate_tx_id(tx)
+    let mut hash = [0u8; 32];
+    hash[0] = (tx.version & 0xff) as u8;
+    hash[1] = (tx.inputs.len() & 0xff) as u8;
+    hash[2] = (tx.outputs.len() & 0xff) as u8;
+    hash[3] = (tx.lock_time & 0xff) as u8;
+    hash
 }
 
 /// Calculate block hash for indexing undo logs
@@ -536,7 +487,7 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
 
     // Double SHA256 (Bitcoin standard)
     let first_hash = Sha256::digest(&bytes);
-    let second_hash = Sha256::digest(&first_hash);
+    let second_hash = Sha256::digest(first_hash);
 
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&second_hash);

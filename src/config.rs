@@ -268,7 +268,7 @@ impl Default for PerformanceConfig {
 ///
 /// Controls debug assertions, runtime checks, and development features.
 /// These options are safe to enable in production but may impact performance.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DebugConfig {
     /// Enable runtime assertions (debug_assert! statements)
     /// Default: false (enabled automatically in debug builds)
@@ -298,18 +298,6 @@ pub struct DebugConfig {
 
 fn default_false() -> bool {
     false
-}
-
-impl Default for DebugConfig {
-    fn default() -> Self {
-        Self {
-            enable_runtime_assertions: false,
-            enable_runtime_invariants: false,
-            enable_verbose_logging: false,
-            enable_performance_profiling: false,
-            log_rejections: false,
-        }
-    }
 }
 
 /// Feature flags configuration
@@ -435,7 +423,7 @@ impl Default for BlockValidationConfig {
 }
 
 /// Complete consensus configuration
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ConsensusConfig {
     /// Network message size limits
     #[serde(default)]
@@ -474,23 +462,6 @@ pub struct ConsensusConfig {
     #[cfg(feature = "utxo-commitments")]
     #[serde(default)]
     pub utxo_commitments: Option<crate::utxo_commitments::UtxoCommitmentsConfig>,
-}
-
-impl Default for ConsensusConfig {
-    fn default() -> Self {
-        Self {
-            network_limits: NetworkMessageLimits::default(),
-            block_validation: BlockValidationConfig::default(),
-            mempool: MempoolConfig::default(),
-            utxo_commitment: UtxoCommitmentConfig::default(),
-            performance: PerformanceConfig::default(),
-            debug: DebugConfig::default(),
-            features: FeatureFlagsConfig::default(),
-            advanced: AdvancedConfig::default(),
-            #[cfg(feature = "utxo-commitments")]
-            utxo_commitments: None,
-        }
-    }
 }
 
 impl ConsensusConfig {
@@ -792,5 +763,5 @@ pub fn get_consensus_config() -> ConsensusConfig {
     GLOBAL_CONSENSUS_CONFIG
         .get()
         .cloned()
-        .unwrap_or_else(|| ConsensusConfig::from_env())
+        .unwrap_or_else(ConsensusConfig::from_env)
 }
