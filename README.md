@@ -2,6 +2,7 @@
 
 Pure mathematical implementation of Bitcoin consensus rules from the Orange Paper with formal verification.
 
+> **📚 Comprehensive Documentation**: See [bllvm-docs](../bllvm-docs/) for complete system documentation.  
 > **For verified system status**: See [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) in the BTCDecoded organization repository.
 
 [![Verification Status](https://github.com/BTCDecoded/bllvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/bllvm-consensus/actions/workflows/verify.yml)
@@ -141,6 +142,43 @@ serde_json = "~1.0"
 anyhow = "~1.0"
 thiserror = "~1.0"
 ```
+
+## Performance Optimizations
+
+### Profile-Guided Optimization (PGO)
+
+For maximum performance, use Profile-Guided Optimization:
+
+```bash
+# Automated PGO build (recommended)
+./scripts/pgo-build.sh
+
+# Clean and rebuild with PGO
+./scripts/pgo-build.sh clean
+```
+
+**Expected gain**: 1.10-1.15x performance improvement
+
+PGO works by:
+1. Building with instrumentation to collect execution profiles
+2. Running benchmarks to generate profile data
+3. Rebuilding with profile data to optimize hot paths
+
+**Requirements**: Rust 1.70+ (LLVM 15+)
+
+### Production Build
+
+For production builds with all optimizations:
+
+```bash
+cargo build --release --features production
+```
+
+This enables:
+- LTO (Link-Time Optimization)
+- Runtime optimizations (caching, context reuse)
+- SIMD vectorization
+- Memory layout optimizations
 
 ## Testing
 

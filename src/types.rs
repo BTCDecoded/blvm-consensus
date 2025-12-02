@@ -109,27 +109,27 @@ pub struct BlockHeight(pub u64);
 
 impl BlockHeight {
     /// Create a new BlockHeight from a u64
-    #[inline]
+    #[inline(always)]
     pub fn new(height: u64) -> Self {
         BlockHeight(height)
     }
 
     /// Get the inner u64 value
-    #[inline]
+    #[inline(always)]
     pub fn as_u64(self) -> u64 {
         self.0
     }
 }
 
 impl From<u64> for BlockHeight {
-    #[inline]
+    #[inline(always)]
     fn from(height: u64) -> Self {
         BlockHeight(height)
     }
 }
 
 impl From<BlockHeight> for u64 {
-    #[inline]
+    #[inline(always)]
     fn from(height: BlockHeight) -> Self {
         height.0
     }
@@ -138,7 +138,7 @@ impl From<BlockHeight> for u64 {
 impl std::ops::Deref for BlockHeight {
     type Target = u64;
 
-    #[inline]
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -154,33 +154,33 @@ pub struct BlockHash(pub Hash);
 
 impl BlockHash {
     /// Create a new BlockHash from a Hash
-    #[inline]
+    #[inline(always)]
     pub fn new(hash: Hash) -> Self {
         BlockHash(hash)
     }
 
     /// Get the inner Hash value
-    #[inline]
+    #[inline(always)]
     pub fn as_hash(self) -> Hash {
         self.0
     }
 
     /// Get a reference to the inner Hash
-    #[inline]
+    #[inline(always)]
     pub fn as_hash_ref(&self) -> &Hash {
         &self.0
     }
 }
 
 impl From<Hash> for BlockHash {
-    #[inline]
+    #[inline(always)]
     fn from(hash: Hash) -> Self {
         BlockHash(hash)
     }
 }
 
 impl From<BlockHash> for Hash {
-    #[inline]
+    #[inline(always)]
     fn from(hash: BlockHash) -> Self {
         hash.0
     }
@@ -189,7 +189,7 @@ impl From<BlockHash> for Hash {
 impl std::ops::Deref for BlockHash {
     type Target = Hash;
 
-    #[inline]
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.0
     }

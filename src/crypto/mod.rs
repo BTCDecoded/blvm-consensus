@@ -28,19 +28,31 @@ pub mod int_ops;
 /// CPU feature detection for runtime optimization selection
 pub mod cpu_features {
     /// Check if AVX2 is available
+    ///
+    /// Hot-path function called during hash operation dispatch.
+    /// Always inline for maximum performance.
     #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
     pub fn has_avx2() -> bool {
         std::arch::is_x86_feature_detected!("avx2")
     }
 
     /// Check if SSE4.1 is available
+    ///
+    /// Hot-path function called during hash operation dispatch.
+    /// Always inline for maximum performance.
     #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
     pub fn has_sse41() -> bool {
         std::arch::is_x86_feature_detected!("sse4.1")
     }
 
     /// Check if Intel SHA-NI is available
+    ///
+    /// Hot-path function called during hash operation dispatch.
+    /// Always inline for maximum performance.
     #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
     pub fn has_sha_ni() -> bool {
         std::arch::is_x86_feature_detected!("sha")
     }

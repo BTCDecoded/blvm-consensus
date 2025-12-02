@@ -315,6 +315,18 @@ pub fn connect_block(
             .collect();
 
         // Batch UTXO lookup for all transactions (single pass through HashMap)
+        // Optimization: Prefetch UTXO set data before sequential lookups
+        #[cfg(feature = "production")]
+        {
+            use crate::optimizations::prefetch;
+            // Prefetch ahead for better cache performance
+            for i in 0..all_prevouts.len().min(8) {
+                if i + 4 < all_prevouts.len() {
+                    prefetch::prefetch_ahead(&all_prevouts, i, 4);
+                }
+            }
+        }
+        
         let mut utxo_cache: std::collections::HashMap<&OutPoint, &UTXO> =
             std::collections::HashMap::with_capacity(all_prevouts.len());
         for prevout in &all_prevouts {

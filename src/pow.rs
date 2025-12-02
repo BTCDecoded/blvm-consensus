@@ -413,14 +413,48 @@ impl U256 {
         let mut carry = 0u128;
         let mut result = U256::zero();
 
-        for i in 0..4 {
-            let product = (self.0[i] as u128) * (rhs as u128) + carry;
-            result.0[i] = product as u64;
+        // Optimization: Unroll 4-iteration loop for better performance
+        // Loop unrolling reduces loop overhead and improves instruction-level parallelism
+        #[cfg(feature = "production")]
+        {
+            // Unrolled: i = 0, 1, 2, 3
+            // i = 0
+            let product = (self.0[0] as u128) * (rhs as u128) + carry;
+            result.0[0] = product as u64;
+            carry = product >> 64;
+
+            // i = 1
+            let product = (self.0[1] as u128) * (rhs as u128) + carry;
+            result.0[1] = product as u64;
+            carry = product >> 64;
+
+            // i = 2
+            let product = (self.0[2] as u128) * (rhs as u128) + carry;
+            result.0[2] = product as u64;
+            carry = product >> 64;
+
+            // i = 3
+            let product = (self.0[3] as u128) * (rhs as u128) + carry;
+            result.0[3] = product as u64;
             carry = product >> 64;
 
             // Check for overflow in the final word
-            if i == 3 && carry > 0 {
+            if carry > 0 {
                 return None; // Overflow
+            }
+        }
+
+        #[cfg(not(feature = "production"))]
+        {
+            for i in 0..4 {
+                let product = (self.0[i] as u128) * (rhs as u128) + carry;
+                result.0[i] = product as u64;
+                carry = product >> 64;
+
+                // Check for overflow in the final word
+                if i == 3 && carry > 0 {
+                    return None; // Overflow
+                }
             }
         }
 
@@ -444,18 +478,53 @@ impl U256 {
         let mut result = U256::zero();
 
         // Divide from most significant word to least significant
-        for i in (0..4).rev() {
-            let dividend = (remainder << 64) | (self.0[i] as u128);
+        // Optimization: Unroll 4-iteration loop for better performance
+        // Loop unrolling reduces loop overhead and improves instruction-level parallelism
+        #[cfg(feature = "production")]
+        {
+            // Unrolled: i = 3, 2, 1, 0
+            // i = 3
+            let dividend = (remainder << 64) | (self.0[3] as u128);
             let quotient = dividend / (rhs as u128);
             remainder = dividend % (rhs as u128);
+            debug_assert!(quotient <= u64::MAX as u128, "Quotient must fit in u64");
+            result.0[3] = quotient as u64;
 
-            // Runtime assertion: Quotient must fit in u64
-            debug_assert!(
-                quotient <= u64::MAX as u128,
-                "Quotient ({quotient}) must fit in u64"
-            );
+            // i = 2
+            let dividend = (remainder << 64) | (self.0[2] as u128);
+            let quotient = dividend / (rhs as u128);
+            remainder = dividend % (rhs as u128);
+            debug_assert!(quotient <= u64::MAX as u128, "Quotient must fit in u64");
+            result.0[2] = quotient as u64;
 
-            result.0[i] = quotient as u64;
+            // i = 1
+            let dividend = (remainder << 64) | (self.0[1] as u128);
+            let quotient = dividend / (rhs as u128);
+            remainder = dividend % (rhs as u128);
+            debug_assert!(quotient <= u64::MAX as u128, "Quotient must fit in u64");
+            result.0[1] = quotient as u64;
+
+            // i = 0
+            let dividend = (remainder << 64) | (self.0[0] as u128);
+            let quotient = dividend / (rhs as u128);
+            remainder = dividend % (rhs as u128);
+            debug_assert!(quotient <= u64::MAX as u128, "Quotient must fit in u64");
+            result.0[0] = quotient as u64;
+        }
+
+        #[cfg(not(feature = "production"))]
+        {
+            // Non-production: use loop for readability
+            for i in (0..4).rev() {
+                let dividend = (remainder << 64) | (self.0[i] as u128);
+                let quotient = dividend / (rhs as u128);
+                remainder = dividend % (rhs as u128);
+                debug_assert!(
+                    quotient <= u64::MAX as u128,
+                    "Quotient ({quotient}) must fit in u64"
+                );
+                result.0[i] = quotient as u64;
+            }
         }
 
         // Runtime assertion: Result must be <= self (division never increases)

@@ -309,6 +309,17 @@ pub fn check_tx_inputs(
     // Optimization: Batch UTXO lookups - collect all prevouts first, then lookup
     // This improves cache locality and reduces HashMap traversal overhead
     // Optimization: Pre-allocate with known size
+    #[cfg(feature = "production")]
+    {
+        use crate::optimizations::prefetch;
+        // Prefetch ahead for sequential UTXO lookups
+        for i in 0..tx.inputs.len().min(8) {
+            if i + 4 < tx.inputs.len() {
+                prefetch::prefetch_ahead(&tx.inputs, i, 4);
+            }
+        }
+    }
+    
     let input_utxos: Vec<(usize, Option<&UTXO>)> = {
         let mut result = Vec::with_capacity(tx.inputs.len());
         for (i, input) in tx.inputs.iter().enumerate() {
@@ -390,7 +401,10 @@ pub fn check_tx_inputs(
 }
 
 /// Check if transaction is coinbase
-#[inline]
+///
+/// Hot-path function called frequently during validation.
+/// Always inline for maximum performance.
+#[inline(always)]
 pub fn is_coinbase(tx: &Transaction) -> bool {
     // Optimization: Use constant folding for zero hash check
     #[cfg(feature = "production")]
@@ -409,9 +423,11 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
     }
 }
 
-/// Calculate transaction size (simplified)
-#[inline]
 /// Calculate transaction size (non-witness serialization)
+///
+/// Hot-path function called frequently during validation.
+/// Always inline for maximum performance.
+#[inline(always)]
 ///
 /// This function calculates the size of a transaction when serialized
 /// without witness data, matching Bitcoin Core's GetSerializeSize(TX_NO_WITNESS(tx)).
