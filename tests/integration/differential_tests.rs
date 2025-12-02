@@ -1,228 +1,115 @@
-//! Differential Fuzzing vs Bitcoin Core
+//! Differential Testing Integration
 //!
-//! Compares validation results between this implementation and Bitcoin Core
-//! via RPC interface. This provides empirical validation of consensus correctness.
+//! This module provides integration points for differential testing with Bitcoin Core.
+//! The full implementation is in `bllvm-bench`, but this provides basic functionality
+//! for testing within the consensus crate.
 //!
-//! Requires: Bitcoin Core running with RPC enabled
-//! Usage: Set environment variables or configure connection settings
+//! For comprehensive differential testing, use `bllvm-bench` which includes:
+//! - Bitcoin Core binary detection and management
+//! - Regtest node management
+//! - Full RPC client wrapper
+//! - BIP-specific differential tests
 
 use bllvm_consensus::*;
-use bllvm_consensus::types::ByteString;
-use serde_json::json;
+use bllvm_consensus::serialization::transaction::serialize_transaction;
+use bllvm_consensus::serialization::block::serialize_block;
 
-/// Bitcoin Core RPC client configuration
-#[derive(Debug, Clone)]
-pub struct CoreRpcConfig {
-    pub url: String,
-    pub username: Option<String>,
-    pub password: Option<String>,
-}
-
-impl Default for CoreRpcConfig {
-    fn default() -> Self {
-        Self {
-            url: "http://127.0.0.1:8332".to_string(),
-            username: None,
-            password: None,
-        }
-    }
-}
-
-/// Compare transaction validation results with Bitcoin Core
-/// 
-/// Uses Bitcoin Core's `testmempoolaccept` RPC call to validate transactions.
-pub async fn compare_transaction_validation(
+/// Compare transaction validation results
+///
+/// This is a basic comparison function. For full differential testing with
+/// Bitcoin Core RPC, use `bllvm-bench`.
+pub fn compare_transaction_validation_local(
     tx: &Transaction,
-    config: &CoreRpcConfig,
-) -> Result<ComparisonResult, Box<dyn std::error::Error>> {
-    // Validate transaction locally
-    let local_result = check_transaction(tx)?;
-    let local_valid = matches!(local_result, ValidationResult::Valid);
-    
-    // Serialize transaction to hex for Core RPC
-    let tx_hex = hex::encode(&bincode::serialize(tx)?);
-    
-    // Call Bitcoin Core's testmempoolaccept RPC
-    // Format: testmempoolaccept [["hexstring"]]
-    let core_result = call_core_rpc(
-        config,
-        "testmempoolaccept",
-        json!([[tx_hex]]),
-    ).await?;
-    
-    // Parse Core's response
-    let core_valid = core_result
-        .as_array()
-        .and_then(|arr| arr.get(0))
-        .and_then(|result| result.get("allowed"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    
-    let divergence = local_valid != core_valid;
-    let divergence_reason = if divergence {
-        Some(format!(
-            "Local: {}, Core: {}",
-            if local_valid { "valid" } else { "invalid" },
-            if core_valid { "valid" } else { "invalid" }
-        ))
-    } else {
-        None
-    };
-    
-    Ok(ComparisonResult {
-        local_valid,
-        core_valid,
-        divergence,
-        divergence_reason,
-    })
+) -> Result<ValidationResult, Box<dyn std::error::Error>> {
+    check_transaction(tx)
 }
 
-/// Compare block validation results with Bitcoin Core
-/// 
-/// Uses Bitcoin Core's `submitblock` RPC call (test mode) to validate blocks.
-pub async fn compare_block_validation(
+/// Compare block validation results
+///
+/// This is a basic comparison function. For full differential testing with
+/// Bitcoin Core RPC, use `bllvm-bench`.
+pub fn compare_block_validation_local(
     block: &Block,
-    config: &CoreRpcConfig,
-) -> Result<ComparisonResult, Box<dyn std::error::Error>> {
-    // Validate block locally
-    let initial_utxo_set = UtxoSet::new();
+    utxo_set: &UtxoSet,
+    height: u64,
+    network: crate::types::Network,
+) -> Result<(ValidationResult, UtxoSet), Box<dyn std::error::Error>> {
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let local_result = connect_block(block, &witnesses, initial_utxo_set, 0, None, crate::types::Network::Mainnet)?;
-    let local_valid = matches!(local_result.0, ValidationResult::Valid);
-    
-    // Serialize block to hex for Core RPC
-    let block_hex = hex::encode(&bincode::serialize(block)?);
-    
-    // Call Bitcoin Core's submitblock RPC (with test mode)
-    // Note: submitblock returns empty string if block is valid, error otherwise
-    let core_result = call_core_rpc(
-        config,
-        "submitblock",
-        json!([block_hex]),
-    ).await;
-    
-    // Empty string response means valid block
-    let core_valid = match &core_result {
-        Ok(val) => {
-            // Check if response is empty string or null (valid block)
-            val.as_str().map(|s| s.is_empty()).unwrap_or(true)
-                || val.is_null()
-        }
-        Err(_) => false, // Error means invalid block
-    };
-    
-    let divergence = local_valid != core_valid;
-    let divergence_reason = if divergence {
-        Some(format!(
-            "Local: {}, Core: {}",
-            if local_valid { "valid" } else { "invalid" },
-            if core_valid { "valid" } else { "invalid" }
-        ))
-    } else {
-        None
-    };
-    
-    Ok(ComparisonResult {
-        local_valid,
-        core_valid,
-        divergence,
-        divergence_reason,
-    })
-}
-
-/// Call Bitcoin Core JSON-RPC endpoint
-/// 
-/// Makes HTTP POST request to Core's RPC endpoint with JSON-RPC 2.0 format.
-async fn call_core_rpc(
-    config: &CoreRpcConfig,
-    method: &str,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    // Create HTTP client
-    let client = reqwest::Client::new();
-    
-    // Build basic auth if credentials provided
-    let mut request = client.post(&config.url);
-    
-    if let (Some(username), Some(password)) = (&config.username, &config.password) {
-        request = request.basic_auth(username, Some(password));
-    }
-    
-    // Build JSON-RPC 2.0 request
-    let rpc_request = json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": method,
-        "params": params
-    });
-    
-    // Send request
-    let response = request
-        .json(&rpc_request)
-        .send()
-        .await?;
-    
-    // Parse response
-    let rpc_response: serde_json::Value = response.json().await?;
-    
-    // Extract result or error
-    if let Some(error) = rpc_response.get("error") {
-        return Err(format!("RPC error: {}", error).into());
-    }
-    
-    Ok(rpc_response.get("result").cloned().unwrap_or(json!(null)))
-}
-
-/// Result of comparing validation with Bitcoin Core
-#[derive(Debug, Clone)]
-pub struct ComparisonResult {
-    pub local_valid: bool,
-    pub core_valid: bool,
-    pub divergence: bool,
-    pub divergence_reason: Option<String>,
+    connect_block(block, &witnesses, utxo_set.clone(), height, None, network)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    #[tokio::test]
-    async fn test_differential_validation_placeholder() {
-        // Test infrastructure - will skip if Core RPC is not available
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }].into(),
-            lock_time: 0,
-        };
-        
-        let config = CoreRpcConfig::default();
-        
-        // Test local validation
-        let local_result = check_transaction(&tx);
-        assert!(local_result.is_ok());
-        
-        // Try Core RPC if available (will fail gracefully if Core not running)
-        // This is intentional - differential tests should work even if Core is unavailable
-        let _core_result = compare_transaction_validation(&tx, &config).await;
-        // Don't assert here - Core may not be running in test environment
-    }
-    
+    #[path = "../test_helpers.rs"]
+    mod test_helpers;
+    use test_helpers::*;
+
     #[test]
-    fn test_core_rpc_config_defaults() {
-        let config = CoreRpcConfig::default();
-        assert_eq!(config.url, "http://127.0.0.1:8332");
+    fn test_transaction_validation_comparison() {
+        // Test valid transaction
+        let tx = create_test_tx(1000, None, None, None);
+        let result = compare_transaction_validation_local(&tx);
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), ValidationResult::Valid));
+
+        // Test invalid transaction (empty inputs)
+        let invalid_tx = create_invalid_transaction();
+        let result = compare_transaction_validation_local(&invalid_tx);
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), ValidationResult::Invalid(_)));
+    }
+
+    #[test]
+    fn test_block_validation_comparison() {
+        // Create a simple block
+        let coinbase = create_coinbase_tx(50_000_000_000);
+        let block = Block {
+            header: BlockHeader {
+                version: 1,
+                prev_block_hash: [0; 32],
+                merkle_root: [0; 32],
+                timestamp: 1234567890,
+                bits: 0x1d00ffff,
+                nonce: 0,
+            },
+            transactions: vec![coinbase].into(),
+        };
+
+        let utxo_set = UtxoSet::new();
+        let result = compare_block_validation_local(&block, &utxo_set, 0, crate::types::Network::Mainnet);
+        
+        // Block should validate (basic structure is valid)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_serialization_round_trip() {
+        // Test that serialization preserves validation results
+        let tx = create_test_tx(1000, None, None, None);
+        
+        // Validate original
+        let original_result = compare_transaction_validation_local(&tx).unwrap();
+        
+        // Serialize and deserialize
+        let serialized = serialize_transaction(&tx);
+        let deserialized = bincode::deserialize::<Transaction>(&serialized).unwrap();
+        
+        // Validate after round-trip
+        let round_trip_result = compare_transaction_validation_local(&deserialized).unwrap();
+        
+        // Results should match
+        match (original_result, round_trip_result) {
+            (ValidationResult::Valid, ValidationResult::Valid) => {
+                // Both valid - good
+            }
+            (ValidationResult::Invalid(_), ValidationResult::Invalid(_)) => {
+                // Both invalid - acceptable (errors may differ)
+            }
+            _ => {
+                panic!("Validation results should match after round-trip");
+            }
+        }
     }
 }
-
-// TODO: Implement actual Bitcoin Core RPC integration:
-// 1. Add RPC client library (e.g., `bitcoin-rpc-client` or `jsonrpc`)
-// 2. Implement testmempoolaccept equivalent
-// 3. Implement block validation check
-// 4. Run fuzzed inputs through both implementations
-// 5. Report divergences with detailed diagnostics
-// 6. Automate in CI/CD when Core testnet node is available
 

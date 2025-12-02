@@ -103,6 +103,68 @@ impl CacheAlignedHash {
     }
 }
 
+/// Memory prefetching optimization
+///
+/// Provides platform-specific prefetch hints to improve cache performance
+/// for sequential memory accesses. Used before batch UTXO lookups and
+/// other sequential data structure traversals.
+///
+/// Reference: BLLVM Optimization Pass 1.3 - Memory Prefetching
+#[cfg(feature = "production")]
+pub mod prefetch {
+    /// Prefetch data for read access
+    ///
+    /// Hints the CPU to prefetch data into cache before it's needed.
+    /// This improves performance for sequential memory access patterns.
+    ///
+    /// # Safety
+    /// The pointer must be valid, but it doesn't need to be dereferenceable
+    /// at the time of the call. The prefetch is a hint and may be ignored.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    pub unsafe fn prefetch_read(ptr: *const i8) {
+        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+        _mm_prefetch(ptr, _MM_HINT_T0);
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub unsafe fn prefetch_read(ptr: *const i8) {
+        use std::arch::aarch64::_prefetch;
+        _prefetch(ptr, 0, 0); // Read, temporal locality
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[inline(always)]
+    pub unsafe fn prefetch_read(_ptr: *const i8) {
+        // No-op for unsupported architectures
+    }
+
+    /// Prefetch a slice of data for sequential access
+    ///
+    /// Prefetches the next cache line(s) of data to improve sequential access.
+    /// Safe wrapper around prefetch_read that works with slices.
+    #[inline(always)]
+    pub fn prefetch_slice<T>(slice: &[T], index: usize) {
+        if index < slice.len() {
+            unsafe {
+                let ptr = slice.as_ptr().add(index) as *const i8;
+                prefetch_read(ptr);
+            }
+        }
+    }
+
+    /// Prefetch multiple elements ahead in a slice
+    ///
+    /// Prefetches elements at `index + offset` to prepare for future access.
+    /// Useful for sequential loops where you know you'll access elements ahead.
+    #[inline(always)]
+    pub fn prefetch_ahead<T>(slice: &[T], index: usize, offset: usize) {
+        let prefetch_index = index.saturating_add(offset);
+        prefetch_slice(slice, prefetch_index);
+    }
+}
+
 /// Memory layout optimization: Compact stack frame
 ///
 /// Optimized stack frame structure for cache locality.

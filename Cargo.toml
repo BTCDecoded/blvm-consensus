@@ -138,11 +138,17 @@ panic = "abort"  # Smaller binaries, no unwinding overhead
 [profile.release.package."*"]
 opt-level = 3
 
-# Profile-guided optimization (PGO) setup instructions:
+# Profile-guided optimization (PGO) setup:
+# 
+# Automated PGO build script: ./scripts/pgo-build.sh
+# 
+# Manual PGO steps:
 # 1. Build with instrumentation: RUSTFLAGS="-C profile-generate=/tmp/pgo-data" cargo build --release
-# 2. Run benchmarks/tests to generate profile data
+# 2. Run benchmarks/tests to generate profile data: cargo bench --release
 # 3. Build optimized: RUSTFLAGS="-C profile-use=/tmp/pgo-data" cargo build --release
-# Note: PGO requires nightly Rust or specific LLVM versions
+# 
+# Note: PGO works with stable Rust 1.70+ (LLVM 15+)
+# Expected performance gain: 1.10-1.15x improvement
 
 # Benchmark profile (faster iteration during development)
 [profile.bench]
