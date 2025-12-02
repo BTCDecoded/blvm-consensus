@@ -83,6 +83,7 @@ pub mod network;
 pub mod reorganization;
 pub mod segwit;
 pub mod serialization;
+pub mod spam_filter;
 pub mod taproot;
 
 #[cfg(feature = "utxo-commitments")]

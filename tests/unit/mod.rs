@@ -8,6 +8,7 @@ mod transaction_edge_cases;
 mod block_edge_cases;
 mod script_opcode_property_tests;
 mod mempool_edge_cases;
+mod mempool_more_tests;
 mod difficulty_edge_cases;
 mod reorganization_edge_cases;
 mod utxo_edge_cases;

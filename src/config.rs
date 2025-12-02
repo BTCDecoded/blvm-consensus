@@ -91,7 +91,7 @@ pub struct BlockValidationConfig {
 ///
 /// Controls mempool size limits, fee rates, and transaction expiry.
 /// These are operational parameters, not consensus-critical.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MempoolConfig {
     /// Maximum mempool size in megabytes (Bitcoin Core: -maxmempool, default 300 MB)
     /// Default: 300 MB
@@ -125,6 +125,52 @@ pub struct MempoolConfig {
     /// Default: 1000 satoshis (Bitcoin Core standard)
     #[serde(default = "default_rbf_fee_increment")]
     pub rbf_fee_increment: i64,
+
+    /// Maximum OP_RETURN data size in bytes (Bitcoin Core: 80 bytes)
+    /// Default: 80 bytes
+    #[serde(default = "default_max_op_return_size")]
+    pub max_op_return_size: u32,
+
+    /// Maximum number of OP_RETURN outputs allowed (default: 1)
+    /// Transactions with more than this are rejected as non-standard
+    #[serde(default = "default_max_op_return_outputs")]
+    pub max_op_return_outputs: u32,
+
+    /// Reject transactions with multiple OP_RETURN outputs
+    /// Default: true
+    #[serde(default = "default_reject_multiple_op_return")]
+    pub reject_multiple_op_return: bool,
+
+    /// Maximum standard script size in bytes
+    /// Default: 200 bytes
+    #[serde(default = "default_max_standard_script_size")]
+    pub max_standard_script_size: u32,
+
+    /// Reject envelope protocol (OP_FALSE OP_IF) scripts
+    /// Default: true
+    #[serde(default = "default_reject_envelope_protocol")]
+    pub reject_envelope_protocol: bool,
+
+    /// Reject spam transactions at mempool entry (opt-in)
+    /// Default: false (spam filtering is opt-in for mempool)
+    #[serde(default = "default_reject_spam_in_mempool")]
+    pub reject_spam_in_mempool: bool,
+
+    /// Spam filter configuration (if reject_spam_in_mempool is enabled)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spam_filter_config: Option<crate::spam_filter::SpamFilterConfigSerializable>,
+
+    /// Minimum fee rate for large transactions (satoshis per vbyte)
+    /// Transactions larger than large_tx_threshold_bytes must pay at least this fee rate
+    /// Default: 2 sat/vB (higher than standard min_relay_fee_rate)
+    #[serde(default = "default_min_fee_rate_large_tx")]
+    pub min_fee_rate_large_tx: u64,
+
+    /// Large transaction threshold (bytes)
+    /// Transactions larger than this require min_fee_rate_large_tx
+    /// Default: 1000 bytes
+    #[serde(default = "default_large_tx_threshold_bytes")]
+    pub large_tx_threshold_bytes: u64,
 }
 
 fn default_rbf_fee_increment() -> i64 {
@@ -151,6 +197,38 @@ fn default_min_tx_fee() -> i64 {
     1000
 }
 
+fn default_max_op_return_size() -> u32 {
+    80
+}
+
+fn default_max_op_return_outputs() -> u32 {
+    1
+}
+
+fn default_reject_multiple_op_return() -> bool {
+    true
+}
+
+fn default_max_standard_script_size() -> u32 {
+    200
+}
+
+fn default_reject_envelope_protocol() -> bool {
+    true
+}
+
+fn default_reject_spam_in_mempool() -> bool {
+    false
+}
+
+fn default_min_fee_rate_large_tx() -> u64 {
+    2 // 2 sat/vB (higher than standard 1 sat/vB)
+}
+
+fn default_large_tx_threshold_bytes() -> u64 {
+    1000 // 1 KB
+}
+
 impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
@@ -160,6 +238,15 @@ impl Default for MempoolConfig {
             min_relay_fee_rate: 1,
             min_tx_fee: 1000,
             rbf_fee_increment: 1000,
+            max_op_return_size: 80,
+            max_op_return_outputs: 1,
+            reject_multiple_op_return: true,
+            max_standard_script_size: 200,
+            reject_envelope_protocol: true,
+            reject_spam_in_mempool: false,
+            spam_filter_config: None,
+            min_fee_rate_large_tx: 2,
+            large_tx_threshold_bytes: 1000,
         }
     }
 }
@@ -423,7 +510,7 @@ impl Default for BlockValidationConfig {
 }
 
 /// Complete consensus configuration
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConsensusConfig {
     /// Network message size limits
     #[serde(default)]

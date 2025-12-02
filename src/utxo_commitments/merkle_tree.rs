@@ -319,10 +319,11 @@ impl UtxoMerkleTree {
 
     /// Serialize UTXO to bytes
     fn serialize_utxo(&self, utxo: &UTXO) -> UtxoCommitmentResult<Vec<u8>> {
-        // Simple serialization: value (8 bytes) + height (8 bytes) + script_pubkey (variable)
-        let mut bytes = Vec::with_capacity(16 + utxo.script_pubkey.len());
+        // Serialization: value (8 bytes) + height (8 bytes) + is_coinbase (1 byte) + script_pubkey (variable)
+        let mut bytes = Vec::with_capacity(17 + utxo.script_pubkey.len());
         bytes.extend_from_slice(&utxo.value.to_be_bytes());
         bytes.extend_from_slice(&utxo.height.to_be_bytes());
+        bytes.push(if utxo.is_coinbase { 1 } else { 0 });
         bytes.push(utxo.script_pubkey.len() as u8);
         bytes.extend_from_slice(&utxo.script_pubkey);
         Ok(bytes)
@@ -330,7 +331,7 @@ impl UtxoMerkleTree {
 
     /// Deserialize bytes to UTXO
     fn deserialize_utxo(&self, data: &[u8]) -> UtxoCommitmentResult<UTXO> {
-        if data.len() < 17 {
+        if data.len() < 18 {
             return Err(UtxoCommitmentError::InvalidUtxo(
                 "Data too short".to_string(),
             ));
@@ -351,6 +352,9 @@ impl UtxoMerkleTree {
         );
         offset += 8;
 
+        let is_coinbase = data[offset] != 0;
+        offset += 1;
+
         let script_len = data[offset] as usize;
         offset += 1;
 
@@ -366,6 +370,7 @@ impl UtxoMerkleTree {
             value,
             script_pubkey,
             height,
+            is_coinbase,
         })
     }
 }
@@ -435,6 +440,7 @@ mod kani_proofs {
             value: utxo_value,
             script_pubkey: vec![], // Simplified for tractability
             height: 0,
+            is_coinbase: false,
         };
 
         // Insert UTXO

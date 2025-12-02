@@ -18,8 +18,7 @@ use crate::utxo_commitments::data_structures::{
 use crate::utxo_commitments::merkle_tree::UtxoMerkleTree;
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::peer_consensus::{ConsensusConfig, PeerConsensus, PeerInfo};
-#[cfg(feature = "utxo-commitments")]
-use crate::utxo_commitments::spam_filter::{
+use crate::spam_filter::{
     SpamBreakdown, SpamFilter, SpamFilterConfig, SpamSummary, SpamType,
 };
 
@@ -246,6 +245,18 @@ impl InitialSync {
                         SpamType::BRC20 => {
                             spam_summary.by_type.brc20 += 1;
                         }
+                        SpamType::LargeWitness => {
+                            spam_summary.by_type.ordinals += 1; // Count as Ordinals
+                        }
+                        SpamType::LowFeeRate => {
+                            spam_summary.by_type.dust += 1; // Count as suspicious
+                        }
+                        SpamType::HighSizeValueRatio => {
+                            spam_summary.by_type.ordinals += 1; // Count as Ordinals
+                        }
+                        SpamType::ManySmallOutputs => {
+                            spam_summary.by_type.dust += 1; // Count as dust-like
+                        }
                         SpamType::NotSpam => {}
                     }
                 }
@@ -295,6 +306,7 @@ impl InitialSync {
                         value: output.value,
                         script_pubkey: output.script_pubkey.clone(),
                         height: block_height,
+                        is_coinbase: is_coinbase(tx),
                     };
 
                     if let Err(e) = utxo_tree.insert(outpoint, utxo) {
@@ -409,6 +421,7 @@ pub fn update_commitments_after_block(
                     value: output.value,
                     script_pubkey: output.script_pubkey.clone(),
                     height: block_height,
+                    is_coinbase: is_coinbase(tx),
                 };
 
                 utxo_tree.insert(outpoint, utxo)?;

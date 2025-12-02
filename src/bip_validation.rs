@@ -71,9 +71,9 @@ pub fn check_bip30(block: &Block, utxo_set: &UtxoSet) -> Result<bool> {
 /// - Regtest: Block 0 (always active)
 pub fn check_bip34(block: &Block, height: Natural, network: crate::types::Network) -> Result<bool> {
     let activation_height = match network {
-        crate::types::Network::Mainnet => 227_836,
-        crate::types::Network::Testnet => 211_111,
-        crate::types::Network::Regtest => 0,
+        crate::types::Network::Mainnet => crate::constants::BIP34_ACTIVATION_MAINNET,
+        crate::types::Network::Testnet => crate::constants::BIP34_ACTIVATION_TESTNET,
+        crate::types::Network::Regtest => crate::constants::BIP34_ACTIVATION_REGTEST,
     };
 
     // BIP34 only applies after activation height
@@ -235,9 +235,9 @@ pub fn check_bip66(
     network: crate::types::Network,
 ) -> Result<bool> {
     let activation_height = match network {
-        crate::types::Network::Mainnet => 363_724,
-        crate::types::Network::Testnet => 330_776,
-        crate::types::Network::Regtest => 0,
+        crate::types::Network::Mainnet => crate::constants::BIP66_ACTIVATION_MAINNET,
+        crate::types::Network::Testnet => crate::constants::BIP66_ACTIVATION_TESTNET,
+        crate::types::Network::Regtest => crate::constants::BIP66_ACTIVATION_REGTEST,
     };
 
     // BIP66 only applies after activation height
@@ -287,9 +287,21 @@ pub fn check_bip90(
     network: crate::types::Network,
 ) -> Result<bool> {
     let (bip34_height, bip66_height, bip65_height) = match network {
-        crate::types::Network::Mainnet => (227_836, 363_724, 388_381),
-        crate::types::Network::Testnet => (211_111, 330_776, 388_381), // Approximate testnet heights
-        crate::types::Network::Regtest => (0, 0, 0),                   // Always active in regtest
+        crate::types::Network::Mainnet => (
+            crate::constants::BIP34_ACTIVATION_MAINNET,
+            crate::constants::BIP66_ACTIVATION_MAINNET,
+            crate::constants::BIP65_ACTIVATION_MAINNET,
+        ),
+        crate::types::Network::Testnet => (
+            crate::constants::BIP34_ACTIVATION_TESTNET,
+            crate::constants::BIP66_ACTIVATION_TESTNET,
+            crate::constants::BIP65_ACTIVATION_MAINNET, // BIP65 same for testnet
+        ),
+        crate::types::Network::Regtest => (
+            crate::constants::BIP34_ACTIVATION_REGTEST,
+            crate::constants::BIP66_ACTIVATION_REGTEST,
+            0, // BIP65 regtest (always active)
+        ),
     };
 
     // Check minimum version requirements
@@ -326,9 +338,9 @@ pub fn check_bip147(
     network: Bip147Network,
 ) -> Result<bool> {
     let activation_height = match network {
-        Bip147Network::Mainnet => 481_824,
-        Bip147Network::Testnet => 834_624,
-        Bip147Network::Regtest => 0,
+        Bip147Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
+        Bip147Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
+        Bip147Network::Regtest => 0, // Always active on regtest
     };
 
     // BIP147 only applies after activation height
