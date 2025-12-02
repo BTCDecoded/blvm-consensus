@@ -10,7 +10,7 @@ use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
 };
 #[cfg(feature = "utxo-commitments")]
-use crate::utxo_commitments::spam_filter::{SpamFilter, SpamSummary};
+use crate::spam_filter::{SpamFilter, SpamSummary};
 
 /// Filtered block structure
 #[derive(Debug, Clone)]

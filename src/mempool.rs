@@ -34,6 +34,22 @@ pub fn accept_to_memory_pool(
     mempool: &Mempool,
     height: Natural,
 ) -> Result<MempoolResult> {
+    accept_to_memory_pool_with_config(tx, witnesses, utxo_set, mempool, height, None)
+}
+
+/// Accept transaction to memory pool (with optional configuration)
+pub fn accept_to_memory_pool_with_config(
+    tx: &Transaction,
+    witnesses: Option<&[Witness]>,
+    utxo_set: &UtxoSet,
+    mempool: &Mempool,
+    height: Natural,
+    config: Option<&crate::config::MempoolConfig>,
+) -> Result<MempoolResult> {
+    // Use default config if not provided
+    let default_config = crate::config::MempoolConfig::default();
+    let config = config.unwrap_or(&default_config);
+
     // 1. Check if transaction is already in mempool
     let tx_id = crate::block::calculate_tx_id(tx);
     if mempool.contains(&tx_id) {
@@ -62,6 +78,21 @@ pub fn accept_to_memory_pool(
         return Ok(MempoolResult::Rejected(
             "Transaction not final (locktime not satisfied)".to_string(),
         ));
+    }
+
+    // 2.6. Optional: Check spam filter (if enabled)
+    if config.reject_spam_in_mempool {
+        use crate::spam_filter::{SpamFilter, SpamFilterConfig};
+        let filter_config = config.spam_filter_config.as_ref()
+            .map(|serializable| serializable.clone().into())
+            .unwrap_or_else(|| SpamFilterConfig::default());
+        let spam_filter = SpamFilter::with_config(filter_config);
+        let result = spam_filter.is_spam_with_witness(tx, witnesses);
+        if result.is_spam {
+            return Ok(MempoolResult::Rejected(
+                format!("Spam transaction rejected: {:?}", result.spam_type)
+            ));
+        }
     }
 
     // 3. Check inputs against UTXO set
@@ -213,6 +244,15 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
 /// 3. Standard script types
 /// 4. Fee rate requirements
 pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
+    is_standard_tx_with_config(tx, None)
+}
+
+/// Check if transaction is standard (with optional configuration)
+pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::config::MempoolConfig>) -> Result<bool> {
+    // Use default config if not provided
+    let default_config = crate::config::MempoolConfig::default();
+    let config = config.unwrap_or(&default_config);
+
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
     if tx_size > MAX_TX_SIZE {
@@ -232,9 +272,29 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         }
     }
 
-    // 3. Check for standard script types (simplified)
+    // 3. Check OP_RETURN outputs
+    let mut op_return_count = 0;
     for output in &tx.outputs {
-        if !is_standard_script(&output.script_pubkey)? {
+        // Detect OP_RETURN: script starts with 0x6a
+        if !output.script_pubkey.is_empty() && output.script_pubkey[0] == 0x6a {
+            op_return_count += 1;
+
+            // Check size: OP_RETURN (1 byte) + push opcode (1 byte) + data ≤ max_size + 2
+            // Script format: [OP_RETURN (0x6a)] [push opcode] [data...]
+            if output.script_pubkey.len() > (config.max_op_return_size + 2) as usize {
+                return Ok(false);
+            }
+        }
+    }
+
+    // Reject multiple OP_RETURN outputs (spam pattern)
+    if config.reject_multiple_op_return && op_return_count > config.max_op_return_outputs {
+        return Ok(false);
+    }
+
+    // 4. Check for standard script types (simplified)
+    for output in &tx.outputs {
+        if !is_standard_script_with_config(&output.script_pubkey, Some(config))? {
             return Ok(false);
         }
     }
@@ -525,6 +585,14 @@ fn check_mempool_rules(tx: &Transaction, fee: Integer, mempool: &Mempool) -> Res
         return Ok(false);
     }
 
+    // Check higher fee rate requirement for large transactions
+    if tx_size as u64 > config.mempool.large_tx_threshold_bytes {
+        let min_fee_rate_large = config.mempool.min_fee_rate_large_tx as f64;
+        if fee_rate < min_fee_rate_large {
+            return Ok(false);
+        }
+    }
+
     // Check mempool size limits using configuration
     // Use transaction count limit (simpler than size-based for now)
     if mempool.len() > config.mempool.max_mempool_txs {
@@ -684,6 +752,15 @@ fn creates_new_dependencies(
 
 /// Check if script is standard
 fn is_standard_script(script: &ByteString) -> Result<bool> {
+    is_standard_script_with_config(script, None)
+}
+
+/// Check if script is standard (with optional configuration)
+fn is_standard_script_with_config(script: &ByteString, config: Option<&crate::config::MempoolConfig>) -> Result<bool> {
+    // Use default config if not provided
+    let default_config = crate::config::MempoolConfig::default();
+    let config = config.unwrap_or(&default_config);
+
     // Simplified standard script check
     // In reality, this would check for P2PKH, P2SH, P2WPKH, P2WSH, etc.
     if script.is_empty() {
@@ -692,6 +769,19 @@ fn is_standard_script(script: &ByteString) -> Result<bool> {
 
     // Basic checks
     if script.len() > MAX_SCRIPT_SIZE {
+        return Ok(false);
+    }
+
+    // Reject envelope protocol (OP_FALSE OP_IF) - used for Ordinals
+    if config.reject_envelope_protocol && script.len() >= 2 {
+        if script[0] == 0x00 && script[1] == 0x63 {
+            // OP_FALSE (0x00) OP_IF (0x63)
+            return Ok(false);
+        }
+    }
+
+    // Reject very large scripts (likely data embedding)
+    if script.len() > config.max_standard_script_size as usize {
         return Ok(false);
     }
 

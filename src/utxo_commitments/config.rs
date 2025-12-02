@@ -8,8 +8,7 @@
 
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::peer_consensus::ConsensusConfig;
-#[cfg(feature = "utxo-commitments")]
-use crate::utxo_commitments::spam_filter::SpamFilterConfig;
+use crate::spam_filter::{SpamFilterConfig, SpamFilterConfigSerializable};
 use serde::{Deserialize, Serialize};
 
 /// Sync mode selection
@@ -59,7 +58,7 @@ impl Default for StorageConfig {
 }
 
 /// Complete configuration for UTXO commitments module
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UtxoCommitmentsConfig {
     /// Sync mode
     pub sync_mode: SyncMode,
@@ -68,13 +67,13 @@ pub struct UtxoCommitmentsConfig {
     /// Peer consensus configuration
     pub consensus: ConsensusConfigSerializable,
     /// Spam filter configuration
-    pub spam_filter: SpamFilterConfigSerializable,
+    pub spam_filter: crate::spam_filter::SpamFilterConfigSerializable,
     /// Storage preferences
     pub storage: StorageConfig,
 }
 
 /// Serializable version of ConsensusConfig
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConsensusConfigSerializable {
     pub min_peers: usize,
     pub target_peers: usize,
@@ -108,38 +107,7 @@ impl From<ConsensusConfig> for ConsensusConfigSerializable {
 }
 
 /// Serializable version of SpamFilterConfig
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpamFilterConfigSerializable {
-    pub filter_ordinals: bool,
-    pub filter_dust: bool,
-    pub filter_brc20: bool,
-    pub dust_threshold: i64,
-    pub min_output_value: i64,
-}
-
-impl From<SpamFilterConfigSerializable> for SpamFilterConfig {
-    fn from(serializable: SpamFilterConfigSerializable) -> Self {
-        SpamFilterConfig {
-            filter_ordinals: serializable.filter_ordinals,
-            filter_dust: serializable.filter_dust,
-            filter_brc20: serializable.filter_brc20,
-            dust_threshold: serializable.dust_threshold,
-            min_output_value: serializable.min_output_value,
-        }
-    }
-}
-
-impl From<SpamFilterConfig> for SpamFilterConfigSerializable {
-    fn from(config: SpamFilterConfig) -> Self {
-        SpamFilterConfigSerializable {
-            filter_ordinals: config.filter_ordinals,
-            filter_dust: config.filter_dust,
-            filter_brc20: config.filter_brc20,
-            dust_threshold: config.dust_threshold,
-            min_output_value: config.min_output_value,
-        }
-    }
-}
+// SpamFilterConfigSerializable moved to spam_filter module
 
 impl Default for UtxoCommitmentsConfig {
     fn default() -> Self {
@@ -153,12 +121,20 @@ impl Default for UtxoCommitmentsConfig {
                 max_peers_per_asn: 2,
                 safety_margin: 2016,
             },
-            spam_filter: SpamFilterConfigSerializable {
+            spam_filter: crate::spam_filter::SpamFilterConfigSerializable {
                 filter_ordinals: true,
                 filter_dust: true,
                 filter_brc20: true,
+                filter_large_witness: true,
+                filter_low_fee_rate: false,
+                filter_high_size_value_ratio: true,
+                filter_many_small_outputs: true,
                 dust_threshold: 546,
                 min_output_value: 546,
+                min_fee_rate: 1,
+                max_witness_size: 1000,
+                max_size_value_ratio: 1000.0,
+                max_small_outputs: 10,
             },
             storage: StorageConfig::default(),
         }

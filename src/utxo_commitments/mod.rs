@@ -34,7 +34,6 @@ pub mod initial_sync;
 pub mod merkle_tree;
 pub mod network_integration;
 pub mod peer_consensus;
-pub mod spam_filter;
 pub mod verification;
 
 // Re-export main types
@@ -44,5 +43,4 @@ pub use initial_sync::{update_commitments_after_block, InitialSync};
 pub use merkle_tree::UtxoMerkleTree;
 pub use network_integration::*;
 pub use peer_consensus::*;
-pub use spam_filter::*;
 pub use verification::*;

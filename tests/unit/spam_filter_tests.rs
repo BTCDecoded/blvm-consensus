@@ -160,8 +160,16 @@ mod tests {
             filter_ordinals: false,
             filter_dust: true,
             filter_brc20: true,
+            filter_large_witness: true,
+            filter_low_fee_rate: false,
+            filter_high_size_value_ratio: true,
+            filter_many_small_outputs: true,
             dust_threshold: 546,
             min_output_value: 546,
+            min_fee_rate: 1,
+            max_witness_size: 1000,
+            max_size_value_ratio: 1000.0,
+            max_small_outputs: 10,
         };
         
         let filter = SpamFilter::with_config(config);
@@ -178,6 +186,149 @@ mod tests {
         
         // Should not detect as spam (Ordinals filtering disabled)
         assert!(!result.detected_types.contains(&SpamType::Ordinals));
+    }
+
+    #[test]
+    fn test_large_witness_detection() {
+        use bllvm_consensus::witness::Witness;
+        
+        let filter = SpamFilter::new();
+        
+        // Create transaction with large witness data
+        let tx = create_test_transaction(vec![0x76, 0xa9]);
+        
+        // Create large witness stack (>1000 bytes total)
+        let large_witness: Witness = vec![
+            vec![0x00; 500], // 500 bytes
+            vec![0x01; 600], // 600 bytes
+        ];
+        let witnesses = vec![large_witness];
+        
+        let result = filter.is_spam_with_witness(&tx, Some(&witnesses));
+        
+        assert!(result.is_spam);
+        assert!(result.detected_types.contains(&SpamType::LargeWitness));
+    }
+
+    #[test]
+    fn test_witness_data_pattern_detection() {
+        use bllvm_consensus::witness::Witness;
+        
+        let filter = SpamFilter::new();
+        
+        // Create transaction
+        let tx = create_test_transaction(vec![0x76, 0xa9]);
+        
+        // Create witness with suspicious data patterns (large non-signature elements)
+        let suspicious_witness: Witness = vec![
+            vec![0x00; 250], // Large element that's not a signature
+            vec![0x01; 300], // Another large element
+            vec![0x02; 200], // Third large element
+        ];
+        let witnesses = vec![suspicious_witness];
+        
+        let result = filter.is_spam_with_witness(&tx, Some(&witnesses));
+        
+        // Should detect as Ordinals (witness data pattern)
+        assert!(result.is_spam);
+        assert!(result.detected_types.contains(&SpamType::Ordinals));
+    }
+
+    #[test]
+    fn test_high_size_value_ratio() {
+        let filter = SpamFilter::new();
+        
+        // Create transaction with very large size but tiny value
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![0x00; 1000].into(), // Large scriptSig
+                sequence: 0xffffffff,
+            }].into(),
+            outputs: vec![TransactionOutput {
+                value: 1, // Very small value (1 satoshi)
+                script_pubkey: vec![0x00; 500].into(), // Large script
+            }].into(),
+            lock_time: 0,
+        };
+        
+        let result = filter.is_spam(&tx);
+        
+        assert!(result.is_spam);
+        assert!(result.detected_types.contains(&SpamType::HighSizeValueRatio));
+    }
+
+    #[test]
+    fn test_many_small_outputs() {
+        let filter = SpamFilter::new();
+        
+        // Create transaction with many small outputs (>10 outputs below dust threshold)
+        let mut outputs = Vec::new();
+        for _ in 0..15 {
+            outputs.push(TransactionOutput {
+                value: 100, // Below 546 satoshi threshold
+                script_pubkey: vec![].into(),
+            });
+        }
+        
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffffffff,
+            }].into(),
+            outputs: outputs.into(),
+            lock_time: 0,
+        };
+        
+        let result = filter.is_spam(&tx);
+        
+        assert!(result.is_spam);
+        assert!(result.detected_types.contains(&SpamType::ManySmallOutputs));
+    }
+
+    #[test]
+    fn test_witness_ordinals_detection() {
+        use bllvm_consensus::witness::Witness;
+        
+        let filter = SpamFilter::new();
+        
+        // Create transaction with envelope protocol in scriptSig
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![0x00, 0x63, 0x01, 0x02, 0x03].into(), // OP_FALSE OP_IF pattern
+                sequence: 0xffffffff,
+            }].into(),
+            outputs: vec![TransactionOutput {
+                value: 1000,
+                script_pubkey: vec![0x76, 0xa9].into(),
+            }].into(),
+            lock_time: 0,
+        };
+        
+        // Test without witness (should still detect envelope pattern)
+        let result = filter.is_spam(&tx);
+        assert!(result.is_spam);
+        assert!(result.detected_types.contains(&SpamType::Ordinals));
+        
+        // Test with witness data (should also detect)
+        let witness: Witness = vec![vec![0x00; 300]]; // Large witness element
+        let witnesses = vec![witness];
+        let result_with_witness = filter.is_spam_with_witness(&tx, Some(&witnesses));
+        assert!(result_with_witness.is_spam);
     }
 }
 
