@@ -158,5 +158,5 @@ strip = false
 lto = "thin"  # Faster than "fat" for iterative benchmarking
 codegen-units = 16  # Faster compilation
 
-# Benchmarks have been moved to bllvm-bench crate
-# See: https://github.com/BTCDecoded/bllvm-bench
+# Benchmarks have been moved to blvm-bench crate
+# See: https://github.com/BTCDecoded/blvm-bench

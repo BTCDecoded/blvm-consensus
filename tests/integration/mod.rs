@@ -16,7 +16,7 @@ mod utxo_commitments_integration;
 // Bitcoin Core test vector integration (read-only, safe)
 mod core_test_vectors;
 
-// Differential testing integration (basic functionality, full implementation in bllvm-bench)
+// Differential testing integration (basic functionality, full implementation in blvm-bench)
 mod differential_tests;
 
 // Reference-Node RPC integration tests (uses our own RPC infrastructure)
