@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
       skip_tests:
-        description: 'Skip test execution and coverage steps'
+        description: 'Skip test execution steps'
         required: false
         type: boolean
         default: false
@@ -135,30 +135,11 @@ jobs:
         with:
           toolchain: 1.88.0
       
-      - name: Run tests with coverage
-        id: coverage
+      - name: Run tests
         run: |
-          # Install tarpaulin
-          cargo install cargo-tarpaulin --version 0.27.0
-          
-          # Run tests with coverage in one step
-          # Use --lib --bins --tests to ensure all test types run
-          # Use --skip-clean to reuse cached build artifacts, --timeout to prevent hangs
-          cargo tarpaulin --lib --bins --tests --out xml --output-dir coverage --timeout 120 --skip-clean
-          # Extract coverage percentage from XML
-          if [ -f "coverage/cobertura.xml" ]; then
-            COVERAGE_PCT=$(grep -oP 'line-rate="\K[0-9.]+' coverage/cobertura.xml | head -1 | awk '{printf "%.2f", $1 * 100}')
-            echo "coverage_percent=$COVERAGE_PCT" >> $GITHUB_OUTPUT
-            echo "Coverage: ${COVERAGE_PCT}%"
-          else
-            echo "coverage_percent=0.00" >> $GITHUB_OUTPUT
-            echo "⚠️  Coverage file not found"
-          fi
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: coverage/cobertura.xml
+          # Run tests only (no coverage) for fast PR feedback
+          # Coverage runs separately in coverage.yml workflow
+          cargo test --all-features --locked
       
       - name: Capture test output hash
         if: github.ref == 'refs/heads/main'
