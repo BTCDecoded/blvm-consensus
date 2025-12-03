@@ -5,12 +5,12 @@
 //!
 //! Consensus-critical: Endianness differences = network incompatibility
 
-use bllvm_consensus::serialization::{
+use blvm_consensus::serialization::{
     block::{deserialize_block_header, serialize_block_header},
     transaction::{deserialize_transaction, serialize_transaction},
     varint::{decode_varint, encode_varint},
 };
-use bllvm_consensus::types::{BlockHeader, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::types::{BlockHeader, Transaction, TransactionInput, TransactionOutput};
 
 /// Test that transaction version is serialized in little-endian
 #[test]
@@ -121,7 +121,7 @@ fn test_transaction_input_index_little_endian() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0x01020304,
             },
@@ -165,7 +165,7 @@ fn test_transaction_sequence_little_endian() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -379,7 +379,7 @@ fn test_round_trip_little_endian() {
     let tx = Transaction {
         version: 0x01020304,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0x05060708,
             },

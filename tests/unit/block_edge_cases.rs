@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering all edge cases and boundary conditions
 //! for block validation, ensuring 99% coverage of possible input combinations.
 
-use bllvm_consensus::*;
-use bllvm_consensus::ConsensusProof;
-use bllvm_consensus::types::*;
-use bllvm_consensus::constants::{MAX_BLOCK_SIZE, MAX_TX_SIZE};
+use blvm_consensus::*;
+use blvm_consensus::ConsensusProof;
+use blvm_consensus::types::*;
+use blvm_consensus::constants::{MAX_BLOCK_SIZE, MAX_TX_SIZE};
 use proptest::prelude::*;
 
 /// Property test: block with maximum transaction count
@@ -64,10 +64,10 @@ proptest! {
         };
         
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        let witnesses: Vec<blvm_consensus::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let time_context = None;
-        let network = bllvm_consensus::types::Network::Mainnet;
+        let network = blvm_consensus::types::Network::Mainnet;
         let result = consensus.validate_block_with_time_context(
             &block,
             &witnesses,
@@ -197,10 +197,10 @@ proptest! {
         
         let consensus = ConsensusProof::new();
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        let witnesses: Vec<blvm_consensus::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let time_context = None;
-        let network = bllvm_consensus::types::Network::Mainnet;
+        let network = blvm_consensus::types::Network::Mainnet;
         let result = consensus.validate_block_with_time_context(
             &block,
             &witnesses,
@@ -251,10 +251,10 @@ proptest! {
         
         let consensus = ConsensusProof::new();
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        let witnesses: Vec<blvm_consensus::segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let time_context = None;
-        let network = bllvm_consensus::types::Network::Mainnet;
+        let network = blvm_consensus::types::Network::Mainnet;
         let result = consensus.validate_block_with_time_context(
             &block,
             &witnesses,
@@ -283,7 +283,7 @@ proptest! {
         prop_assert!(subsidy >= 0);
         
         // Subsidy should not exceed initial subsidy
-        prop_assert!(subsidy <= bllvm_consensus::constants::INITIAL_SUBSIDY as i64);
+        prop_assert!(subsidy <= blvm_consensus::constants::INITIAL_SUBSIDY as i64);
         
         // Subsidy should decrease with height (halving)
         if height > 210000 {

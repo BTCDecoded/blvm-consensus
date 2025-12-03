@@ -4,13 +4,13 @@
 //! with the P2P network layer in reference-node.
 
 #[cfg(feature = "utxo-commitments")]
+use crate::spam_filter::{SpamFilter, SpamSummary};
+#[cfg(feature = "utxo-commitments")]
 use crate::types::{BlockHeader, Hash, Natural, Transaction};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
 };
-#[cfg(feature = "utxo-commitments")]
-use crate::spam_filter::{SpamFilter, SpamSummary};
 
 /// Filtered block structure
 #[derive(Debug, Clone)]

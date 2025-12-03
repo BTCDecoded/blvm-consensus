@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering economic model boundary conditions
 //! and edge cases, ensuring correct implementation of Bitcoin's monetary policy.
 
-use bllvm_consensus::*;
-use bllvm_consensus::ConsensusProof;
-use bllvm_consensus::types::*;
-use bllvm_consensus::constants::{MAX_MONEY, HALVING_INTERVAL, INITIAL_SUBSIDY};
+use blvm_consensus::*;
+use blvm_consensus::ConsensusProof;
+use blvm_consensus::types::*;
+use blvm_consensus::constants::{MAX_MONEY, HALVING_INTERVAL, INITIAL_SUBSIDY};
 use proptest::prelude::*;
 
 /// Property test: block subsidy is always non-negative
@@ -144,7 +144,7 @@ proptest! {
     fn prop_difficulty_adjustment_interval(
         height in 0u64..100000u64
     ) {
-        use bllvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
+        use blvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
         
         // Difficulty adjustment happens every DIFFICULTY_ADJUSTMENT_INTERVAL blocks
         let is_adjustment_height = (height as u64) % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) == 0;

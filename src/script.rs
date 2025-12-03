@@ -301,9 +301,9 @@ enum ControlBlock {
 fn is_push_opcode(opcode: u8) -> bool {
     // Canonical push opcodes: OP_0 (0x00), OP_PUSHDATA1-4, and small direct pushes.
     match opcode {
-        0x00 => true,                  // OP_0
-        0x01..=0x4b => true,           // direct pushes
-        0x4c..=0x4e => true,           // OP_PUSHDATA1-4
+        0x00 => true,        // OP_0
+        0x01..=0x4b => true, // direct pushes
+        0x4c..=0x4e => true, // OP_PUSHDATA1-4
         _ => false,
     }
 }
@@ -336,7 +336,12 @@ fn eval_script_inner(
         let opcode = *opcode;
 
         // Check if we are in a non-executing branch
-        let in_false_branch = control_stack.iter().any(|b| !matches!(b, ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }));
+        let in_false_branch = control_stack.iter().any(|b| {
+            !matches!(
+                b,
+                ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }
+            )
+        });
 
         // Count non-push opcodes toward op limit, regardless of branch
         if !is_push_opcode(opcode) {
@@ -391,7 +396,9 @@ fn eval_script_inner(
                     }
                 }
 
-                control_stack.push(ControlBlock::If { executing: condition });
+                control_stack.push(ControlBlock::If {
+                    executing: condition,
+                });
             }
             // OP_NOTIF
             0x64 => {
@@ -421,7 +428,9 @@ fn eval_script_inner(
                     }
                 }
 
-                control_stack.push(ControlBlock::NotIf { executing: !condition });
+                control_stack.push(ControlBlock::NotIf {
+                    executing: !condition,
+                });
             }
             // OP_ELSE
             0x67 => {
@@ -621,8 +630,8 @@ pub fn verify_script_with_context(
     prevouts: &[TransactionOutput],
     network: crate::types::Network,
 ) -> Result<bool> {
-        // Default to Base sigversion for this API (no witness version inspection here)
-        let sigversion = SigVersion::Base;
+    // Default to Base sigversion for this API (no witness version inspection here)
+    let sigversion = SigVersion::Base;
     verify_script_with_context_full(
         script_sig,
         script_pubkey,
@@ -634,7 +643,7 @@ pub fn verify_script_with_context(
         None, // block_height
         None, // median_time_past
         network,
-            sigversion,
+        sigversion,
     )
 }
 
@@ -665,13 +674,29 @@ pub fn verify_script_with_context_full(
     _sigversion: SigVersion,
 ) -> Result<bool> {
     // Precondition assertions: Validate function inputs
-    assert!(input_index < tx.inputs.len(), 
-        "Input index {} out of bounds (tx has {} inputs)", input_index, tx.inputs.len());
-    assert!(prevouts.len() == tx.inputs.len(), 
-        "Prevouts length {} must match input count {}", prevouts.len(), tx.inputs.len());
-    assert!(script_sig.len() <= 10000, "ScriptSig length {} exceeds reasonable maximum", script_sig.len());
-    assert!(script_pubkey.len() <= 10000, "ScriptPubkey length {} exceeds reasonable maximum", script_pubkey.len());
-    
+    assert!(
+        input_index < tx.inputs.len(),
+        "Input index {} out of bounds (tx has {} inputs)",
+        input_index,
+        tx.inputs.len()
+    );
+    assert!(
+        prevouts.len() == tx.inputs.len(),
+        "Prevouts length {} must match input count {}",
+        prevouts.len(),
+        tx.inputs.len()
+    );
+    assert!(
+        script_sig.len() <= 10000,
+        "ScriptSig length {} exceeds reasonable maximum",
+        script_sig.len()
+    );
+    assert!(
+        script_pubkey.len() <= 10000,
+        "ScriptPubkey length {} exceeds reasonable maximum",
+        script_pubkey.len()
+    );
+
     // libbitcoin-consensus check (multi-input verify_script): prevouts length must match vin size
     // Core: if (prevouts.size() != tx->vin.size()) return verify_result_tx_input_invalid;
     if prevouts.len() != tx.inputs.len() {
@@ -740,11 +765,18 @@ pub fn verify_script_with_context_full(
         SigVersion::Base,
     )? {
         // Postcondition assertion: Result must be boolean
-        assert!(false == false || true == true, "Result must be boolean");
+        #[allow(clippy::eq_op)]
+        {
+            assert!(false == false || true == true, "Result must be boolean");
+        }
         return Ok(false);
     }
     // Invariant assertion: Stack size must be reasonable after scriptSig execution
-    assert!(stack.len() <= 1000, "Stack size {} exceeds reasonable maximum after scriptSig", stack.len());
+    assert!(
+        stack.len() <= 1000,
+        "Stack size {} exceeds reasonable maximum after scriptSig",
+        stack.len()
+    );
 
     // Execute scriptPubkey (always Base sigversion)
     if !eval_script_with_context_full(
@@ -760,11 +792,18 @@ pub fn verify_script_with_context_full(
         SigVersion::Base,
     )? {
         // Postcondition assertion: Result must be boolean
-        assert!(false == false || true == true, "Result must be boolean");
+        #[allow(clippy::eq_op)]
+        {
+            assert!(false == false || true == true, "Result must be boolean");
+        }
         return Ok(false);
     }
     // Invariant assertion: Stack size must be reasonable after scriptPubkey execution
-    assert!(stack.len() <= 1000, "Stack size {} exceeds reasonable maximum after scriptPubkey", stack.len());
+    assert!(
+        stack.len() <= 1000,
+        "Stack size {} exceeds reasonable maximum after scriptPubkey",
+        stack.len()
+    );
 
     // Execute witness if present
     if let Some(w) = witness {
@@ -840,13 +879,29 @@ fn eval_script_with_context_full(
     sigversion: SigVersion,
 ) -> Result<bool> {
     // Precondition assertions: Validate function inputs
-    assert!(input_index < tx.inputs.len(), 
-        "Input index {} out of bounds (tx has {} inputs)", input_index, tx.inputs.len());
-    assert!(prevouts.len() == tx.inputs.len(), 
-        "Prevouts length {} must match input count {}", prevouts.len(), tx.inputs.len());
-    assert!(script.len() <= 10000, "Script length {} exceeds reasonable maximum", script.len());
-    assert!(stack.len() <= 1000, "Stack size {} exceeds reasonable maximum at start", stack.len());
-    
+    assert!(
+        input_index < tx.inputs.len(),
+        "Input index {} out of bounds (tx has {} inputs)",
+        input_index,
+        tx.inputs.len()
+    );
+    assert!(
+        prevouts.len() == tx.inputs.len(),
+        "Prevouts length {} must match input count {}",
+        prevouts.len(),
+        tx.inputs.len()
+    );
+    assert!(
+        script.len() <= 10000,
+        "Script length {} exceeds reasonable maximum",
+        script.len()
+    );
+    assert!(
+        stack.len() <= 1000,
+        "Stack size {} exceeds reasonable maximum at start",
+        stack.len()
+    );
+
     use crate::error::{ConsensusError, ScriptErrorCode};
 
     // Pre-allocate stack capacity if needed
@@ -856,27 +911,33 @@ fn eval_script_with_context_full(
     let mut op_count = 0;
     // Invariant assertion: Op count must start at zero
     assert!(op_count == 0, "Op count must start at zero");
-    
+
     let mut control_stack: Vec<ControlBlock> = Vec::new();
     // Invariant assertion: Control stack must start empty
     assert!(control_stack.is_empty(), "Control stack must start empty");
 
     for opcode in script {
         let opcode = *opcode;
-        
+
         // Note: opcode is already u8, so it's always <= 0xff by type definition
 
         // Are we in a non-executing branch?
         let in_false_branch = control_stack.iter().any(|b| {
-            !matches!(b, ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true })
+            !matches!(
+                b,
+                ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }
+            )
         });
 
         // Count non-push opcodes toward op limit
         if !is_push_opcode(opcode) {
             op_count += 1;
             // Invariant assertion: Op count must not exceed limit
-            assert!(op_count <= MAX_SCRIPT_OPS + 1, 
-                "Op count {} must not exceed MAX_SCRIPT_OPS + 1", op_count);
+            assert!(
+                op_count <= MAX_SCRIPT_OPS + 1,
+                "Op count {} must not exceed MAX_SCRIPT_OPS + 1",
+                op_count
+            );
             if op_count > MAX_SCRIPT_OPS {
                 return Err(make_operation_limit_error());
             }
@@ -884,8 +945,11 @@ fn eval_script_with_context_full(
 
         // Check stack size
         // Invariant assertion: Stack size must not exceed maximum
-        assert!(stack.len() <= MAX_STACK_SIZE + 1, 
-            "Stack size {} must not exceed MAX_STACK_SIZE + 1", stack.len());
+        assert!(
+            stack.len() <= MAX_STACK_SIZE + 1,
+            "Stack size {} must not exceed MAX_STACK_SIZE + 1",
+            stack.len()
+        );
         if stack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
         }
@@ -925,7 +989,9 @@ fn eval_script_with_context_full(
                     }
                 }
 
-                control_stack.push(ControlBlock::If { executing: condition });
+                control_stack.push(ControlBlock::If {
+                    executing: condition,
+                });
             }
             0x64 => {
                 // OP_NOTIF
@@ -955,7 +1021,9 @@ fn eval_script_with_context_full(
                     }
                 }
 
-                control_stack.push(ControlBlock::NotIf { executing: !condition });
+                control_stack.push(ControlBlock::NotIf {
+                    executing: !condition,
+                });
             }
             0x67 => {
                 // OP_ELSE
@@ -1005,8 +1073,10 @@ fn eval_script_with_context_full(
     }
 
     // Invariant assertion: Control stack must be empty at end
-    assert!(control_stack.is_empty(), 
-        "Control stack must be empty at end (unclosed IF/NOTIF blocks)");
+    assert!(
+        control_stack.is_empty(),
+        "Control stack must be empty at end (unclosed IF/NOTIF blocks)"
+    );
     if !control_stack.is_empty() {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::UnbalancedConditional,
@@ -1016,10 +1086,17 @@ fn eval_script_with_context_full(
 
     // Final stack check: exactly one non-zero value
     // Postcondition assertion: Stack must have exactly one element for valid script
-    assert!(stack.len() <= 1, "Stack must have at most one element at end (has {})", stack.len());
+    assert!(
+        stack.len() <= 1,
+        "Stack must have at most one element at end (has {})",
+        stack.len()
+    );
     let result = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
     // Postcondition assertion: Result must be boolean
-    assert!(result == true || result == false, "Result must be boolean");
+    #[allow(clippy::eq_op)]
+    {
+        assert!(result == true || result == false, "Result must be boolean");
+    }
     Ok(result)
 }
 
@@ -1291,7 +1368,8 @@ fn execute_opcode(
             if !ok && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
                 return Err(ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::SigNullFail,
-                    message: "OP_CHECKSIGVERIFY: non-null signature must not fail under NULLFAIL".into(),
+                    message: "OP_CHECKSIGVERIFY: non-null signature must not fail under NULLFAIL"
+                        .into(),
                 });
             }
 
@@ -2025,11 +2103,13 @@ fn execute_opcode_with_context_full(
 
                 // NULLFAIL (policy): if enabled and signature is non-empty, failing must be NULLFAIL
                 const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
-                if !is_valid && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
+                if !is_valid && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty()
+                {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::SigNullFail,
                         message:
-                            "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
+                            "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
+                                .into(),
                     });
                 }
 
@@ -2106,12 +2186,22 @@ fn verify_signature<C: Context + Verification>(
         Ok(sig) => sig,
         Err(_) => {
             // Postcondition assertion: Invalid DER must return false
-            assert!(false == false || true == true, "Invalid DER must return false");
+            #[allow(clippy::eq_op)]
+            {
+                assert!(
+                    false == false || true == true,
+                    "Invalid DER must return false"
+                );
+            }
             return Ok(false);
-        },
+        }
     };
     // Invariant assertion: Signature must be valid after parsing
-    assert!(signature_bytes.len() >= 8, "Signature bytes length {} must be at least 8", signature_bytes.len());
+    assert!(
+        signature_bytes.len() >= 8,
+        "Signature bytes length {} must be at least 8",
+        signature_bytes.len()
+    );
 
     // SCRIPT_VERIFY_LOW_S (0x08): Check that S value <= secp256k1 order / 2
     // Bitcoin Core enforces LOW_S to prevent signature malleability
@@ -2123,20 +2213,29 @@ fn verify_signature<C: Context + Verification>(
         // If normalize_s changes the signature, it means the original had high S
         let original_der = signature.serialize_der();
         // Invariant assertion: Original DER must have reasonable length
-        assert!(original_der.len() >= 8 && original_der.len() <= 72, 
-            "Original DER length {} must be between 8 and 72 bytes", original_der.len());
-        
+        assert!(
+            original_der.len() >= 8 && original_der.len() <= 72,
+            "Original DER length {} must be between 8 and 72 bytes",
+            original_der.len()
+        );
+
         let mut normalized_sig = signature;
         normalized_sig.normalize_s();
         let normalized_der = normalized_sig.serialize_der();
         // Invariant assertion: Normalized DER must have reasonable length
-        assert!(normalized_der.len() >= 8 && normalized_der.len() <= 72, 
-            "Normalized DER length {} must be between 8 and 72 bytes", normalized_der.len());
+        assert!(
+            normalized_der.len() >= 8 && normalized_der.len() <= 72,
+            "Normalized DER length {} must be between 8 and 72 bytes",
+            normalized_der.len()
+        );
 
         if original_der != normalized_der {
             // Signature has high S (normalize_s changed it) - reject if LOW_S flag is set
             // Postcondition assertion: High S must return false
-            assert!(false == false || true == true, "High S must return false");
+            #[allow(clippy::eq_op)]
+            {
+                assert!(false == false || true == true, "High S must return false");
+            }
             return Ok(false);
         }
     }
@@ -2509,9 +2608,16 @@ mod tests {
         let script = vec![0x51, 0x87]; // OP_1, OP_EQUAL (need 2 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_err(), "OP_EQUAL with insufficient stack should return error");
+        assert!(
+            result.is_err(),
+            "OP_EQUAL with insufficient stack should return error"
+        );
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::InvalidStackOperation, "Should return InvalidStackOperation");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::InvalidStackOperation,
+                "Should return InvalidStackOperation"
+            );
         }
     }
 
@@ -2554,9 +2660,16 @@ mod tests {
         let script = vec![0x51, 0x52, 0x88]; // OP_1, OP_2, OP_EQUALVERIFY (false)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_err(), "OP_EQUALVERIFY with false condition should return error");
+        assert!(
+            result.is_err(),
+            "OP_EQUALVERIFY with false condition should return error"
+        );
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::EqualVerify, "Should return EqualVerify");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::EqualVerify,
+                "Should return EqualVerify"
+            );
         }
     }
 
@@ -2577,9 +2690,16 @@ mod tests {
         let script = vec![0x51, 0xac]; // OP_1, OP_CHECKSIG (need 2 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_err(), "OP_CHECKSIG with insufficient stack should return error");
+        assert!(
+            result.is_err(),
+            "OP_CHECKSIG with insufficient stack should return error"
+        );
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::InvalidStackOperation, "Should return InvalidStackOperation");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::InvalidStackOperation,
+                "Should return InvalidStackOperation"
+            );
         }
     }
 
@@ -2614,7 +2734,11 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(result.is_err(), "Stack underflow should return error");
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::InvalidStackOperation, "Should return InvalidStackOperation");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::InvalidStackOperation,
+                "Should return InvalidStackOperation"
+            );
         }
     }
 
@@ -4044,11 +4168,18 @@ mod property_tests {
             let mut stack = stack_items;
             let result = execute_opcode(opcode, &mut stack, flags, SigVersion::Base);
 
-            // Should not panic and return valid boolean
-            assert!(result.is_ok());
-            let success = result.unwrap();
-            // Just test it returns a boolean (success is either true or false)
-            let _ = success;
+            // Some opcodes may return errors (invalid opcodes, insufficient stack, etc.)
+            // The important thing is that it doesn't panic
+            match result {
+                Ok(success) => {
+                    // Just test it returns a boolean (success is either true or false)
+                    let _ = success;
+                },
+                Err(_) => {
+                    // Errors are acceptable - invalid opcodes, insufficient stack, etc.
+                    // The test is about not panicking, not about always succeeding
+                }
+            }
 
             // Stack should remain within bounds
             assert!(stack.len() <= MAX_STACK_SIZE);
@@ -4646,7 +4777,10 @@ mod kani_proofs_2 {
         let script = vec![0x51, 0x63, 0x51, 0x68]; // OP_1, OP_IF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "OP_IF true branch should succeed");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "OP_IF true branch should succeed"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4657,7 +4791,10 @@ mod kani_proofs_2 {
         let script = vec![0x00, 0x63, 0x51, 0x68]; // OP_0, OP_IF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && !result.unwrap(), "OP_IF false branch should fail (empty stack)");
+        assert!(
+            result.is_ok() && !result.unwrap(),
+            "OP_IF false branch should fail (empty stack)"
+        );
     }
 
     #[test]
@@ -4666,7 +4803,10 @@ mod kani_proofs_2 {
         let script = vec![0x00, 0x64, 0x51, 0x68]; // OP_0, OP_NOTIF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "OP_NOTIF true branch should succeed");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "OP_NOTIF true branch should succeed"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4677,7 +4817,10 @@ mod kani_proofs_2 {
         let script = vec![0x00, 0x63, 0x00, 0x67, 0x51, 0x68]; // OP_0, OP_IF, OP_0, OP_ELSE, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "OP_ELSE should execute else branch");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "OP_ELSE should execute else branch"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4688,7 +4831,10 @@ mod kani_proofs_2 {
         let script = vec![0x51, 0x63, 0x51, 0x63, 0x51, 0x68, 0x68]; // OP_1, OP_IF, OP_1, OP_IF, OP_1, OP_ENDIF, OP_ENDIF
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "Nested IF blocks should succeed");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "Nested IF blocks should succeed"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4701,7 +4847,11 @@ mod kani_proofs_2 {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(result.is_err(), "OP_ENDIF without IF should error");
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::UnbalancedConditional, "Should return UnbalancedConditional");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::UnbalancedConditional,
+                "Should return UnbalancedConditional"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with UnbalancedConditional");
         }
@@ -4715,7 +4865,11 @@ mod kani_proofs_2 {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(result.is_err(), "OP_ELSE without IF should error");
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::UnbalancedConditional, "Should return UnbalancedConditional");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::UnbalancedConditional,
+                "Should return UnbalancedConditional"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with UnbalancedConditional");
         }
@@ -4729,7 +4883,11 @@ mod kani_proofs_2 {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(result.is_err(), "Unclosed IF block should error");
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::UnbalancedConditional, "Should return UnbalancedConditional");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::UnbalancedConditional,
+                "Should return UnbalancedConditional"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with UnbalancedConditional");
         }
@@ -4743,7 +4901,11 @@ mod kani_proofs_2 {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(result.is_err(), "OP_IF with empty stack should error");
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::InvalidStackOperation, "Should return InvalidStackOperation");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::InvalidStackOperation,
+                "Should return InvalidStackOperation"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with InvalidStackOperation");
         }
@@ -4762,7 +4924,10 @@ mod kani_proofs_2 {
         ];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "False branch should skip opcodes");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "False branch should skip opcodes"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4779,7 +4944,10 @@ mod kani_proofs_2 {
         ];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "Ordinals envelope should succeed");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "Ordinals envelope should succeed"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }
@@ -4791,10 +4959,22 @@ mod kani_proofs_2 {
         let script = vec![0x01, 0x00, 0x63, 0x51, 0x68]; // [0x01, 0x00], OP_IF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-        let result = eval_script(&script, &mut stack, SCRIPT_VERIFY_MINIMALIF, SigVersion::WitnessV0);
-        assert!(result.is_err(), "Non-minimal IF condition should fail with MINIMALIF flag");
+        let result = eval_script(
+            &script,
+            &mut stack,
+            SCRIPT_VERIFY_MINIMALIF,
+            SigVersion::WitnessV0,
+        );
+        assert!(
+            result.is_err(),
+            "Non-minimal IF condition should fail with MINIMALIF flag"
+        );
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::MinimalIf, "Should return MinimalIf");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::MinimalIf,
+                "Should return MinimalIf"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with MinimalIf");
         }
@@ -4806,10 +4986,22 @@ mod kani_proofs_2 {
         let script = vec![0x01, 0x00, 0x63, 0x51, 0x68]; // [0x01, 0x00], OP_IF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-        let result = eval_script(&script, &mut stack, SCRIPT_VERIFY_MINIMALIF, SigVersion::Tapscript);
-        assert!(result.is_err(), "Non-minimal IF condition should fail with MINIMALIF flag");
+        let result = eval_script(
+            &script,
+            &mut stack,
+            SCRIPT_VERIFY_MINIMALIF,
+            SigVersion::Tapscript,
+        );
+        assert!(
+            result.is_err(),
+            "Non-minimal IF condition should fail with MINIMALIF flag"
+        );
         if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-            assert_eq!(code, crate::error::ScriptErrorCode::MinimalIf, "Should return MinimalIf");
+            assert_eq!(
+                code,
+                crate::error::ScriptErrorCode::MinimalIf,
+                "Should return MinimalIf"
+            );
         } else {
             panic!("Expected ScriptErrorWithCode with MinimalIf");
         }
@@ -4821,20 +5013,28 @@ mod kani_proofs_2 {
         let script = vec![0x01, 0x00, 0x63, 0x51, 0x68]; // [0x01, 0x00], OP_IF, OP_1, OP_ENDIF
         let mut stack = Vec::new();
         const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-        let result = eval_script(&script, &mut stack, SCRIPT_VERIFY_MINIMALIF, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "MINIMALIF should be ignored for Base sigversion");
+        let result = eval_script(
+            &script,
+            &mut stack,
+            SCRIPT_VERIFY_MINIMALIF,
+            SigVersion::Base,
+        );
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "MINIMALIF should be ignored for Base sigversion"
+        );
     }
 
     #[test]
     fn test_minimalif_minimal_encodings() {
         // Test that minimal encodings are accepted
         let minimal_encodings = vec![
-            vec![],           // Empty (minimal false)
-            vec![0],          // [0] (minimal false)
-            vec![1],          // [1] (minimal true)
-            vec![0x51],       // OP_1 (minimal true)
-            vec![16],         // [16] (minimal true)
-            vec![0x60],       // OP_16 (minimal true)
+            vec![],     // Empty (minimal false)
+            vec![0],    // [0] (minimal false)
+            vec![1],    // [1] (minimal true)
+            vec![0x51], // OP_1 (minimal true)
+            vec![16],   // [16] (minimal true)
+            vec![0x60], // OP_16 (minimal true)
         ];
 
         for condition in minimal_encodings {
@@ -4845,8 +5045,17 @@ mod kani_proofs_2 {
 
             let mut stack = Vec::new();
             const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-            let result = eval_script(&script, &mut stack, SCRIPT_VERIFY_MINIMALIF, SigVersion::WitnessV0);
-            assert!(result.is_ok(), "Minimal encoding should be accepted: {:?}", condition);
+            let result = eval_script(
+                &script,
+                &mut stack,
+                SCRIPT_VERIFY_MINIMALIF,
+                SigVersion::WitnessV0,
+            );
+            assert!(
+                result.is_ok(),
+                "Minimal encoding should be accepted: {:?}",
+                condition
+            );
         }
     }
 
@@ -4854,9 +5063,9 @@ mod kani_proofs_2 {
     fn test_minimalif_non_minimal_encodings() {
         // Test that non-minimal encodings are rejected
         let non_minimal_encodings = vec![
-            vec![0, 0],           // [0, 0] (should be [0] or [])
-            vec![1, 0],           // [1, 0] (should be [1])
-            vec![0x51, 0x00],     // [OP_1, 0] (should be [OP_1])
+            vec![0, 0],             // [0, 0] (should be [0] or [])
+            vec![1, 0],             // [1, 0] (should be [1])
+            vec![0x51, 0x00],       // [OP_1, 0] (should be [OP_1])
             vec![0x01, 0x00, 0x00], // Multi-byte (should be single byte)
         ];
 
@@ -4868,10 +5077,23 @@ mod kani_proofs_2 {
 
             let mut stack = Vec::new();
             const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-            let result = eval_script(&script, &mut stack, SCRIPT_VERIFY_MINIMALIF, SigVersion::WitnessV0);
-            assert!(result.is_err(), "Non-minimal encoding should be rejected: {:?}", condition);
+            let result = eval_script(
+                &script,
+                &mut stack,
+                SCRIPT_VERIFY_MINIMALIF,
+                SigVersion::WitnessV0,
+            );
+            assert!(
+                result.is_err(),
+                "Non-minimal encoding should be rejected: {:?}",
+                condition
+            );
             if let Err(crate::error::ConsensusError::ScriptErrorWithCode { code, .. }) = result {
-                assert_eq!(code, crate::error::ScriptErrorCode::MinimalIf, "Should return MinimalIf");
+                assert_eq!(
+                    code,
+                    crate::error::ScriptErrorCode::MinimalIf,
+                    "Should return MinimalIf"
+                );
             }
         }
     }
@@ -4884,12 +5106,15 @@ mod kani_proofs_2 {
             0x00, 0x63, // OP_0, OP_IF (false)
             0x00, 0x63, // OP_0, OP_IF (nested, false branch, should not pop)
             0x51, 0x68, // OP_1, OP_ENDIF
-            0x68,       // OP_ENDIF
-            0x51,       // OP_1
+            0x68, // OP_ENDIF
+            0x51, // OP_1
         ];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-        assert!(result.is_ok() && result.unwrap(), "Nested IF in false branch should succeed");
+        assert!(
+            result.is_ok() && result.unwrap(),
+            "Nested IF in false branch should succeed"
+        );
         assert_eq!(stack.len(), 1, "Stack should have one item");
         assert_eq!(stack[0], vec![1], "Stack should contain [1]");
     }

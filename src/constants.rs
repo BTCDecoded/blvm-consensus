@@ -222,10 +222,8 @@ pub const TAPROOT_ACTIVATION_MAINNET: u64 = 709_632;
 /// The hash of the first Bitcoin block. This is the root of the blockchain.
 /// Hash: 000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
 pub const GENESIS_BLOCK_HASH: [u8; 32] = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68,
-    0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93,
-    0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1,
-    0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93,
+    0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1, 0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f,
 ];
 
 /// Genesis block timestamp (Unix timestamp)
@@ -239,10 +237,8 @@ pub const GENESIS_BLOCK_TIMESTAMP: u32 = 1231006505;
 /// The merkle root of the genesis block's coinbase transaction.
 /// This is the root of the first transaction tree.
 pub const GENESIS_BLOCK_MERKLE_ROOT: [u8; 32] = [
-    0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2,
-    0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f, 0x61,
-    0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32,
-    0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
+    0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2, 0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f, 0x61,
+    0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
 ];
 
 /// Genesis block nonce
@@ -276,31 +272,27 @@ mod kani_constant_verification {
     fn kani_monetary_constants_match_orange_paper() {
         // C = 10^8 (satoshis per BTC) - Orange Paper Section 4.1
         assert_eq!(
-            SATOSHIS_PER_BTC,
-            100_000_000,
+            SATOSHIS_PER_BTC, 100_000_000,
             "SATOSHIS_PER_BTC must equal 10^8 per Orange Paper Section 4.1"
         );
 
         // M_max = 21 × 10^6 × C - Orange Paper Section 4.1
         let expected_max_money = 21_000_000 * SATOSHIS_PER_BTC;
         assert_eq!(
-            MAX_MONEY,
-            expected_max_money,
+            MAX_MONEY, expected_max_money,
             "MAX_MONEY must equal 21 × 10^6 × C per Orange Paper Section 4.1"
         );
 
         // H = 210,000 (halving interval) - Orange Paper Section 4.1
         assert_eq!(
-            HALVING_INTERVAL,
-            210_000,
+            HALVING_INTERVAL, 210_000,
             "HALVING_INTERVAL must equal 210,000 per Orange Paper Section 4.1"
         );
 
         // Initial subsidy: 50 BTC = 50 × C
         let expected_initial_subsidy = 50 * SATOSHIS_PER_BTC;
         assert_eq!(
-            INITIAL_SUBSIDY,
-            expected_initial_subsidy,
+            INITIAL_SUBSIDY, expected_initial_subsidy,
             "INITIAL_SUBSIDY must equal 50 × C per Orange Paper Section 6.1"
         );
     }
@@ -315,22 +307,19 @@ mod kani_constant_verification {
     fn kani_block_constants_match_orange_paper() {
         // W_max = 4 × 10^6 (maximum block weight) - Orange Paper Section 4.2
         assert_eq!(
-            MAX_BLOCK_WEIGHT,
-            4_000_000,
+            MAX_BLOCK_WEIGHT, 4_000_000,
             "MAX_BLOCK_WEIGHT must equal 4 × 10^6 per Orange Paper Section 4.2"
         );
 
         // S_max = 80,000 (maximum sigops per block) - Orange Paper Section 4.2
         assert_eq!(
-            MAX_BLOCK_SIGOPS_COST,
-            80_000,
+            MAX_BLOCK_SIGOPS_COST, 80_000,
             "MAX_BLOCK_SIGOPS_COST must equal 80,000 per Orange Paper Section 4.2"
         );
 
         // R = 100 (coinbase maturity requirement) - Orange Paper Section 4.2
         assert_eq!(
-            COINBASE_MATURITY,
-            100,
+            COINBASE_MATURITY, 100,
             "COINBASE_MATURITY must equal 100 per Orange Paper Section 4.2"
         );
     }
@@ -346,29 +335,25 @@ mod kani_constant_verification {
     fn kani_script_constants_match_orange_paper() {
         // L_script = 10,000 (maximum script length) - Orange Paper Section 4.3
         assert_eq!(
-            MAX_SCRIPT_SIZE,
-            10_000,
+            MAX_SCRIPT_SIZE, 10_000,
             "MAX_SCRIPT_SIZE must equal 10,000 per Orange Paper Section 4.3"
         );
 
         // L_stack = 1,000 (maximum stack size) - Orange Paper Section 4.3
         assert_eq!(
-            MAX_STACK_SIZE,
-            1_000,
+            MAX_STACK_SIZE, 1_000,
             "MAX_STACK_SIZE must equal 1,000 per Orange Paper Section 4.3"
         );
 
         // L_ops = 201 (maximum operations per script) - Orange Paper Section 4.3
         assert_eq!(
-            MAX_SCRIPT_OPS,
-            201,
+            MAX_SCRIPT_OPS, 201,
             "MAX_SCRIPT_OPS must equal 201 per Orange Paper Section 4.3"
         );
 
         // L_element = 520 (maximum element size) - Orange Paper Section 4.3
         assert_eq!(
-            MAX_SCRIPT_ELEMENT_SIZE,
-            520,
+            MAX_SCRIPT_ELEMENT_SIZE, 520,
             "MAX_SCRIPT_ELEMENT_SIZE must equal 520 per Orange Paper Section 4.3"
         );
     }
@@ -382,15 +367,13 @@ mod kani_constant_verification {
     fn kani_difficulty_constants_match_orange_paper() {
         // Difficulty adjustment interval: 2016 blocks - Orange Paper Section 7.1
         assert_eq!(
-            DIFFICULTY_ADJUSTMENT_INTERVAL,
-            2016,
+            DIFFICULTY_ADJUSTMENT_INTERVAL, 2016,
             "DIFFICULTY_ADJUSTMENT_INTERVAL must equal 2016 per Orange Paper Section 7.1"
         );
 
         // Target time per block: 600 seconds (10 minutes) - Orange Paper Section 7.1
         assert_eq!(
-            TARGET_TIME_PER_BLOCK,
-            600,
+            TARGET_TIME_PER_BLOCK, 600,
             "TARGET_TIME_PER_BLOCK must equal 600 seconds per Orange Paper Section 7.1"
         );
     }
@@ -404,23 +387,20 @@ mod kani_constant_verification {
         // MAX_MONEY = 21 × 10^6 × SATOSHIS_PER_BTC
         let expected_max_money = 21_000_000 * SATOSHIS_PER_BTC;
         assert_eq!(
-            MAX_MONEY,
-            expected_max_money,
+            MAX_MONEY, expected_max_money,
             "MAX_MONEY must equal 21 × 10^6 × SATOSHIS_PER_BTC"
         );
 
         // INITIAL_SUBSIDY = 50 × SATOSHIS_PER_BTC
         let expected_initial_subsidy = 50 * SATOSHIS_PER_BTC;
         assert_eq!(
-            INITIAL_SUBSIDY,
-            expected_initial_subsidy,
+            INITIAL_SUBSIDY, expected_initial_subsidy,
             "INITIAL_SUBSIDY must equal 50 × SATOSHIS_PER_BTC"
         );
 
         // MAX_BLOCK_WEIGHT = MAX_BLOCK_SERIALIZED_SIZE (for SegWit compatibility)
         assert_eq!(
-            MAX_BLOCK_WEIGHT,
-            MAX_BLOCK_SERIALIZED_SIZE,
+            MAX_BLOCK_WEIGHT, MAX_BLOCK_SERIALIZED_SIZE,
             "MAX_BLOCK_WEIGHT must equal MAX_BLOCK_SERIALIZED_SIZE for SegWit compatibility"
         );
     }
@@ -438,48 +418,24 @@ mod kani_constant_verification {
         );
 
         // Invariant: SATOSHIS_PER_BTC must be positive
-        assert!(
-            SATOSHIS_PER_BTC > 0,
-            "SATOSHIS_PER_BTC must be positive"
-        );
+        assert!(SATOSHIS_PER_BTC > 0, "SATOSHIS_PER_BTC must be positive");
 
         // Invariant: HALVING_INTERVAL must be positive
-        assert!(
-            HALVING_INTERVAL > 0,
-            "HALVING_INTERVAL must be positive"
-        );
+        assert!(HALVING_INTERVAL > 0, "HALVING_INTERVAL must be positive");
 
         // Invariant: INITIAL_SUBSIDY must be positive
-        assert!(
-            INITIAL_SUBSIDY > 0,
-            "INITIAL_SUBSIDY must be positive"
-        );
+        assert!(INITIAL_SUBSIDY > 0, "INITIAL_SUBSIDY must be positive");
 
         // Invariant: MAX_MONEY must be representable in i64
-        assert!(
-            MAX_MONEY <= i64::MAX,
-            "MAX_MONEY must fit in i64"
-        );
+        assert!(MAX_MONEY <= i64::MAX, "MAX_MONEY must fit in i64");
 
         // Invariant: COINBASE_MATURITY must be positive
-        assert!(
-            COINBASE_MATURITY > 0,
-            "COINBASE_MATURITY must be positive"
-        );
+        assert!(COINBASE_MATURITY > 0, "COINBASE_MATURITY must be positive");
 
         // Invariant: All size limits must be positive
-        assert!(
-            MAX_BLOCK_WEIGHT > 0,
-            "MAX_BLOCK_WEIGHT must be positive"
-        );
-        assert!(
-            MAX_SCRIPT_SIZE > 0,
-            "MAX_SCRIPT_SIZE must be positive"
-        );
-        assert!(
-            MAX_STACK_SIZE > 0,
-            "MAX_STACK_SIZE must be positive"
-        );
+        assert!(MAX_BLOCK_WEIGHT > 0, "MAX_BLOCK_WEIGHT must be positive");
+        assert!(MAX_SCRIPT_SIZE > 0, "MAX_SCRIPT_SIZE must be positive");
+        assert!(MAX_STACK_SIZE > 0, "MAX_STACK_SIZE must be positive");
     }
 
     /// Kani proof: Transaction size constants match Orange Paper and Bitcoin Core
@@ -489,27 +445,19 @@ mod kani_constant_verification {
     fn kani_transaction_size_constants() {
         // MAX_TX_SIZE = 1MB (1,000,000 bytes) - Bitcoin Core limit
         assert_eq!(
-            MAX_TX_SIZE,
-            1_000_000,
+            MAX_TX_SIZE, 1_000_000,
             "MAX_TX_SIZE must equal 1,000,000 bytes (1MB) per Bitcoin Core"
         );
 
         // MAX_BLOCK_SERIALIZED_SIZE = 4MB - Bitcoin Core limit
         assert_eq!(
-            MAX_BLOCK_SERIALIZED_SIZE,
-            4_000_000,
+            MAX_BLOCK_SERIALIZED_SIZE, 4_000_000,
             "MAX_BLOCK_SERIALIZED_SIZE must equal 4,000,000 bytes (4MB) per Bitcoin Core"
         );
 
         // MAX_INPUTS and MAX_OUTPUTS are practical limits (not consensus-critical)
-        assert!(
-            MAX_INPUTS > 0,
-            "MAX_INPUTS must be positive"
-        );
-        assert!(
-            MAX_OUTPUTS > 0,
-            "MAX_OUTPUTS must be positive"
-        );
+        assert!(MAX_INPUTS > 0, "MAX_INPUTS must be positive");
+        assert!(MAX_OUTPUTS > 0, "MAX_OUTPUTS must be positive");
     }
 
     /// Kani proof: Proof of Work constants match Orange Paper Section 7
@@ -520,22 +468,19 @@ mod kani_constant_verification {
     fn kani_pow_constants_match_orange_paper() {
         // MAX_TARGET = 0x1d00ffff (genesis difficulty) - Orange Paper Section 7.2
         assert_eq!(
-            MAX_TARGET,
-            0x1d00ffff,
+            MAX_TARGET, 0x1d00ffff,
             "MAX_TARGET must equal 0x1d00ffff (genesis difficulty) per Orange Paper Section 7.2"
         );
 
         // MIN_TARGET is the genesis block target (all zeros except 0xffff in bytes 4-5)
         // This is the maximum difficulty (minimum target value)
         let expected_min_target: [u8; 32] = [
-            0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
         ];
         assert_eq!(
-            MIN_TARGET,
-            expected_min_target,
+            MIN_TARGET, expected_min_target,
             "MIN_TARGET must match genesis block target per Orange Paper Section 7.2"
         );
     }
@@ -551,24 +496,21 @@ mod kani_constant_verification {
         // LOCKTIME_THRESHOLD = 500,000,000 - Orange Paper Section 5.1
         // Transactions with locktime < this value are interpreted as block height
         assert_eq!(
-            LOCKTIME_THRESHOLD,
-            500_000_000,
+            LOCKTIME_THRESHOLD, 500_000_000,
             "LOCKTIME_THRESHOLD must equal 500,000,000 per Orange Paper Section 5.1"
         );
 
         // SEQUENCE_FINAL = 0xffffffff - Orange Paper Section 5.1
         // Indicates transaction is final (no RBF)
         assert_eq!(
-            SEQUENCE_FINAL,
-            0xffffffff,
+            SEQUENCE_FINAL, 0xffffffff,
             "SEQUENCE_FINAL must equal 0xffffffff per Orange Paper Section 5.1"
         );
 
         // SEQUENCE_RBF = 0xfffffffe - BIP125 (Replace-By-Fee)
         // Indicates transaction signals RBF
         assert_eq!(
-            SEQUENCE_RBF,
-            0xfffffffe,
+            SEQUENCE_RBF, 0xfffffffe,
             "SEQUENCE_RBF must equal 0xfffffffe per BIP125"
         );
 
@@ -588,16 +530,12 @@ mod kani_constant_verification {
     fn kani_fee_constants_match_bip125() {
         // MIN_RELAY_FEE = 1000 satoshis - BIP125 requirement
         assert_eq!(
-            MIN_RELAY_FEE,
-            1000,
+            MIN_RELAY_FEE, 1000,
             "MIN_RELAY_FEE must equal 1000 satoshis per BIP125"
         );
 
         // MIN_RELAY_FEE must be positive
-        assert!(
-            MIN_RELAY_FEE > 0,
-            "MIN_RELAY_FEE must be positive"
-        );
+        assert!(MIN_RELAY_FEE > 0, "MIN_RELAY_FEE must be positive");
 
         // MIN_RELAY_FEE must be less than MAX_MONEY (sanity check)
         assert!(
@@ -617,30 +555,26 @@ mod kani_constant_verification {
     fn kani_segwit_constants_match_bip141() {
         // P2WPKH witness program length: 20 bytes - BIP141
         assert_eq!(
-            SEGWIT_P2WPKH_LENGTH,
-            20,
+            SEGWIT_P2WPKH_LENGTH, 20,
             "SEGWIT_P2WPKH_LENGTH must equal 20 bytes per BIP141"
         );
 
         // P2WSH witness program length: 32 bytes - BIP141
         assert_eq!(
-            SEGWIT_P2WSH_LENGTH,
-            32,
+            SEGWIT_P2WSH_LENGTH, 32,
             "SEGWIT_P2WSH_LENGTH must equal 32 bytes per BIP141"
         );
 
         // Witness commitment hash length: 32 bytes - BIP141
         assert_eq!(
-            WITNESS_COMMITMENT_HASH_LENGTH,
-            32,
+            WITNESS_COMMITMENT_HASH_LENGTH, 32,
             "WITNESS_COMMITMENT_HASH_LENGTH must equal 32 bytes per BIP141"
         );
 
         // Witness commitment script length: 34 bytes - BIP141
         // Format: OP_RETURN (1) + push opcode (1) + hash (32) = 34
         assert_eq!(
-            WITNESS_COMMITMENT_SCRIPT_LENGTH,
-            34,
+            WITNESS_COMMITMENT_SCRIPT_LENGTH, 34,
             "WITNESS_COMMITMENT_SCRIPT_LENGTH must equal 34 bytes per BIP141"
         );
 
@@ -661,16 +595,14 @@ mod kani_constant_verification {
     fn kani_taproot_constants_match_bip341() {
         // Taproot program length: 32 bytes - BIP341
         assert_eq!(
-            TAPROOT_PROGRAM_LENGTH,
-            32,
+            TAPROOT_PROGRAM_LENGTH, 32,
             "TAPROOT_PROGRAM_LENGTH must equal 32 bytes per BIP341"
         );
 
         // Taproot script length: 34 bytes - BIP341
         // Format: OP_1 (1) + push opcode (1) + program (32) = 34
         assert_eq!(
-            TAPROOT_SCRIPT_LENGTH,
-            34,
+            TAPROOT_SCRIPT_LENGTH, 34,
             "TAPROOT_SCRIPT_LENGTH must equal 34 bytes per BIP341"
         );
 
@@ -683,8 +615,7 @@ mod kani_constant_verification {
 
         // Taproot program length matches SegWit P2WSH length (both are 32 bytes)
         assert_eq!(
-            TAPROOT_PROGRAM_LENGTH,
-            SEGWIT_P2WSH_LENGTH,
+            TAPROOT_PROGRAM_LENGTH, SEGWIT_P2WSH_LENGTH,
             "TAPROOT_PROGRAM_LENGTH must equal SEGWIT_P2WSH_LENGTH (both 32 bytes)"
         );
     }
@@ -738,8 +669,7 @@ mod kani_constant_verification {
         let expected_max_money_btc = 21_000_000;
         let max_money_btc = MAX_MONEY / SATOSHIS_PER_BTC;
         assert_eq!(
-            max_money_btc,
-            expected_max_money_btc,
+            max_money_btc, expected_max_money_btc,
             "MAX_MONEY must equal exactly 21,000,000 BTC"
         );
 
@@ -747,8 +677,7 @@ mod kani_constant_verification {
         let expected_initial_subsidy_btc = 50;
         let initial_subsidy_btc = INITIAL_SUBSIDY / SATOSHIS_PER_BTC;
         assert_eq!(
-            initial_subsidy_btc,
-            expected_initial_subsidy_btc,
+            initial_subsidy_btc, expected_initial_subsidy_btc,
             "INITIAL_SUBSIDY must equal exactly 50 BTC"
         );
 
@@ -762,15 +691,11 @@ mod kani_constant_verification {
         );
 
         // Critical property: HALVING_INTERVAL is positive
-        assert!(
-            HALVING_INTERVAL > 0,
-            "HALVING_INTERVAL must be positive"
-        );
+        assert!(HALVING_INTERVAL > 0, "HALVING_INTERVAL must be positive");
 
         // Critical property: SATOSHIS_PER_BTC = 10^8
         assert_eq!(
-            SATOSHIS_PER_BTC,
-            100_000_000,
+            SATOSHIS_PER_BTC, 100_000_000,
             "SATOSHIS_PER_BTC must equal 10^8"
         );
     }
@@ -783,15 +708,13 @@ mod kani_constant_verification {
     fn kani_difficulty_adjustment_properties() {
         // Critical property: TARGET_TIME_PER_BLOCK = 600 seconds (10 minutes)
         assert_eq!(
-            TARGET_TIME_PER_BLOCK,
-            600,
+            TARGET_TIME_PER_BLOCK, 600,
             "TARGET_TIME_PER_BLOCK must equal 600 seconds (10 minutes)"
         );
 
         // Critical property: DIFFICULTY_ADJUSTMENT_INTERVAL = 2016 blocks
         assert_eq!(
-            DIFFICULTY_ADJUSTMENT_INTERVAL,
-            2016,
+            DIFFICULTY_ADJUSTMENT_INTERVAL, 2016,
             "DIFFICULTY_ADJUSTMENT_INTERVAL must equal 2016 blocks"
         );
 
@@ -799,8 +722,7 @@ mod kani_constant_verification {
         let expected_adjustment_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
         let two_weeks_seconds = 14 * 24 * 60 * 60; // 14 days in seconds
         assert_eq!(
-            expected_adjustment_time,
-            two_weeks_seconds,
+            expected_adjustment_time, two_weeks_seconds,
             "Difficulty adjustment interval must equal 2 weeks (14 days)"
         );
 
@@ -873,10 +795,7 @@ mod kani_constant_verification {
         );
 
         // Interval constants must be positive
-        assert!(
-            HALVING_INTERVAL > 0,
-            "HALVING_INTERVAL must be positive"
-        );
+        assert!(HALVING_INTERVAL > 0, "HALVING_INTERVAL must be positive");
         assert!(
             DIFFICULTY_ADJUSTMENT_INTERVAL > 0,
             "DIFFICULTY_ADJUSTMENT_INTERVAL must be positive"
@@ -885,24 +804,15 @@ mod kani_constant_verification {
             TARGET_TIME_PER_BLOCK > 0,
             "TARGET_TIME_PER_BLOCK must be positive"
         );
-        assert!(
-            COINBASE_MATURITY > 0,
-            "COINBASE_MATURITY must be positive"
-        );
+        assert!(COINBASE_MATURITY > 0, "COINBASE_MATURITY must be positive");
 
         // Locktime/sequence constants must be valid u32 values
         assert!(
             LOCKTIME_THRESHOLD > 0 && LOCKTIME_THRESHOLD <= u32::MAX,
             "LOCKTIME_THRESHOLD must be positive and fit in u32"
         );
-        assert!(
-            SEQUENCE_FINAL > 0,
-            "SEQUENCE_FINAL must be positive"
-        );
-        assert!(
-            SEQUENCE_RBF > 0,
-            "SEQUENCE_RBF must be positive"
-        );
+        assert!(SEQUENCE_FINAL > 0, "SEQUENCE_FINAL must be positive");
+        assert!(SEQUENCE_RBF > 0, "SEQUENCE_RBF must be positive");
 
         // BIP-specific length constants must be reasonable
         assert!(
@@ -931,68 +841,57 @@ mod kani_constant_verification {
     fn kani_bip_activation_heights_match_bitcoin_core() {
         // BIP34 activation heights - consensus-critical
         assert_eq!(
-            BIP34_ACTIVATION_MAINNET,
-            227_836,
+            BIP34_ACTIVATION_MAINNET, 227_836,
             "BIP34 mainnet activation must match Bitcoin Core (227,836)"
         );
         assert_eq!(
-            BIP34_ACTIVATION_TESTNET,
-            211_111,
+            BIP34_ACTIVATION_TESTNET, 211_111,
             "BIP34 testnet activation must match Bitcoin Core (211,111)"
         );
         assert_eq!(
-            BIP34_ACTIVATION_REGTEST,
-            0,
+            BIP34_ACTIVATION_REGTEST, 0,
             "BIP34 regtest activation must be 0 (always active)"
         );
 
         // BIP66 activation heights - consensus-critical
         assert_eq!(
-            BIP66_ACTIVATION_MAINNET,
-            363_725,
+            BIP66_ACTIVATION_MAINNET, 363_725,
             "BIP66 mainnet activation must match Bitcoin Core (363,725)"
         );
         assert_eq!(
-            BIP66_ACTIVATION_TESTNET,
-            330_776,
+            BIP66_ACTIVATION_TESTNET, 330_776,
             "BIP66 testnet activation must match Bitcoin Core (330,776)"
         );
         assert_eq!(
-            BIP66_ACTIVATION_REGTEST,
-            0,
+            BIP66_ACTIVATION_REGTEST, 0,
             "BIP66 regtest activation must be 0 (always active)"
         );
 
         // BIP65 activation height - consensus-critical
         assert_eq!(
-            BIP65_ACTIVATION_MAINNET,
-            388_381,
+            BIP65_ACTIVATION_MAINNET, 388_381,
             "BIP65 mainnet activation must match Bitcoin Core (388,381)"
         );
 
         // BIP147 activation heights - consensus-critical
         assert_eq!(
-            BIP147_ACTIVATION_MAINNET,
-            481_824,
+            BIP147_ACTIVATION_MAINNET, 481_824,
             "BIP147 mainnet activation must match Bitcoin Core (481,824)"
         );
         assert_eq!(
-            BIP147_ACTIVATION_TESTNET,
-            834_624,
+            BIP147_ACTIVATION_TESTNET, 834_624,
             "BIP147 testnet activation must match Bitcoin Core (834,624)"
         );
 
         // SegWit activation height - consensus-critical
         assert_eq!(
-            SEGWIT_ACTIVATION_MAINNET,
-            481_824,
+            SEGWIT_ACTIVATION_MAINNET, 481_824,
             "SegWit mainnet activation must match Bitcoin Core (481,824)"
         );
 
         // Taproot activation height - consensus-critical
         assert_eq!(
-            TAPROOT_ACTIVATION_MAINNET,
-            709_632,
+            TAPROOT_ACTIVATION_MAINNET, 709_632,
             "Taproot mainnet activation must match Bitcoin Core (709,632)"
         );
 
@@ -1023,41 +922,35 @@ mod kani_constant_verification {
     fn kani_genesis_block_constants_match_bitcoin() {
         // Genesis block hash - the root of the blockchain
         let expected_hash: [u8; 32] = [
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68,
-            0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83, 0x1e, 0x93,
-            0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1,
-            0x72, 0xb3, 0xf1, 0xb6, 0x0a, 0x8c, 0xe2, 0x6f,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x19, 0xd6, 0x68, 0x9c, 0x08, 0x5a, 0xe1, 0x65, 0x83,
+            0x1e, 0x93, 0x4f, 0xf7, 0x63, 0xae, 0x46, 0xa2, 0xa6, 0xc1, 0x72, 0xb3, 0xf1, 0xb6,
+            0x0a, 0x8c, 0xe2, 0x6f,
         ];
         assert_eq!(
-            GENESIS_BLOCK_HASH,
-            expected_hash,
+            GENESIS_BLOCK_HASH, expected_hash,
             "Genesis block hash must match Bitcoin mainnet exactly"
         );
 
         // Genesis block timestamp: January 3, 2009, 18:15:05 UTC
         assert_eq!(
-            GENESIS_BLOCK_TIMESTAMP,
-            1231006505,
+            GENESIS_BLOCK_TIMESTAMP, 1231006505,
             "Genesis block timestamp must match Bitcoin (Jan 3, 2009 18:15:05 UTC)"
         );
 
         // Genesis block merkle root
         let expected_merkle_root: [u8; 32] = [
-            0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2,
-            0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76, 0x8f, 0x61,
-            0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32,
-            0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
+            0x3b, 0xa3, 0xed, 0xfd, 0x7a, 0x7b, 0x12, 0xb2, 0x7a, 0xc7, 0x2c, 0x3e, 0x67, 0x76,
+            0x8f, 0x61, 0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32, 0x3a, 0x9f, 0xb8, 0xaa,
+            0x4b, 0x1e, 0x5e, 0x4a,
         ];
         assert_eq!(
-            GENESIS_BLOCK_MERKLE_ROOT,
-            expected_merkle_root,
+            GENESIS_BLOCK_MERKLE_ROOT, expected_merkle_root,
             "Genesis block merkle root must match Bitcoin exactly"
         );
 
         // Genesis block nonce
         assert_eq!(
-            GENESIS_BLOCK_NONCE,
-            2083236893,
+            GENESIS_BLOCK_NONCE, 2083236893,
             "Genesis block nonce must match Bitcoin exactly"
         );
 
@@ -1069,10 +962,7 @@ mod kani_constant_verification {
                 break;
             }
         }
-        assert!(
-            !all_zeros,
-            "Genesis block hash must not be all zeros"
-        );
+        assert!(!all_zeros, "Genesis block hash must not be all zeros");
 
         // Verify genesis timestamp is reasonable (after Unix epoch, before 2010)
         assert!(

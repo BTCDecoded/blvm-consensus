@@ -10,9 +10,9 @@
 //! - Merkle root != 0
 //! - Proof of work: hash < target
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::pow::{check_proof_of_work, expand_target};
-use bllvm_consensus::types::*;
+use blvm_consensus::constants::*;
+use blvm_consensus::pow::{check_proof_of_work, expand_target};
+use blvm_consensus::types::*;
 use sha2::{Digest, Sha256};
 
 /// Create a valid block header

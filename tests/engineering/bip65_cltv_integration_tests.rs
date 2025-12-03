@@ -3,8 +3,8 @@
 //! Tests for OP_CHECKLOCKTIMEVERIFY (CLTV) integration with transaction validation,
 //! block height context, and median time-past (BIP113).
 
-use bllvm_consensus::*;
-use bllvm_consensus::constants::LOCKTIME_THRESHOLD;
+use blvm_consensus::*;
+use blvm_consensus::constants::LOCKTIME_THRESHOLD;
 use super::bip_test_helpers::*;
 
 #[test]

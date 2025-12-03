@@ -2,8 +2,8 @@
 
 #[cfg(feature = "utxo-commitments")]
 mod tests {
-    use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, ByteString};
-    use bllvm_consensus::utxo_commitments::spam_filter::*;
+    use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, ByteString};
+    use blvm_consensus::utxo_commitments::spam_filter::*;
 
     fn create_test_transaction(script_pubkey: ByteString) -> Transaction {
         Transaction {
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_large_witness_detection() {
-        use bllvm_consensus::witness::Witness;
+        use blvm_consensus::witness::Witness;
         
         let filter = SpamFilter::new();
         
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_witness_data_pattern_detection() {
-        use bllvm_consensus::witness::Witness;
+        use blvm_consensus::witness::Witness;
         
         let filter = SpamFilter::new();
         
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_witness_ordinals_detection() {
-        use bllvm_consensus::witness::Witness;
+        use blvm_consensus::witness::Witness;
         
         let filter = SpamFilter::new();
         

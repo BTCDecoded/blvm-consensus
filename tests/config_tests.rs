@@ -2,7 +2,7 @@
 //!
 //! Tests for consensus configuration loading and validation.
 
-use bllvm_consensus::config::{
+use blvm_consensus::config::{
     AdvancedConfig, BlockValidationConfig, ConsensusConfig, FeatureFlagsConfig, MempoolConfig,
     NetworkMessageLimits, PerformanceConfig,
 };

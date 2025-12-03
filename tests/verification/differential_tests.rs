@@ -3,7 +3,7 @@
 //! Ensures our optimized implementation matches sha2 crate, Bitcoin Core patterns,
 //! and NIST test vectors.
 
-use bllvm_consensus::crypto::OptimizedSha256;
+use blvm_consensus::crypto::OptimizedSha256;
 use sha2::{Digest, Sha256};
 
 #[test]

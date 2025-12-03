@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering difficulty adjustment calculations,
 //! target bounds, and edge cases in proof-of-work validation.
 
-use bllvm_consensus::*;
-use bllvm_consensus::pow;
-use bllvm_consensus::types::*;
-use bllvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, MAX_TARGET, TARGET_TIME_PER_BLOCK};
+use blvm_consensus::*;
+use blvm_consensus::pow;
+use blvm_consensus::types::*;
+use blvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, MAX_TARGET, TARGET_TIME_PER_BLOCK};
 use proptest::prelude::*;
 
 /// Property test: difficulty adjustment interval properties

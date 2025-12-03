@@ -5,7 +5,7 @@
 //!
 //! Consensus-critical: Varint encoding differences = network incompatibility
 
-use bllvm_consensus::serialization::varint::{decode_varint, encode_varint};
+use blvm_consensus::serialization::varint::{decode_varint, encode_varint};
 
 /// Test all boundary values match Bitcoin Core's CompactSize encoding
 ///

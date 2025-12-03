@@ -9,8 +9,8 @@
 //! - flags: Script verification flags (integer)
 //! - expected: Expected validation result description
 
-use bllvm_consensus::{Transaction, check_transaction};
-use bllvm_consensus::serialization::transaction::deserialize_transaction;
+use blvm_consensus::{Transaction, check_transaction};
+use blvm_consensus::serialization::transaction::deserialize_transaction;
 use std::path::PathBuf;
 use std::fs;
 use serde_json::Value;
@@ -165,7 +165,7 @@ pub fn run_core_transaction_tests(vectors: &[TransactionTestVector]) -> Result<(
         
         match result {
             Ok(validation_result) => {
-                let is_valid = matches!(validation_result, bllvm_consensus::ValidationResult::Valid);
+                let is_valid = matches!(validation_result, blvm_consensus::ValidationResult::Valid);
                 if is_valid == vector.expected_result {
                     passed += 1;
                 } else {

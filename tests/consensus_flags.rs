@@ -20,7 +20,7 @@
 //! - SCRIPT_VERIFY_MINIMALIF (0x2000)
 //! - SCRIPT_VERIFY_TAPROOT (0x4000)
 
-use bllvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{eval_script, verify_script, SigVersion};
 
 /// All script verification flags
 pub const ALL_FLAGS: &[u32] = &[

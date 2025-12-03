@@ -12,7 +12,7 @@ mod compile_time_verification {
     #[test]
     fn verify_bip_checks_are_accessible() {
         // These should all compile - if they don't, BIP validation module isn't accessible
-        use bllvm_consensus::bip_validation;
+        use blvm_consensus::bip_validation;
 
         // Verify functions exist and are callable
         let _check_bip30 = bip_validation::check_bip30;
@@ -26,7 +26,7 @@ mod compile_time_verification {
     /// Verify that Network type is accessible for BIP checks
     #[test]
     fn verify_network_type_accessible() {
-        use bllvm_consensus::types::Network;
+        use blvm_consensus::types::Network;
 
         // Verify Network enum variants exist
         let _mainnet = Network::Mainnet;

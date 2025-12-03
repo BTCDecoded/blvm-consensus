@@ -708,7 +708,7 @@ jobs:
     name: Cleanup Spot Runner
     needs: [verify-medium-slow]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, builds]
     steps:
       - name: Stop EC2 Runner
         uses: machulav/ec2-github-runner@v2

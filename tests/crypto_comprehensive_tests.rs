@@ -3,10 +3,10 @@
 //! Additional tests for cryptographic utilities.
 
 #[cfg(target_arch = "x86_64")]
-use bllvm_consensus::crypto::hash_compare::hash_eq;
-use bllvm_consensus::crypto::int_ops::{safe_add, safe_sub};
+use blvm_consensus::crypto::hash_compare::hash_eq;
+use blvm_consensus::crypto::int_ops::{safe_add, safe_sub};
 #[cfg(not(target_arch = "x86_64"))]
-use bllvm_consensus::types::Hash;
+use blvm_consensus::types::Hash;
 
 #[cfg(not(target_arch = "x86_64"))]
 fn hash_eq(hash1: &Hash, hash2: &Hash) -> bool {

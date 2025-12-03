@@ -5,8 +5,8 @@
 //!
 //! Consensus-critical: Witness stack overflow can cause consensus divergence.
 
-use bllvm_consensus::script::verify_script;
-use bllvm_consensus::types::ByteString;
+use blvm_consensus::script::verify_script;
+use blvm_consensus::types::ByteString;
 
 /// Maximum witness stack size: 100 items
 pub const MAX_WITNESS_STACK_SIZE: usize = 100;
@@ -162,7 +162,7 @@ fn test_witness_stack_size_large_elements() {
 /// Test witness stack size vs regular stack size
 #[test]
 fn test_witness_stack_vs_regular_stack() {
-    use bllvm_consensus::constants::MAX_STACK_SIZE;
+    use blvm_consensus::constants::MAX_STACK_SIZE;
 
     // Witness stack limit (100) is different from regular stack limit (1000)
     assert!(MAX_WITNESS_STACK_SIZE < MAX_STACK_SIZE);

@@ -4,8 +4,8 @@
 //! - Creates blocks that MUST be rejected if BIP checks are called
 //! - If blocks are accepted, it means BIP checks are NOT being called (BUG)
 
-use bllvm_consensus::*;
-use bllvm_consensus::block::connect_block;
+use blvm_consensus::*;
+use blvm_consensus::block::connect_block;
 
 /// Test that verifies BIP30 check is called by creating a known-violating block
 ///

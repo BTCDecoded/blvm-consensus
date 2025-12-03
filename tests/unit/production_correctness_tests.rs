@@ -6,9 +6,9 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use bllvm_consensus::*;
-    use bllvm_consensus::script::*;
-    use bllvm_consensus::block::*;
+    use blvm_consensus::*;
+    use blvm_consensus::script::*;
+    use blvm_consensus::block::*;
     use std::time::Instant;
 
     #[path = "../test_helpers.rs"]

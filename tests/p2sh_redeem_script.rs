@@ -5,7 +5,7 @@
 //!
 //! Consensus-critical: P2SH redeem script bugs can cause consensus divergence.
 
-use bllvm_consensus::script::verify_script;
+use blvm_consensus::script::verify_script;
 
 /// Maximum redeem script size: 520 bytes
 pub const MAX_REDEEM_SCRIPT_SIZE: usize = 520;
@@ -125,7 +125,7 @@ fn test_redeem_script_disabled_opcodes() {
 /// Test redeem script stack size limits
 #[test]
 fn test_redeem_script_stack_size() {
-    use bllvm_consensus::constants::MAX_STACK_SIZE;
+    use blvm_consensus::constants::MAX_STACK_SIZE;
 
     // Redeem script should respect stack size limits
     // Create a script that would exceed stack size

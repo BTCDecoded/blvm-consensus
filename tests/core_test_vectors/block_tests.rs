@@ -10,9 +10,9 @@
 //! - prev_utxo_set: Optional previous UTXO set (empty if not provided)
 //! - expected: Expected validation result
 
-use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
-use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
-use bllvm_consensus::block::connect_block;
+use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
+use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
+use blvm_consensus::block::connect_block;
 use std::path::PathBuf;
 use std::fs;
 use serde_json::Value;

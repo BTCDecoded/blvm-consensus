@@ -5,9 +5,9 @@
 //!
 //! Consensus-critical: Difficulty differences = chain split
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::pow::get_next_work_required;
-use bllvm_consensus::types::*;
+use blvm_consensus::constants::*;
+use blvm_consensus::pow::get_next_work_required;
+use blvm_consensus::types::*;
 
 /// Test difficulty adjustment clamping: timespan < expected_time/4
 ///

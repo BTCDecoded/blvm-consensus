@@ -1,7 +1,7 @@
 //! Tests for script opcode execution
 
-use bllvm_consensus::script::*;
-use bllvm_consensus::*;
+use blvm_consensus::script::*;
+use blvm_consensus::*;
 
 #[test]
 fn test_eval_script_op_1() {

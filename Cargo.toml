@@ -1,13 +1,13 @@
 [package]
-name = "bllvm-consensus"
+name = "blvm-consensus"
 version = "0.1.6"
 edition = "2021"
 authors = ["Bitcoin Commons Team"]
-description = "Bitcoin Commons BLLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
+description = "Bitcoin Commons BLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
 license = "MIT"
-repository = "https://github.com/BTCDecoded/bllvm-consensus"
+repository = "https://github.com/BTCDecoded/blvm-consensus"
 homepage = "https://btcdecoded.org"
-documentation = "https://docs.rs/bllvm-consensus"
+documentation = "https://docs.rs/blvm-consensus"
 keywords = ["bitcoin", "consensus", "blockchain", "cryptocurrency", "proof"]
 categories = ["cryptography::cryptocurrencies", "algorithms"]
 rust-version = "1.83"

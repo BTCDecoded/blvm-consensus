@@ -1,8 +1,8 @@
 //! Regression tests for edge cases and boundary conditions
 
-use bllvm_consensus::*;
-use bllvm_consensus::types::*;
-use bllvm_consensus::constants::*;
+use blvm_consensus::*;
+use blvm_consensus::types::*;
+use blvm_consensus::constants::*;
 
 #[test]
 fn test_transaction_size_boundaries() {
@@ -197,10 +197,10 @@ fn test_block_size_boundaries() {
     };
     
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let result = consensus.validate_block_with_time_context(
         &block,
         &witnesses,

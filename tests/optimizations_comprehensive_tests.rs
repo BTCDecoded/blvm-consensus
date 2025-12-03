@@ -3,7 +3,7 @@
 //! Additional tests for optimization functions.
 
 #[cfg(feature = "production")]
-use bllvm_consensus::optimizations::{
+use blvm_consensus::optimizations::{
     batch_double_sha256, batch_hash160, batch_ripemd160, batch_sha256, CacheAlignedHash,
 };
 

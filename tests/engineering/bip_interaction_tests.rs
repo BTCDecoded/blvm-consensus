@@ -3,9 +3,9 @@
 //! Tests for interactions between multiple BIPs in single transactions and blocks.
 //! Covers SegWit + CLTV/CSV, Taproot + relative locktime, and mixed transaction types.
 
-use bllvm_consensus::*;
-use bllvm_consensus::segwit::*;
-use bllvm_consensus::script::verify_script_with_context_full;
+use blvm_consensus::*;
+use blvm_consensus::segwit::*;
+use blvm_consensus::script::verify_script_with_context_full;
 use super::bip_test_helpers::*;
 
 #[test]
@@ -135,7 +135,7 @@ fn test_segwit_with_csv() {
 #[test]
 fn test_taproot_with_csv() {
     // Test Taproot transaction with CSV relative locktime
-    use bllvm_consensus::taproot::*;
+    use blvm_consensus::taproot::*;
     
     let output_key = [0x42u8; 32];
     let mut p2tr_script = vec![TAPROOT_SCRIPT_PREFIX];
@@ -208,7 +208,7 @@ fn test_taproot_with_csv() {
 #[test]
 fn test_mixed_block_segwit_and_taproot() {
     // Test block with both SegWit and Taproot transactions
-    use bllvm_consensus::taproot::*;
+    use blvm_consensus::taproot::*;
     
     let block = Block {
         header: create_test_header(1234567890, [0; 32]),
@@ -276,7 +276,7 @@ fn test_mixed_block_segwit_and_taproot() {
 #[test]
 fn test_segwit_taproot_cltv_combined() {
     // Test complex scenario: SegWit transaction with Taproot output that has CLTV
-    use bllvm_consensus::taproot::*;
+    use blvm_consensus::taproot::*;
     
     let tx = Transaction {
         version: 1,
@@ -425,8 +425,8 @@ fn test_cltv_csv_combined() {
 #[test]
 fn test_block_weight_with_segwit_and_taproot() {
     // Test block weight calculation with both SegWit and Taproot transactions
-    use bllvm_consensus::segwit::calculate_block_weight;
-    use bllvm_consensus::taproot::*;
+    use blvm_consensus::segwit::calculate_block_weight;
+    use blvm_consensus::taproot::*;
     
     let block = Block {
         header: create_test_header(1234567890, [0; 32]),
@@ -485,7 +485,7 @@ fn test_block_weight_with_segwit_and_taproot() {
 
 // Helper function for Taproot tests
 fn create_p2tr_script(output_key: &[u8; 32]) -> Vec<u8> {
-    let mut script = vec![bllvm_consensus::taproot::TAPROOT_SCRIPT_PREFIX];
+    let mut script = vec![blvm_consensus::taproot::TAPROOT_SCRIPT_PREFIX];
     script.extend_from_slice(output_key);
     script.push(0x00);
     script

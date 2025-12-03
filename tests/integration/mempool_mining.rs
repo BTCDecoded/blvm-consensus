@@ -1,9 +1,9 @@
 //! Integration tests for mempool and mining functions
 
-use bllvm_consensus::*;
-use bllvm_consensus::types::*;
-use bllvm_consensus::mempool::*;
-use bllvm_consensus::mining::*;
+use blvm_consensus::*;
+use blvm_consensus::types::*;
+use blvm_consensus::mempool::*;
+use blvm_consensus::mining::*;
 
 #[test]
 fn test_mempool_to_block_integration() {
@@ -170,10 +170,10 @@ fn test_pow_block_integration() {
     
     // Validate the block
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let (block_result, _new_utxo_set) = consensus
         .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
         .unwrap();

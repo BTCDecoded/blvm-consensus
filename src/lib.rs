@@ -1159,20 +1159,57 @@ mod tests {
     #[test]
     fn test_replacement_checks() {
         let consensus = ConsensusProof::new();
+        // Create valid transactions with inputs and outputs
         let new_tx = Transaction {
             version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![0x51],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 2000,
+                script_pubkey: vec![0x51].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
         let existing_tx = Transaction {
             version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![0x51],
+                sequence: 0xfffffffe, // RBF signal
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1000,
+                script_pubkey: vec![0x51].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
+        let mut utxo_set = types::UtxoSet::new();
+        // Add UTXO for fee calculation
+        let outpoint = OutPoint {
+            hash: [1; 32],
+            index: 0,
+        };
+        let utxo = UTXO {
+            value: 10000,
+            script_pubkey: vec![0x51],
+            height: 100,
+            is_coinbase: false,
+        };
+        utxo_set.insert(outpoint, utxo);
         let mempool = mempool::Mempool::new();
-        let utxo_set = types::UtxoSet::new();
         let result = consensus.replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
         assert!(result.is_ok());
     }

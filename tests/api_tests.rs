@@ -1,10 +1,10 @@
 //! Comprehensive tests for the public ConsensusProof API
 
-use bllvm_consensus::mempool::*;
-use bllvm_consensus::mining::*;
-use bllvm_consensus::network::*;
-use bllvm_consensus::segwit::*;
-use bllvm_consensus::*;
+use blvm_consensus::mempool::*;
+use blvm_consensus::mining::*;
+use blvm_consensus::network::*;
+use blvm_consensus::segwit::*;
+use blvm_consensus::*;
 
 #[test]
 fn test_consensus_proof_new() {
@@ -108,7 +108,7 @@ fn test_validate_tx_inputs() {
 fn test_validate_block() {
     let consensus = ConsensusProof::new();
 
-    // Create a coinbase transaction
+    // Create a coinbase transaction with valid scriptSig (2-100 bytes)
     let coinbase_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
@@ -116,7 +116,7 @@ fn test_validate_block() {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![0x01, 0x00], // Height 0 - valid length (2 bytes)
             sequence: 0xffffffff,
         }]
         .into(),
@@ -144,10 +144,10 @@ fn test_validate_block() {
     };
 
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let (result, new_utxo_set) = consensus
         .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
         .unwrap();
@@ -413,8 +413,21 @@ fn test_replacement_checks() {
         lock_time: 0,
     };
 
+    let mut utxo_set = UtxoSet::new();
+    // Add UTXO for the input (needed for fee calculation)
+    let outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
+    let utxo = UTXO {
+        value: 10000, // Enough to cover both outputs
+        script_pubkey: vec![0x51],
+        height: 100,
+        is_coinbase: false,
+    };
+    utxo_set.insert(outpoint, utxo);
+
     let mempool = Mempool::new();
-    let utxo_set = UtxoSet::new();
     let result = consensus
         .replacement_checks(&tx2, &tx1, &utxo_set, &mempool)
         .unwrap();
@@ -537,28 +550,51 @@ fn test_create_block_template() {
 fn test_reorganize_chain() {
     let consensus = ConsensusProof::new();
 
+    // Create a valid coinbase transaction for the block
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x01, 0x00], // Height 0
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    // Calculate proper merkle root
+    let merkle_root = calculate_merkle_root(&[coinbase_tx.clone()]).unwrap();
+
     let new_chain = vec![Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            merkle_root,
             timestamp: 1231006505,
             bits: 0x0300ffff,
             nonce: 0,
         },
-        transactions: vec![].into_boxed_slice(),
+        transactions: vec![coinbase_tx.clone()].into_boxed_slice(),
     }];
 
     let current_chain = vec![Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            merkle_root,
             timestamp: 1231006505,
             bits: 0x0300ffff,
             nonce: 0,
         },
-        transactions: vec![].into_boxed_slice(),
+        transactions: vec![coinbase_tx].into_boxed_slice(),
     }];
 
     let utxo_set = UtxoSet::new();
@@ -579,28 +615,51 @@ fn test_reorganize_chain() {
 fn test_should_reorganize() {
     let consensus = ConsensusProof::new();
 
+    // Create a valid coinbase transaction for the block
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x01, 0x00], // Height 0
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    // Calculate proper merkle root
+    let merkle_root = calculate_merkle_root(&[coinbase_tx.clone()]).unwrap();
+
     let new_chain = vec![Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            merkle_root,
             timestamp: 1231006505,
             bits: 0x0300ffff,
             nonce: 0,
         },
-        transactions: vec![].into_boxed_slice(),
+        transactions: vec![coinbase_tx.clone()].into_boxed_slice(),
     }];
 
     let current_chain = vec![Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
+            merkle_root,
             timestamp: 1231006505,
             bits: 0x0300ffff,
             nonce: 0,
         },
-        transactions: vec![].into_boxed_slice(),
+        transactions: vec![coinbase_tx].into_boxed_slice(),
     }];
 
     let result = consensus

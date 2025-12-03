@@ -37,17 +37,37 @@ pub fn accept_to_memory_pool(
     time_context: Option<TimeContext>,
 ) -> Result<MempoolResult> {
     // Precondition assertions: Validate function inputs
-    assert!(!tx.inputs.is_empty() || !tx.outputs.is_empty(),
-        "Transaction must have at least one input or output");
-    assert!(!is_coinbase(tx), "Coinbase transactions cannot be added to mempool");
-    assert!(height <= i64::MAX as u64, "Block height {} must fit in i64", height);
-    assert!(utxo_set.len() <= u32::MAX as usize,
-        "UTXO set size {} exceeds maximum", utxo_set.len());
-    if let Some(wits) = witnesses {
-        assert!(wits.len() == tx.inputs.len(),
-            "Witness count {} must match input count {}", wits.len(), tx.inputs.len());
+    // Note: We check coinbase and empty transactions and return Rejected rather than asserting,
+    // to allow tests to verify the validation logic properly
+    if tx.inputs.is_empty() && tx.outputs.is_empty() {
+        return Ok(MempoolResult::Rejected(
+            "Transaction must have at least one input or output".to_string(),
+        ));
     }
-    
+    if is_coinbase(tx) {
+        return Ok(MempoolResult::Rejected(
+            "Coinbase transactions cannot be added to mempool".to_string(),
+        ));
+    }
+    assert!(
+        height <= i64::MAX as u64,
+        "Block height {} must fit in i64",
+        height
+    );
+    assert!(
+        utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} exceeds maximum",
+        utxo_set.len()
+    );
+    if let Some(wits) = witnesses {
+        assert!(
+            wits.len() == tx.inputs.len(),
+            "Witness count {} must match input count {}",
+            wits.len(),
+            tx.inputs.len()
+        );
+    }
+
     // 1. Check if transaction is already in mempool
     let tx_id = crate::block::calculate_tx_id(tx);
     // Invariant assertion: Transaction ID must be valid
@@ -127,15 +147,24 @@ pub fn accept_to_memory_pool(
             // Check results sequentially
             let script_results = script_results?;
             // Invariant assertion: Script results count must match input count
-            assert!(script_results.len() == tx.inputs.len(),
+            assert!(
+                script_results.len() == tx.inputs.len(),
                 "Script results count {} must match input count {}",
-                script_results.len(), tx.inputs.len());
+                script_results.len(),
+                tx.inputs.len()
+            );
             for (i, &is_valid) in script_results.iter().enumerate() {
                 // Bounds checking assertion: Input index must be valid
-                assert!(i < tx.inputs.len(),
-                    "Input index {} out of bounds in script validation loop", i);
+                assert!(
+                    i < tx.inputs.len(),
+                    "Input index {} out of bounds in script validation loop",
+                    i
+                );
                 // Invariant assertion: Script result must be boolean
-                assert!(is_valid == true || is_valid == false, "Script result must be boolean");
+                assert!(
+                    is_valid == true || is_valid == false,
+                    "Script result must be boolean"
+                );
                 if !is_valid {
                     return Ok(MempoolResult::Rejected(format!(
                         "Invalid script at input {}",
@@ -222,8 +251,12 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         // Bounds checking assertion: Input index must be valid
         assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
         // Invariant assertion: Script size must be reasonable
-        assert!(input.script_sig.len() <= MAX_SCRIPT_SIZE * 2,
-            "Script size {} must be reasonable for input {}", input.script_sig.len(), i);
+        assert!(
+            input.script_sig.len() <= MAX_SCRIPT_SIZE * 2,
+            "Script size {} must be reasonable for input {}",
+            input.script_sig.len(),
+            i
+        );
         if input.script_sig.len() > MAX_SCRIPT_SIZE {
             return Ok(false);
         }
@@ -233,8 +266,12 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         // Bounds checking assertion: Output index must be valid
         assert!(i < tx.outputs.len(), "Output index {} out of bounds", i);
         // Invariant assertion: Script size must be reasonable
-        assert!(output.script_pubkey.len() <= MAX_SCRIPT_SIZE * 2,
-            "Script size {} must be reasonable for output {}", output.script_pubkey.len(), i);
+        assert!(
+            output.script_pubkey.len() <= MAX_SCRIPT_SIZE * 2,
+            "Script size {} must be reasonable for output {}",
+            output.script_pubkey.len(),
+            i
+        );
         if output.script_pubkey.len() > MAX_SCRIPT_SIZE {
             return Ok(false);
         }
@@ -243,7 +280,11 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
     // 3. Check for standard script types (simplified)
     for (i, output) in tx.outputs.iter().enumerate() {
         // Bounds checking assertion: Output index must be valid
-        assert!(i < tx.outputs.len(), "Output index {} out of bounds in standard check", i);
+        assert!(
+            i < tx.outputs.len(),
+            "Output index {} out of bounds in standard check",
+            i
+        );
         if !is_standard_script(&output.script_pubkey)? {
             return Ok(false);
         }
@@ -251,7 +292,10 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 
     // Postcondition assertion: Result must be boolean
     let result = true;
-    assert!(result == true || result == false, "Result must be boolean");
+    #[allow(clippy::eq_op)]
+    {
+        assert!(result == true || result == false, "Result must be boolean");
+    }
     Ok(result)
 }
 
@@ -271,16 +315,35 @@ pub fn replacement_checks(
     utxo_set: &UtxoSet,
     mempool: &Mempool,
 ) -> Result<bool> {
-    // Precondition assertions: Validate function inputs
-    assert!(!new_tx.inputs.is_empty() || !new_tx.outputs.is_empty(),
-        "New transaction must have at least one input or output");
-    assert!(!existing_tx.inputs.is_empty() || !existing_tx.outputs.is_empty(),
-        "Existing transaction must have at least one input or output");
+    // Precondition checks: Validate function inputs
+    // Note: We check these conditions and return an error rather than asserting,
+    // to allow tests to verify the validation logic properly
+    // Bitcoin requires transactions to have both inputs and outputs (except coinbase)
+    if new_tx.inputs.is_empty() && new_tx.outputs.is_empty() {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            "New transaction must have at least one input or output"
+                .to_string()
+                .into(),
+        ));
+    }
+    if existing_tx.inputs.is_empty() && existing_tx.outputs.is_empty() {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            "Existing transaction must have at least one input or output"
+                .to_string()
+                .into(),
+        ));
+    }
     assert!(!is_coinbase(new_tx), "New transaction cannot be coinbase");
-    assert!(!is_coinbase(existing_tx), "Existing transaction cannot be coinbase");
-    assert!(utxo_set.len() <= u32::MAX as usize,
-        "UTXO set size {} exceeds maximum", utxo_set.len());
-    
+    assert!(
+        !is_coinbase(existing_tx),
+        "Existing transaction cannot be coinbase"
+    );
+    assert!(
+        utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} exceeds maximum",
+        utxo_set.len()
+    );
+
     // 1. Check RBF signaling - existing transaction must signal RBF
     // Note: new_tx doesn't need to signal RBF per BIP125, only existing_tx does
     if !signals_rbf(existing_tx) {
@@ -292,18 +355,46 @@ pub fn replacement_checks(
     let existing_fee = calculate_fee(existing_tx, utxo_set)?;
     // Invariant assertion: Fees must be non-negative
     assert!(new_fee >= 0, "New fee {} must be non-negative", new_fee);
-    assert!(existing_fee >= 0, "Existing fee {} must be non-negative", existing_fee);
+    assert!(
+        existing_fee >= 0,
+        "Existing fee {} must be non-negative",
+        existing_fee
+    );
     use crate::constants::MAX_MONEY;
-    assert!(new_fee <= MAX_MONEY, "New fee {} must not exceed MAX_MONEY", new_fee);
-    assert!(existing_fee <= MAX_MONEY, "Existing fee {} must not exceed MAX_MONEY", existing_fee);
+    assert!(
+        new_fee <= MAX_MONEY,
+        "New fee {} must not exceed MAX_MONEY",
+        new_fee
+    );
+    assert!(
+        existing_fee <= MAX_MONEY,
+        "Existing fee {} must not exceed MAX_MONEY",
+        existing_fee
+    );
 
     let new_tx_size = calculate_transaction_size_vbytes(new_tx);
     let existing_tx_size = calculate_transaction_size_vbytes(existing_tx);
     // Invariant assertion: Transaction sizes must be positive
-    assert!(new_tx_size > 0, "New transaction size {} must be positive", new_tx_size);
-    assert!(existing_tx_size > 0, "Existing transaction size {} must be positive", existing_tx_size);
-    assert!(new_tx_size <= MAX_TX_SIZE * 2, "New transaction size {} must be reasonable", new_tx_size);
-    assert!(existing_tx_size <= MAX_TX_SIZE * 2, "Existing transaction size {} must be reasonable", existing_tx_size);
+    assert!(
+        new_tx_size > 0,
+        "New transaction size {} must be positive",
+        new_tx_size
+    );
+    assert!(
+        existing_tx_size > 0,
+        "Existing transaction size {} must be positive",
+        existing_tx_size
+    );
+    assert!(
+        new_tx_size <= MAX_TX_SIZE * 2,
+        "New transaction size {} must be reasonable",
+        new_tx_size
+    );
+    assert!(
+        existing_tx_size <= MAX_TX_SIZE * 2,
+        "Existing transaction size {} must be reasonable",
+        existing_tx_size
+    );
 
     if new_tx_size == 0 || existing_tx_size == 0 {
         return Ok(false);
@@ -850,7 +941,8 @@ mod kani_proofs {
                 network_time: 0,
                 median_time_past: 0,
             });
-            let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
+            let result =
+                accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
             if result.is_ok() {
                 let mempool_result = result.unwrap();
                 assert!(
@@ -1240,7 +1332,8 @@ mod tests {
             network_time: 1234567890,
             median_time_past: 1234567890,
         });
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
+        let result =
+            accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1255,7 +1348,8 @@ mod tests {
             network_time: 1234567890,
             median_time_past: 1234567890,
         });
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
+        let result =
+            accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1400,8 +1494,9 @@ mod tests {
             network_time: 0,
             median_time_past: 0,
         });
-        let result = accept_to_memory_pool(&coinbase_tx, None, &utxo_set, &mempool, 100, time_context)
-            .unwrap();
+        let result =
+            accept_to_memory_pool(&coinbase_tx, None, &utxo_set, &mempool, 100, time_context)
+                .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 

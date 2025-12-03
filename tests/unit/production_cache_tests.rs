@@ -2,7 +2,7 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use bllvm_consensus::script::*;
+    use blvm_consensus::script::*;
 
     #[test]
     fn test_script_cache_hit() {

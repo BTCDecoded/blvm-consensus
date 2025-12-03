@@ -2,9 +2,9 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use bllvm_consensus::*;
-    use bllvm_consensus::block::*;
-    use bllvm_consensus::script::*;
+    use blvm_consensus::*;
+    use blvm_consensus::block::*;
+    use blvm_consensus::script::*;
 
     #[test]
     fn test_production_empty_block() {

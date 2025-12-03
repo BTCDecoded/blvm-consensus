@@ -3,9 +3,9 @@
 //! Tests for consensus-critical serialization edge cases that could cause
 //! consensus divergence if not handled correctly.
 
-use bllvm_consensus::*;
-use bllvm_consensus::serialization::varint::{encode_varint, decode_varint};
-use bllvm_consensus::serialization::{serialize_transaction, deserialize_transaction, serialize_block_header, deserialize_block_header};
+use blvm_consensus::*;
+use blvm_consensus::serialization::varint::{encode_varint, decode_varint};
+use blvm_consensus::serialization::{serialize_transaction, deserialize_transaction, serialize_block_header, deserialize_block_header};
 
 #[test]
 fn test_varint_maximum_value() {

@@ -40,7 +40,7 @@ pub fn adjusted_timeout(base_timeout_ms: u64) -> u64 {
 // Transaction Creation Helpers
 // ============================================================================
 
-use bllvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
 
 /// Create a test transaction with configurable parameters
 ///

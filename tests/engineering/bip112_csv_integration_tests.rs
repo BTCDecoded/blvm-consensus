@@ -3,7 +3,7 @@
 //! Tests for OP_CHECKSEQUENCEVERIFY (CSV) integration with transaction validation,
 //! sequence numbers, and BIP68 relative locktime.
 
-use bllvm_consensus::*;
+use blvm_consensus::*;
 use super::bip_test_helpers::*;
 
 #[test]

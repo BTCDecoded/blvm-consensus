@@ -1,6 +1,6 @@
 //! Integration tests for consensus-proof
 
-use bllvm_consensus::*;
+use blvm_consensus::*;
 
 #[test]
 fn test_consensus_proof_basic_functionality() {

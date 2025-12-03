@@ -4,9 +4,9 @@
 //!
 //! Consensus-critical: Finality differences = different transaction acceptance
 
-use bllvm_consensus::constants::{LOCKTIME_THRESHOLD, SEQUENCE_FINAL};
-use bllvm_consensus::mempool::is_final_tx;
-use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::constants::{LOCKTIME_THRESHOLD, SEQUENCE_FINAL};
+use blvm_consensus::mempool::is_final_tx;
+use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
 
 /// Test that locktime = 0 is always final
 #[test]
@@ -14,7 +14,7 @@ fn test_finality_locktime_zero() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -50,7 +50,7 @@ fn test_finality_height_based_locktime() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -95,7 +95,7 @@ fn test_finality_timestamp_based_locktime() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -139,7 +139,7 @@ fn test_finality_sequence_final_override() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -176,7 +176,7 @@ fn test_finality_mixed_sequences_no_override() {
         version: 1,
         inputs: vec![
             TransactionInput {
-                prevout: bllvm_consensus::types::OutPoint {
+                prevout: blvm_consensus::types::OutPoint {
                     hash: [0; 32].into(),
                     index: 0,
                 },
@@ -184,7 +184,7 @@ fn test_finality_mixed_sequences_no_override() {
                 sequence: SEQUENCE_FINAL as u64, // First input has SEQUENCE_FINAL
             },
             TransactionInput {
-                prevout: bllvm_consensus::types::OutPoint {
+                prevout: blvm_consensus::types::OutPoint {
                     hash: [1; 32].into(),
                     index: 0,
                 },
@@ -219,7 +219,7 @@ fn test_finality_locktime_threshold_boundary() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -256,7 +256,7 @@ fn test_finality_all_inputs_sequence_final() {
         version: 1,
         inputs: vec![
             TransactionInput {
-                prevout: bllvm_consensus::types::OutPoint {
+                prevout: blvm_consensus::types::OutPoint {
                     hash: [0; 32].into(),
                     index: 0,
                 },
@@ -264,7 +264,7 @@ fn test_finality_all_inputs_sequence_final() {
                 sequence: SEQUENCE_FINAL as u64,
             },
             TransactionInput {
-                prevout: bllvm_consensus::types::OutPoint {
+                prevout: blvm_consensus::types::OutPoint {
                     hash: [1; 32].into(),
                     index: 0,
                 },
@@ -272,7 +272,7 @@ fn test_finality_all_inputs_sequence_final() {
                 sequence: SEQUENCE_FINAL as u64,
             },
             TransactionInput {
-                prevout: bllvm_consensus::types::OutPoint {
+                prevout: blvm_consensus::types::OutPoint {
                     hash: [2; 32].into(),
                     index: 0,
                 },

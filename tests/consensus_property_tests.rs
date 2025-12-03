@@ -3,13 +3,13 @@
 //! Uses PropTest to generate thousands of random test cases that verify
 //! mathematical properties and invariants of Bitcoin consensus rules.
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::crypto::OptimizedSha256;
-use bllvm_consensus::economic;
-use bllvm_consensus::pow;
-use bllvm_consensus::transaction;
-use bllvm_consensus::types::*;
-use bllvm_consensus::Witness;
+use blvm_consensus::constants::*;
+use blvm_consensus::crypto::OptimizedSha256;
+use blvm_consensus::economic;
+use blvm_consensus::pow;
+use blvm_consensus::transaction;
+use blvm_consensus::types::*;
+use blvm_consensus::Witness;
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -318,7 +318,7 @@ proptest! {
     fn prop_script_execution_deterministic(
         script in prop::collection::vec(any::<u8>(), 0..100)
     ) {
-        use bllvm_consensus::script;
+        use blvm_consensus::script;
 
         let mut stack1 = Vec::new();
         let mut stack2 = Vec::new();
@@ -345,7 +345,7 @@ proptest! {
     fn prop_script_size_bounded(
         script_size in 0usize..(MAX_SCRIPT_SIZE as usize + 1)
     ) {
-        use bllvm_consensus::script;
+        use blvm_consensus::script;
 
         let script = vec![0x51; script_size]; // OP_1 repeated
         let mut stack = Vec::new();
@@ -491,7 +491,7 @@ proptest! {
         script_size in 0usize..100usize
     ) {
         use std::time::Instant;
-        use bllvm_consensus::script;
+        use blvm_consensus::script;
 
         let script = vec![0x51; script_size]; // OP_1 repeated
         let mut stack = Vec::new();
@@ -878,7 +878,7 @@ proptest! {
         height1 in 0u32..100u32,
         height2 in 0u32..100u32
     ) {
-        use bllvm_consensus::block;
+        use blvm_consensus::block;
 
         // Ensure height2 > height1
         let height1 = height1;
@@ -980,7 +980,7 @@ proptest! {
         current_chain_len in 1usize..5usize,
         new_chain_len in 1usize..5usize
     ) {
-        use bllvm_consensus::reorganization;
+        use blvm_consensus::reorganization;
 
         // Create simple chains with coinbase blocks
         let mut current_chain = Vec::new();
@@ -1118,8 +1118,8 @@ proptest! {
         height1 in 0u32..100u32,
         height2 in 0u32..100u32
     ) {
-        use bllvm_consensus::block;
-        use bllvm_consensus::constants::MAX_MONEY;
+        use blvm_consensus::block;
+        use blvm_consensus::constants::MAX_MONEY;
 
         let height1 = height1;
         let height2 = if height2 <= height1 { height1 + 1 } else { height2 };
@@ -1221,8 +1221,8 @@ proptest! {
     fn prop_disconnect_connect_idempotency(
         height in 0u32..100u32
     ) {
-        use bllvm_consensus::block;
-        use bllvm_consensus::reorganization;
+        use blvm_consensus::block;
+        use blvm_consensus::reorganization;
 
         // Create a block
         let block = Block {
@@ -1356,7 +1356,7 @@ proptest! {
     fn prop_mempool_size_bounded(
         tx_count in 0usize..20000usize
     ) {
-        use bllvm_consensus::mempool::Mempool;
+        use blvm_consensus::mempool::Mempool;
 
         let mut mempool = Mempool::new();
 
@@ -1399,7 +1399,7 @@ proptest! {
         base_size in 0u64..(MAX_BLOCK_SIZE as u64),
         witness_size in 0u64..(MAX_BLOCK_SIZE as u64)
     ) {
-        use bllvm_consensus::witness;
+        use blvm_consensus::witness;
 
         let weight = witness::calculate_transaction_weight_segwit(
             base_size as u64,
@@ -1436,7 +1436,7 @@ proptest! {
     fn prop_weight_to_vsize_round_trip(
         weight in 0u64..(4 * MAX_BLOCK_SIZE as u64)
     ) {
-        use bllvm_consensus::witness;
+        use blvm_consensus::witness;
 
         let vsize = witness::weight_to_vsize(weight);
 
@@ -1469,7 +1469,7 @@ proptest! {
     fn prop_witness_commitment_format(
         commitment_len in 0usize..100usize
     ) {
-        use bllvm_consensus::constants::WITNESS_COMMITMENT_SCRIPT_LENGTH;
+        use blvm_consensus::constants::WITNESS_COMMITMENT_SCRIPT_LENGTH;
 
         // Valid witness commitment: OP_RETURN (0x6a) + push opcode (0x24) + 32-byte commitment hash
         let valid_length = WITNESS_COMMITMENT_SCRIPT_LENGTH;
@@ -1524,7 +1524,7 @@ proptest! {
     fn prop_halving_interval_boundary(
         offset in -1i64..2i64
     ) {
-        use bllvm_consensus::constants::HALVING_INTERVAL;
+        use blvm_consensus::constants::HALVING_INTERVAL;
 
         let height = ((HALVING_INTERVAL as i64).saturating_add(offset)) as u64;
         let subsidy = economic::get_block_subsidy(height);
@@ -1557,7 +1557,7 @@ proptest! {
     fn prop_difficulty_adjustment_boundary(
         offset in -1i64..2i64
     ) {
-        use bllvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
+        use blvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
 
         let height = ((DIFFICULTY_ADJUSTMENT_INTERVAL as i64).saturating_add(offset)) as u64;
 
@@ -1670,7 +1670,7 @@ proptest! {
     fn prop_difficulty_adjustment_interval(
         height in 0u64..1000000u64
     ) {
-        use bllvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
+        use blvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
 
         // Difficulty adjustment occurs at multiples of DIFFICULTY_ADJUSTMENT_INTERVAL
         let is_adjustment_height = height > 0 && height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0;
@@ -1698,7 +1698,7 @@ proptest! {
     fn prop_difficulty_adjustment_clamping(
         timespan in 0u64..(TARGET_TIME_PER_BLOCK * 4 * DIFFICULTY_ADJUSTMENT_INTERVAL)
     ) {
-        use bllvm_consensus::constants::{TARGET_TIME_PER_BLOCK, DIFFICULTY_ADJUSTMENT_INTERVAL};
+        use blvm_consensus::constants::{TARGET_TIME_PER_BLOCK, DIFFICULTY_ADJUSTMENT_INTERVAL};
 
         let expected_time = TARGET_TIME_PER_BLOCK * DIFFICULTY_ADJUSTMENT_INTERVAL;
         let min_timespan = expected_time / 4;
@@ -1751,7 +1751,7 @@ proptest! {
             }).collect(),
             lock_time,
         };
-        use bllvm_consensus::serialization;
+        use blvm_consensus::serialization;
 
         // Bound transaction size for tractability
         prop_assume!(tx.inputs.len() <= 10 && tx.outputs.len() <= 10,
@@ -1803,7 +1803,7 @@ proptest! {
             bits,
             nonce,
         };
-        use bllvm_consensus::serialization;
+        use blvm_consensus::serialization;
 
         // Serialize
         let serialized = serialization::serialize_block_header(&header);
@@ -1837,7 +1837,7 @@ proptest! {
     fn prop_varint_encoding_round_trip(
         value in 0u64..0xffffffffffffffffu64
     ) {
-        use bllvm_consensus::serialization::varint;
+        use blvm_consensus::serialization::varint;
 
         // Encode
         let encoded = varint::encode_varint(value);
@@ -1878,8 +1878,8 @@ proptest! {
     fn prop_validate_supply_limit(
         height in 0u64..2100000u64
     ) {
-        use bllvm_consensus::economic;
-        use bllvm_consensus::constants::MAX_MONEY;
+        use blvm_consensus::economic;
+        use blvm_consensus::constants::MAX_MONEY;
 
         let result = economic::validate_supply_limit(height);
 
@@ -1921,8 +1921,8 @@ proptest! {
         input_count in 0usize..5usize,
         output_count in 0usize..5usize
     ) {
-        use bllvm_consensus::economic;
-        use bllvm_consensus::types::*;
+        use blvm_consensus::economic;
+        use blvm_consensus::types::*;
 
         // Create transaction with inputs that may not be in UTXO set
         let tx = Transaction {
@@ -1972,9 +1972,9 @@ proptest! {
         input_count in 0usize..3usize,
         output_count in 0usize..3usize
     ) {
-        use bllvm_consensus::economic;
-        use bllvm_consensus::types::*;
-        use bllvm_consensus::constants::MAX_MONEY;
+        use blvm_consensus::economic;
+        use blvm_consensus::types::*;
+        use blvm_consensus::constants::MAX_MONEY;
 
         // Create transaction with large values to test overflow
         let mut utxo_set = UtxoSet::new();

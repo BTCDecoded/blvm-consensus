@@ -5,9 +5,9 @@
 //!
 //! Consensus-critical: Coinbase maturity differences can cause different validation results.
 
-use bllvm_consensus::constants::COINBASE_MATURITY;
-use bllvm_consensus::transaction::check_tx_inputs;
-use bllvm_consensus::types::{
+use blvm_consensus::constants::COINBASE_MATURITY;
+use blvm_consensus::transaction::check_tx_inputs;
+use blvm_consensus::types::{
     OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
 
@@ -51,7 +51,7 @@ fn test_coinbase_immature_rejected() {
     // Should be invalid: coinbase not yet mature
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 }
 
@@ -95,7 +95,7 @@ fn test_coinbase_mature_accepted() {
     // Should be valid: coinbase is mature
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }
 
@@ -139,7 +139,7 @@ fn test_coinbase_after_maturity_accepted() {
     // Should be valid: coinbase is mature
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }
 
@@ -183,7 +183,7 @@ fn test_non_coinbase_no_maturity_requirement() {
     // Should be valid: non-coinbase UTXOs have no maturity requirement
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }
 
@@ -225,13 +225,13 @@ fn test_coinbase_maturity_different_heights() {
     let (result, _fee) = check_tx_inputs(&tx, &utxo_set, 149).unwrap();
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 
     // Spend it at height 150 (exactly at maturity: 50 + 100)
     let (result, _fee) = check_tx_inputs(&tx, &utxo_set, 150).unwrap();
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }

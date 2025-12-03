@@ -3,7 +3,7 @@
 //! Tests verify that BLLVM optimizations work correctly in realistic scenarios,
 //! including block validation, merkle root calculation, and batch operations.
 
-use bllvm_consensus::{
+use blvm_consensus::{
     mining::{calculate_merkle_root, generate_block_template},
     optimizations::simd_vectorization,
     serialization::{block::serialize_block, transaction::serialize_transaction},
@@ -19,10 +19,10 @@ fn test_block_validation_correctness() {
 
     // Validate (uses optimizations in production)
     let consensus = ConsensusProof::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let result = consensus.validate_block_with_time_context(
         &block,
         &witnesses,
@@ -84,7 +84,7 @@ fn test_merkle_root_large_transaction_set() {
 /// Test that serialization and deserialization round-trip works with optimizations
 #[test]
 fn test_serialization_round_trip() {
-    use bllvm_consensus::serialization::transaction::deserialize_transaction;
+    use blvm_consensus::serialization::transaction::deserialize_transaction;
 
     let tx = create_test_transaction();
 

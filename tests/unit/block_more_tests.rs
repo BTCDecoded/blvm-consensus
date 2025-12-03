@@ -1,4 +1,4 @@
-use bllvm_consensus::*;
+use blvm_consensus::*;
 
 fn tx_p2pkh(value: i64) -> Transaction {
     Transaction {

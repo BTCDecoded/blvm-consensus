@@ -3,10 +3,10 @@
 //! Tests for compliance with Bitcoin Core behavior for consensus-critical BIPs.
 //! These tests verify that our BIP implementations match Bitcoin Core's validation logic.
 
-use bllvm_consensus::*;
-use bllvm_consensus::script::verify_script_with_context_full;
-use bllvm_consensus::bip113::get_median_time_past;
-use bllvm_consensus::constants::LOCKTIME_THRESHOLD;
+use blvm_consensus::*;
+use blvm_consensus::script::verify_script_with_context_full;
+use blvm_consensus::bip113::get_median_time_past;
+use blvm_consensus::constants::LOCKTIME_THRESHOLD;
 
 #[test]
 fn test_bip65_cltv_compliance_basic() {

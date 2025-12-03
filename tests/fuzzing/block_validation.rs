@@ -8,7 +8,7 @@
 #[cfg(feature = "bolero")]
 use bolero::check;
 #[cfg(feature = "bolero")]
-use bllvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult, connect_block, check_proof_of_work};
+use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult, connect_block, check_proof_of_work};
 
 #[cfg(feature = "bolero")]
 #[test]

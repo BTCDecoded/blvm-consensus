@@ -1,4 +1,4 @@
-use bllvm_consensus::{mining, BlockHeader, Block};
+use blvm_consensus::{mining, BlockHeader, Block};
 
 #[path = "../test_helpers.rs"]
 mod test_helpers;
@@ -30,7 +30,7 @@ fn test_merkle_root_single_transaction() {
 
 #[test]
 fn test_block_template_creation() {
-    let utxo = bllvm_consensus::UtxoSet::new();
+    let utxo = blvm_consensus::UtxoSet::new();
     let mempool_txs = vec![];
     let height = 1;
     let prev_header = BlockHeader {

@@ -1,4 +1,4 @@
-use bllvm_consensus::{block, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block, UtxoSet};
+use blvm_consensus::{block, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block, UtxoSet};
 
 fn create_invalid_block() -> Block {
     Block {

@@ -711,14 +711,16 @@ mod tests {
         assert!(result, "Version 2 should be valid after BIP34 activation");
 
         // Test version 2 after BIP66 activation (should fail)
-        let result = check_bip90(2, 363_724, crate::types::Network::Mainnet).unwrap();
+        // BIP66 activates at block 363,725, so we test at that height
+        let result = check_bip90(2, 363_725, crate::types::Network::Mainnet).unwrap();
         assert!(
             !result,
             "Version 2 should be invalid after BIP66 activation"
         );
 
         // Test version 3 after BIP66 activation (should pass)
-        let result = check_bip90(3, 363_724, crate::types::Network::Mainnet).unwrap();
+        // BIP66 activates at block 363,725, so we test at that height
+        let result = check_bip90(3, 363_725, crate::types::Network::Mainnet).unwrap();
         assert!(result, "Version 3 should be valid after BIP66 activation");
     }
 
