@@ -179,10 +179,48 @@ pub fn connect_block(
     UtxoSet,
     crate::reorganization::BlockUndoLog,
 )> {
-    #[cfg(feature = "production")]
-    #[inline(always)]
-    #[cfg(not(feature = "production"))]
-    #[inline]
+    // Precondition assertions: Validate function inputs
+    // Note: height is u64, so >= 0 is always true, but kept for documentation
+    // assert!(height >= 0, "Block height must be non-negative"); // Always true for u64
+    assert!(
+        height <= i64::MAX as u64,
+        "Block height must fit in i64"
+    );
+    assert!(
+        !block.transactions.is_empty(),
+        "Block must have at least one transaction (coinbase)"
+    );
+    assert!(
+        block.transactions.len() <= 10_000,
+        "Block exceeds maximum transaction count"
+    );
+    assert!(
+        witnesses.len() == block.transactions.len(),
+        "Witness count must match transaction count"
+    );
+    assert!(
+        block.header.version >= 0,
+        "Block header version must be non-negative"
+    );
+    assert!(
+        block.header.timestamp > 0,
+        "Block header timestamp must be positive"
+    );
+    assert!(
+        block.header.bits > 0,
+        "Block header difficulty bits must be positive"
+    );
+    assert!(
+        block.header.bits <= 0x1d00ffff,
+        "Block header difficulty bits out of valid range"
+    );
+    // Note: UTXO set size is bounded by MAX_MONEY / dust threshold in practice
+    // Using a conservative upper bound of 2^32 UTXOs (reasonable for Bitcoin)
+    assert!(
+        utxo_set.len() <= u32::MAX as usize,
+        "UTXO set exceeds maximum size"
+    );
+
     // Optimization: Early exit checks before expensive operations
     // Check block size and transaction count before validation
     #[cfg(feature = "production")]
@@ -212,13 +250,29 @@ pub fn connect_block(
     }
 
     // 1. Validate block header
+    // Precondition: Header structure must be valid before validation
+    assert!(
+        block.header.merkle_root != [0u8; 32] || height == 0,
+        "Block header merkle root must be non-zero (except genesis)"
+    );
     if !validate_block_header(&block.header)? {
+        // Postcondition: Invalid header should return invalid result
         return Ok((
             ValidationResult::Invalid("Invalid block header".into()),
             utxo_set,
             crate::reorganization::BlockUndoLog::new(),
         ));
     }
+    
+    // Postcondition: Valid header must have valid structure
+    assert!(
+        block.header.merkle_root != [0u8; 32],
+        "Valid block header must have non-zero merkle root"
+    );
+    assert!(
+        block.header.prev_block_hash != [0u8; 32] || height == 0,
+        "Valid block header must have non-zero prev_block_hash (except genesis)"
+    );
 
     // BIP90: Block version enforcement (check header version)
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
@@ -277,6 +331,11 @@ pub fn connect_block(
     }
 
     // Validate witnesses length matches transactions length
+    // This check is redundant with precondition assertion, but kept for safety
+    assert!(
+        witnesses.len() == block.transactions.len(),
+        "Witness count must match transaction count (precondition check)"
+    );
     if witnesses.len() != block.transactions.len() {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -288,6 +347,24 @@ pub fn connect_block(
             crate::reorganization::BlockUndoLog::new(),
         ));
     }
+    
+    // Invariant: First transaction must be coinbase
+    assert!(
+        is_coinbase(&block.transactions[0]),
+        "First transaction in block must be coinbase"
+    );
+    assert!(
+        !block.transactions[0].inputs.is_empty(),
+        "Coinbase transaction must have at least one input"
+    );
+    assert!(
+        block.transactions[0].inputs[0].prevout.hash == [0u8; 32],
+        "Coinbase transaction must have null prevout hash"
+    );
+    assert!(
+        block.transactions[0].inputs[0].prevout.index == 0xffffffff,
+        "Coinbase transaction must have null prevout index"
+    );
 
     // Phase 4.1: Assume-valid optimization
     // Skip expensive signature verification for trusted checkpoint blocks
