@@ -14,9 +14,9 @@
 
 #![cfg(feature = "ctv")]
 
-use bllvm_consensus::*;
-use bllvm_consensus::bip119::{calculate_template_hash, validate_template_hash, is_ctv_script};
-use bllvm_consensus::script::verify_script_with_context_full;
+use blvm_consensus::*;
+use blvm_consensus::bip119::{calculate_template_hash, validate_template_hash, is_ctv_script};
+use blvm_consensus::script::verify_script_with_context_full;
 use super::bip_test_helpers::*;
 
 // ============================================================================

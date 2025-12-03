@@ -1,5 +1,5 @@
-use bllvm_consensus::economic;
-use bllvm_consensus::{UtxoSet, OutPoint};
+use blvm_consensus::economic;
+use blvm_consensus::{UtxoSet, OutPoint};
 
 #[path = "../test_helpers.rs"]
 mod test_helpers;
@@ -25,7 +25,7 @@ fn test_calculate_fee_negative() {
     // Create UTXO with less value than transaction output
     utxo.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        bllvm_consensus::UTXO { value: 500, script_pubkey: vec![0x51], height: 1 }
+        blvm_consensus::UTXO { value: 500, script_pubkey: vec![0x51], height: 1 }
     );
     
     let fee = economic::calculate_fee(&tx, &utxo);
@@ -52,7 +52,7 @@ fn test_total_supply_convergence() {
 #[test]
 fn test_supply_limit() {
     // Test supply limit constant
-    let limit = bllvm_consensus::MAX_MONEY;
+    let limit = blvm_consensus::MAX_MONEY;
     
     // Should be 21M BTC in satoshis
     assert_eq!(limit, 2_100_000_000_000);

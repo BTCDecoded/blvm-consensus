@@ -1873,6 +1873,7 @@ mod tests {
             // Compact format precision loss can affect multiple low-order words.
             // We only check the most significant words (2, 3) are equal.
             // Words 0 and 1 may differ due to truncation - this is acceptable for compact format.
+            #[allow(clippy::eq_op)]
             let significant_words_match =
                 expanded.0[2] == re_expanded.0[2] && expanded.0[3] == re_expanded.0[3];
             if !significant_words_match {

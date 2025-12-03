@@ -1,10 +1,10 @@
 //! Comprehensive unit tests for consensus-proof modules
 
-use bllvm_consensus::economic::*;
-use bllvm_consensus::pow::*;
-use bllvm_consensus::script::*;
-use bllvm_consensus::transaction::*;
-use bllvm_consensus::*;
+use blvm_consensus::economic::*;
+use blvm_consensus::pow::*;
+use blvm_consensus::script::*;
+use blvm_consensus::transaction::*;
+use blvm_consensus::*;
 
 // ============================================================================
 // TRANSACTION TESTS

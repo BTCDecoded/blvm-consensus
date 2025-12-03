@@ -2,9 +2,9 @@
 
 #[cfg(feature = "utxo-commitments")]
 mod tests {
-    use bllvm_consensus::types::{OutPoint, UTXO, Hash, Natural};
-    use bllvm_consensus::utxo_commitments::*;
-    use bllvm_consensus::economic::total_supply;
+    use blvm_consensus::types::{OutPoint, UTXO, Hash, Natural};
+    use blvm_consensus::utxo_commitments::*;
+    use blvm_consensus::economic::total_supply;
 
     #[test]
     fn test_utxo_merkle_tree_new() {

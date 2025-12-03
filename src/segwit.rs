@@ -168,7 +168,9 @@ pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
 
 /// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs
 pub fn is_segwit_transaction(tx: &Transaction) -> bool {
-    use crate::witness::{extract_witness_program, extract_witness_version, validate_witness_program_length};
+    use crate::witness::{
+        extract_witness_program, extract_witness_version, validate_witness_program_length,
+    };
 
     tx.outputs.iter().any(|output| {
         let script = &output.script_pubkey;
@@ -287,8 +289,16 @@ mod tests {
 
     #[test]
     fn test_is_segwit_transaction() {
+        // SegWit transactions are detected by witness program outputs, not scriptSig
+        // P2WPKH: OP_0 <20-byte-hash>
+        // The format in Bitcoin is: [0x00, 0x14, <20-byte-hash>]
+        // Where 0x00 is OP_0 (witness version), 0x14 is push 20 bytes, then 20 bytes of hash
         let mut tx = create_test_transaction();
-        tx.inputs[0].script_sig = vec![0x00]; // SegWit marker
+        // Create a P2WPKH output (OP_0 <20-byte-hash>)
+        let p2wpkh_hash = [0x51; 20]; // 20-byte hash
+        let mut script_pubkey = vec![0x00, 0x14]; // OP_0, push 20 bytes
+        script_pubkey.extend_from_slice(&p2wpkh_hash);
+        tx.outputs[0].script_pubkey = script_pubkey.into();
 
         assert!(is_segwit_transaction(&tx));
     }

@@ -7,8 +7,8 @@
 //! - MAX_BLOCK_SIGOPS_COST = 80,000
 //! - Cost = (legacy_sigops × 4) + (p2sh_sigops × 4) + witness_sigops
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::types::*;
+use blvm_consensus::constants::*;
+use blvm_consensus::types::*;
 
 /// Create a transaction with specified sigop count
 fn create_tx_with_sigops(_legacy_sigops: usize) -> Transaction {

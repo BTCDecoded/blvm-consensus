@@ -1,6 +1,6 @@
-use bllvm_consensus::mempool;
-use bllvm_consensus::{Transaction, TransactionInput, TransactionOutput};
-use bllvm_consensus::config::MempoolConfig;
+use blvm_consensus::mempool;
+use blvm_consensus::{Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::config::MempoolConfig;
 
 #[path = "../test_helpers.rs"]
 mod test_helpers;

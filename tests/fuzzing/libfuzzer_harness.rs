@@ -20,7 +20,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use bllvm_consensus::{Transaction, Block, ValidationResult, check_transaction, connect_block, UtxoSet};
+use blvm_consensus::{Transaction, Block, ValidationResult, check_transaction, connect_block, UtxoSet};
 
 /// Fuzz transaction validation
 /// 
@@ -67,7 +67,7 @@ fn fuzz_block_validation(data: &[u8]) {
         return; // Need at least block header
     }
     
-    use bllvm_consensus::{BlockHeader, Block};
+    use blvm_consensus::{BlockHeader, Block};
     
     // Create minimal block from fuzzed data
     let header = BlockHeader {

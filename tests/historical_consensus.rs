@@ -11,9 +11,9 @@
 //! Also tests historical consensus bugs:
 //! - CVE-2012-2459: Merkle tree duplicate hash vulnerability
 
-use bllvm_consensus::block::connect_block;
-use bllvm_consensus::types::Network;
-use bllvm_consensus::{
+use blvm_consensus::block::connect_block;
+use blvm_consensus::types::Network;
+use blvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
     ValidationResult, UTXO,
 };
@@ -40,7 +40,7 @@ use bllvm_consensus::{
 /// 3. Different transaction sets produce different merkle roots (when not exploiting the vulnerability)
 #[test]
 fn test_cve_2012_2459_merkle_duplicate_hash() {
-    use bllvm_consensus::mining::calculate_merkle_root;
+    use blvm_consensus::mining::calculate_merkle_root;
 
     // Create three different transactions
     let tx1 = Transaction {
@@ -203,7 +203,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
 /// The fix: Bitcoin Core validates that all transactions in a block spend unique UTXOs.
 #[test]
 fn test_cve_2018_17144_double_spend_in_block() {
-    use bllvm_consensus::block::connect_block;
+    use blvm_consensus::block::connect_block;
 
     // Create a UTXO that will be spent twice
     let mut utxo_set = UtxoSet::new();
@@ -430,7 +430,7 @@ fn test_post_taproot_block_validation() {
 /// Verifies that block subsidy is correctly calculated at various halving heights.
 #[test]
 fn test_historical_block_subsidy() {
-    use bllvm_consensus::economic::get_block_subsidy;
+    use blvm_consensus::economic::get_block_subsidy;
 
     // Test at various historical heights
     let heights = vec![
@@ -465,7 +465,7 @@ fn test_historical_block_subsidy() {
 /// difficulty adjustment periods.
 #[test]
 fn test_historical_difficulty_adjustment() {
-    use bllvm_consensus::pow::get_next_work_required;
+    use blvm_consensus::pow::get_next_work_required;
 
     // Create headers for a difficulty adjustment period
     let mut headers = Vec::new();

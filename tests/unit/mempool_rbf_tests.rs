@@ -1,5 +1,5 @@
-use bllvm_consensus::mempool;
-use bllvm_consensus::UtxoSet;
+use blvm_consensus::mempool;
+use blvm_consensus::UtxoSet;
 
 #[path = "../test_helpers.rs"]
 mod test_helpers;

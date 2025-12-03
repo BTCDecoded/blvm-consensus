@@ -5,9 +5,9 @@
 
 #[cfg(kani)]
 mod kani_proofs {
-    use bllvm_consensus::*;
-    use bllvm_consensus::block::connect_block;
-    use bllvm_consensus::bip_validation;
+    use blvm_consensus::*;
+    use blvm_consensus::block::connect_block;
+    use blvm_consensus::bip_validation;
 
     /// Kani proof: BIP30 violations are caught by connect_block
     ///
@@ -168,7 +168,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(10)]
     fn kani_bip66_integration() {
-        use bllvm_consensus::script::verify_script_with_context_full;
+        use blvm_consensus::script::verify_script_with_context_full;
         
         let signature_bytes: Vec<u8> = kani::vec::any_vec();
         let height: Natural = kani::any();
@@ -249,8 +249,8 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(10)]
     fn kani_bip147_integration() {
-        use bllvm_consensus::script::verify_script_with_context_full;
-        use bllvm_consensus::bip_validation::Bip147Network;
+        use blvm_consensus::script::verify_script_with_context_full;
+        use blvm_consensus::bip_validation::Bip147Network;
         
         let script_sig: Vec<u8> = kani::vec::any_vec();
         let script_pubkey: Vec<u8> = kani::vec::any_vec();

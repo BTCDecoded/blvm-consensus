@@ -5,9 +5,9 @@
 //!
 //! Consensus-critical: Duplicate inputs = inflation bug (CVE-2018-17144)
 
-use bllvm_consensus::transaction::check_transaction;
-use bllvm_consensus::types::ValidationResult;
-use bllvm_consensus::types::*;
+use blvm_consensus::transaction::check_transaction;
+use blvm_consensus::types::ValidationResult;
+use blvm_consensus::types::*;
 
 /// Test duplicate inputs with same hash and index
 ///

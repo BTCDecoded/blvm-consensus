@@ -6,9 +6,9 @@
 //!
 //! Consensus-critical: Incorrect weight calculation causes block rejection/acceptance divergence.
 
-use bllvm_consensus::segwit::calculate_transaction_weight;
-use bllvm_consensus::segwit::Witness;
-use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::segwit::calculate_transaction_weight;
+use blvm_consensus::segwit::Witness;
+use blvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Maximum block weight: 4,000,000 weight units
 pub const MAX_BLOCK_WEIGHT: u64 = 4_000_000;

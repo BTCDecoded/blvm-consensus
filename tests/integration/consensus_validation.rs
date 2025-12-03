@@ -1,7 +1,7 @@
 //! Integration tests for consensus validation
 
-use bllvm_consensus::*;
-use bllvm_consensus::types::*;
+use blvm_consensus::*;
+use blvm_consensus::types::*;
 
 #[test]
 fn test_consensus_proof_basic_functionality() {
@@ -157,10 +157,10 @@ fn test_consensus_proof_block_validation() {
     };
     
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let (result, _new_utxo_set) = consensus
         .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
         .unwrap();

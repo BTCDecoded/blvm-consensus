@@ -1,7 +1,7 @@
 //! Comprehensive tests for network protocol functions
 
-use bllvm_consensus::network::*;
-use bllvm_consensus::*;
+use blvm_consensus::network::*;
+use blvm_consensus::*;
 
 #[test]
 fn test_process_addr_message() {

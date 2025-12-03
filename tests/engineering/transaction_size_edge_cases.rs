@@ -5,9 +5,9 @@
 //!
 //! Consensus-critical: Size calculation differences can cause different validation results.
 
-use bllvm_consensus::transaction::calculate_transaction_size;
-use bllvm_consensus::serialization::transaction::serialize_transaction;
-use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint};
+use blvm_consensus::transaction::calculate_transaction_size;
+use blvm_consensus::serialization::transaction::serialize_transaction;
+use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint};
 
 /// Test that calculate_transaction_size matches actual serialization size
 ///
@@ -204,7 +204,7 @@ fn test_transaction_size_empty_scripts() {
 /// Test transaction size edge case: maximum script sizes
 #[test]
 fn test_transaction_size_max_scripts() {
-    use bllvm_consensus::constants::MAX_SCRIPT_SIZE;
+    use blvm_consensus::constants::MAX_SCRIPT_SIZE;
 
     // Transaction with maximum-size scriptSig
     let tx = Transaction {

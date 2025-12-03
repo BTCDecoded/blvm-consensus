@@ -181,7 +181,9 @@ impl SpamFilter {
         }
 
         // Check for high size-to-value ratio
-        if self.config.filter_high_size_value_ratio && self.detect_high_size_value_ratio(tx, witnesses) {
+        if self.config.filter_high_size_value_ratio
+            && self.detect_high_size_value_ratio(tx, witnesses)
+        {
             detected_types.push(SpamType::HighSizeValueRatio);
         }
 
@@ -260,7 +262,7 @@ impl SpamFilter {
     fn has_large_witness_stack(&self, witness: &Witness) -> bool {
         // Calculate total witness size
         let total_size: usize = witness.iter().map(|elem| elem.len()).sum();
-        
+
         // Large witness stacks (>1000 bytes) are suspicious
         total_size > self.config.max_witness_size
     }
@@ -382,16 +384,16 @@ impl SpamFilter {
     fn detect_low_fee_rate(&self, tx: &Transaction, witnesses: Option<&[Witness]>) -> bool {
         // Estimate transaction size (including witness)
         let tx_size = self.estimate_transaction_size_with_witness(tx, witnesses);
-        
+
         // For this check, we need to estimate the fee
         // Since we don't have UTXO set here, we use heuristics:
         // - If transaction has many inputs and small outputs, likely low fee
         // - If transaction is very large but outputs are small, likely low fee
-        
+
         // Simplified heuristic: very large transactions with small total output value
         // are likely non-monetary
         let total_output_value: i64 = tx.outputs.iter().map(|out| out.value).sum();
-        
+
         // If transaction is large but total value is small, fee rate is likely low
         if tx_size > 1000 && total_output_value < 10000 {
             // Estimate fee rate (assuming minimal fee)
@@ -402,28 +404,32 @@ impl SpamFilter {
             } else {
                 0
             };
-            
+
             if estimated_fee_rate < self.config.min_fee_rate {
                 return true;
             }
         }
-        
+
         false
     }
 
     /// Detect transactions with high size-to-value ratio
     ///
     /// Non-monetary transactions often have very large size relative to value transferred.
-    fn detect_high_size_value_ratio(&self, tx: &Transaction, witnesses: Option<&[Witness]>) -> bool {
+    fn detect_high_size_value_ratio(
+        &self,
+        tx: &Transaction,
+        witnesses: Option<&[Witness]>,
+    ) -> bool {
         let tx_size = self.estimate_transaction_size_with_witness(tx, witnesses) as f64;
         let total_output_value: f64 = tx.outputs.iter().map(|out| out.value as f64).sum();
-        
+
         // Avoid division by zero
         if total_output_value <= 0.0 {
             // Transaction with zero outputs is suspicious
             return tx_size > 1000.0;
         }
-        
+
         let ratio = tx_size / total_output_value;
         ratio > self.config.max_size_value_ratio
     }
@@ -432,11 +438,12 @@ impl SpamFilter {
     ///
     /// Token distributions and Ordinal transfers often create many small outputs.
     fn detect_many_small_outputs(&self, tx: &Transaction) -> bool {
-        let small_output_count = tx.outputs
+        let small_output_count = tx
+            .outputs
             .iter()
             .filter(|out| out.value < self.config.dust_threshold)
             .count();
-        
+
         small_output_count > self.config.max_small_outputs
     }
 
@@ -448,7 +455,7 @@ impl SpamFilter {
     ) -> usize {
         // Base transaction size (non-witness)
         let base_size = estimate_transaction_size(tx) as usize;
-        
+
         // Add witness size if available
         if let Some(witnesses) = witnesses {
             let witness_size: usize = witnesses
@@ -464,7 +471,7 @@ impl SpamFilter {
                     size
                 })
                 .sum();
-            
+
             // SegWit marker and flag (2 bytes)
             let has_witness = witness_size > 0;
             if has_witness {
@@ -574,7 +581,7 @@ impl SpamFilter {
         for (i, tx) in transactions.iter().enumerate() {
             // Get witness data for this transaction if available
             let tx_witnesses = witnesses.and_then(|w| w.get(i));
-            
+
             let result = if let Some(tx_witnesses) = tx_witnesses {
                 self.is_spam_with_witness(tx, Some(tx_witnesses))
             } else {

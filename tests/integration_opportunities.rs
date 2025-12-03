@@ -3,8 +3,8 @@
 //! These tests verify that different modules work together correctly
 //! and catch integration bugs that unit tests might miss.
 
-use bllvm_consensus::transaction::is_coinbase;
-use bllvm_consensus::*;
+use blvm_consensus::transaction::is_coinbase;
+use blvm_consensus::*;
 
 mod test_helpers;
 use test_helpers::{
@@ -52,10 +52,10 @@ fn test_mempool_to_block_integration() {
     assert!(is_coinbase(&block.transactions[0]));
 
     // 5. Validate the created block
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let (validation_result, _new_utxo_set) = consensus
         .validate_block_with_time_context(&block, &witnesses, utxo_set, 100, time_context, network)
         .unwrap();
@@ -167,10 +167,10 @@ fn test_pow_block_integration() {
 
     // 4. Validate block (should pass other validations even if PoW fails)
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+    let witnesses: Vec<blvm_consensus::segwit::Witness> =
         block.transactions.iter().map(|_| Vec::new()).collect();
     let time_context = None;
-    let network = bllvm_consensus::types::Network::Mainnet;
+    let network = blvm_consensus::types::Network::Mainnet;
     let (validation_result, _new_utxo_set) = consensus
         .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
         .unwrap();

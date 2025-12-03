@@ -5,10 +5,10 @@
 //!
 //! Consensus-critical: Overflow handling differences can cause different validation results.
 
-use bllvm_consensus::constants::MAX_MONEY;
-use bllvm_consensus::transaction::check_transaction;
-use bllvm_consensus::transaction::check_tx_inputs;
-use bllvm_consensus::types::{
+use blvm_consensus::constants::MAX_MONEY;
+use blvm_consensus::transaction::check_transaction;
+use blvm_consensus::transaction::check_tx_inputs;
+use blvm_consensus::types::{
     OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
 
@@ -54,7 +54,7 @@ fn test_output_sum_exceeds_max_money() {
     // Should be invalid: total exceeds MAX_MONEY
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 }
 
@@ -99,7 +99,7 @@ fn test_output_sum_near_i64_max() {
     // Should be invalid: total (4 * MAX_MONEY) exceeds MAX_MONEY
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 }
 
@@ -157,11 +157,11 @@ fn test_input_sum_overflow() {
     // Should handle overflow correctly (either reject or handle gracefully)
     // The sum of 5 * MAX_MONEY would exceed i64::MAX, so checked_add should catch it
     match result {
-        bllvm_consensus::types::ValidationResult::Valid => {
+        blvm_consensus::types::ValidationResult::Valid => {
             // If valid, fee calculation should also be valid
             // This tests that overflow is caught before fee calculation
         }
-        bllvm_consensus::types::ValidationResult::Invalid(_) => {
+        blvm_consensus::types::ValidationResult::Invalid(_) => {
             // Expected: overflow detected
         }
     }
@@ -194,7 +194,7 @@ fn test_single_output_at_max_money() {
     // Should be valid: single output at MAX_MONEY is allowed
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }
 
@@ -225,7 +225,7 @@ fn test_output_above_max_money() {
     // Should be invalid: individual output exceeds MAX_MONEY
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 }
 
@@ -256,7 +256,7 @@ fn test_negative_output_value() {
     // Should be invalid: negative output value
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Invalid(_)
+        blvm_consensus::types::ValidationResult::Invalid(_)
     ));
 }
 
@@ -287,7 +287,7 @@ fn test_zero_output_value() {
     // Should be valid: zero output value is allowed (though not economically useful)
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }
 
@@ -326,6 +326,6 @@ fn test_many_small_outputs() {
     // Should be valid: many small outputs summing to valid total
     assert!(matches!(
         result,
-        bllvm_consensus::types::ValidationResult::Valid
+        blvm_consensus::types::ValidationResult::Valid
     ));
 }

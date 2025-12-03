@@ -5,10 +5,10 @@
 //!
 //! Consensus-critical: Fee differences = different transaction acceptance
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::transaction::check_tx_inputs;
-use bllvm_consensus::types::ValidationResult;
-use bllvm_consensus::types::*;
+use blvm_consensus::constants::*;
+use blvm_consensus::transaction::check_tx_inputs;
+use blvm_consensus::types::ValidationResult;
+use blvm_consensus::types::*;
 use std::collections::HashMap;
 
 /// Create a test UTXO set

@@ -9,11 +9,11 @@
 //! - Coinbase output <= fees + subsidy
 //! - Coinbase output <= MAX_MONEY
 
-use bllvm_consensus::block::connect_block;
-use bllvm_consensus::constants::*;
-use bllvm_consensus::economic::get_block_subsidy;
-use bllvm_consensus::transaction::is_coinbase;
-use bllvm_consensus::types::*;
+use blvm_consensus::block::connect_block;
+use blvm_consensus::constants::*;
+use blvm_consensus::economic::get_block_subsidy;
+use blvm_consensus::transaction::is_coinbase;
+use blvm_consensus::types::*;
 use std::collections::HashMap;
 
 /// Create a valid coinbase transaction
@@ -94,7 +94,7 @@ fn test_coinbase_script_sig_below_minimum() {
     };
 
     // This should be rejected in check_transaction
-    use bllvm_consensus::transaction::check_transaction;
+    use blvm_consensus::transaction::check_transaction;
     let result = check_transaction(&tx);
     assert!(result.is_ok(), "check_transaction should succeed");
 
@@ -129,7 +129,7 @@ fn test_coinbase_script_sig_maximum_length() {
         lock_time: 0,
     };
 
-    use bllvm_consensus::transaction::check_transaction;
+    use blvm_consensus::transaction::check_transaction;
     let result = check_transaction(&tx);
     assert!(result.is_ok(), "check_transaction should succeed");
 
@@ -164,7 +164,7 @@ fn test_coinbase_script_sig_above_maximum() {
         lock_time: 0,
     };
 
-    use bllvm_consensus::transaction::check_transaction;
+    use blvm_consensus::transaction::check_transaction;
     let result = check_transaction(&tx);
     assert!(result.is_ok(), "check_transaction should succeed");
 
@@ -240,7 +240,7 @@ fn test_coinbase_output_with_fees() {
 fn test_coinbase_output_exceeds_max_money() {
     let coinbase = create_coinbase_tx(100, MAX_MONEY + 1);
 
-    use bllvm_consensus::transaction::check_transaction;
+    use blvm_consensus::transaction::check_transaction;
     let result = check_transaction(&coinbase);
     assert!(result.is_ok(), "check_transaction should succeed");
 

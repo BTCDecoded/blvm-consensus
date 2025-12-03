@@ -10,9 +10,9 @@
 //! - Full RPC client wrapper
 //! - BIP-specific differential tests
 
-use bllvm_consensus::*;
-use bllvm_consensus::serialization::transaction::serialize_transaction;
-use bllvm_consensus::serialization::block::serialize_block;
+use blvm_consensus::*;
+use blvm_consensus::serialization::transaction::serialize_transaction;
+use blvm_consensus::serialization::block::serialize_block;
 
 /// Compare transaction validation results
 ///

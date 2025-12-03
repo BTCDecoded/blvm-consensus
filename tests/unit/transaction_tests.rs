@@ -1,8 +1,8 @@
 //! Unit tests for transaction validation functions
 
-use bllvm_consensus::*;
-use bllvm_consensus::transaction::*;
-use bllvm_consensus::types::*;
+use blvm_consensus::*;
+use blvm_consensus::transaction::*;
+use blvm_consensus::types::*;
 
 #[test]
 fn test_check_transaction_valid() {

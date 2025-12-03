@@ -1,8 +1,8 @@
-use bllvm_consensus::network::*;
-use bllvm_consensus::types::math::{Hash, Natural};
+use blvm_consensus::network::*;
+use blvm_consensus::types::math::{Hash, Natural};
 
-fn dummy_header() -> bllvm_consensus::BlockHeader {
-    bllvm_consensus::BlockHeader {
+fn dummy_header() -> blvm_consensus::BlockHeader {
+    blvm_consensus::BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
@@ -46,10 +46,10 @@ fn test_process_misc_messages_ok() {
     assert!(matches!(super::process_headers_message(&headers, &mut peer, &chain).unwrap(), NetworkResponse::Ok));
 
     // block, tx (simplified stubs in ChainState)
-    let block = bllvm_consensus::Block { header: dummy_header(), transactions: vec![] };
+    let block = blvm_consensus::Block { header: dummy_header(), transactions: vec![] };
     assert!(matches!(super::process_block_message(&block, &mut peer, &chain).unwrap(), NetworkResponse::Ok));
 
-    let tx = bllvm_consensus::Transaction { version: 1, inputs: vec![].into(), outputs: vec![].into(), lock_time: 0 };
+    let tx = blvm_consensus::Transaction { version: 1, inputs: vec![].into(), outputs: vec![].into(), lock_time: 0 };
     assert!(matches!(super::process_tx_message(&tx, &mut peer, &chain).unwrap(), NetworkResponse::Ok));
 
     // ping/pong

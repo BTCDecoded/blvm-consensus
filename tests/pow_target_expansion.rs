@@ -5,8 +5,8 @@
 //!
 //! Consensus-critical: Target expansion differences = chain split
 
-use bllvm_consensus::pow::expand_target;
-use bllvm_consensus::pow::U256;
+use blvm_consensus::pow::expand_target;
+use blvm_consensus::pow::U256;
 
 /// Test genesis block target expansion (0x1d00ffff)
 ///

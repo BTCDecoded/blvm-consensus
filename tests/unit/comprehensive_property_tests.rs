@@ -2,9 +2,9 @@
 //!
 //! Additional property tests to push toward 100+ property test target and 99% coverage.
 
-use bllvm_consensus::*;
-use bllvm_consensus::types::*;
-use bllvm_consensus::constants::{MAX_TX_SIZE, MAX_BLOCK_SIZE, MAX_MONEY};
+use blvm_consensus::*;
+use blvm_consensus::types::*;
+use blvm_consensus::constants::{MAX_TX_SIZE, MAX_BLOCK_SIZE, MAX_MONEY};
 use proptest::prelude::*;
 
 /// Property test: transaction version validation

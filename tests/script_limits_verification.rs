@@ -8,8 +8,8 @@
 //! - Operation count: 201 operations
 //! - These must be enforced exactly
 
-use bllvm_consensus::constants::*;
-use bllvm_consensus::types::*;
+use blvm_consensus::constants::*;
+use blvm_consensus::types::*;
 
 // Note: Script execution testing requires access to execute_script function
 // For now, we verify the constants match Core

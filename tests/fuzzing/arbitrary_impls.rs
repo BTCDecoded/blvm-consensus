@@ -7,8 +7,8 @@
 //! Transaction, Block, and BlockHeader structures.
 
 use proptest::prelude::*;
-use bllvm_consensus::types::*;
-use bllvm_consensus::{check_transaction, connect_block, UtxoSet};
+use blvm_consensus::types::*;
+use blvm_consensus::{check_transaction, connect_block, UtxoSet};
 
 impl Arbitrary for Transaction {
     type Parameters = ();

@@ -4,8 +4,8 @@
 //! are actually being called during block validation. They serve as
 //! "alarm bells" that would fail if BIP checks are accidentally removed.
 
-use bllvm_consensus::*;
-use bllvm_consensus::block::connect_block;
+use blvm_consensus::*;
+use blvm_consensus::block::connect_block;
 
 /// Smoke test: Verify that a block violating BIP30 is rejected
 ///
@@ -155,7 +155,7 @@ fn smoke_test_bip90_enforced() {
 /// Smoke test: Verify that BIP66 (Strict DER) is enforced
 #[test]
 fn smoke_test_bip66_enforced() {
-    use bllvm_consensus::script::verify_script_with_context_full;
+    use blvm_consensus::script::verify_script_with_context_full;
     
     let height = 363_725; // After BIP66 activation
     
@@ -205,7 +205,7 @@ fn smoke_test_bip66_enforced() {
 /// Smoke test: Verify that BIP147 (NULLDUMMY) is enforced
 #[test]
 fn smoke_test_bip147_enforced() {
-    use bllvm_consensus::script::verify_script_with_context_full;
+    use blvm_consensus::script::verify_script_with_context_full;
     
     let height = 481_825; // After BIP147 activation
     

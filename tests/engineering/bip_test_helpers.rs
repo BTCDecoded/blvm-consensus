@@ -3,9 +3,9 @@
 //! Provides utilities for creating test transactions, block contexts, and
 //! validation scenarios for testing BIP65, BIP112, and related BIPs.
 
-use bllvm_consensus::*;
-use bllvm_consensus::script::verify_script_with_context_full;
-use bllvm_consensus::bip113::get_median_time_past;
+use blvm_consensus::*;
+use blvm_consensus::script::verify_script_with_context_full;
+use blvm_consensus::bip113::get_median_time_past;
 
 /// Create a block header with specified timestamp
 pub fn create_test_header(timestamp: u64, prev_hash: [u8; 32]) -> BlockHeader {

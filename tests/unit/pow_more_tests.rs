@@ -1,7 +1,7 @@
-use bllvm_consensus::pow::{check_proof_of_work, get_next_work_required};
+use blvm_consensus::pow::{check_proof_of_work, get_next_work_required};
 
-fn header(bits: u32, ts: u32) -> bllvm_consensus::BlockHeader {
-    bllvm_consensus::BlockHeader {
+fn header(bits: u32, ts: u32) -> blvm_consensus::BlockHeader {
+    blvm_consensus::BlockHeader {
         version: 1,
         prev_block_hash: [0;32],
         merkle_root: [0;32],

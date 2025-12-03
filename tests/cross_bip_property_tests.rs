@@ -3,11 +3,11 @@
 //! Tests that validate combined scenarios across multiple BIPs,
 //! ensuring proper integration between different Bitcoin Improvement Proposals.
 
-use bllvm_consensus::bip113;
-use bllvm_consensus::locktime;
-use bllvm_consensus::mempool;
-use bllvm_consensus::witness;
-use bllvm_consensus::*;
+use blvm_consensus::bip113;
+use blvm_consensus::locktime;
+use blvm_consensus::mempool;
+use blvm_consensus::witness;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: BIP65 + BIP112 in same script
@@ -241,10 +241,10 @@ proptest! {
         // Property: Type should be consistent regardless of which function is used
         match type1 {
             locktime::LocktimeType::BlockHeight => {
-                assert!(locktime1 < bllvm_consensus::constants::LOCKTIME_THRESHOLD);
+                assert!(locktime1 < blvm_consensus::constants::LOCKTIME_THRESHOLD);
             }
             locktime::LocktimeType::Timestamp => {
-                assert!(locktime1 >= bllvm_consensus::constants::LOCKTIME_THRESHOLD);
+                assert!(locktime1 >= blvm_consensus::constants::LOCKTIME_THRESHOLD);
             }
         }
     }

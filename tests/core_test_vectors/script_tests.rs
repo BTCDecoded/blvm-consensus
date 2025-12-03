@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::fs;
 use serde_json::Value;
 use hex;
-use bllvm_consensus::script::verify_script;
+use blvm_consensus::script::verify_script;
 
 /// Script test vector structure
 #[derive(Debug, Clone)]

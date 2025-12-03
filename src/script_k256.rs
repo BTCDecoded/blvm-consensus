@@ -59,7 +59,7 @@ pub fn verify_signature_k256(
                     Ok(arr) => arr,
                     Err(_) => return false,
                 };
-                
+
                 // Convert arrays to GenericArray using Into trait
                 // Note: k256's Signature::from_scalars requires GenericArray from elliptic_curve.
                 // While k256 still uses generic_array 0.x internally, we avoid the deprecated
@@ -71,7 +71,7 @@ pub fn verify_signature_k256(
                 let r: GenericArray<u8, U32> = r_array.into();
                 #[allow(deprecated)]
                 let s: GenericArray<u8, U32> = s_array.into();
-                
+
                 match Signature::from_scalars(r, s) {
                     Ok(sig) => sig,
                     Err(_) => return false,
@@ -106,18 +106,18 @@ mod tests {
     fn test_k256_signature_verification_valid() {
         // Test with a simple case: invalid signature should return false
         // This tests the interface and error handling
-        
+
         // Compressed public key (33 bytes) - valid format
         let pubkey = vec![
             0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce,
             0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81,
             0x5b, 0x16, 0xf8, 0x17, 0x98,
         ];
-        
+
         // Invalid DER signature (too short) - should return false
         let invalid_signature = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00];
         let sighash = [0u8; 32];
-        
+
         let result = verify_signature_k256(&pubkey, &invalid_signature, &sighash, 0);
         assert!(!result, "Invalid signature should return false");
     }
@@ -128,7 +128,7 @@ mod tests {
         let invalid_pubkey = vec![0x00, 0x01, 0x02]; // Too short
         let signature = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00];
         let sighash = [0u8; 32];
-        
+
         let result = verify_signature_k256(&invalid_pubkey, &signature, &sighash, 0);
         assert!(!result, "Invalid pubkey should return false");
     }
@@ -143,10 +143,10 @@ mod tests {
         ];
         let signature = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00];
         let sighash = [0u8; 32];
-        
+
         let result1 = verify_signature_k256(&pubkey, &signature, &sighash, 0);
         let result2 = verify_signature_k256(&pubkey, &signature, &sighash, 0);
-        
+
         assert_eq!(result1, result2, "Verification should be deterministic");
     }
 }

@@ -6,9 +6,9 @@
 //! Test vectors can be downloaded from Bitcoin Core's test framework.
 //! If vectors are not available, tests will skip gracefully.
 
-use bllvm_consensus::*;
-use bllvm_consensus::serialization::transaction::deserialize_transaction;
-use bllvm_consensus::serialization::block::deserialize_block_with_witnesses;
+use blvm_consensus::*;
+use blvm_consensus::serialization::transaction::deserialize_transaction;
+use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use std::path::PathBuf;
 use std::fs;
 

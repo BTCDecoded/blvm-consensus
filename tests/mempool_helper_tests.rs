@@ -1,9 +1,9 @@
 //! Tests for mempool helper functions
 
-use bllvm_consensus::block::calculate_tx_id;
-use bllvm_consensus::mempool::*;
-use bllvm_consensus::transaction::is_coinbase;
-use bllvm_consensus::*;
+use blvm_consensus::block::calculate_tx_id;
+use blvm_consensus::mempool::*;
+use blvm_consensus::transaction::is_coinbase;
+use blvm_consensus::*;
 
 #[test]
 fn test_mempool_basic_operations() {

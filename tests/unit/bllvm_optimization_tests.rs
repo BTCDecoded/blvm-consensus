@@ -3,7 +3,7 @@
 //! Tests verify that BLLVM optimizations (pre-allocation, cache alignment)
 //! maintain correctness while improving performance.
 
-use bllvm_consensus::{
+use blvm_consensus::{
     mining::calculate_merkle_root,
     optimizations::{prealloc_tx_buffer, prealloc_block_buffer},
     serialization::{block::serialize_block_header, transaction::serialize_transaction},
@@ -117,7 +117,7 @@ fn test_merkle_root_correctness() {
 fn test_cache_aligned_batch_hashing() {
     #[cfg(feature = "production")]
     {
-        use bllvm_consensus::optimizations::simd_vectorization;
+        use blvm_consensus::optimizations::simd_vectorization;
 
         let inputs = vec![
             b"test input 1".as_slice(),
@@ -145,7 +145,7 @@ fn test_cache_aligned_batch_hashing() {
 fn test_batch_operations_empty_input() {
     #[cfg(feature = "production")]
     {
-        use bllvm_consensus::optimizations::simd_vectorization;
+        use blvm_consensus::optimizations::simd_vectorization;
 
         let empty_inputs: Vec<&[u8]> = vec![];
 
@@ -162,7 +162,7 @@ fn test_batch_operations_empty_input() {
 fn test_batch_operations_small_batch() {
     #[cfg(feature = "production")]
     {
-        use bllvm_consensus::optimizations::simd_vectorization;
+        use blvm_consensus::optimizations::simd_vectorization;
 
         let inputs = vec![
             b"small batch test".as_slice(),

@@ -6,10 +6,10 @@
 //! **CRITICAL**: These tests will FAIL if BIP checks are removed from connect_block,
 //! providing an alarm bell for missing consensus rules.
 
-use bllvm_consensus::*;
-use bllvm_consensus::block::connect_block;
-use bllvm_consensus::block::calculate_tx_id;
-use bllvm_consensus::transaction::is_coinbase;
+use blvm_consensus::*;
+use blvm_consensus::block::connect_block;
+use blvm_consensus::block::calculate_tx_id;
+use blvm_consensus::transaction::is_coinbase;
 
 /// Test that BIP30 (duplicate coinbase) is enforced in connect_block
 ///
@@ -464,7 +464,7 @@ fn test_bip_check_order() {
 /// when SCRIPT_VERIFY_DERSIG flag is set and height is after activation.
 #[test]
 fn test_script_verification_rejects_bip66_violation() {
-    use bllvm_consensus::script::verify_script_with_context_full;
+    use blvm_consensus::script::verify_script_with_context_full;
     
     let height = 363_725; // Just after BIP66 activation (363,724)
     
@@ -541,7 +541,7 @@ fn test_script_verification_rejects_bip66_violation() {
 /// when SCRIPT_VERIFY_NULLDUMMY flag is set and height is after activation.
 #[test]
 fn test_script_verification_rejects_bip147_violation() {
-    use bllvm_consensus::script::verify_script_with_context_full;
+    use blvm_consensus::script::verify_script_with_context_full;
     
     let height = 481_825; // Just after BIP147 activation (481,824)
     
@@ -620,7 +620,7 @@ fn test_script_verification_rejects_bip147_violation() {
 /// This ensures BIP147 check correctly allows non-empty dummy before activation.
 #[test]
 fn test_script_verification_allows_bip147_before_activation() {
-    use bllvm_consensus::script::verify_script_with_context_full;
+    use blvm_consensus::script::verify_script_with_context_full;
     
     let height = 481_823; // Just before BIP147 activation (481,824)
     

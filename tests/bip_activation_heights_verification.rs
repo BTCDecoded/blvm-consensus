@@ -10,7 +10,7 @@
 //! - BIP90: Block version (activation)
 //! - BIP147: NULLDUMMY (activation at 481,824 mainnet)
 
-use bllvm_consensus::types::*;
+use blvm_consensus::types::*;
 
 /// Test BIP34 activation height: before activation
 ///

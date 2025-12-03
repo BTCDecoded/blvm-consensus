@@ -8,6 +8,7 @@
 //! 5. Verify against block headers
 //! 6. Download UTXO set
 
+use crate::spam_filter::{SpamBreakdown, SpamFilter, SpamFilterConfig, SpamSummary, SpamType};
 #[cfg(feature = "utxo-commitments")]
 use crate::types::{BlockHeader, Hash, Natural, OutPoint, Transaction, UTXO};
 #[cfg(feature = "utxo-commitments")]
@@ -20,9 +21,6 @@ use crate::utxo_commitments::merkle_tree::UtxoMerkleTree;
 use crate::utxo_commitments::network_integration::UtxoCommitmentsNetworkClient;
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::peer_consensus::{ConsensusConfig, PeerConsensus, PeerInfo};
-use crate::spam_filter::{
-    SpamBreakdown, SpamFilter, SpamFilterConfig, SpamSummary, SpamType,
-};
 
 /// Initial sync manager
 pub struct InitialSync {
@@ -120,7 +118,12 @@ impl InitialSync {
         // Step 3: Request UTXO sets from diverse peers via the network client
         let peer_commitments = self
             .peer_consensus
-            .request_utxo_sets(network_client, &diverse_with_ids, checkpoint_height, checkpoint_hash)
+            .request_utxo_sets(
+                network_client,
+                &diverse_with_ids,
+                checkpoint_height,
+                checkpoint_hash,
+            )
             .await;
 
         // Step 4: Find consensus
@@ -198,11 +201,8 @@ impl InitialSync {
 
             // Process the filtered block: apply transactions to UTXO tree
             // This removes spent inputs and adds non-spam outputs
-            let (_spam_summary, computed_root) = self.process_filtered_block(
-                utxo_tree,
-                height,
-                &filtered_block.transactions,
-            )?;
+            let (_spam_summary, computed_root) =
+                self.process_filtered_block(utxo_tree, height, &filtered_block.transactions)?;
 
             // Verify commitment matches computed root
             if computed_root != filtered_block.commitment.merkle_root {

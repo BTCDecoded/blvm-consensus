@@ -5,8 +5,8 @@
 //!
 //! Consensus-critical: Merkle root differences = chain split
 
-use bllvm_consensus::mining::calculate_merkle_root;
-use bllvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::mining::calculate_merkle_root;
+use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
 
 /// Test that duplicate transaction hashes are detected as mutations
 ///
@@ -20,7 +20,7 @@ fn test_merkle_mutation_detection_duplicate_txids() {
     let tx1 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0,
             },
@@ -62,7 +62,7 @@ fn test_merkle_root_normal_transactions() {
     let tx1 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [1; 32].into(),
                 index: 0,
             },
@@ -81,7 +81,7 @@ fn test_merkle_root_normal_transactions() {
     let tx2 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [2; 32].into(),
                 index: 0,
             },
@@ -114,7 +114,7 @@ fn test_merkle_root_single_transaction() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
@@ -158,7 +158,7 @@ fn test_merkle_root_odd_number() {
     let tx1 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [1; 32].into(),
                 index: 0,
             },
@@ -177,7 +177,7 @@ fn test_merkle_root_odd_number() {
     let tx2 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [2; 32].into(),
                 index: 0,
             },
@@ -196,7 +196,7 @@ fn test_merkle_root_odd_number() {
     let tx3 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: bllvm_consensus::types::OutPoint {
+            prevout: blvm_consensus::types::OutPoint {
                 hash: [3; 32].into(),
                 index: 0,
             },

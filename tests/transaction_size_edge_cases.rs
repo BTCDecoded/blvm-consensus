@@ -5,9 +5,9 @@
 //!
 //! Consensus-critical: Size calculation differences can cause different validation results.
 
-use bllvm_consensus::serialization::transaction::serialize_transaction;
-use bllvm_consensus::transaction::calculate_transaction_size;
-use bllvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::serialization::transaction::serialize_transaction;
+use blvm_consensus::transaction::calculate_transaction_size;
+use blvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 /// Test that calculate_transaction_size matches actual serialization size
 ///
