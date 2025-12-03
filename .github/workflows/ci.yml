@@ -331,15 +331,14 @@ jobs:
     needs: setup
     runs-on: [self-hosted, Linux, X64, perf]
     timeout-minutes: 360  # 6 hours for all proofs (195 proofs can take a long time)
-    outputs:
-      proof_tier: ${{ steps.set_tier_output.outputs.tier }}
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]')))
-      # Note: Strong tier ALWAYS runs (cannot be skipped)
-      # Other tiers only run when manually triggered via workflow_dispatch
+    outputs:
+      proof_tier: ${{ steps.set_tier_output.outputs.tier }}
+      ami_id: ${{ secrets.KANI_RUNNER_AMI_ID }}
     steps:
       - uses: actions/checkout@v4
       
@@ -553,12 +552,13 @@ jobs:
     name: Provision Spot Runner
     needs: [verify]
     if: |
-      needs.verify.outputs.proof_tier == 'fast_medium' ||
-      needs.verify.outputs.proof_tier == 'all'
+      needs.verify.result == 'success' &&
+      (needs.verify.outputs.proof_tier == 'fast_medium' ||
+       needs.verify.outputs.proof_tier == 'all')
     uses: BTCDecoded/blvm/.github/workflows/provision-spot-runner.yml@main
     with:
       repo_name: blvm-consensus
-      ami_id: ${{ secrets.KANI_RUNNER_AMI_ID }}
+      ami_id: ${{ needs.verify.outputs.ami_id }}
       instance_type: c6i.4xlarge
       runner_labels: 'self-hosted, Linux, X64, spot, kani'
       workload_type: kani
@@ -570,8 +570,10 @@ jobs:
     runs-on: [self-hosted, Linux, X64, spot, kani]
     timeout-minutes: 360  # 6 hours for medium + slow proofs
     if: |
-      needs.verify.outputs.proof_tier == 'fast_medium' ||
-      needs.verify.outputs.proof_tier == 'all'
+      needs.verify.result == 'success' &&
+      needs.provision-spot-runner.result == 'success' &&
+      (needs.verify.outputs.proof_tier == 'fast_medium' ||
+       needs.verify.outputs.proof_tier == 'all')
     steps:
       - uses: actions/checkout@v4
       
@@ -706,8 +708,10 @@ jobs:
 
   cleanup-spot-runner:
     name: Cleanup Spot Runner
-    needs: [verify-medium-slow]
-    if: always()
+    needs: [verify-medium-slow, provision-spot-runner]
+    if: |
+      always() &&
+      needs.provision-spot-runner.result != 'skipped'
     runs-on: [self-hosted, Linux, X64, builds]
     steps:
       - name: Stop EC2 Runner
