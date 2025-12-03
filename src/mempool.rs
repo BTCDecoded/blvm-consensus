@@ -251,7 +251,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::config::MempoolConfig>) -> Result<bool> {
     // Use default config if not provided
     let default_config = crate::config::MempoolConfig::default();
-    let config = config.unwrap_or(&default_config);
+    let config_opt = config;
 
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
@@ -281,6 +281,7 @@ pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::confi
 
             // Check size: OP_RETURN (1 byte) + push opcode (1 byte) + data ≤ max_size + 2
             // Script format: [OP_RETURN (0x6a)] [push opcode] [data...]
+            let config = config_opt.unwrap_or(&default_config);
             if output.script_pubkey.len() > (config.max_op_return_size + 2) as usize {
                 return Ok(false);
             }
@@ -288,14 +289,22 @@ pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::confi
     }
 
     // Reject multiple OP_RETURN outputs (spam pattern)
+    let config = config_opt.unwrap_or(&default_config);
     if config.reject_multiple_op_return && op_return_count > config.max_op_return_outputs {
         return Ok(false);
     }
 
     // 4. Check for standard script types (simplified)
     for output in &tx.outputs {
-        if !is_standard_script_with_config(&output.script_pubkey, Some(config))? {
-            return Ok(false);
+        // Use convenience function when config is None (default), otherwise use config-specific version
+        if config_opt.is_none() {
+            if !is_standard_script(&output.script_pubkey)? {
+                return Ok(false);
+            }
+        } else {
+            if !is_standard_script_with_config(&output.script_pubkey, config_opt)? {
+                return Ok(false);
+            }
         }
     }
 
@@ -751,7 +760,10 @@ fn creates_new_dependencies(
 }
 
 /// Check if script is standard
-fn is_standard_script(script: &ByteString) -> Result<bool> {
+/// 
+/// This is a convenience wrapper for is_standard_script_with_config that uses default configuration.
+/// Useful for cases where custom mempool configuration is not needed.
+pub fn is_standard_script(script: &ByteString) -> Result<bool> {
     is_standard_script_with_config(script, None)
 }
 

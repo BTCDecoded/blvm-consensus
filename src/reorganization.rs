@@ -1054,7 +1054,7 @@ mod tests {
 
         // Create a block and connect it to get undo log
         let block = create_test_block();
-        let mut utxo_set = UtxoSet::new();
+        let utxo_set = UtxoSet::new();
         let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
 
         let (result, connected_utxo_set, undo_log) = connect_block(
