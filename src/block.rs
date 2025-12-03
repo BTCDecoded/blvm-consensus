@@ -1761,10 +1761,7 @@ fn validate_block_header(
     let result = true;
     #[allow(clippy::eq_op)]
     {
-        assert!(
-            result || !result,
-            "Validation result must be boolean"
-        );
+        assert!(result || !result, "Validation result must be boolean");
     }
     // Postcondition assertion: Result must be true on success
     assert!(result, "Validation result must be true on success");

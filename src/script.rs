@@ -387,12 +387,13 @@ fn eval_script_inner(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !is_minimal_if_condition(&condition_bytes) {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_IF condition must be minimally encoded".into(),
-                        });
-                    }
+                    && !is_minimal_if_condition(&condition_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalIf,
+                        message: "OP_IF condition must be minimally encoded".into(),
+                    });
+                }
 
                 control_stack.push(ControlBlock::If {
                     executing: condition,
@@ -417,12 +418,13 @@ fn eval_script_inner(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !is_minimal_if_condition(&condition_bytes) {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_NOTIF condition must be minimally encoded".into(),
-                        });
-                    }
+                    && !is_minimal_if_condition(&condition_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalIf,
+                        message: "OP_NOTIF condition must be minimally encoded".into(),
+                    });
+                }
 
                 control_stack.push(ControlBlock::NotIf {
                     executing: !condition,
@@ -975,12 +977,13 @@ fn eval_script_with_context_full(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !is_minimal_if_condition(&condition_bytes) {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_IF condition must be minimally encoded".into(),
-                        });
-                    }
+                    && !is_minimal_if_condition(&condition_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalIf,
+                        message: "OP_IF condition must be minimally encoded".into(),
+                    });
+                }
 
                 control_stack.push(ControlBlock::If {
                     executing: condition,
@@ -1005,12 +1008,13 @@ fn eval_script_with_context_full(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !is_minimal_if_condition(&condition_bytes) {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_NOTIF condition must be minimally encoded".into(),
-                        });
-                    }
+                    && !is_minimal_if_condition(&condition_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalIf,
+                        message: "OP_NOTIF condition must be minimally encoded".into(),
+                    });
+                }
 
                 control_stack.push(ControlBlock::NotIf {
                     executing: !condition,
@@ -2230,10 +2234,12 @@ fn verify_signature<C: Context + Verification>(
     }
 
     const SCRIPT_VERIFY_WITNESS_PUBKEYTYPE: u32 = 0x8000;
-    if (flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0 && sigversion == SigVersion::WitnessV0
-        && !(pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03)) {
-            return Ok(false);
-        }
+    if (flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0
+        && sigversion == SigVersion::WitnessV0
+        && !(pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
+    {
+        return Ok(false);
+    }
 
     // Parse public key
     let pubkey = match PublicKey::from_slice(pubkey_bytes) {
@@ -3277,6 +3283,7 @@ mod kani_proofs {
             Some(tx_locktime as u64),
             None,
             crate::types::Network::Regtest,
+            SigVersion::Base,
         );
 
         // Should fail due to type mismatch
@@ -3324,6 +3331,7 @@ mod kani_proofs {
             None,
             None,
             crate::types::Network::Regtest,
+            SigVersion::Base,
         );
 
         // Should fail due to zero locktime
@@ -3375,6 +3383,7 @@ mod kani_proofs {
             None,
             None,
             crate::types::Network::Regtest,
+            SigVersion::Base,
         );
 
         // Should fail due to disabled sequence
@@ -3405,7 +3414,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // Verify bounds are respected
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Stack size should never exceed MAX_STACK_SIZE
         assert!(stack.len() <= MAX_STACK_SIZE);
@@ -3447,7 +3456,7 @@ mod kani_proofs {
         // Count operations during script execution
         // Note: Production code tracks op_count precisely. This Kani proof verifies
         // the critical property that execution terminates within MAX_SCRIPT_OPS operations.
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Script execution must either succeed or fail, but never exceed operation limits
         // The implementation enforces MAX_SCRIPT_OPS = 201 (Orange Paper Section 5.2)
@@ -3485,7 +3494,7 @@ mod kani_proofs {
 
         // The implementation checks op_count > MAX_SCRIPT_OPS after incrementing
         // So exactly 201 operations should pass (op_count = 201, check is op_count > 201)
-        let result_max_ops = eval_script(&script_max_ops, &mut stack, flags);
+        let result_max_ops = eval_script(&script_max_ops, &mut stack, flags, SigVersion::Base);
 
         // Script with MAX_SCRIPT_OPS operations may pass if valid
         // (The check is op_count > MAX_SCRIPT_OPS, so 201 is allowed)
@@ -3500,7 +3509,7 @@ mod kani_proofs {
         // Script with MAX_SCRIPT_OPS + 1 operations must fail
         let script_exceed_ops: Vec<u8> = vec![0x51; MAX_SCRIPT_OPS + 1];
         let mut stack2 = Vec::new();
-        let result_exceed_ops = eval_script(&script_exceed_ops, &mut stack2, flags);
+        let result_exceed_ops = eval_script(&script_exceed_ops, &mut stack2, flags, SigVersion::Base);
 
         // The implementation checks op_count > MAX_SCRIPT_OPS after incrementing
         // So 202 operations should fail (op_count = 202, check is op_count > 201)
@@ -3638,7 +3647,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // Execute script
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Critical invariant: stack size never exceeds MAX_STACK_SIZE
         assert!(
@@ -3684,7 +3693,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
         let initial_len = stack.len();
 
-        let result = execute_opcode(opcode, &mut stack, flags);
+        let result = execute_opcode(opcode, &mut stack, flags, SigVersion::Base);
 
         // Stack underflow should be handled gracefully
         match opcode {
@@ -3746,12 +3755,12 @@ mod kani_proofs {
         // Calculate according to Orange Paper spec:
         // 1. Execute scriptSig on empty stack
         let mut stack1 = Vec::new();
-        let sig_result = eval_script(&script_sig, &mut stack1, flags);
+        let sig_result = eval_script(&script_sig, &mut stack1, flags, SigVersion::Base);
 
         // 2. Execute scriptPubkey on resulting stack
         let mut stack2 = stack1.clone();
         let pubkey_result = if sig_result.is_ok() && sig_result.unwrap() {
-            eval_script(&script_pubkey, &mut stack2, flags)
+            eval_script(&script_pubkey, &mut stack2, flags, SigVersion::Base)
         } else {
             Ok(false)
         };
@@ -3760,7 +3769,7 @@ mod kani_proofs {
         let mut stack3 = stack2.clone();
         let witness_result = if pubkey_result.is_ok() && pubkey_result.unwrap() {
             if let Some(ref w) = witness {
-                eval_script(w, &mut stack3, flags)
+                eval_script(w, &mut stack3, flags, SigVersion::Base)
             } else {
                 Ok(true)
             }
@@ -3809,7 +3818,7 @@ mod kani_proofs {
         }
 
         // Execute script
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         if result.is_ok() {
             let is_valid = result.unwrap();
@@ -3919,7 +3928,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // Should not panic
-        let result = execute_opcode(opcode, &mut stack, flags);
+        let result = execute_opcode(opcode, &mut stack, flags, SigVersion::Base);
 
         // Result should be valid boolean
         assert!(result.is_ok());
@@ -3960,7 +3969,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // OP_CHECKSIG should handle all signature formats gracefully
-        let result = execute_opcode(0xac, &mut stack, flags);
+        let result = execute_opcode(0xac, &mut stack, flags, SigVersion::Base);
 
         // Should never panic - must handle invalid signatures gracefully
         assert!(result.is_ok());
@@ -4023,7 +4032,7 @@ mod kani_proofs {
         let flags: u32 = kani::any();
 
         // OP_CHECKMULTISIG should handle all configurations gracefully
-        let result = execute_opcode(0xae, &mut stack, flags);
+        let result = execute_opcode(0xae, &mut stack, flags, SigVersion::Base);
 
         // Should never panic
         assert!(result.is_ok());
@@ -4046,7 +4055,7 @@ mod kani_proofs {
         let mut stack = Vec::new();
         let flags: u32 = kani::any();
 
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Should handle operation limit correctly
         if op_count > MAX_SCRIPT_OPS {
@@ -4072,7 +4081,7 @@ mod kani_proofs {
         let mut stack = Vec::new();
         let flags: u32 = kani::any();
 
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         if script_len > MAX_SCRIPT_SIZE {
             assert!(result.is_err());
@@ -4339,7 +4348,7 @@ mod kani_proofs_2 {
         kani::assume(stack.len() <= MAX_STACK_SIZE + 1);
 
         let initial_size = stack.len();
-        let result = execute_opcode(opcode, &mut stack, flags);
+        let result = execute_opcode(opcode, &mut stack, flags, SigVersion::Base);
 
         if result.is_ok() && result.unwrap() {
             // Stack size should never exceed MAX_STACK_SIZE
@@ -4368,7 +4377,7 @@ mod kani_proofs_2 {
         assume_script_bounds!(script, MAX_SCRIPT_OPS + 10);
 
         // Script execution should respect operation count limits
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // If script is too long, it should fail on operation limit
         if script.len() > MAX_SCRIPT_OPS {
@@ -4434,6 +4443,7 @@ mod kani_proofs_2 {
             block_height,
             median_time_past,
             crate::types::Network::Regtest,
+            SigVersion::Base,
         );
 
         if result.is_ok() && result.unwrap() {

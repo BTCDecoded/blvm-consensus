@@ -483,10 +483,7 @@ fn disconnect_block(
     // This reverses the order of operations from connect_block
     for (i, entry) in undo_log.entries.iter().enumerate() {
         // Bounds checking assertion: Entry index must be valid
-        assert!(
-            i < undo_log.entries.len(),
-            "Entry index {i} out of bounds"
-        );
+        assert!(i < undo_log.entries.len(), "Entry index {i} out of bounds");
         // Remove new UTXO (if it was created by this block)
         if entry.new_utxo.is_some() {
             utxo_set.remove(&entry.outpoint);
