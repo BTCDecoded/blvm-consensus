@@ -19,8 +19,7 @@ pub fn reorganize_chain(
     // Precondition assertions: Validate function inputs
     assert!(
         current_height <= i64::MAX as u64,
-        "Current height {} must fit in i64",
-        current_height
+        "Current height {current_height} must fit in i64"
     );
     assert!(
         current_utxo_set.len() <= u32::MAX as usize,
@@ -101,8 +100,7 @@ pub fn reorganize_chain_with_witnesses(
     // Precondition assertions: Validate function inputs
     assert!(
         current_height <= i64::MAX as u64,
-        "Current height {} must fit in i64",
-        current_height
+        "Current height {current_height} must fit in i64"
     );
     assert!(
         current_utxo_set.len() <= u32::MAX as usize,
@@ -180,13 +178,12 @@ pub fn reorganize_chain_with_witnesses(
 
     for i in (disconnect_start..current_chain.len()).rev() {
         // Bounds checking assertion: Block index must be valid
-        assert!(i < current_chain.len(), "Block index {} out of bounds", i);
+        assert!(i < current_chain.len(), "Block index {i} out of bounds");
         if let Some(block) = current_chain.get(i) {
             // Invariant assertion: Block must have transactions
             assert!(
                 !block.transactions.is_empty(),
-                "Block at index {} must have at least one transaction",
-                i
+                "Block at index {i} must have at least one transaction"
             );
 
             let block_hash = calculate_block_hash(&block.header);
@@ -468,8 +465,7 @@ fn disconnect_block(
     );
     assert!(
         _height <= i64::MAX as u64,
-        "Block height {} must fit in i64",
-        _height
+        "Block height {_height} must fit in i64"
     );
     assert!(
         utxo_set.len() <= u32::MAX as usize,
@@ -489,8 +485,7 @@ fn disconnect_block(
         // Bounds checking assertion: Entry index must be valid
         assert!(
             i < undo_log.entries.len(),
-            "Entry index {} out of bounds",
-            i
+            "Entry index {i} out of bounds"
         );
         // Remove new UTXO (if it was created by this block)
         if entry.new_utxo.is_some() {
@@ -540,16 +535,13 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
         // The type system guarantees non-negativity
         let result = new_work > current_work;
         // Postcondition assertion: Result must be boolean
-        #[allow(clippy::eq_op)]
-        {
-            assert!(result == true || result == false, "Result must be boolean");
-        }
+        // Note: Result is boolean (tautology for formal verification)
         return Ok(result);
     }
 
     // Postcondition assertion: Result must be boolean
     let result = false;
-    assert!(result == true || result == false, "Result must be boolean");
+    // Note: Result is boolean (tautology for formal verification)
     Ok(result)
 }
 

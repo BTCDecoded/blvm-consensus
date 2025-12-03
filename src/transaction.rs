@@ -201,7 +201,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     {
         for (i, output) in tx.outputs.iter().enumerate() {
             // Bounds checking assertion: Output index must be valid
-            assert!(i < tx.outputs.len(), "Output index {} out of bounds", i);
+            assert!(i < tx.outputs.len(), "Output index {i} out of bounds");
             // Check output value is valid (non-negative and within MAX_MONEY)
             // Note: We check this condition and return Invalid rather than asserting,
             // to allow tests to verify the validation logic properly
@@ -218,9 +218,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
             // Invariant assertion: Total output value must remain non-negative after addition
             assert!(
                 total_output_value >= 0,
-                "Total output value {} must be non-negative after output {}",
-                total_output_value,
-                i
+                "Total output value {total_output_value} must be non-negative after output {i}"
             );
         }
     }
@@ -233,8 +231,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Invariant assertion: Total output value must be non-negative
     assert!(
         total_output_value >= 0,
-        "Total output value {} must be non-negative",
-        total_output_value
+        "Total output value {total_output_value} must be non-negative"
     );
 
     #[cfg(feature = "production")]
@@ -260,8 +257,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         // Invariant assertion: Total output value must not exceed MAX_MONEY
         assert!(
             total_output_value <= MAX_MONEY,
-            "Total output value {} must not exceed MAX_MONEY",
-            total_output_value
+            "Total output value {total_output_value} must not exceed MAX_MONEY"
         );
         if !(0..=MAX_MONEY).contains(&total_output_value) {
             return Ok(ValidationResult::Invalid(format!(
@@ -310,7 +306,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     let mut seen_prevouts = HashSet::with_capacity(tx.inputs.len());
     for (i, input) in tx.inputs.iter().enumerate() {
         // Bounds checking assertion: Input index must be valid
-        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
+        assert!(i < tx.inputs.len(), "Input index {i} out of bounds");
         if !seen_prevouts.insert(&input.prevout) {
             return Ok(ValidationResult::Invalid(format!(
                 "Duplicate input prevout at index {i}"
@@ -329,9 +325,8 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         let script_sig_len = tx.inputs[0].script_sig.len();
         // Invariant assertion: Coinbase scriptSig length must be in valid range
         assert!(
-            script_sig_len >= 2 && script_sig_len <= 100,
-            "Coinbase scriptSig length {} must be between 2 and 100 bytes",
-            script_sig_len
+            (2..=100).contains(&script_sig_len),
+            "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
         );
         if !(2..=100).contains(&script_sig_len) {
             return Ok(ValidationResult::Invalid(format!(
@@ -358,7 +353,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 /// 6. Return (valid, total_in - total_out)
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
-#[allow(clippy::logic_bug)] // Intentional tautological assertions for formal verification
+#[allow(clippy::overly_complex_bool_expr)] // Intentional tautological assertions for formal verification
 pub fn check_tx_inputs(
     tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -377,8 +372,7 @@ pub fn check_tx_inputs(
     }
     assert!(
         height <= i64::MAX as u64,
-        "Block height {} must fit in i64",
-        height
+        "Block height {height} must fit in i64"
     );
     assert!(
         utxo_set.len() <= u32::MAX as usize,
@@ -391,7 +385,7 @@ pub fn check_tx_inputs(
         // Postcondition assertion: Coinbase fee must be zero
         #[allow(clippy::eq_op)]
         {
-            assert!(0 == 0, "Coinbase fee must be zero");
+            // Coinbase fee must be zero (tautology for formal verification)
         }
         return Ok((ValidationResult::Valid, 0));
     }
@@ -460,7 +454,7 @@ pub fn check_tx_inputs(
 
     for (i, opt_utxo) in input_utxos {
         // Bounds checking assertion: Input index must be valid
-        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
+        assert!(i < tx.inputs.len(), "Input index {i} out of bounds");
 
         // Check if input exists in UTXO set
         if let Some(utxo) = opt_utxo {
@@ -517,9 +511,7 @@ pub fn check_tx_inputs(
             // Invariant assertion: Total input value must remain non-negative after addition
             assert!(
                 total_input_value >= 0,
-                "Total input value {} must be non-negative after input {}",
-                total_input_value,
-                i
+                "Total input value {total_input_value} must be non-negative after input {i}"
             );
         } else {
             return Ok((
@@ -549,14 +541,12 @@ pub fn check_tx_inputs(
     // Invariant assertion: Total output value must be non-negative
     assert!(
         total_output_value >= 0,
-        "Total output value {} must be non-negative",
-        total_output_value
+        "Total output value {total_output_value} must be non-negative"
     );
     // Check that output total doesn't exceed MAX_MONEY (Bitcoin Core check)
     assert!(
         total_output_value <= MAX_MONEY,
-        "Total output value {} must not exceed MAX_MONEY",
-        total_output_value
+        "Total output value {total_output_value} must not exceed MAX_MONEY"
     );
     if total_output_value > MAX_MONEY {
         return Ok((
@@ -568,11 +558,9 @@ pub fn check_tx_inputs(
     }
 
     // Invariant assertion: Total input must be >= total output for valid transaction
-    #[allow(clippy::logic_bug)]
-    assert!(
-        total_input_value >= total_output_value || total_input_value < total_output_value,
-        "Input/output value relationship must be checked"
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = total_input_value >= total_output_value || total_input_value < total_output_value;
     if total_input_value < total_output_value {
         return Ok((
             ValidationResult::Invalid("Insufficient input value".to_string()),
@@ -586,19 +574,14 @@ pub fn check_tx_inputs(
         .ok_or_else(make_fee_calculation_underflow_error)?;
 
     // Postcondition assertions: Validate fee calculation result
-    assert!(fee >= 0, "Fee {} must be non-negative", fee);
+    assert!(fee >= 0, "Fee {fee} must be non-negative");
     assert!(
         fee <= total_input_value,
-        "Fee {} cannot exceed total input {}",
-        fee,
-        total_input_value
+        "Fee {fee} cannot exceed total input {total_input_value}"
     );
     assert!(
         total_input_value == total_output_value + fee,
-        "Conservation of value: input {} must equal output {} + fee {}",
-        total_input_value,
-        total_output_value,
-        fee
+        "Conservation of value: input {total_input_value} must equal output {total_output_value} + fee {fee}"
     );
 
     Ok((ValidationResult::Valid, fee))

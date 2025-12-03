@@ -387,14 +387,12 @@ fn eval_script_inner(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                {
-                    if !is_minimal_if_condition(&condition_bytes) {
+                    && !is_minimal_if_condition(&condition_bytes) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code: ScriptErrorCode::MinimalIf,
                             message: "OP_IF condition must be minimally encoded".into(),
                         });
                     }
-                }
 
                 control_stack.push(ControlBlock::If {
                     executing: condition,
@@ -419,14 +417,12 @@ fn eval_script_inner(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                {
-                    if !is_minimal_if_condition(&condition_bytes) {
+                    && !is_minimal_if_condition(&condition_bytes) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code: ScriptErrorCode::MinimalIf,
                             message: "OP_NOTIF condition must be minimally encoded".into(),
                         });
                     }
-                }
 
                 control_stack.push(ControlBlock::NotIf {
                     executing: !condition,
@@ -728,7 +724,7 @@ pub fn verify_script_with_context_full(
         if prevout_value > MAX_MONEY {
             return Err(ConsensusError::ScriptErrorWithCode {
                 code: ScriptErrorCode::ValueOverflow,
-                message: format!("Prevout value {} exceeds MAX_MONEY", prevout_value).into(),
+                message: format!("Prevout value {prevout_value} exceeds MAX_MONEY").into(),
             });
         }
     }
@@ -935,8 +931,7 @@ fn eval_script_with_context_full(
             // Invariant assertion: Op count must not exceed limit
             assert!(
                 op_count <= MAX_SCRIPT_OPS + 1,
-                "Op count {} must not exceed MAX_SCRIPT_OPS + 1",
-                op_count
+                "Op count {op_count} must not exceed MAX_SCRIPT_OPS + 1"
             );
             if op_count > MAX_SCRIPT_OPS {
                 return Err(make_operation_limit_error());
@@ -980,14 +975,12 @@ fn eval_script_with_context_full(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                {
-                    if !is_minimal_if_condition(&condition_bytes) {
+                    && !is_minimal_if_condition(&condition_bytes) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code: ScriptErrorCode::MinimalIf,
                             message: "OP_IF condition must be minimally encoded".into(),
                         });
                     }
-                }
 
                 control_stack.push(ControlBlock::If {
                     executing: condition,
@@ -1012,14 +1005,12 @@ fn eval_script_with_context_full(
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
                     && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                {
-                    if !is_minimal_if_condition(&condition_bytes) {
+                    && !is_minimal_if_condition(&condition_bytes) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code: ScriptErrorCode::MinimalIf,
                             message: "OP_NOTIF condition must be minimally encoded".into(),
                         });
                     }
-                }
 
                 control_stack.push(ControlBlock::NotIf {
                     executing: !condition,
@@ -1093,10 +1084,7 @@ fn eval_script_with_context_full(
     );
     let result = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
     // Postcondition assertion: Result must be boolean
-    #[allow(clippy::eq_op)]
-    {
-        assert!(result == true || result == false, "Result must be boolean");
-    }
+    // Note: Result is boolean (tautology for formal verification)
     Ok(result)
 }
 
@@ -2160,6 +2148,7 @@ fn verify_signature_fast_path(
 /// Performance optimization (Phase 6.3): Uses fast-path checks before expensive crypto.
 ///
 /// BIP66: Enforces strict DER encoding for signatures after activation height.
+#[allow(clippy::too_many_arguments)]
 fn verify_signature<C: Context + Verification>(
     secp: &Secp256k1<C>,
     pubkey_bytes: &[u8],
@@ -2241,11 +2230,10 @@ fn verify_signature<C: Context + Verification>(
     }
 
     const SCRIPT_VERIFY_WITNESS_PUBKEYTYPE: u32 = 0x8000;
-    if (flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0 && sigversion == SigVersion::WitnessV0 {
-        if !(pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03)) {
+    if (flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0 && sigversion == SigVersion::WitnessV0
+        && !(pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03)) {
             return Ok(false);
         }
-    }
 
     // Parse public key
     let pubkey = match PublicKey::from_slice(pubkey_bytes) {

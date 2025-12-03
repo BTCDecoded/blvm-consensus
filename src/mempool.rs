@@ -51,8 +51,7 @@ pub fn accept_to_memory_pool(
     }
     assert!(
         height <= i64::MAX as u64,
-        "Block height {} must fit in i64",
-        height
+        "Block height {height} must fit in i64"
     );
     assert!(
         utxo_set.len() <= u32::MAX as usize,
@@ -97,9 +96,9 @@ pub fn accept_to_memory_pool(
     // 3. Check inputs against UTXO set
     let (input_valid, fee) = check_tx_inputs(tx, utxo_set, height)?;
     // Invariant assertion: Fee must be non-negative
-    assert!(fee >= 0, "Fee {} must be non-negative", fee);
+    assert!(fee >= 0, "Fee {fee} must be non-negative");
     use crate::constants::MAX_MONEY;
-    assert!(fee <= MAX_MONEY, "Fee {} must not exceed MAX_MONEY", fee);
+    assert!(fee <= MAX_MONEY, "Fee {fee} must not exceed MAX_MONEY");
     if !matches!(input_valid, ValidationResult::Valid) {
         return Ok(MempoolResult::Rejected(
             "Invalid transaction inputs".to_string(),
@@ -249,7 +248,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
     // 2. Check script sizes
     for (i, input) in tx.inputs.iter().enumerate() {
         // Bounds checking assertion: Input index must be valid
-        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
+        assert!(i < tx.inputs.len(), "Input index {i} out of bounds");
         // Invariant assertion: Script size must be reasonable
         assert!(
             input.script_sig.len() <= MAX_SCRIPT_SIZE * 2,
@@ -264,7 +263,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 
     for (i, output) in tx.outputs.iter().enumerate() {
         // Bounds checking assertion: Output index must be valid
-        assert!(i < tx.outputs.len(), "Output index {} out of bounds", i);
+        assert!(i < tx.outputs.len(), "Output index {i} out of bounds");
         // Invariant assertion: Script size must be reasonable
         assert!(
             output.script_pubkey.len() <= MAX_SCRIPT_SIZE * 2,
@@ -282,8 +281,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         // Bounds checking assertion: Output index must be valid
         assert!(
             i < tx.outputs.len(),
-            "Output index {} out of bounds in standard check",
-            i
+            "Output index {i} out of bounds in standard check"
         );
         if !is_standard_script(&output.script_pubkey)? {
             return Ok(false);
@@ -292,10 +290,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 
     // Postcondition assertion: Result must be boolean
     let result = true;
-    #[allow(clippy::eq_op)]
-    {
-        assert!(result == true || result == false, "Result must be boolean");
-    }
+    // Note: Result is boolean (tautology for formal verification)
     Ok(result)
 }
 
@@ -354,22 +349,19 @@ pub fn replacement_checks(
     let new_fee = calculate_fee(new_tx, utxo_set)?;
     let existing_fee = calculate_fee(existing_tx, utxo_set)?;
     // Invariant assertion: Fees must be non-negative
-    assert!(new_fee >= 0, "New fee {} must be non-negative", new_fee);
+    assert!(new_fee >= 0, "New fee {new_fee} must be non-negative");
     assert!(
         existing_fee >= 0,
-        "Existing fee {} must be non-negative",
-        existing_fee
+        "Existing fee {existing_fee} must be non-negative"
     );
     use crate::constants::MAX_MONEY;
     assert!(
         new_fee <= MAX_MONEY,
-        "New fee {} must not exceed MAX_MONEY",
-        new_fee
+        "New fee {new_fee} must not exceed MAX_MONEY"
     );
     assert!(
         existing_fee <= MAX_MONEY,
-        "Existing fee {} must not exceed MAX_MONEY",
-        existing_fee
+        "Existing fee {existing_fee} must not exceed MAX_MONEY"
     );
 
     let new_tx_size = calculate_transaction_size_vbytes(new_tx);
@@ -377,23 +369,19 @@ pub fn replacement_checks(
     // Invariant assertion: Transaction sizes must be positive
     assert!(
         new_tx_size > 0,
-        "New transaction size {} must be positive",
-        new_tx_size
+        "New transaction size {new_tx_size} must be positive"
     );
     assert!(
         existing_tx_size > 0,
-        "Existing transaction size {} must be positive",
-        existing_tx_size
+        "Existing transaction size {existing_tx_size} must be positive"
     );
     assert!(
         new_tx_size <= MAX_TX_SIZE * 2,
-        "New transaction size {} must be reasonable",
-        new_tx_size
+        "New transaction size {new_tx_size} must be reasonable"
     );
     assert!(
         existing_tx_size <= MAX_TX_SIZE * 2,
-        "Existing transaction size {} must be reasonable",
-        existing_tx_size
+        "Existing transaction size {existing_tx_size} must be reasonable"
     );
 
     if new_tx_size == 0 || existing_tx_size == 0 {
@@ -691,6 +679,7 @@ fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
 ///   (tx.lock_time < LOCKTIME_THRESHOLD ∧ height > tx.lock_time) ∨
 ///   (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time > tx.lock_time) ∨
 ///   (∀ input ∈ tx.inputs: input.sequence == SEQUENCE_FINAL))
+///
 /// Check if transaction is final (Orange Paper Section 9.1 - Transaction Finality)
 ///
 /// Matches Bitcoin Core's IsFinalTx() exactly.
