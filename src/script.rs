@@ -3509,7 +3509,8 @@ mod kani_proofs {
         // Script with MAX_SCRIPT_OPS + 1 operations must fail
         let script_exceed_ops: Vec<u8> = vec![0x51; MAX_SCRIPT_OPS + 1];
         let mut stack2 = Vec::new();
-        let result_exceed_ops = eval_script(&script_exceed_ops, &mut stack2, flags, SigVersion::Base);
+        let result_exceed_ops =
+            eval_script(&script_exceed_ops, &mut stack2, flags, SigVersion::Base);
 
         // The implementation checks op_count > MAX_SCRIPT_OPS after incrementing
         // So 202 operations should fail (op_count = 202, check is op_count > 201)

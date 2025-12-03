@@ -139,7 +139,8 @@ jobs:
         run: |
           # Run tests only (no coverage) for fast PR feedback
           # Coverage runs separately in coverage.yml workflow
-          cargo test --all-features --locked
+          # Note: --locked removed for library crate (Cargo.lock is in .gitignore)
+          cargo test --all-features
       
       - name: Capture test output hash
         if: github.ref == 'refs/heads/main'
