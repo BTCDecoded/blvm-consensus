@@ -45,6 +45,7 @@ pub fn create_new_block(
 /// This allows callers (e.g., node layer) to provide a median time-past or
 /// adjusted network time instead of relying on `SystemTime::now()` inside
 /// consensus code.
+#[allow(clippy::too_many_arguments)]
 pub fn create_new_block_with_time(
     utxo_set: &UtxoSet,
     mempool_txs: &[Transaction],

@@ -223,7 +223,7 @@ fn build_time_context(recent_headers: Option<&[BlockHeader]>) -> Option<crate::t
     })
 }
 
-#[allow(clippy::logic_bug)] // Intentional tautological assertions for formal verification
+#[allow(clippy::overly_complex_bool_expr)] // Intentional tautological assertions for formal verification
 fn connect_block_inner(
     block: &Block,
     witnesses: &[Witness],
@@ -304,8 +304,7 @@ fn connect_block_inner(
     assert!(block_weight > 0, "Block weight must be positive");
     assert!(
         block_weight <= crate::constants::MAX_BLOCK_WEIGHT as u64 * 2,
-        "Block weight {} exceeds reasonable maximum",
-        block_weight
+        "Block weight {block_weight} exceeds reasonable maximum"
     );
     if block_weight > crate::constants::MAX_BLOCK_WEIGHT as u64 {
         return Ok((
@@ -332,9 +331,7 @@ fn connect_block_inner(
         const MAX_BLOCK_SERIALIZED_SIZE: usize = 4_000_000; // 4MB
         debug_assert!(
             serialized_size <= MAX_BLOCK_SERIALIZED_SIZE,
-            "Serialized block size {} exceeds MAX_BLOCK_SERIALIZED_SIZE {}",
-            serialized_size,
-            MAX_BLOCK_SERIALIZED_SIZE
+            "Serialized block size {serialized_size} exceeds MAX_BLOCK_SERIALIZED_SIZE {MAX_BLOCK_SERIALIZED_SIZE}"
         );
     }
 
@@ -352,7 +349,7 @@ fn connect_block_inner(
     #[allow(clippy::eq_op)]
     {
         assert!(
-            bip90_result == true || bip90_result == false,
+            bip90_result || !bip90_result,
             "BIP90 result must be boolean"
         );
     }
@@ -385,7 +382,7 @@ fn connect_block_inner(
     #[allow(clippy::eq_op)]
     {
         assert!(
-            bip30_result == true || bip30_result == false,
+            bip30_result || !bip30_result,
             "BIP30 result must be boolean"
         );
     }
@@ -861,9 +858,7 @@ fn connect_block_inner(
             // Postcondition assertion: Fee calculation result must be valid
             assert!(
                 fee >= 0 || !matches!(input_valid, ValidationResult::Valid),
-                "Fee {} must be non-negative for valid transaction at index {}",
-                fee,
-                i
+                "Fee {fee} must be non-negative for valid transaction at index {i}"
             );
             if !matches!(input_valid, ValidationResult::Valid) {
                 return Ok((
@@ -947,9 +942,7 @@ fn connect_block_inner(
             // Invariant assertion: Fee must be non-negative
             assert!(
                 fee >= 0,
-                "Fee {} must be non-negative at transaction {}",
-                fee,
-                i
+                "Fee {fee} must be non-negative at transaction {i}"
             );
             total_fees = total_fees
                 .checked_add(fee)
@@ -957,9 +950,7 @@ fn connect_block_inner(
             // Invariant assertion: Total fees must remain non-negative after addition
             assert!(
                 total_fees >= 0,
-                "Total fees {} must be non-negative after transaction {}",
-                total_fees,
-                i
+                "Total fees {total_fees} must be non-negative after transaction {i}"
             );
         }
     }
@@ -1008,8 +999,7 @@ fn connect_block_inner(
         assert!(subsidy >= 0, "Block subsidy must be non-negative");
         assert!(
             subsidy <= MAX_MONEY,
-            "Block subsidy {} must not exceed MAX_MONEY",
-            subsidy
+            "Block subsidy {subsidy} must not exceed MAX_MONEY"
         );
 
         // Use checked sum to prevent overflow when summing coinbase outputs
@@ -1044,10 +1034,7 @@ fn connect_block_inner(
         // Invariant assertion: Coinbase output must not exceed subsidy + fees
         assert!(
             coinbase_output <= max_coinbase_value,
-            "Coinbase output {} must not exceed fees {} + subsidy {}",
-            coinbase_output,
-            total_fees,
-            subsidy
+            "Coinbase output {coinbase_output} must not exceed fees {total_fees} + subsidy {subsidy}"
         );
         if coinbase_output > max_coinbase_value {
             return Ok((
@@ -1121,13 +1108,11 @@ fn connect_block_inner(
         // Bounds checking assertion: Transaction index must be valid
         assert!(
             i < block.transactions.len(),
-            "Transaction index {} out of bounds in sigop loop",
-            i
+            "Transaction index {i} out of bounds in sigop loop"
         );
         assert!(
             i < witnesses.len(),
-            "Witness index {} out of bounds in sigop loop",
-            i
+            "Witness index {i} out of bounds in sigop loop"
         );
 
         let tx_witness = witnesses.get(i);
@@ -1137,8 +1122,7 @@ fn connect_block_inner(
         // Note: u64 is always >= 0 by type definition
         assert!(
             tx_sigop_cost <= MAX_BLOCK_SIGOPS_COST,
-            "Transaction sigop cost {} must not exceed MAX_BLOCK_SIGOPS_COST",
-            tx_sigop_cost
+            "Transaction sigop cost {tx_sigop_cost} must not exceed MAX_BLOCK_SIGOPS_COST"
         );
 
         total_sigop_cost = total_sigop_cost.checked_add(tx_sigop_cost).ok_or_else(|| {
@@ -1150,19 +1134,14 @@ fn connect_block_inner(
         // Note: u64 is always >= 0 by type definition
         assert!(
             total_sigop_cost <= MAX_BLOCK_SIGOPS_COST * 2,
-            "Total sigop cost {} must be reasonable after transaction {}",
-            total_sigop_cost,
-            i
+            "Total sigop cost {total_sigop_cost} must be reasonable after transaction {i}"
         );
     }
 
     // Invariant assertion: Total sigop cost must not exceed maximum
-    #[allow(clippy::logic_bug)]
-    assert!(
-        total_sigop_cost <= MAX_BLOCK_SIGOPS_COST || total_sigop_cost > MAX_BLOCK_SIGOPS_COST,
-        "Total sigop cost {} must be checked against MAX_BLOCK_SIGOPS_COST",
-        total_sigop_cost
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = total_sigop_cost <= MAX_BLOCK_SIGOPS_COST || total_sigop_cost > MAX_BLOCK_SIGOPS_COST;
     if total_sigop_cost > MAX_BLOCK_SIGOPS_COST {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -1293,13 +1272,11 @@ fn connect_block_inner(
         // Bounds checking assertion: Transaction index must be valid
         assert!(
             i < block.transactions.len(),
-            "Transaction index {} out of bounds in application loop",
-            i
+            "Transaction index {i} out of bounds in application loop"
         );
         assert!(
             i < tx_ids.len(),
-            "Transaction index {} out of bounds for transaction IDs",
-            i
+            "Transaction index {i} out of bounds for transaction IDs"
         );
 
         let initial_utxo_size = utxo_set.len();
@@ -1359,13 +1336,11 @@ fn connect_block_inner(
         // Invariant assertion: Expected supply must be non-negative and within MAX_MONEY
         assert!(
             expected_supply >= 0,
-            "Expected supply {} must be non-negative",
-            expected_supply
+            "Expected supply {expected_supply} must be non-negative"
         );
         assert!(
             expected_supply <= MAX_MONEY,
-            "Expected supply {} must not exceed MAX_MONEY",
-            expected_supply
+            "Expected supply {expected_supply} must not exceed MAX_MONEY"
         );
 
         // Calculate actual supply from UTXO set (sum of all UTXO values)
@@ -1394,7 +1369,7 @@ fn connect_block_inner(
             })
             .try_fold(0i64, |acc, val| {
                 // Invariant assertion: Accumulator must remain non-negative
-                assert!(acc >= 0, "Accumulator {} must be non-negative", acc);
+                assert!(acc >= 0, "Accumulator {acc} must be non-negative");
                 acc.checked_add(val)
             })
             .unwrap_or(MAX_MONEY);
@@ -1484,8 +1459,7 @@ fn apply_transaction_with_id(
     );
     assert!(
         height <= i64::MAX as u64,
-        "Block height {} must fit in i64",
-        height
+        "Block height {height} must fit in i64"
     );
 
     use crate::reorganization::UndoEntry;
@@ -1613,8 +1587,7 @@ fn apply_transaction_with_id(
             // Invariant assertion: Outpoint index must fit in Natural
             assert!(
                 i <= u32::MAX as usize,
-                "Output index {} must fit in Natural",
-                i
+                "Output index {i} must fit in Natural"
             );
 
             let utxo = UTXO {
@@ -1654,9 +1627,7 @@ fn apply_transaction_with_id(
         // Coinbase: UTXO set should grow by number of outputs
         assert!(
             final_utxo_count >= initial_utxo_count,
-            "UTXO set size {} must not decrease after coinbase (was {})",
-            final_utxo_count,
-            initial_utxo_count
+            "UTXO set size {final_utxo_count} must not decrease after coinbase (was {initial_utxo_count})"
         );
         assert!(
             final_utxo_count <= initial_utxo_count + tx.outputs.len(),
@@ -1672,9 +1643,7 @@ fn apply_transaction_with_id(
         // Allow some variance due to missing UTXOs (invalid transactions)
         assert!(
             actual_change >= expected_change - tx.inputs.len() as i64,
-            "UTXO set size change {} must be reasonable (expected ~{})",
-            actual_change,
-            expected_change
+            "UTXO set size change {actual_change} must be reasonable (expected ~{expected_change})"
         );
     }
     assert!(
@@ -1696,18 +1665,15 @@ fn apply_transaction_with_id(
 ///   If Some, full timestamp validation is performed:
 ///   - Rejects blocks with timestamps > network_time + MAX_FUTURE_BLOCK_TIME
 ///   - Rejects blocks with timestamps < median_time_past
-#[allow(clippy::logic_bug, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
+#[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
 fn validate_block_header(
     header: &BlockHeader,
     time_context: Option<&crate::types::TimeContext>,
 ) -> Result<bool> {
     // Precondition assertions: Validate header fields
-    #[allow(clippy::logic_bug)]
-    assert!(
-        header.version >= 1 || header.version < 1,
-        "Header version {} must be checked",
-        header.version
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = header.version >= 1 || header.version < 1;
 
     // Check version is valid
     if header.version < 1 {
@@ -1716,11 +1682,10 @@ fn validate_block_header(
 
     // Check timestamp is non-zero
     // Precondition assertion: Timestamp must be checked
-    assert!(
-        header.timestamp == 0 || header.timestamp > 0,
-        "Header timestamp {} must be checked",
-        header.timestamp
-    );
+    // Note: u64 is always >= 0, so we only check for non-zero explicitly
+    if header.timestamp == 0 {
+        return Ok(false);
+    }
     if header.timestamp == 0 {
         return Ok(false);
     }
@@ -1742,12 +1707,9 @@ fn validate_block_header(
 
     // Check bits is valid
     // Precondition assertion: Bits must be checked
-    #[allow(clippy::logic_bug)]
-    assert!(
-        header.bits == 0 || header.bits != 0,
-        "Header bits {} must be checked",
-        header.bits
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = header.bits == 0 || header.bits != 0;
     if header.bits == 0 {
         return Ok(false);
     }
@@ -1761,11 +1723,9 @@ fn validate_block_header(
     // Check merkle root is valid (non-zero)
     // Orange Paper: merkle_root must be valid hash
     // Precondition assertion: Merkle root must be checked
-    #[allow(clippy::logic_bug)]
-    assert!(
-        header.merkle_root == [0u8; 32] || header.merkle_root != [0u8; 32],
-        "Merkle root must be checked"
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = header.merkle_root == [0u8; 32] || header.merkle_root != [0u8; 32];
     if header.merkle_root == [0u8; 32] {
         return Ok(false);
     }
@@ -1784,12 +1744,9 @@ fn validate_block_header(
     // Additional validation: version must be reasonable (not all zeros)
     // This prevents obviously invalid blocks
     // Precondition assertion: Version must be checked
-    #[allow(clippy::logic_bug)]
-    assert!(
-        header.version == 0 || header.version != 0,
-        "Header version {} must be checked",
-        header.version
-    );
+    // Note: Intentional tautology for formal verification
+    #[allow(clippy::overly_complex_bool_expr)]
+    let _ = header.version == 0 || header.version != 0;
     if header.version == 0 {
         return Ok(false);
     }
@@ -1805,12 +1762,12 @@ fn validate_block_header(
     #[allow(clippy::eq_op)]
     {
         assert!(
-            result == true || result == false,
+            result || !result,
             "Validation result must be boolean"
         );
     }
     // Postcondition assertion: Result must be true on success
-    assert!(result == true, "Validation result must be true on success");
+    assert!(result, "Validation result must be true on success");
 
     Ok(result)
 }

@@ -677,8 +677,7 @@ fn estimate_transaction_size(tx: &Transaction) -> u64 {
     // Runtime assertion: Estimated size must be reasonable
     debug_assert!(
         total_size <= 1_000_000,
-        "Transaction size estimate ({}) must not exceed MAX_TX_SIZE (1MB)",
-        total_size
+        "Transaction size estimate ({total_size}) must not exceed MAX_TX_SIZE (1MB)"
     );
 
     total_size
