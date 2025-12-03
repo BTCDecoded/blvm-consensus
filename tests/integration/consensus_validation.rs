@@ -157,7 +157,13 @@ fn test_consensus_proof_block_validation() {
     };
     
     let utxo_set = UtxoSet::new();
-    let (result, _new_utxo_set) = consensus.validate_block(&block, utxo_set, 0).unwrap();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let (result, _new_utxo_set) = consensus
+        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
 

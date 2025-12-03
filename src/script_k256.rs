@@ -5,7 +5,7 @@
 //! function but uses k256 for cryptographic operations.
 
 #[cfg(feature = "k256")]
-#[allow(deprecated)] // generic_array is deprecated but k256 still uses it
+#[allow(deprecated)] // generic_array is deprecated but k256 still uses it internally
 use k256::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
     elliptic_curve::generic_array::GenericArray,
@@ -50,13 +50,29 @@ pub fn verify_signature_k256(
             // Try parsing as compact 64-byte format if DER fails
             if signature_bytes.len() == 64 {
                 // Compact format: r || s (32 bytes each)
-                // Note: Using deprecated generic_array API from elliptic_curve
-                // TODO: Migrate to generic-array 1.x API when k256 updates its dependency
+                // Convert slices to fixed-size arrays first for type safety
+                let r_array: [u8; 32] = match signature_bytes[..32].try_into() {
+                    Ok(arr) => arr,
+                    Err(_) => return false,
+                };
+                let s_array: [u8; 32] = match signature_bytes[32..].try_into() {
+                    Ok(arr) => arr,
+                    Err(_) => return false,
+                };
+                
+                // Convert arrays to GenericArray using Into trait
+                // Note: k256's Signature::from_scalars requires GenericArray from elliptic_curve.
+                // While k256 still uses generic_array 0.x internally, we avoid the deprecated
+                // GenericArray::from_slice() by converting fixed-size arrays using Into<GenericArray>.
+                // This is the recommended approach until k256 migrates to generic-array 1.x.
                 #[allow(deprecated)]
-                let r = GenericArray::from_slice(&signature_bytes[..32]);
+                use k256::elliptic_curve::generic_array::typenum::U32;
                 #[allow(deprecated)]
-                let s = GenericArray::from_slice(&signature_bytes[32..]);
-                match Signature::from_scalars(*r, *s) {
+                let r: GenericArray<u8, U32> = r_array.into();
+                #[allow(deprecated)]
+                let s: GenericArray<u8, U32> = s_array.into();
+                
+                match Signature::from_scalars(r, s) {
                     Ok(sig) => sig,
                     Err(_) => return false,
                 }

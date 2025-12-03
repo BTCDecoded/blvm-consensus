@@ -53,6 +53,13 @@ pub const DIFFICULTY_ADJUSTMENT_INTERVAL: u64 = 2016;
 /// Target time per block: 10 minutes
 pub const TARGET_TIME_PER_BLOCK: u64 = 600;
 
+/// Maximum future block time tolerance: 2 hours (7200 seconds)
+///
+/// Blocks with timestamps more than this far in the future are rejected
+/// to prevent time-warp attacks. This allows for reasonable clock skew
+/// between network nodes.
+pub const MAX_FUTURE_BLOCK_TIME: u64 = 7200;
+
 /// Maximum target (minimum difficulty)
 pub const MAX_TARGET: u32 = 0x1d00ffff;
 

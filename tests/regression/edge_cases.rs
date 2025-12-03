@@ -197,7 +197,18 @@ fn test_block_size_boundaries() {
     };
     
     let utxo_set = UtxoSet::new();
-    let result = consensus.validate_block(&block, utxo_set, 0);
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let result = consensus.validate_block_with_time_context(
+        &block,
+        &witnesses,
+        utxo_set,
+        0,
+        time_context,
+        network,
+    );
     // Should either succeed or fail gracefully
     match result {
         Ok((validation_result, _)) => {

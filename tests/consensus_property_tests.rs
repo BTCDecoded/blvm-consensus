@@ -325,8 +325,8 @@ proptest! {
         let flags = 0u32;
 
         // Execute script twice with same inputs
-        let result1 = script::eval_script(&script, &mut stack1, flags);
-        let result2 = script::eval_script(&script, &mut stack2, flags);
+        let result1 = script::eval_script(&script, &mut stack1, flags, script::SigVersion::Base);
+        let result2 = script::eval_script(&script, &mut stack2, flags, script::SigVersion::Base);
 
         // Results should be identical
         prop_assert_eq!(result1, result2,
@@ -352,7 +352,7 @@ proptest! {
         let flags = 0u32;
 
         // Script execution should complete (may succeed or fail, but not hang)
-        let result = script::eval_script(&script, &mut stack, flags);
+        let result = script::eval_script(&script, &mut stack, flags, script::SigVersion::Base);
 
         // Result should be Ok or Err, but execution should terminate
         // (This is verified by the fact that we get a result)
@@ -498,7 +498,7 @@ proptest! {
         let flags = 0u32;
 
         let start = Instant::now();
-        let _result = script::eval_script(&script, &mut stack, flags);
+        let _result = script::eval_script(&script, &mut stack, flags, script::SigVersion::Base);
         let duration = start.elapsed();
 
         // Script execution should complete in reasonable time

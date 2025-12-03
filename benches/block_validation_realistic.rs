@@ -3,6 +3,7 @@
 
 use bllvm_consensus::block::connect_block;
 use bllvm_consensus::segwit::Witness;
+use bllvm_consensus::types::Network;
 use bllvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
 };
@@ -86,6 +87,7 @@ fn benchmark_connect_block_realistic(c: &mut Criterion) {
                 black_box(utxo_set.clone()),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
             // Note: May fail validation due to invalid UTXOs, but measures actual validation work
         })
@@ -105,6 +107,7 @@ fn benchmark_connect_block_realistic_1000tx(c: &mut Criterion) {
                 black_box(utxo_set.clone()),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
             // Note: May fail validation due to invalid UTXOs, but measures actual validation work
         })

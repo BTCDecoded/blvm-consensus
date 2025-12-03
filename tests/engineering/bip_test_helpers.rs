@@ -153,6 +153,8 @@ pub fn validate_with_context(
         &prevouts,
         Some(block_height), // Optional block height
         Some(median_time_past), // Optional median time-past
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     )
 }
 

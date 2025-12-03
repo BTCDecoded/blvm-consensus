@@ -64,7 +64,18 @@ proptest! {
         };
         
         let utxo_set = UtxoSet::new();
-        let result = consensus.validate_block(&block, utxo_set, 0);
+        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let time_context = None;
+        let network = bllvm_consensus::types::Network::Mainnet;
+        let result = consensus.validate_block_with_time_context(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            time_context,
+            network,
+        );
         
         // Block validation may succeed or fail depending on various factors
         // But structure should be valid
@@ -186,7 +197,18 @@ proptest! {
         
         let consensus = ConsensusProof::new();
         let utxo_set = UtxoSet::new();
-        let result = consensus.validate_block(&block, utxo_set, 0);
+        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let time_context = None;
+        let network = bllvm_consensus::types::Network::Mainnet;
+        let result = consensus.validate_block_with_time_context(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            time_context,
+            network,
+        );
         
         // Blocks must have at least one transaction (coinbase)
         prop_assert!(result.is_ok());
@@ -229,7 +251,18 @@ proptest! {
         
         let consensus = ConsensusProof::new();
         let utxo_set = UtxoSet::new();
-        let result = consensus.validate_block(&block, utxo_set, 0);
+        let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let time_context = None;
+        let network = bllvm_consensus::types::Network::Mainnet;
+        let result = consensus.validate_block_with_time_context(
+            &block,
+            &witnesses,
+            utxo_set,
+            0,
+            time_context,
+            network,
+        );
         
         // Block with only coinbase should be valid (structure-wise)
         // Actual validation may fail on other checks (PoW, scripts, etc.)

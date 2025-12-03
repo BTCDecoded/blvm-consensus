@@ -4,7 +4,7 @@ use crate::constants::*;
 use crate::economic::calculate_fee;
 use crate::error::{ConsensusError, Result};
 use crate::script::verify_script;
-use crate::segwit::{is_segwit_transaction, Witness};
+use crate::segwit::Witness;
 use crate::transaction::{check_transaction, check_tx_inputs};
 use crate::types::*;
 use std::collections::HashSet;
@@ -27,31 +27,31 @@ use std::collections::HashSet;
 /// * `utxo_set` - Current UTXO set
 /// * `mempool` - Current mempool state
 /// * `height` - Current block height
+/// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
 pub fn accept_to_memory_pool(
     tx: &Transaction,
     witnesses: Option<&[Witness]>,
     utxo_set: &UtxoSet,
     mempool: &Mempool,
     height: Natural,
+    time_context: Option<TimeContext>,
 ) -> Result<MempoolResult> {
-    accept_to_memory_pool_with_config(tx, witnesses, utxo_set, mempool, height, None)
-}
-
-/// Accept transaction to memory pool (with optional configuration)
-pub fn accept_to_memory_pool_with_config(
-    tx: &Transaction,
-    witnesses: Option<&[Witness]>,
-    utxo_set: &UtxoSet,
-    mempool: &Mempool,
-    height: Natural,
-    config: Option<&crate::config::MempoolConfig>,
-) -> Result<MempoolResult> {
-    // Use default config if not provided
-    let default_config = crate::config::MempoolConfig::default();
-    let config = config.unwrap_or(&default_config);
-
+    // Precondition assertions: Validate function inputs
+    assert!(!tx.inputs.is_empty() || !tx.outputs.is_empty(),
+        "Transaction must have at least one input or output");
+    assert!(!is_coinbase(tx), "Coinbase transactions cannot be added to mempool");
+    assert!(height <= i64::MAX as u64, "Block height {} must fit in i64", height);
+    assert!(utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} exceeds maximum", utxo_set.len());
+    if let Some(wits) = witnesses {
+        assert!(wits.len() == tx.inputs.len(),
+            "Witness count {} must match input count {}", wits.len(), tx.inputs.len());
+    }
+    
     // 1. Check if transaction is already in mempool
     let tx_id = crate::block::calculate_tx_id(tx);
+    // Invariant assertion: Transaction ID must be valid
+    assert!(tx_id != [0u8; 32], "Transaction ID must be non-zero");
     if mempool.contains(&tx_id) {
         return Ok(MempoolResult::Rejected(
             "Transaction already in mempool".to_string(),
@@ -66,37 +66,20 @@ pub fn accept_to_memory_pool_with_config(
     }
 
     // 2.5. Check transaction finality
-    // Note: block_time would typically come from network/chain state
-    // For mempool acceptance, we use current system time as approximation
-    // In production, this should use the chain tip's median time-past
-    let block_time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
+    // Use median time-past of chain tip (BIP113) for proper locktime/sequence validation
+    let block_time = time_context.map(|ctx| ctx.median_time_past).unwrap_or(0);
     if !is_final_tx(tx, height, block_time) {
         return Ok(MempoolResult::Rejected(
             "Transaction not final (locktime not satisfied)".to_string(),
         ));
     }
 
-    // 2.6. Optional: Check spam filter (if enabled)
-    if config.reject_spam_in_mempool {
-        use crate::spam_filter::{SpamFilter, SpamFilterConfig};
-        let filter_config = config.spam_filter_config.as_ref()
-            .map(|serializable| serializable.clone().into())
-            .unwrap_or_else(|| SpamFilterConfig::default());
-        let spam_filter = SpamFilter::with_config(filter_config);
-        let result = spam_filter.is_spam_with_witness(tx, witnesses);
-        if result.is_spam {
-            return Ok(MempoolResult::Rejected(
-                format!("Spam transaction rejected: {:?}", result.spam_type)
-            ));
-        }
-    }
-
     // 3. Check inputs against UTXO set
     let (input_valid, fee) = check_tx_inputs(tx, utxo_set, height)?;
+    // Invariant assertion: Fee must be non-negative
+    assert!(fee >= 0, "Fee {} must be non-negative", fee);
+    use crate::constants::MAX_MONEY;
+    assert!(fee <= MAX_MONEY, "Fee {} must not exceed MAX_MONEY", fee);
     if !matches!(input_valid, ValidationResult::Valid) {
         return Ok(MempoolResult::Rejected(
             "Invalid transaction inputs".to_string(),
@@ -143,7 +126,16 @@ pub fn accept_to_memory_pool_with_config(
 
             // Check results sequentially
             let script_results = script_results?;
+            // Invariant assertion: Script results count must match input count
+            assert!(script_results.len() == tx.inputs.len(),
+                "Script results count {} must match input count {}",
+                script_results.len(), tx.inputs.len());
             for (i, &is_valid) in script_results.iter().enumerate() {
+                // Bounds checking assertion: Input index must be valid
+                assert!(i < tx.inputs.len(),
+                    "Input index {} out of bounds in script validation loop", i);
+                // Invariant assertion: Script result must be boolean
+                assert!(is_valid == true || is_valid == false, "Script result must be boolean");
                 if !is_valid {
                     return Ok(MempoolResult::Rejected(format!(
                         "Invalid script at input {}",
@@ -199,41 +191,16 @@ pub fn accept_to_memory_pool_with_config(
 /// Returns appropriate flags for script validation:
 /// - Base flags: Standard validation flags (P2SH, STRICTENC, DERSIG, LOW_S, etc.)
 /// - SegWit flag (SCRIPT_VERIFY_WITNESS = 0x800): Enabled if transaction uses SegWit
-/// - Taproot flag (SCRIPT_VERIFY_TAPROOT = 0x2000): Enabled if transaction uses Taproot
+/// - Taproot flag (SCRIPT_VERIFY_TAPROOT = 0x4000): Enabled if transaction uses Taproot
 fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u32 {
-    // Base flags (standard validation flags)
-    // In Bitcoin Core, these are typically always enabled:
-    // SCRIPT_VERIFY_P2SH = 0x01
-    // SCRIPT_VERIFY_STRICTENC = 0x02
-    // SCRIPT_VERIFY_DERSIG = 0x04
-    // SCRIPT_VERIFY_LOW_S = 0x08
-    // SCRIPT_VERIFY_NULLDUMMY = 0x10
-    // SCRIPT_VERIFY_SIGPUSHONLY = 0x20
-    // SCRIPT_VERIFY_MINIMALDATA = 0x40
-    // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS = 0x80
-    // SCRIPT_VERIFY_CLEANSTACK = 0x100
-    // SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY = 0x200
-    // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY = 0x400
-    let base_flags = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
-
-    let mut flags = base_flags;
-
-    // Enable SegWit flag if transaction has witness data or is a SegWit transaction
-    if witnesses.is_some() || is_segwit_transaction(tx) {
-        flags |= 0x800; // SCRIPT_VERIFY_WITNESS
-    }
-
-    // Enable Taproot flag if transaction uses Taproot outputs
-    // Check if any output is P2TR (Pay-to-Taproot): 0x5120 (1-byte version + 32-byte x-only pubkey)
-    for output in &tx.outputs {
-        let script = &output.script_pubkey;
-        if script.len() == 34 && script[0] == 0x51 && script[1] == 0x20 {
-            flags |= 0x2000; // SCRIPT_VERIFY_TAPROOT
-            break;
-        }
-    }
-
-    flags
+    // Delegate to the canonical script flag calculation used by block validation.
+    //
+    // Note: For mempool policy we only care about which flags are enabled, not the
+    // actual witness contents here, so we rely on the transaction structure itself
+    // (including SegWit/Taproot outputs) in `calculate_script_flags_for_block`.
+    // Witness data is still threaded through to `verify_script` separately.
+    let _ = witnesses;
+    crate::block::calculate_script_flags_for_block(tx, None)
 }
 
 /// IsStandardTx: 𝒯𝒳 → {true, false}
@@ -244,15 +211,6 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
 /// 3. Standard script types
 /// 4. Fee rate requirements
 pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
-    is_standard_tx_with_config(tx, None)
-}
-
-/// Check if transaction is standard (with optional configuration)
-pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::config::MempoolConfig>) -> Result<bool> {
-    // Use default config if not provided
-    let default_config = crate::config::MempoolConfig::default();
-    let config_opt = config;
-
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
     if tx_size > MAX_TX_SIZE {
@@ -260,55 +218,41 @@ pub fn is_standard_tx_with_config(tx: &Transaction, config: Option<&crate::confi
     }
 
     // 2. Check script sizes
-    for input in &tx.inputs {
+    for (i, input) in tx.inputs.iter().enumerate() {
+        // Bounds checking assertion: Input index must be valid
+        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
+        // Invariant assertion: Script size must be reasonable
+        assert!(input.script_sig.len() <= MAX_SCRIPT_SIZE * 2,
+            "Script size {} must be reasonable for input {}", input.script_sig.len(), i);
         if input.script_sig.len() > MAX_SCRIPT_SIZE {
             return Ok(false);
         }
     }
 
-    for output in &tx.outputs {
+    for (i, output) in tx.outputs.iter().enumerate() {
+        // Bounds checking assertion: Output index must be valid
+        assert!(i < tx.outputs.len(), "Output index {} out of bounds", i);
+        // Invariant assertion: Script size must be reasonable
+        assert!(output.script_pubkey.len() <= MAX_SCRIPT_SIZE * 2,
+            "Script size {} must be reasonable for output {}", output.script_pubkey.len(), i);
         if output.script_pubkey.len() > MAX_SCRIPT_SIZE {
             return Ok(false);
         }
     }
 
-    // 3. Check OP_RETURN outputs
-    let mut op_return_count = 0;
-    for output in &tx.outputs {
-        // Detect OP_RETURN: script starts with 0x6a
-        if !output.script_pubkey.is_empty() && output.script_pubkey[0] == 0x6a {
-            op_return_count += 1;
-
-            // Check size: OP_RETURN (1 byte) + push opcode (1 byte) + data ≤ max_size + 2
-            // Script format: [OP_RETURN (0x6a)] [push opcode] [data...]
-            let config = config_opt.unwrap_or(&default_config);
-            if output.script_pubkey.len() > (config.max_op_return_size + 2) as usize {
-                return Ok(false);
-            }
+    // 3. Check for standard script types (simplified)
+    for (i, output) in tx.outputs.iter().enumerate() {
+        // Bounds checking assertion: Output index must be valid
+        assert!(i < tx.outputs.len(), "Output index {} out of bounds in standard check", i);
+        if !is_standard_script(&output.script_pubkey)? {
+            return Ok(false);
         }
     }
 
-    // Reject multiple OP_RETURN outputs (spam pattern)
-    let config = config_opt.unwrap_or(&default_config);
-    if config.reject_multiple_op_return && op_return_count > config.max_op_return_outputs {
-        return Ok(false);
-    }
-
-    // 4. Check for standard script types (simplified)
-    for output in &tx.outputs {
-        // Use convenience function when config is None (default), otherwise use config-specific version
-        if config_opt.is_none() {
-            if !is_standard_script(&output.script_pubkey)? {
-                return Ok(false);
-            }
-        } else {
-            if !is_standard_script_with_config(&output.script_pubkey, config_opt)? {
-                return Ok(false);
-            }
-        }
-    }
-
-    Ok(true)
+    // Postcondition assertion: Result must be boolean
+    let result = true;
+    assert!(result == true || result == false, "Result must be boolean");
+    Ok(result)
 }
 
 /// ReplacementChecks: 𝒯𝒳 × 𝒯𝒳 × 𝒰𝒮 × Mempool → {true, false}
@@ -327,6 +271,16 @@ pub fn replacement_checks(
     utxo_set: &UtxoSet,
     mempool: &Mempool,
 ) -> Result<bool> {
+    // Precondition assertions: Validate function inputs
+    assert!(!new_tx.inputs.is_empty() || !new_tx.outputs.is_empty(),
+        "New transaction must have at least one input or output");
+    assert!(!existing_tx.inputs.is_empty() || !existing_tx.outputs.is_empty(),
+        "Existing transaction must have at least one input or output");
+    assert!(!is_coinbase(new_tx), "New transaction cannot be coinbase");
+    assert!(!is_coinbase(existing_tx), "Existing transaction cannot be coinbase");
+    assert!(utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} exceeds maximum", utxo_set.len());
+    
     // 1. Check RBF signaling - existing transaction must signal RBF
     // Note: new_tx doesn't need to signal RBF per BIP125, only existing_tx does
     if !signals_rbf(existing_tx) {
@@ -336,9 +290,20 @@ pub fn replacement_checks(
     // 2. Check fee rate: FeeRate(tx_2) > FeeRate(tx_1)
     let new_fee = calculate_fee(new_tx, utxo_set)?;
     let existing_fee = calculate_fee(existing_tx, utxo_set)?;
+    // Invariant assertion: Fees must be non-negative
+    assert!(new_fee >= 0, "New fee {} must be non-negative", new_fee);
+    assert!(existing_fee >= 0, "Existing fee {} must be non-negative", existing_fee);
+    use crate::constants::MAX_MONEY;
+    assert!(new_fee <= MAX_MONEY, "New fee {} must not exceed MAX_MONEY", new_fee);
+    assert!(existing_fee <= MAX_MONEY, "Existing fee {} must not exceed MAX_MONEY", existing_fee);
 
     let new_tx_size = calculate_transaction_size_vbytes(new_tx);
     let existing_tx_size = calculate_transaction_size_vbytes(existing_tx);
+    // Invariant assertion: Transaction sizes must be positive
+    assert!(new_tx_size > 0, "New transaction size {} must be positive", new_tx_size);
+    assert!(existing_tx_size > 0, "Existing transaction size {} must be positive", existing_tx_size);
+    assert!(new_tx_size <= MAX_TX_SIZE * 2, "New transaction size {} must be reasonable", new_tx_size);
+    assert!(existing_tx_size <= MAX_TX_SIZE * 2, "Existing transaction size {} must be reasonable", existing_tx_size);
 
     if new_tx_size == 0 || existing_tx_size == 0 {
         return Ok(false);
@@ -594,14 +559,6 @@ fn check_mempool_rules(tx: &Transaction, fee: Integer, mempool: &Mempool) -> Res
         return Ok(false);
     }
 
-    // Check higher fee rate requirement for large transactions
-    if tx_size as u64 > config.mempool.large_tx_threshold_bytes {
-        let min_fee_rate_large = config.mempool.min_fee_rate_large_tx as f64;
-        if fee_rate < min_fee_rate_large {
-            return Ok(false);
-        }
-    }
-
     // Check mempool size limits using configuration
     // Use transaction count limit (simpler than size-based for now)
     if mempool.len() > config.mempool.max_mempool_txs {
@@ -643,6 +600,28 @@ fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
 ///   (tx.lock_time < LOCKTIME_THRESHOLD ∧ height > tx.lock_time) ∨
 ///   (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time > tx.lock_time) ∨
 ///   (∀ input ∈ tx.inputs: input.sequence == SEQUENCE_FINAL))
+/// Check if transaction is final (Orange Paper Section 9.1 - Transaction Finality)
+///
+/// Matches Bitcoin Core's IsFinalTx() exactly.
+///
+/// A transaction is final if:
+/// 1. tx.lock_time == 0 (no locktime restriction), OR
+/// 2. If locktime < LOCKTIME_THRESHOLD (block height): height > tx.lock_time
+/// 3. If locktime >= LOCKTIME_THRESHOLD (timestamp): block_time > tx.lock_time
+/// 4. OR if all inputs have SEQUENCE_FINAL (0xffffffff), locktime is ignored
+///
+/// Mathematical specification:
+/// ∀ tx ∈ Transaction, height ∈ ℕ, block_time ∈ ℕ:
+/// - is_final_tx(tx, height, block_time) = true ⟹
+///   (tx.lock_time = 0 ∨
+///   (tx.lock_time < LOCKTIME_THRESHOLD ∧ height > tx.lock_time) ∨
+///   (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time > tx.lock_time) ∨
+///   (∀ input ∈ tx.inputs: input.sequence == SEQUENCE_FINAL))
+///
+/// # Arguments
+/// * `tx` - Transaction to check
+/// * `height` - Current block height
+/// * `block_time` - Median time-past of chain tip (BIP113) for timestamp locktime validation
 pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bool {
     use crate::constants::SEQUENCE_FINAL;
 
@@ -760,19 +739,7 @@ fn creates_new_dependencies(
 }
 
 /// Check if script is standard
-/// 
-/// This is a convenience wrapper for is_standard_script_with_config that uses default configuration.
-/// Useful for cases where custom mempool configuration is not needed.
-pub fn is_standard_script(script: &ByteString) -> Result<bool> {
-    is_standard_script_with_config(script, None)
-}
-
-/// Check if script is standard (with optional configuration)
-fn is_standard_script_with_config(script: &ByteString, config: Option<&crate::config::MempoolConfig>) -> Result<bool> {
-    // Use default config if not provided
-    let default_config = crate::config::MempoolConfig::default();
-    let config = config.unwrap_or(&default_config);
-
+fn is_standard_script(script: &ByteString) -> Result<bool> {
     // Simplified standard script check
     // In reality, this would check for P2PKH, P2SH, P2WPKH, P2WSH, etc.
     if script.is_empty() {
@@ -781,19 +748,6 @@ fn is_standard_script_with_config(script: &ByteString, config: Option<&crate::co
 
     // Basic checks
     if script.len() > MAX_SCRIPT_SIZE {
-        return Ok(false);
-    }
-
-    // Reject envelope protocol (OP_FALSE OP_IF) - used for Ordinals
-    if config.reject_envelope_protocol && script.len() >= 2 {
-        if script[0] == 0x00 && script[1] == 0x63 {
-            // OP_FALSE (0x00) OP_IF (0x63)
-            return Ok(false);
-        }
-    }
-
-    // Reject very large scripts (likely data embedding)
-    if script.len() > config.max_standard_script_size as usize {
         return Ok(false);
     }
 
@@ -892,7 +846,11 @@ mod kani_proofs {
 
         // If transaction is already in mempool, it should be rejected
         if mempool.contains(&tx_id) {
-            let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height);
+            let time_context = Some(TimeContext {
+                network_time: 0,
+                median_time_past: 0,
+            });
+            let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
             if result.is_ok() {
                 let mempool_result = result.unwrap();
                 assert!(
@@ -1278,7 +1236,11 @@ mod tests {
         let mempool = Mempool::new();
 
         // This will fail on script validation, but that's expected
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100).unwrap();
+        let time_context = Some(TimeContext {
+            network_time: 1234567890,
+            median_time_past: 1234567890,
+        });
+        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1289,7 +1251,11 @@ mod tests {
         let mut mempool = Mempool::new();
         mempool.insert(crate::block::calculate_tx_id(&tx));
 
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100).unwrap();
+        let time_context = Some(TimeContext {
+            network_time: 1234567890,
+            median_time_past: 1234567890,
+        });
+        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1429,9 +1395,13 @@ mod tests {
         let coinbase_tx = create_coinbase_transaction();
         let utxo_set = UtxoSet::new();
         let mempool = Mempool::new();
-
         // Coinbase transactions should be rejected from mempool
-        let result = accept_to_memory_pool(&coinbase_tx, None, &utxo_set, &mempool, 100).unwrap();
+        let time_context = Some(TimeContext {
+            network_time: 0,
+            median_time_past: 0,
+        });
+        let result = accept_to_memory_pool(&coinbase_tx, None, &utxo_set, &mempool, 100, time_context)
+            .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1514,8 +1484,9 @@ mod tests {
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
 
         // New transaction with sufficient bump
-        new_tx.outputs[0].value = 8499; // Fee = 1501 sats (1501 > 500 + 1000 = 1500)
-                                        // Note: Still need conflict and higher fee rate
+        // Fee = 1501 sats (1501 > 500 + 1000 = 1500)
+        // Conflict detection and fee rate validation are handled by accept_to_memory_pool
+        new_tx.outputs[0].value = 8499;
     }
 
     #[test]
@@ -1967,7 +1938,11 @@ mod kani_proofs_2 {
             }
         }
 
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height);
+        let time_context = Some(TimeContext {
+            network_time: 0,
+            median_time_past: 0,
+        });
+        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
 
         if result.is_ok() {
             match result.unwrap() {

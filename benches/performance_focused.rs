@@ -12,7 +12,7 @@
 //! Run with: cargo bench --bench performance_focused --features production
 
 use bllvm_consensus::{
-    block::connect_block, segwit::Witness, Block, BlockHeader, OutPoint, Transaction,
+    block::connect_block, segwit::Witness, types::Network, Block, BlockHeader, OutPoint, Transaction,
     TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
@@ -215,6 +215,7 @@ fn bench_block_validation(c: &mut Criterion) {
                 black_box(utxo_set),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
         })
     });
@@ -232,6 +233,7 @@ fn bench_block_validation(c: &mut Criterion) {
                 black_box(utxo_set),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
         })
     });
@@ -255,6 +257,7 @@ fn bench_utxo_operations(c: &mut Criterion) {
         value: 1_000_000,
         script_pubkey: vec![0x51],
         height: 0,
+        is_coinbase: false,
     };
 
     let mut group = c.benchmark_group("utxo");

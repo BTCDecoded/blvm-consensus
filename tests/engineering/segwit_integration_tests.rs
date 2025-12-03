@@ -67,6 +67,9 @@ fn test_segwit_witness_validation() {
         0, // Input index
         &prevouts,
         None, // Block height
+        None, // Median time past
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
         None, // Median time-past
     );
     
@@ -266,6 +269,8 @@ fn test_segwit_p2wpkh_validation() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
     );
     
     assert!(result.is_ok());
@@ -328,6 +333,8 @@ fn test_segwit_p2wsh_validation() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
     );
     
     assert!(result.is_ok());

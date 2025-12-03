@@ -4,11 +4,11 @@
 //! including block validation, merkle root calculation, and batch operations.
 
 use bllvm_consensus::{
-    block::validate_block,
     mining::{calculate_merkle_root, generate_block_template},
     optimizations::simd_vectorization,
     serialization::{block::serialize_block, transaction::serialize_transaction},
     types::{Block, BlockHeader, Transaction},
+    ConsensusProof, ValidationResult, UtxoSet,
 };
 
 /// Test that block validation produces identical results with/without production feature
@@ -18,7 +18,19 @@ fn test_block_validation_correctness() {
     let utxo_set = UtxoSet::new();
 
     // Validate (uses optimizations in production)
-    let result = validate_block(&block, &[], &utxo_set);
+    let consensus = ConsensusProof::new();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let result = consensus.validate_block_with_time_context(
+        &block,
+        &witnesses,
+        utxo_set,
+        0,
+        time_context,
+        network,
+    );
 
     // Should handle validation (may fail due to missing UTXOs, but should not panic)
     let _ = result;

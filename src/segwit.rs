@@ -166,13 +166,18 @@ pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
     None
 }
 
-/// Check if transaction is SegWit
+/// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs
 pub fn is_segwit_transaction(tx: &Transaction) -> bool {
-    // Check if any input has witness data
-    // This is a simplified check - in reality we'd check the actual witness structure
-    tx.inputs.iter().any(|input| {
-        // Look for SegWit markers in script_sig
-        input.script_sig.len() == 1 && input.script_sig[0] == 0x00
+    use crate::witness::{extract_witness_program, extract_witness_version, validate_witness_program_length};
+
+    tx.outputs.iter().any(|output| {
+        let script = &output.script_pubkey;
+        if let Some(version) = extract_witness_version(script) {
+            if let Some(program) = extract_witness_program(script, version) {
+                return validate_witness_program_length(&program, version);
+            }
+        }
+        false
     })
 }
 

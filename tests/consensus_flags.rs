@@ -20,7 +20,7 @@
 //! - SCRIPT_VERIFY_MINIMALIF (0x2000)
 //! - SCRIPT_VERIFY_TAPROOT (0x4000)
 
-use bllvm_consensus::script::{eval_script, verify_script};
+use bllvm_consensus::script::{eval_script, verify_script, SigVersion};
 
 /// All script verification flags
 pub const ALL_FLAGS: &[u32] = &[
@@ -80,7 +80,7 @@ fn test_all_flag_combinations_simple() {
 
     for flags in flag_combinations {
         let mut stack = Vec::new();
-        let result = eval_script(&script, &mut stack, flags);
+        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Should not panic with any flag combination
         assert!(
@@ -125,21 +125,21 @@ fn test_flag_interactions() {
     let flags = 0x01 | 0x800; // P2SH + WITNESS
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags);
+    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Test STRICTENC + DERSIG combination
     let flags = 0x02 | 0x04; // STRICTENC + DERSIG
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags);
+    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Test TAPROOT + WITNESS combination
-    let flags = 0x4000 | 0x800; // TAPROOT + WITNESS
+    let flags = 0x4000 | 0x800; // TAPROOT + WITNESS (legacy mapping in this test module)
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags);
+    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 }
 
@@ -155,21 +155,21 @@ fn test_historical_flag_changes() {
     let pre_segwit_flags = 0x01 | 0x02 | 0x04; // P2SH + STRICTENC + DERSIG
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, pre_segwit_flags);
+    let result = eval_script(&script, &mut stack, pre_segwit_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Post-SegWit flags (WITNESS enabled)
     let post_segwit_flags = 0x01 | 0x02 | 0x04 | 0x800; // + WITNESS
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, post_segwit_flags);
+    let result = eval_script(&script, &mut stack, post_segwit_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Post-Taproot flags (TAPROOT enabled)
-    let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | 0x4000; // + TAPROOT
+    let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | 0x4000; // + TAPROOT (legacy mapping in this test module)
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, post_taproot_flags);
+    let result = eval_script(&script, &mut stack, post_taproot_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 }
 
@@ -185,7 +185,7 @@ fn test_flag_inheritance() {
     let flags = 0x01; // P2SH
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags);
+    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
     // Flags should be inherited correctly
     assert!(result.is_ok() || result.is_err());
@@ -199,7 +199,7 @@ fn test_individual_flags() {
     for &flag in ALL_FLAGS {
         let script = vec![0x51]; // OP_1
         let mut stack = Vec::new();
-        let result = eval_script(&script, &mut stack, flag);
+        let result = eval_script(&script, &mut stack, flag, SigVersion::Base);
 
         // Each flag should work correctly
         assert!(
@@ -227,7 +227,7 @@ fn test_flag_combinations_edge_cases() {
     for script in edge_case_scripts {
         for flags in &flag_combinations {
             let mut stack = Vec::new();
-            let result = eval_script(&script, &mut stack, *flags);
+            let result = eval_script(&script, &mut stack, *flags, SigVersion::Base);
 
             // Should handle edge cases with any flag combination
             assert!(result.is_ok() || result.is_err());

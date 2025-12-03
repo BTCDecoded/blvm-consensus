@@ -8,9 +8,8 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
-[dependencies.consensus-proof]
-path = ".."
-features = ["utxo-commitments"]
+[dependencies]
+bllvm-consensus = { path = "..", features = ["utxo-commitments"] }
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -107,6 +106,48 @@ bench = false
 [[bin]]
 name = "reorganization"
 path = "fuzz_targets/reorganization.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "taproot_validation"
+path = "fuzz_targets/taproot_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signature_verification"
+path = "fuzz_targets/signature_verification.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "merkle_validation"
+path = "fuzz_targets/merkle_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "block_header_validation"
+path = "fuzz_targets/block_header_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transaction_input_validation"
+path = "fuzz_targets/transaction_input_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transaction_output_validation"
+path = "fuzz_targets/transaction_output_validation.rs"
 test = false
 doc = false
 bench = false

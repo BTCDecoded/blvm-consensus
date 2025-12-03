@@ -144,7 +144,13 @@ fn test_validate_block() {
     };
 
     let utxo_set = UtxoSet::new();
-    let (result, new_utxo_set) = consensus.validate_block(&block, utxo_set, 0).unwrap();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let (result, new_utxo_set) = consensus
+        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .unwrap();
     // Note: Block validation may fail for various reasons (proof of work, etc.)
     // For this test, we just verify that validation runs without panicking
     // and that the UTXO set is updated if validation succeeds
@@ -320,8 +326,9 @@ fn test_accept_to_memory_pool() {
 
     let utxo_set = UtxoSet::new();
     let mempool = Mempool::new();
+    let time_context = None; // No time context for this test
 
-    let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 100);
+    let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 100, time_context);
     // This might fail due to missing UTXO, which is expected
     match result {
         Ok(mempool_result) => {

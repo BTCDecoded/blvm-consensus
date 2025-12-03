@@ -22,8 +22,9 @@ fn test_mempool_to_block_integration() {
     let mempool = mempool::Mempool::new();
 
     // 2. Accept transaction to mempool
+    let time_context = None; // No time context for this test
     let result = consensus
-        .accept_to_memory_pool(&tx, &utxo_set, &mempool, 100)
+        .accept_to_memory_pool(&tx, &utxo_set, &mempool, 100, time_context)
         .unwrap();
     assert!(matches!(result, mempool::MempoolResult::Rejected(_))); // Expected due to script validation
 
@@ -51,8 +52,13 @@ fn test_mempool_to_block_integration() {
     assert!(is_coinbase(&block.transactions[0]));
 
     // 5. Validate the created block
-    let (validation_result, _new_utxo_set) =
-        consensus.validate_block(&block, utxo_set, 100).unwrap();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let (validation_result, _new_utxo_set) = consensus
+        .validate_block_with_time_context(&block, &witnesses, utxo_set, 100, time_context, network)
+        .unwrap();
     assert_eq!(validation_result, ValidationResult::Valid);
 }
 
@@ -161,7 +167,13 @@ fn test_pow_block_integration() {
 
     // 4. Validate block (should pass other validations even if PoW fails)
     let utxo_set = UtxoSet::new();
-    let (validation_result, _new_utxo_set) = consensus.validate_block(&block, utxo_set, 0).unwrap();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let (validation_result, _new_utxo_set) = consensus
+        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .unwrap();
     // This might fail due to PoW, but the integration is tested
     assert!(
         matches!(validation_result, ValidationResult::Valid)
@@ -179,8 +191,9 @@ fn test_cross_system_error_handling() {
     let utxo_set = UtxoSet::new();
     let mempool = mempool::Mempool::new();
 
+    let time_context = None; // No time context for this test
     let result = consensus
-        .accept_to_memory_pool(&invalid_tx, &utxo_set, &mempool, 100)
+        .accept_to_memory_pool(&invalid_tx, &utxo_set, &mempool, 100, time_context)
         .unwrap();
     assert!(matches!(result, mempool::MempoolResult::Rejected(_)));
 
@@ -238,9 +251,10 @@ fn test_performance_integration() {
     let mut accepted = 0;
     let mempool = mempool::Mempool::new();
 
+    let time_context = None; // No time context for this test
     for tx in &mempool_txs {
         let result = consensus
-            .accept_to_memory_pool(tx, &utxo_set, &mempool, 100)
+            .accept_to_memory_pool(tx, &utxo_set, &mempool, 100, time_context)
             .unwrap();
         if matches!(result, mempool::MempoolResult::Accepted) {
             accepted += 1;

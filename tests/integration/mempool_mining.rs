@@ -170,7 +170,13 @@ fn test_pow_block_integration() {
     
     // Validate the block
     let utxo_set = UtxoSet::new();
-    let (block_result, _new_utxo_set) = consensus.validate_block(&block, utxo_set, 0).unwrap();
+    let witnesses: Vec<bllvm_consensus::segwit::Witness> =
+        block.transactions.iter().map(|_| Vec::new()).collect();
+    let time_context = None;
+    let network = bllvm_consensus::types::Network::Mainnet;
+    let (block_result, _new_utxo_set) = consensus
+        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .unwrap();
     assert!(matches!(block_result, ValidationResult::Valid));
 }
 

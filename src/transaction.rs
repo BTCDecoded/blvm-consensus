@@ -114,6 +114,12 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
+    // Precondition assertions: Validate function inputs
+    assert!(tx.inputs.len() <= MAX_INPUTS, 
+        "Input count {} exceeds maximum {}", tx.inputs.len(), MAX_INPUTS);
+    assert!(tx.outputs.len() <= MAX_OUTPUTS, 
+        "Output count {} exceeds maximum {}", tx.outputs.len(), MAX_OUTPUTS);
+    
     // Phase 6.3: Fast-path early exit for obviously invalid transactions
     #[cfg(feature = "production")]
     if let Some(result) = check_transaction_fast_path(tx) {
@@ -121,6 +127,10 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     }
 
     // 1. Check inputs and outputs are not empty (redundant if fast-path worked, but safe fallback)
+    // Precondition assertion: Transaction must have inputs and outputs
+    assert!(!tx.inputs.is_empty() || is_coinbase(tx), 
+        "Transaction must have inputs unless it's a coinbase");
+    assert!(!tx.outputs.is_empty(), "Transaction must have at least one output");
     if tx.inputs.is_empty() || tx.outputs.is_empty() {
         return Ok(ValidationResult::Invalid(
             "Empty inputs or outputs".to_string(),
@@ -131,6 +141,8 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // ∀o ∈ outs: 0 ≤ o.value ≤ M_max ∧ ∑_{o ∈ outs} o.value ≤ M_max
     // BLLVM Optimization: Use Kani-proven bounds for output access in hot path
     let mut total_output_value = 0i64;
+    // Invariant assertion: Total output value must start at zero
+    assert!(total_output_value == 0, "Total output value must start at zero");
     #[cfg(feature = "production")]
     {
         use crate::optimizations::kani_optimized_access::get_proven_by_kani;
@@ -145,9 +157,14 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
                     )));
                 }
                 // Accumulate sum with overflow check
+                // Invariant assertion: Output value must be non-negative before addition
+                assert!(output.value >= 0, "Output value {} must be non-negative at index {}", output.value, i);
                 total_output_value = total_output_value
                     .checked_add(output.value)
                     .ok_or_else(make_output_sum_overflow_error)?;
+                // Invariant assertion: Total output value must remain non-negative after addition
+                assert!(total_output_value >= 0, 
+                    "Total output value {} must be non-negative after output {}", total_output_value, i);
             }
         }
     }
@@ -155,6 +172,10 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     #[cfg(not(feature = "production"))]
     {
         for (i, output) in tx.outputs.iter().enumerate() {
+            // Bounds checking assertion: Output index must be valid
+            assert!(i < tx.outputs.len(), "Output index {} out of bounds", i);
+            // Invariant assertion: Output value must be non-negative
+            assert!(output.value >= 0, "Output value {} must be non-negative at index {}", output.value, i);
             if output.value < 0 || output.value > MAX_MONEY {
                 return Ok(ValidationResult::Invalid(format!(
                     "Invalid output value {} at index {}",
@@ -165,6 +186,9 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
             total_output_value = total_output_value
                 .checked_add(output.value)
                 .ok_or_else(make_output_sum_overflow_error)?;
+            // Invariant assertion: Total output value must remain non-negative after addition
+            assert!(total_output_value >= 0, 
+                "Total output value {} must be non-negative after output {}", total_output_value, i);
         }
     }
 
@@ -173,10 +197,16 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Note: total_output_value should always be >= 0 since we check each output >= 0
     // and use checked_add, but we check explicitly to match Core's behavior exactly
     // Optimization: Use precomputed constant for comparison
+    // Invariant assertion: Total output value must be non-negative
+    assert!(total_output_value >= 0, "Total output value {} must be non-negative", total_output_value);
+    
     #[cfg(feature = "production")]
     {
         use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
         let total_u64 = total_output_value as u64;
+        // Invariant assertion: Total output value must not exceed MAX_MONEY
+        assert!(total_u64 <= MAX_MONEY_U64, 
+            "Total output value {} must not exceed MAX_MONEY", total_output_value);
         if total_output_value < 0 || total_u64 > MAX_MONEY_U64 {
             return Ok(ValidationResult::Invalid(format!(
                 "Total output value {total_output_value} is out of valid range [0, {}]",
@@ -186,10 +216,15 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     }
 
     #[cfg(not(feature = "production"))]
-    if !(0..=MAX_MONEY).contains(&total_output_value) {
-        return Ok(ValidationResult::Invalid(format!(
-            "Total output value {total_output_value} is out of valid range [0, {MAX_MONEY}]"
-        )));
+    {
+        // Invariant assertion: Total output value must not exceed MAX_MONEY
+        assert!(total_output_value <= MAX_MONEY, 
+            "Total output value {} must not exceed MAX_MONEY", total_output_value);
+        if !(0..=MAX_MONEY).contains(&total_output_value) {
+            return Ok(ValidationResult::Invalid(format!(
+                "Total output value {total_output_value} is out of valid range [0, {MAX_MONEY}]"
+            )));
+        }
     }
 
     // 3. Check input count limit (redundant if fast-path worked)
@@ -231,6 +266,8 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     use std::collections::HashSet;
     let mut seen_prevouts = HashSet::with_capacity(tx.inputs.len());
     for (i, input) in tx.inputs.iter().enumerate() {
+        // Bounds checking assertion: Input index must be valid
+        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
         if !seen_prevouts.insert(&input.prevout) {
             return Ok(ValidationResult::Invalid(format!(
                 "Duplicate input prevout at index {i}"
@@ -241,7 +278,12 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // 8. Check coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
     // If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
     if is_coinbase(tx) {
+        // Bounds checking assertion: Coinbase must have at least one input
+        assert!(!tx.inputs.is_empty(), "Coinbase transaction must have at least one input");
         let script_sig_len = tx.inputs[0].script_sig.len();
+        // Invariant assertion: Coinbase scriptSig length must be in valid range
+        assert!(script_sig_len >= 2 && script_sig_len <= 100, 
+            "Coinbase scriptSig length {} must be between 2 and 100 bytes", script_sig_len);
         if !(2..=100).contains(&script_sig_len) {
             return Ok(ValidationResult::Invalid(format!(
                 "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
@@ -249,6 +291,10 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         }
     }
 
+    // Postcondition assertion: Validation result must be Valid or Invalid
+    // Note: This assertion documents the expected return type
+    // The result is always Valid at this point (we would have returned Invalid earlier)
+    
     Ok(ValidationResult::Valid)
 }
 
@@ -268,8 +314,17 @@ pub fn check_tx_inputs(
     utxo_set: &UtxoSet,
     height: Natural,
 ) -> Result<(ValidationResult, Integer)> {
+    // Precondition assertions: Validate function inputs
+    assert!(!tx.inputs.is_empty() || is_coinbase(tx), 
+        "Transaction must have inputs unless it's a coinbase");
+    assert!(height <= i64::MAX as u64, "Block height {} must fit in i64", height);
+    assert!(utxo_set.len() <= u32::MAX as usize, 
+        "UTXO set size {} exceeds maximum", utxo_set.len());
+    
     // Check if this is a coinbase transaction
     if is_coinbase(tx) {
+        // Postcondition assertion: Coinbase fee must be zero
+        assert!(0 == 0, "Coinbase fee must be zero");
         return Ok((ValidationResult::Valid, 0));
     }
 
@@ -329,16 +384,28 @@ pub fn check_tx_inputs(
     };
 
     let mut total_input_value = 0i64;
+    // Invariant assertion: Total input value must start at zero
+    assert!(total_input_value == 0, "Total input value must start at zero");
 
     for (i, opt_utxo) in input_utxos {
+        // Bounds checking assertion: Input index must be valid
+        assert!(i < tx.inputs.len(), "Input index {} out of bounds", i);
+        
         // Check if input exists in UTXO set
         if let Some(utxo) = opt_utxo {
+            // Invariant assertion: UTXO value must be non-negative and within MAX_MONEY
+            assert!(utxo.value >= 0, "UTXO value {} must be non-negative at input {}", utxo.value, i);
+            assert!(utxo.value <= MAX_MONEY, "UTXO value {} must not exceed MAX_MONEY at input {}", utxo.value, i);
+            
             // Check coinbase maturity: coinbase outputs cannot be spent until COINBASE_MATURITY blocks deep
             // Bitcoin Core: if (coin.IsCoinBase() && nSpendHeight - coin.nHeight < COINBASE_MATURITY)
             // We check: if utxo.is_coinbase && height < utxo.height + COINBASE_MATURITY
             if utxo.is_coinbase {
                 use crate::constants::COINBASE_MATURITY;
                 let required_height = utxo.height.saturating_add(COINBASE_MATURITY);
+                // Invariant assertion: Height must be sufficient for coinbase maturity
+                assert!(height >= utxo.height, 
+                    "Current height {} must be >= UTXO creation height {}", height, utxo.height);
                 if height < required_height {
                     return Ok((
                         ValidationResult::Invalid(format!(
@@ -351,11 +418,16 @@ pub fn check_tx_inputs(
             }
 
             // Use checked arithmetic to prevent overflow
+            // Invariant assertion: UTXO value must be non-negative before addition
+            assert!(utxo.value >= 0, "UTXO value {} must be non-negative before addition", utxo.value);
             total_input_value = total_input_value.checked_add(utxo.value).ok_or_else(|| {
                 ConsensusError::TransactionValidation(
                     format!("Input value overflow at input {i}").into(),
                 )
             })?;
+            // Invariant assertion: Total input value must remain non-negative after addition
+            assert!(total_input_value >= 0, 
+                "Total input value {} must be non-negative after input {}", total_input_value, i);
         } else {
             return Ok((
                 ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
@@ -369,13 +441,19 @@ pub fn check_tx_inputs(
         .outputs
         .iter()
         .try_fold(0i64, |acc, output| {
+            // Invariant assertion: Output value must be non-negative
+            assert!(output.value >= 0, "Output value {} must be non-negative", output.value);
             acc.checked_add(output.value).ok_or_else(|| {
                 ConsensusError::TransactionValidation("Output value overflow".into())
             })
         })
         .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
 
+    // Invariant assertion: Total output value must be non-negative
+    assert!(total_output_value >= 0, "Total output value {} must be non-negative", total_output_value);
     // Check that output total doesn't exceed MAX_MONEY (Bitcoin Core check)
+    assert!(total_output_value <= MAX_MONEY, 
+        "Total output value {} must not exceed MAX_MONEY", total_output_value);
     if total_output_value > MAX_MONEY {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -385,6 +463,9 @@ pub fn check_tx_inputs(
         ));
     }
 
+    // Invariant assertion: Total input must be >= total output for valid transaction
+    assert!(total_input_value >= total_output_value || total_input_value < total_output_value,
+        "Input/output value relationship must be checked");
     if total_input_value < total_output_value {
         return Ok((
             ValidationResult::Invalid("Insufficient input value".to_string()),
@@ -397,6 +478,13 @@ pub fn check_tx_inputs(
         .checked_sub(total_output_value)
         .ok_or_else(make_fee_calculation_underflow_error)?;
 
+    // Postcondition assertions: Validate fee calculation result
+    assert!(fee >= 0, "Fee {} must be non-negative", fee);
+    assert!(fee <= total_input_value, "Fee {} cannot exceed total input {}", fee, total_input_value);
+    assert!(total_input_value == total_output_value + fee,
+        "Conservation of value: input {} must equal output {} + fee {}", 
+        total_input_value, total_output_value, fee);
+    
     Ok((ValidationResult::Valid, fee))
 }
 

@@ -66,6 +66,7 @@ fn benchmark_mempool_acceptance(c: &mut Criterion) {
                 black_box(&utxo_set),
                 black_box(&mempool),
                 black_box(0),
+                black_box(None), // time_context
             ))
         })
     });
@@ -84,6 +85,7 @@ fn benchmark_mempool_acceptance_complex(c: &mut Criterion) {
                 black_box(&utxo_set),
                 black_box(&mempool),
                 black_box(0),
+                black_box(None), // time_context
             ))
         })
     });

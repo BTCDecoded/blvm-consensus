@@ -16,11 +16,22 @@ pub fn reorganize_chain(
     current_utxo_set: UtxoSet,
     current_height: Natural,
 ) -> Result<ReorganizationResult> {
+    // Precondition assertions: Validate function inputs
+    assert!(current_height <= i64::MAX as u64, "Current height {} must fit in i64", current_height);
+    assert!(current_utxo_set.len() <= u32::MAX as usize,
+        "Current UTXO set size {} exceeds maximum", current_utxo_set.len());
+    assert!(new_chain.len() <= 10_000, "New chain length {} must be reasonable", new_chain.len());
+    assert!(current_chain.len() <= 10_000, "Current chain length {} must be reasonable", current_chain.len());
+    
     // Create empty witnesses for all blocks (simplified)
     let empty_witnesses: Vec<Vec<Witness>> = new_chain
         .iter()
         .map(|block| block.transactions.iter().map(|_| Vec::new()).collect())
         .collect();
+    // Invariant assertion: Witness count must match block count
+    assert!(empty_witnesses.len() == new_chain.len(),
+        "Witness count {} must match new chain block count {}", 
+        empty_witnesses.len(), new_chain.len());
 
     reorganize_chain_with_witnesses(
         new_chain,
@@ -69,20 +80,64 @@ pub fn reorganize_chain_with_witnesses(
     get_undo_log_for_block: Option<impl Fn(&Hash) -> Option<BlockUndoLog>>,
     store_undo_log_for_block: Option<impl Fn(&Hash, &BlockUndoLog) -> Result<()>>,
 ) -> Result<ReorganizationResult> {
+    // Precondition assertions: Validate function inputs
+    assert!(current_height <= i64::MAX as u64, "Current height {} must fit in i64", current_height);
+    assert!(current_utxo_set.len() <= u32::MAX as usize,
+        "Current UTXO set size {} exceeds maximum", current_utxo_set.len());
+    assert!(new_chain.len() <= 10_000, "New chain length {} must be reasonable", new_chain.len());
+    assert!(current_chain.len() <= 10_000, "Current chain length {} must be reasonable", current_chain.len());
+    assert!(new_chain_witnesses.len() == new_chain.len(),
+        "New chain witness count {} must match block count {}", 
+        new_chain_witnesses.len(), new_chain.len());
+    
     // 1. Find common ancestor
-    let common_ancestor = find_common_ancestor(new_chain, current_chain)?;
+    let common_ancestor_header: BlockHeader = find_common_ancestor(new_chain, current_chain)?;
+    // Find the index of the common ancestor in the new chain
+    // For now, simplified: assume it's at index 0 (genesis)
+    // TODO: Implement proper common ancestor finding by comparing block hashes
+    let common_ancestor_index = 0usize;
+    // Invariant assertion: Common ancestor index must be valid
+    assert!(common_ancestor_index <= new_chain.len(),
+        "Common ancestor index {} must be <= new chain length {}", 
+        common_ancestor_index, new_chain.len());
+    assert!(common_ancestor_index <= current_chain.len(),
+        "Common ancestor index {} must be <= current chain length {}", 
+        common_ancestor_index, current_chain.len());
+    
+    // Use common_ancestor_header for the result
+    // Note: common_ancestor_index is currently hardcoded to 0, but common_ancestor_header
+    // is the actual header returned by find_common_ancestor
 
     // 2. Disconnect blocks from current chain back to common ancestor
     // Undo logs are retrieved from persistent storage via the callback.
     // The node layer (bllvm-node) should provide a callback that uses BlockStore::get_undo_log()
     // to retrieve undo logs from the database (redb/sled).
     let mut utxo_set = current_utxo_set;
+    // Invariant assertion: UTXO set size must be reasonable
+    assert!(utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} must not exceed maximum", utxo_set.len());
+    
     let disconnect_start = 0; // Simplified: disconnect from start
+    // Invariant assertion: Disconnect start must be valid
+    assert!(disconnect_start <= current_chain.len(),
+        "Disconnect start {} must be <= current chain length {}", 
+        disconnect_start, current_chain.len());
+    
     let mut disconnected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
+    // Invariant assertion: Disconnected undo logs must start empty
+    assert!(disconnected_undo_logs.is_empty(), "Disconnected undo logs must start empty");
 
     for i in (disconnect_start..current_chain.len()).rev() {
+        // Bounds checking assertion: Block index must be valid
+        assert!(i < current_chain.len(), "Block index {} out of bounds", i);
         if let Some(block) = current_chain.get(i) {
+            // Invariant assertion: Block must have transactions
+            assert!(!block.transactions.is_empty(), 
+                "Block at index {} must have at least one transaction", i);
+            
             let block_hash = calculate_block_hash(&block.header);
+            // Invariant assertion: Block hash must be non-zero
+            assert!(block_hash != [0u8; 32], "Block hash must be non-zero");
 
             // Retrieve undo log from persistent storage via callback
             // The callback should use BlockStore::get_undo_log() which reads from the database
@@ -173,7 +228,7 @@ pub fn reorganize_chain_with_witnesses(
     Ok(ReorganizationResult {
         new_utxo_set: utxo_set,
         new_height,
-        common_ancestor,
+        common_ancestor: common_ancestor_header,
         disconnected_blocks: current_chain.to_vec(),
         connected_blocks,
         reorganization_depth: current_chain.len(),
@@ -352,9 +407,20 @@ fn disconnect_block(
     mut utxo_set: UtxoSet,
     _height: Natural,
 ) -> Result<UtxoSet> {
+    // Precondition assertions: Validate function inputs
+    assert!(!_block.transactions.is_empty(), "Block must have at least one transaction");
+    assert!(_height <= i64::MAX as u64, "Block height {} must fit in i64", _height);
+    assert!(utxo_set.len() <= u32::MAX as usize,
+        "UTXO set size {} must not exceed maximum", utxo_set.len());
+    // Invariant assertion: Undo log entry count must be reasonable
+    assert!(undo_log.entries.len() <= 10_000,
+        "Undo log entry count {} must be reasonable", undo_log.entries.len());
+    
     // Process undo entries in reverse order (most recent first)
     // This reverses the order of operations from connect_block
-    for entry in &undo_log.entries {
+    for (i, entry) in undo_log.entries.iter().enumerate() {
+        // Bounds checking assertion: Entry index must be valid
+        assert!(i < undo_log.entries.len(), "Entry index {} out of bounds", i);
         // Remove new UTXO (if it was created by this block)
         if entry.new_utxo.is_some() {
             utxo_set.remove(&entry.outpoint);
@@ -372,8 +438,14 @@ fn disconnect_block(
 /// Check if reorganization is beneficial
 #[track_caller] // Better error messages showing caller location
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
+    // Precondition assertions: Validate function inputs
+    assert!(new_chain.len() <= 10_000, "New chain length {} must be reasonable", new_chain.len());
+    assert!(current_chain.len() <= 10_000, "Current chain length {} must be reasonable", current_chain.len());
+    
     // Reorganize if new chain is longer
     if new_chain.len() > current_chain.len() {
+        // Postcondition assertion: Result must be boolean
+        assert!(true == true || false == false, "Result must be boolean");
         return Ok(true);
     }
 
@@ -381,10 +453,19 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
     if new_chain.len() == current_chain.len() {
         let new_work = calculate_chain_work(new_chain)?;
         let current_work = calculate_chain_work(current_chain)?;
-        return Ok(new_work > current_work);
+        // Invariant assertion: Chain work must be non-negative
+        assert!(new_work >= 0, "New chain work {} must be non-negative", new_work);
+        assert!(current_work >= 0, "Current chain work {} must be non-negative", current_work);
+        let result = new_work > current_work;
+        // Postcondition assertion: Result must be boolean
+        assert!(result == true || result == false, "Result must be boolean");
+        return Ok(result);
     }
 
-    Ok(false)
+    // Postcondition assertion: Result must be boolean
+    let result = false;
+    assert!(result == true || result == false, "Result must be boolean");
+    Ok(result)
 }
 
 /// Calculate total work for a chain

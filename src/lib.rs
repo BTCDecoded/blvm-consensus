@@ -312,6 +312,31 @@ impl ConsensusProof {
         Ok((result, new_utxo_set))
     }
 
+    /// Validate a complete block with explicit time context and network.
+    ///
+    /// This variant allows callers (e.g., protocol or node layers) to provide
+    /// their own `TimeContext` derived from chain state and network time,
+    /// instead of relying on `SystemTime::now()` inside consensus code.
+    pub fn validate_block_with_time_context(
+        &self,
+        block: &Block,
+        witnesses: &[segwit::Witness],
+        utxo_set: UtxoSet,
+        height: Natural,
+        time_context: Option<crate::types::TimeContext>,
+        network: types::Network,
+    ) -> Result<(ValidationResult, UtxoSet)> {
+        let (result, new_utxo_set, _undo_log) = block::connect_block_with_context(
+            block,
+            witnesses,
+            utxo_set,
+            height,
+            time_context,
+            network,
+        )?;
+        Ok((result, new_utxo_set))
+    }
+
     /// Verify script execution
     ///
     /// # Examples
@@ -501,7 +526,7 @@ impl ConsensusProof {
     ///     lock_time: 0,
     /// };
     ///
-    /// let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0).unwrap();
+    /// let result = consensus.accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 0, None).unwrap();
     /// // Result will depend on UTXO availability and mempool rules
     /// ```
     pub fn accept_to_memory_pool(
@@ -510,8 +535,9 @@ impl ConsensusProof {
         utxo_set: &UtxoSet,
         mempool: &mempool::Mempool,
         height: Natural,
+        time_context: Option<TimeContext>,
     ) -> Result<mempool::MempoolResult> {
-        mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height)
+        mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height, time_context)
     }
 
     /// Check if transaction is standard
@@ -1109,7 +1135,11 @@ mod tests {
         };
         let utxo_set = UtxoSet::new();
         let mempool = mempool::Mempool::new();
-        let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0);
+        let time_context = Some(TimeContext {
+            network_time: 1234567890,
+            median_time_past: 1234567890,
+        });
+        let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0, time_context);
         assert!(result.is_ok());
     }
 

@@ -63,6 +63,8 @@ fn test_segwit_with_cltv() {
         &prevouts,
         Some(500000), // Block height for CLTV validation
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
     );
     
     assert!(result.is_ok());
@@ -122,6 +124,8 @@ fn test_segwit_with_csv() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
     );
     
     // CSV validation: input sequence (5 blocks) >= required (4 blocks)
@@ -194,6 +198,8 @@ fn test_taproot_with_csv() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
     
     assert!(result.is_ok());
@@ -325,6 +331,8 @@ fn test_segwit_taproot_cltv_combined() {
         &prevouts,
         Some(500000), // Block height for CLTV
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::WitnessV0,
     );
     
     assert!(result.is_ok());
@@ -391,6 +399,8 @@ fn test_cltv_csv_combined() {
         &prevouts,
         Some(500000), // Block height
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
     assert!(result_cltv.is_ok());
     
@@ -405,6 +415,8 @@ fn test_cltv_csv_combined() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
     // CSV: input sequence (5 blocks) >= required (4 blocks)
     assert!(result_csv.is_ok());

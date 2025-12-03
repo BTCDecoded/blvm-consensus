@@ -72,6 +72,20 @@ pub enum Network {
     Regtest,
 }
 
+/// Time context for consensus validation
+///
+/// Provides network time and median time-past for timestamp validation.
+/// Required for proper block header timestamp validation (BIP113).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeContext {
+    /// Current network time (Unix timestamp)
+    /// Used to reject blocks with timestamps too far in the future
+    pub network_time: u64,
+    /// Median time-past of previous 11 blocks (BIP113)
+    /// Used to reject blocks with timestamps before median time-past
+    pub median_time_past: u64,
+}
+
 impl Network {
     /// Get network from environment variable or default to mainnet
     ///

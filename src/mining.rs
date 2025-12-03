@@ -26,6 +26,35 @@ pub fn create_new_block(
     coinbase_script: &ByteString,
     coinbase_address: &ByteString,
 ) -> Result<Block> {
+    // For backward compatibility, derive block_time from system clock here.
+    let block_time = get_current_timestamp();
+    create_new_block_with_time(
+        utxo_set,
+        mempool_txs,
+        height,
+        prev_header,
+        prev_headers,
+        coinbase_script,
+        coinbase_address,
+        block_time,
+    )
+}
+
+/// CreateNewBlock variant that accepts an explicit block_time.
+///
+/// This allows callers (e.g., node layer) to provide a median time-past or
+/// adjusted network time instead of relying on `SystemTime::now()` inside
+/// consensus code.
+pub fn create_new_block_with_time(
+    utxo_set: &UtxoSet,
+    mempool_txs: &[Transaction],
+    height: Natural,
+    prev_header: &BlockHeader,
+    prev_headers: &[BlockHeader],
+    coinbase_script: &ByteString,
+    coinbase_address: &ByteString,
+    block_time: u64,
+) -> Result<Block> {
     use crate::mempool::{accept_to_memory_pool, Mempool, MempoolResult};
 
     // 1. Create coinbase transaction
@@ -48,7 +77,11 @@ pub fn create_new_block(
         }
 
         // Then validate through mempool acceptance (includes input validation, script verification, etc.)
-        match accept_to_memory_pool(tx, None, utxo_set, &temp_mempool, height)? {
+        let time_context = Some(TimeContext {
+            network_time: block_time,
+            median_time_past: block_time, // Use block_time as approximation for MTP
+        });
+        match accept_to_memory_pool(tx, None, utxo_set, &temp_mempool, height, time_context)? {
             MempoolResult::Accepted => {
                 selected_txs.push(tx.clone());
             }
@@ -77,7 +110,7 @@ pub fn create_new_block(
         version: 1,
         prev_block_hash: calculate_block_hash(prev_header),
         merkle_root,
-        timestamp: get_current_timestamp(),
+        timestamp: block_time,
         bits: next_work,
         nonce: 0, // Will be set during mining
     };

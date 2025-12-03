@@ -240,7 +240,7 @@ fn test_calculate_transaction_size() {
 fn test_eval_script_simple() {
     let script = vec![0x51, 0x52]; // OP_1, OP_2
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0).unwrap();
+    let result = eval_script(&script, &mut stack, 0, crate::script::SigVersion::Base).unwrap();
     // The result is a boolean indicating success/failure
     // Just test it returns a boolean (result is either true or false)
     let _ = result;
@@ -255,7 +255,7 @@ fn test_eval_script_overflow() {
     }
 
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0);
+    let result = eval_script(&script, &mut stack, 0, crate::script::SigVersion::Base);
     assert!(result.is_err());
 }
 

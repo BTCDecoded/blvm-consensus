@@ -11,6 +11,8 @@ use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
 };
 #[cfg(feature = "utxo-commitments")]
+use crate::utxo_commitments::network_integration::UtxoCommitmentsNetworkClient;
+#[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::verification::{verify_header_chain, verify_supply};
 #[cfg(feature = "utxo-commitments")]
 use std::collections::{HashMap, HashSet};
@@ -217,22 +219,38 @@ impl PeerConsensus {
 
     /// Request UTXO sets from multiple peers
     ///
-    /// Sends GetUTXOSet messages to peers and collects responses.
+    /// Sends GetUTXOSet messages via the provided network client and collects responses.
     /// Returns list of peer commitments (peer + commitment pairs).
-    pub async fn request_utxo_sets(
+    ///
+    /// The caller provides a list of `(PeerInfo, peer_id)` tuples where `peer_id` is an
+    /// opaque identifier understood only by the node's networking layer. This keeps the
+    /// consensus layer agnostic of concrete transport types or peer address formats.
+    pub async fn request_utxo_sets<C: UtxoCommitmentsNetworkClient>(
         &self,
-        _peers: &[PeerInfo],
-        _checkpoint_height: Natural,
-        _checkpoint_hash: Hash,
+        network_client: &C,
+        peers: &[(PeerInfo, String)],
+        checkpoint_height: Natural,
+        checkpoint_hash: Hash,
     ) -> Vec<PeerCommitment> {
-        // In a real implementation, this would:
-        // 1. Send GetUTXOSet messages to each peer
-        // 2. Wait for UTXOSet responses
-        // 3. Collect valid commitments
-        // 4. Return list of (peer, commitment) pairs
+        let mut results = Vec::new();
 
-        // For now, return empty (would be implemented with actual network calls)
-        vec![]
+        for (peer_info, peer_id) in peers {
+            match network_client
+                .request_utxo_set(peer_id, checkpoint_height, checkpoint_hash)
+                .await
+            {
+                Ok(commitment) => results.push(PeerCommitment {
+                    peer_info: peer_info.clone(),
+                    commitment,
+                }),
+                Err(_) => {
+                    // Per-peer failure; consensus threshold handles partial failures.
+                    continue;
+                }
+            }
+        }
+
+        results
     }
 
     /// Find consensus among peer responses

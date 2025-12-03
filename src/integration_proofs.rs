@@ -560,6 +560,7 @@ mod kani_proofs {
             None,
             None,
             crate::types::Network::Mainnet,
+            script::SigVersion::Base,
         );
 
         assert!(
@@ -580,6 +581,7 @@ mod kani_proofs {
             None,
             None,
             crate::types::Network::Mainnet,
+            script::SigVersion::Base,
         );
 
         // Invalid input index should still be handled (may return false, not crash)

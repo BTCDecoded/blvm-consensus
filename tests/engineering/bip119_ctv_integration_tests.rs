@@ -297,6 +297,8 @@ fn test_ctv_opcode_valid_template() {
         &prevouts,
         None, // block_height
         None, // median_time_past
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
 
     // CTV should pass with correct template hash
@@ -346,6 +348,8 @@ fn test_ctv_opcode_invalid_template() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
 
     // CTV should fail with wrong template hash
@@ -394,6 +398,8 @@ fn test_ctv_opcode_wrong_hash_size() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
 
     // CTV should fail with wrong hash size
@@ -437,6 +443,8 @@ fn test_ctv_opcode_empty_stack() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
 
     // CTV should fail with empty stack
@@ -1215,6 +1223,8 @@ fn test_ctv_multiple_ctv_in_script() {
         &prevouts,
         None,
         None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
     );
 
     // Should fail because second CTV has no hash on stack

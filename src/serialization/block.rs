@@ -4,7 +4,7 @@
 //! Must match Bitcoin Core's serialization exactly for consensus compatibility.
 
 use super::transaction::{deserialize_transaction, serialize_transaction};
-use super::varint::decode_varint;
+use super::varint::{decode_varint, encode_varint};
 use crate::error::{ConsensusError, Result};
 use crate::segwit::Witness;
 use crate::types::*;
@@ -258,6 +258,78 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witne
         },
         witnesses,
     ))
+}
+
+/// Serialize a complete block to Bitcoin wire format (including witness data).
+///
+/// Format:
+/// - Block header (80 bytes)
+/// - VarInt: transaction count
+/// - If SegWit block and `include_witness` is true:
+///   - Marker (0x00) and flag (0x01)
+/// - For each transaction:
+///   - Transaction (non-witness serialization)
+/// - If `include_witness` and any witness data present:
+///   - Witness data for each transaction
+pub fn serialize_block_with_witnesses(
+    block: &Block,
+    witnesses: &[Witness],
+    include_witness: bool,
+) -> Vec<u8> {
+    let mut result = Vec::new();
+
+    // Serialize block header
+    result.extend_from_slice(&serialize_block_header(&block.header));
+
+    // Transaction count (VarInt)
+    let tx_count = block.transactions.len() as u64;
+    result.extend_from_slice(&encode_varint(tx_count));
+
+    let has_witness = include_witness && witnesses.iter().any(|w| !w.is_empty());
+
+    // SegWit marker and flag (0x00 0x01) if including witness data
+    if has_witness {
+        result.push(0x00);
+        result.push(0x01);
+    }
+
+    // Serialize transactions (non-witness serialization)
+    for tx in block.transactions.iter() {
+        let tx_bytes = serialize_transaction(tx);
+        result.extend_from_slice(&tx_bytes);
+    }
+
+    // Serialize witness data if requested
+    if has_witness {
+        for witness in witnesses.iter().take(block.transactions.len()) {
+            // Witness stack count (VarInt)
+            result.extend_from_slice(&encode_varint(witness.len() as u64));
+
+            for element in witness {
+                // Element length (VarInt)
+                result.extend_from_slice(&encode_varint(element.len() as u64));
+                // Element bytes
+                result.extend_from_slice(element);
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate that a serialized block size matches the size implied by the Block + Witness data.
+///
+/// This is intended for wire-level validation where a pre-serialized block is provided
+/// alongside its parsed representation. It re-serializes the block (with or without
+/// witness data) and compares the length against the provided size.
+pub fn validate_block_serialized_size(
+    block: &Block,
+    witnesses: &[Witness],
+    include_witness: bool,
+    provided_size: usize,
+) -> bool {
+    let serialized = serialize_block_with_witnesses(block, witnesses, include_witness);
+    serialized.len() == provided_size
 }
 
 #[cfg(test)]

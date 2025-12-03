@@ -1,6 +1,6 @@
 use bllvm_consensus::block::connect_block;
 use bllvm_consensus::segwit::Witness;
-use bllvm_consensus::{Block, BlockHeader, Transaction, UtxoSet};
+use bllvm_consensus::{types::Network, Block, BlockHeader, Transaction, UtxoSet};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn create_test_block() -> Block {
@@ -36,6 +36,7 @@ fn benchmark_connect_block(c: &mut Criterion) {
                 black_box(utxo_set.clone()),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
             // Ignore errors for benchmarking (they're expected for invalid test data)
         })
@@ -83,6 +84,7 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
                 black_box(utxo_set.clone()),
                 black_box(0),
                 black_box(None),
+                black_box(Network::Mainnet),
             );
             // Ignore errors for benchmarking
         })
