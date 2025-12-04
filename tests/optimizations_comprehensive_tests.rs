@@ -38,7 +38,7 @@ fn test_batch_sha256_multiple() {
     let results = batch_sha256(&inputs);
 
     assert_eq!(results.len(), 3);
-    for result in results {
+    for result in &results {
         assert_eq!(result.len(), 32);
     }
 
