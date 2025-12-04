@@ -1118,7 +1118,7 @@ mod tests {
         let mut block3 = create_test_block();
         block3.header.nonce = 3;
         let new_chain = vec![block1, block2, block3];
-        
+
         let mut current_block1 = create_test_block();
         current_block1.header.nonce = 10;
         let mut current_block2 = create_test_block();
