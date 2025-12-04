@@ -656,7 +656,12 @@ pub mod kani_optimized_access {
     ///
     /// # Examples
     /// ```rust
+    /// use blvm_consensus::optimizations::kani_optimized_access::get_proven_by_kani;
+    /// use blvm_consensus::types::Transaction;
+    ///
     /// // Kani proof guarantees index < MAX_INPUTS_PROVEN
+    /// # let tx = Transaction { version: 1, inputs: vec![].into(), outputs: vec![].into(), lock_time: 0 };
+    /// # let index = 0;
     /// if let Some(input) = get_proven_by_kani(&tx.inputs, index) {
     ///     // Safe to use
     /// }

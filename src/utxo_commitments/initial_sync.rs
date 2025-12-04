@@ -397,11 +397,24 @@ impl InitialSync {
 /// # Example
 ///
 /// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use blvm_consensus::block::connect_block;
 /// use blvm_consensus::utxo_commitments::{UtxoMerkleTree, update_commitments_after_block};
-/// use blvm_consensus::utxo_commitments::spam_filter::SpamFilter;
+/// use blvm_consensus::spam_filter::SpamFilter;
+/// use blvm_consensus::types::{Network, ValidationResult};
 ///
-/// let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, height, None)?;
+/// # let block = blvm_consensus::types::Block {
+/// #     header: blvm_consensus::types::BlockHeader {
+/// #         version: 1, prev_block_hash: [0; 32], merkle_root: [0; 32],
+/// #         timestamp: 1234567890, bits: 0x1d00ffff, nonce: 0,
+/// #     },
+/// #     transactions: vec![].into(),
+/// # };
+/// # let witnesses = vec![];
+/// # let utxo_set = blvm_consensus::types::UtxoSet::new();
+/// # let height = 0;
+/// # let mut utxo_tree = UtxoMerkleTree::new();
+/// let (result, new_utxo_set, _) = connect_block(&block, &witnesses, utxo_set, height, None, Network::Regtest)?;
 /// if matches!(result, ValidationResult::Valid) {
 ///     let spam_filter = SpamFilter::new();
 ///     let root = update_commitments_after_block(
@@ -412,6 +425,8 @@ impl InitialSync {
 ///     )?;
 ///     println!("New UTXO commitment root: {:?}", root);
 /// }
+/// # Ok(())
+/// # }
 /// ```
 #[cfg(feature = "utxo-commitments")]
 pub fn update_commitments_after_block(
