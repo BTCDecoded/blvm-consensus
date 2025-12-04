@@ -9,7 +9,7 @@ use crate::bip113::get_median_time_past;
 use crate::constants::*;
 use crate::economic::get_block_subsidy;
 use crate::error::{ConsensusError, Result};
-use crate::script::verify_script_with_context_full;
+use crate::script::{verify_script_with_context_full, SigVersion};
 use std::borrow::Cow;
 
 #[cfg(feature = "production")]
@@ -672,13 +672,18 @@ fn connect_block_inner(
                 let (input_valid, fee, script_valid) = result?;
 
                 if !matches!(input_valid, ValidationResult::Valid) {
-                    return Ok((input_valid, utxo_set));
+                    return Ok((
+                        input_valid,
+                        utxo_set,
+                        crate::reorganization::BlockUndoLog::new(),
+                    ));
                 }
 
                 if !script_valid {
                     return Ok((
                         ValidationResult::Invalid(format!("Invalid script at transaction {i}")),
                         utxo_set,
+                        crate::reorganization::BlockUndoLog::new(),
                     ));
                 }
 

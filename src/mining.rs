@@ -346,7 +346,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                     working_hashes.push(last);
                 }
 
-                working_hashes
+                let collected_vec: Vec<CacheAlignedHash> = working_hashes
                     .chunks(2)
                     .par_bridge()
                     .map(|chunk| {
@@ -382,18 +382,15 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                         }
                     })
                     .collect();
-                (next_level, level_mutated)
+                (collected_vec, level_mutated)
             };
 
             #[cfg(feature = "rayon")]
             {
-                if next_level.1 {
+                if level_mutated {
                     mutated = true;
                 }
             }
-
-            #[cfg(feature = "rayon")]
-            let next_level = next_level.0;
 
             #[cfg(not(feature = "rayon"))]
             let mut next_level: Vec<CacheAlignedHash> = Vec::with_capacity(hashes.len() / 2 + 1);

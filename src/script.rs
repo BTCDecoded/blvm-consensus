@@ -2320,6 +2320,7 @@ pub fn batch_verify_signatures(
                         flags,
                         height,
                         network,
+                        SigVersion::Base,
                     )
                 })
             })
