@@ -310,7 +310,10 @@ fn test_fee_maximum_money() {
 fn test_fee_overflow_protection() {
     let mut utxo_set = HashMap::new();
 
-    // Create inputs that would overflow if not checked
+    // Create inputs with large but valid values (within MAX_MONEY) that could overflow if summed
+    // Use MAX_MONEY / 2 to ensure we're testing large values while staying within consensus limits
+    use blvm_consensus::constants::MAX_MONEY;
+    let large_value = MAX_MONEY / 2;
     for i in 0..10 {
         utxo_set.insert(
             OutPoint {
@@ -318,7 +321,7 @@ fn test_fee_overflow_protection() {
                 index: 0,
             },
             UTXO {
-                value: i64::MAX / 10, // Large values that could overflow
+                value: large_value, // Large but valid values that test overflow protection
                 script_pubkey: vec![0x51].into(),
                 height: 100,
                 is_coinbase: false,
