@@ -404,10 +404,13 @@ jobs:
           echo "Description: ${{ steps.proof_tier.outputs.description }}"
       
       - name: Run Kani proofs (Strong tier - ALWAYS, cannot be skipped)
+        timeout-minutes: 240  # 4 hours - 33 proofs with 2 jobs can take 2-4 hours
         run: |
           echo "🔒 Running Kani proofs - STRONG TIER (critical consensus proofs)..."
           echo "These proofs verify the minimum set for 'formally verified' status"
           echo "Note: Running with minimal parallelism (2 jobs) to avoid OOM"
+          echo "Expected duration: 2-4 hours for 33 strong tier proofs"
+          echo "Step timeout: 240 minutes (4 hours)"
           # Get list of strong tier proofs
           STRONG_PROOFS=$(python3 scripts/get_proofs_by_tier.py strong)
           PROOF_COUNT=$(echo "$STRONG_PROOFS" | wc -w)
@@ -425,14 +428,20 @@ jobs:
           for proof in $STRONG_PROOFS; do
             HARNESS_ARGS="$HARNESS_ARGS --harness $proof"
           done
+          echo "Starting Kani verification at $(date)"
           cargo kani --features verify --output-format terse --solver cadical --jobs 2 $HARNESS_ARGS 2>&1 | tee "$KANI_OUTPUT_FILE" | grep -v "aborting path on assume(false)" | tee "$TEMP_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
+          echo "Kani verification completed at $(date)"
           set -e
           if [ $EXIT_CODE -ne 0 ]; then
             if [ $EXIT_CODE -eq 143 ]; then
               echo "⚠️  Strong tier Kani proofs were terminated (exit code 143 = SIGTERM)"
               echo "This usually means the job timed out or was killed due to resource limits"
               echo "Strong tier proofs are critical - they must pass for consensus correctness"
+              echo "Consider:"
+              echo "  1. Running proofs in smaller batches"
+              echo "  2. Increasing parallelism (if memory allows)"
+              echo "  3. Using a runner with more resources"
               exit $EXIT_CODE
             else
               echo "❌ Strong tier Kani proofs failed (exit code: $EXIT_CODE)"
