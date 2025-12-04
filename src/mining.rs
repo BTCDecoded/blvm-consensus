@@ -346,17 +346,19 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                     working_hashes.push(last);
                 }
 
-                let collected_vec: Vec<CacheAlignedHash> = working_hashes
+                // Use enumerate to preserve order when collecting from parallel processing
+                let mut indexed_results: Vec<(usize, CacheAlignedHash)> = working_hashes
                     .chunks(2)
+                    .enumerate()
                     .par_bridge()
-                    .map(|chunk| {
+                    .map(|(idx, chunk)| {
                         // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
                         debug_assert!(
                             !chunk.is_empty(),
                             "Merkle tree chunk must have at least 1 element"
                         );
 
-                        if chunk.len() == 2 {
+                        let result = if chunk.len() == 2 {
                             // Hash two hashes together
                             // BLLVM Optimization: Use cache-aligned hash bytes directly
                             let mut combined = Vec::with_capacity(64);
@@ -379,9 +381,15 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
                             combined.extend_from_slice(chunk[0].as_bytes());
                             let hash = sha256_hash(&combined);
                             CacheAlignedHash::new(hash)
-                        }
+                        };
+                        (idx, result)
                     })
                     .collect();
+
+                // Sort by index to ensure deterministic order
+                indexed_results.sort_by_key(|(idx, _)| *idx);
+                let collected_vec: Vec<CacheAlignedHash> =
+                    indexed_results.into_iter().map(|(_, hash)| hash).collect();
                 (collected_vec, level_mutated)
             };
 
