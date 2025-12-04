@@ -4,7 +4,8 @@
 
 #[cfg(feature = "production")]
 use blvm_consensus::optimizations::{
-    batch_double_sha256, batch_hash160, batch_ripemd160, batch_sha256, CacheAlignedHash,
+    simd_vectorization::{batch_double_sha256, batch_hash160, batch_ripemd160, batch_sha256},
+    CacheAlignedHash,
 };
 
 #[cfg(feature = "production")]

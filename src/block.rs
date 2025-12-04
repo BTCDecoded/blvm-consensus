@@ -9,7 +9,7 @@ use crate::bip113::get_median_time_past;
 use crate::constants::*;
 use crate::economic::get_block_subsidy;
 use crate::error::{ConsensusError, Result};
-use crate::script::{verify_script_with_context_full, SigVersion};
+use crate::script::verify_script_with_context_full;
 use std::borrow::Cow;
 
 #[cfg(feature = "production")]
@@ -633,7 +633,7 @@ fn connect_block_inner(
                                         Some(height),
                                         median_time_past,
                                         network,
-                                        SigVersion::Base,
+                                        crate::script::SigVersion::Base,
                                     )
                                 } else {
                                     Ok(false)
