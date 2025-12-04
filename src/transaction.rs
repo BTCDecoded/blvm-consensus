@@ -238,32 +238,36 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     {
         use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
         let total_u64 = total_output_value as u64;
-        // Invariant assertion: Total output value must not exceed MAX_MONEY
-        assert!(
-            total_u64 <= MAX_MONEY_U64,
-            "Total output value {} must not exceed MAX_MONEY",
-            total_output_value
-        );
+        // Check for invalid total output value and return error (before assert)
         if total_output_value < 0 || total_u64 > MAX_MONEY_U64 {
             return Ok(ValidationResult::Invalid(format!(
                 "Total output value {total_output_value} is out of valid range [0, {}]",
                 MAX_MONEY
             )));
         }
+        // Invariant assertion: Total output value must not exceed MAX_MONEY
+        // (This should never fail if the check above is correct)
+        assert!(
+            total_u64 <= MAX_MONEY_U64,
+            "Total output value {} must not exceed MAX_MONEY",
+            total_output_value
+        );
     }
 
     #[cfg(not(feature = "production"))]
     {
-        // Invariant assertion: Total output value must not exceed MAX_MONEY
-        assert!(
-            total_output_value <= MAX_MONEY,
-            "Total output value {total_output_value} must not exceed MAX_MONEY"
-        );
+        // Check for invalid total output value and return error (before assert)
         if !(0..=MAX_MONEY).contains(&total_output_value) {
             return Ok(ValidationResult::Invalid(format!(
                 "Total output value {total_output_value} is out of valid range [0, {MAX_MONEY}]"
             )));
         }
+        // Invariant assertion: Total output value must not exceed MAX_MONEY
+        // (This should never fail if the check above is correct)
+        assert!(
+            total_output_value <= MAX_MONEY,
+            "Total output value {total_output_value} must not exceed MAX_MONEY"
+        );
     }
 
     // 3. Check input count limit (redundant if fast-path worked)
