@@ -78,10 +78,12 @@ fn test_eval_script_op_equalverify() {
 
 #[test]
 fn test_eval_script_op_checksig() {
-    let script = vec![0x51, 0xac]; // OP_1, OP_CHECKSIG
+    // OP_CHECKSIG requires 2 stack items (signature and pubkey)
+    let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
+    // Note: This will return false for invalid signatures, which is expected
     let _ = result;
 }
 

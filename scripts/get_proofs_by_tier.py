@@ -11,63 +11,33 @@ import os
 import sys
 
 # STRONG TIER: Critical proofs that run on EVERY push
-# These are the minimum set for "formally verified" status
+# These are the MINIMUM set for "formally verified" status (10 proofs)
 # Any change to these would break Bitcoin consensus
+# Selected for: Criticality + Speed (all fast except one unwind 7)
 STRONG_TIER_PROOFS = {
-    # Constants (Orange Paper locking)
-    'kani_monetary_constants_match_orange_paper',
-    'kani_bip_activation_heights_match_bitcoin_core',
-    'kani_genesis_block_constants_match_bitcoin',
+    # Economic Security (prevents inflation) - CRITICAL
+    'kani_supply_limit_respected',  # 21M BTC cap (no unwind - fastest)
+    'kani_conservation_of_value',  # No money creation (unwind 3 - fast)
+    'kani_bip30_duplicate_coinbase_prevention',  # Prevents duplicate coinbase inflation (no unwind - fastest)
     
-    # Economic Model (21M cap, halving schedule)
-    'kani_get_block_subsidy_halving_schedule',
-    'kani_supply_limit_respected',
-    'kani_get_block_subsidy_boundary_correctness',
+    # Double-Spending Prevention - CRITICAL
+    'kani_no_double_spending',  # Each UTXO can only be spent once (unwind 7 - slow but critical)
     
-    # Transaction Validation (core structure rules)
-    'kani_check_transaction_invariants',
-    'kani_check_transaction_no_duplicates',
-    'kani_check_transaction_total_output_sum',
-    'kani_check_transaction_structure',  # Core transaction structure validation
-    'kani_is_coinbase_correct',  # Coinbase identification (critical)
-    'kani_conservation_of_value',  # Value conservation (prevents inflation)
+    # Determinism (required for consensus) - CRITICAL
+    'kani_calculate_tx_id_deterministic',  # TX IDs must be deterministic (no unwind - fastest)
     
-    # Block Validation (UTXO consistency)
-    'kani_connect_block_utxo_consistency',
-    'kani_connect_block_coinbase',
-    'kani_no_double_spending',  # Double-spend prevention (critical)
-    'kani_validate_block_header_complete',  # Block header validation (critical)
-    'kani_calculate_tx_id_deterministic',  # TX ID determinism (critical)
-    'kani_block_weight_bounded_by_max',  # Block weight limits (DoS prevention)
+    # Core Validation - CRITICAL
+    'kani_is_coinbase_correct',  # Coinbase identification (no unwind - fastest)
+    'kani_validate_block_header_complete',  # Block header validation (no unwind - fastest)
     
-    # Inflation Prevention (critical for economic security)
-    'kani_bip30_duplicate_coinbase_prevention',  # Prevents duplicate coinbase (inflation)
-    'kani_coinbase_maturity_enforcement',  # Prevents premature coinbase spending
+    # Constants (verify Bitcoin compatibility) - CRITICAL
+    'kani_monetary_constants_match_orange_paper',  # 21M, halving interval, etc. (no unwind - fastest)
     
-    # Consensus Critical BIPs
-    'kani_bip34_height_encoding_correctness',  # Height encoding in coinbase (critical)
+    # Basic Transaction Structure - CRITICAL
+    'kani_check_transaction_structure',  # Core transaction validation (unwind 3 - fast)
     
-    # DoS Prevention (size limits)
-    'kani_transaction_size_consistency',  # Transaction size limits (DoS prevention)
-    'kani_script_size_limit',  # Script size limits (DoS prevention)
-    
-    # PoW Validation
-    'kani_expand_target_valid_range',  # Target expansion validation (critical for PoW)
-    
-    # Script Execution (determinism and correctness)
-    'kani_verify_script_correctness',
-    'kani_verify_script_deterministic',  # Script determinism (critical)
-    
-    # Proof of Work (difficulty validation)
-    'kani_check_proof_of_work_correctness',
-    'kani_check_proof_of_work_deterministic',
-    
-    # Medium Tier - Critical Atomic Operations (unwind 5-7)
-    'kani_apply_transaction_consistency',  # Atomic UTXO update operation (foundation of block validation)
-    'kani_apply_transaction_mathematical_correctness',  # Mathematical correctness per Orange Paper
-    'kani_connect_block_fee_subsidy_validation',  # Economic rule enforcement (prevents inflation)
-    'kani_total_supply_monotonic',  # Supply only increases (economic security)
-    'kani_should_reorganize_max_work',  # Core consensus rule (maximum work chain selection)
+    # Economic Model - CRITICAL
+    'kani_get_block_subsidy_halving_schedule',  # Subsidy calculation (no unwind - fastest)
 }
 
 fast_proofs = []  # unwind <= 3 or no unwind
