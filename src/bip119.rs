@@ -59,7 +59,7 @@
 //! // [features]
 //! // ctv = []
 //!
-//! use bllvm_consensus::bip119::calculate_template_hash;
+//! use blvm_consensus::bip119::calculate_template_hash;
 //!
 //! let tx = Transaction { /* ... */ };
 //! let template_hash = calculate_template_hash(&tx, 0)?;

@@ -397,9 +397,9 @@ impl InitialSync {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::block::connect_block;
-/// use bllvm_consensus::utxo_commitments::{UtxoMerkleTree, update_commitments_after_block};
-/// use bllvm_consensus::utxo_commitments::spam_filter::SpamFilter;
+/// use blvm_consensus::block::connect_block;
+/// use blvm_consensus::utxo_commitments::{UtxoMerkleTree, update_commitments_after_block};
+/// use blvm_consensus::utxo_commitments::spam_filter::SpamFilter;
 ///
 /// let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, height, None)?;
 /// if matches!(result, ValidationResult::Valid) {

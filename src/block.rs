@@ -122,7 +122,7 @@ pub fn get_assume_valid_height() -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::block::set_assume_valid_height;
+/// use blvm_consensus::block::set_assume_valid_height;
 ///
 /// // Set to validate all blocks (no skipping)
 /// set_assume_valid_height(0);

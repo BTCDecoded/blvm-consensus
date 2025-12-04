@@ -24,8 +24,8 @@
 //! ## Usage
 //!
 //! ```rust
-//! use bllvm_consensus::ConsensusProof;
-//! use bllvm_consensus::types::*;
+//! use blvm_consensus::ConsensusProof;
+//! use blvm_consensus::types::*;
 //!
 //! let consensus = ConsensusProof::new();
 //! let transaction = Transaction {
@@ -123,8 +123,8 @@ pub use config::{
 /// # Examples
 ///
 /// ```
-/// use bllvm_consensus::ConsensusProof;
-/// use bllvm_consensus::types::*;
+/// use blvm_consensus::ConsensusProof;
+/// use blvm_consensus::types::*;
 ///
 /// let consensus = ConsensusProof::new();
 ///
@@ -158,7 +158,7 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
+    /// use blvm_consensus::ConsensusProof;
     ///
     /// let consensus = ConsensusProof::new();
     /// ```
@@ -171,8 +171,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let tx = Transaction {
@@ -196,7 +196,7 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::{ConsensusProof, UtxoSet, OutPoint, UTXO, Transaction, TransactionInput, TransactionOutput, ValidationResult};
+    /// use blvm_consensus::{ConsensusProof, UtxoSet, OutPoint, UTXO, Transaction, TransactionInput, TransactionOutput, ValidationResult};
     ///
     /// let consensus = ConsensusProof::new();
     /// let mut utxo_set = UtxoSet::new();
@@ -243,19 +243,19 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let utxo_set = UtxoSet::new();
     ///
     /// // Create a simple block with coinbase transaction
-    /// use bllvm_consensus::mining::calculate_merkle_root;
+    /// use blvm_consensus::mining::calculate_merkle_root;
     /// let coinbase_tx = Transaction {
     ///     version: 1,
     ///     inputs: vec![TransactionInput {
     ///         prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-    ///         script_sig: vec![],
+    ///         script_sig: vec![0x00, 0x00], // Minimum 2 bytes for coinbase script_sig
     ///         sequence: 0xffffffff,
     ///     }].into(),
     ///     outputs: vec![TransactionOutput {
@@ -342,7 +342,7 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
+    /// use blvm_consensus::ConsensusProof;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -368,8 +368,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -395,7 +395,7 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
+    /// use blvm_consensus::ConsensusProof;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -416,7 +416,7 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
+    /// use blvm_consensus::ConsensusProof;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -437,8 +437,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -504,9 +504,9 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
-    /// use bllvm_consensus::mempool::Mempool;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
+    /// use blvm_consensus::mempool::Mempool;
     ///
     /// let consensus = ConsensusProof::new();
     /// let utxo_set = UtxoSet::new();
@@ -526,7 +526,7 @@ impl ConsensusProof {
     ///     lock_time: 0,
     /// };
     ///
-    /// let result = consensus.accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 0, None).unwrap();
+    /// let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0, None).unwrap();
     /// // Result will depend on UTXO availability and mempool rules
     /// ```
     pub fn accept_to_memory_pool(
@@ -545,8 +545,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -576,9 +576,9 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
-    /// use bllvm_consensus::mempool::Mempool;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
+    /// use blvm_consensus::mempool::Mempool;
     ///
     /// let consensus = ConsensusProof::new();
     /// let mempool = Mempool::new();
@@ -644,8 +644,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let utxo_set = UtxoSet::new();
@@ -706,8 +706,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -775,8 +775,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let current_chain = vec![];
@@ -801,8 +801,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let current_chain = vec![];
@@ -820,8 +820,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::network::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::network::*;
     ///
     /// let consensus = ConsensusProof::new();
     /// let mut peer_state = PeerState::new();
@@ -845,8 +845,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -880,8 +880,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -929,8 +929,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -964,8 +964,8 @@ impl ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
-    /// use bllvm_consensus::types::*;
+    /// use blvm_consensus::ConsensusProof;
+    /// use blvm_consensus::types::*;
     ///
     /// let consensus = ConsensusProof::new();
     ///
@@ -988,7 +988,7 @@ impl Default for ConsensusProof {
     /// # Examples
     ///
     /// ```
-    /// use bllvm_consensus::ConsensusProof;
+    /// use blvm_consensus::ConsensusProof;
     ///
     /// let consensus = ConsensusProof::default();
     /// ```

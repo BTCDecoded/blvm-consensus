@@ -406,7 +406,7 @@ fn serialize_sighash_preimage(
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::transaction_hash::clear_sighash_templates;
+/// use blvm_consensus::transaction_hash::clear_sighash_templates;
 ///
 /// // Clear cache before benchmark run
 /// clear_sighash_templates();

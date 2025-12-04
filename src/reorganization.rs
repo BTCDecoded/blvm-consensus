@@ -311,13 +311,13 @@ pub fn reorganize_chain_with_witnesses(
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::reorganization::{reorganize_chain_with_witnesses, update_mempool_after_reorg};
-/// use bllvm_consensus::mempool::Mempool;
-/// use bllvm_consensus::segwit::Witness;
+/// use blvm_consensus::reorganization::{reorganize_chain_with_witnesses, update_mempool_after_reorg};
+/// use blvm_consensus::mempool::Mempool;
+/// use blvm_consensus::segwit::Witness;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # use bllvm_consensus::types::*;
-/// # use bllvm_consensus::mempool::Mempool;
+/// # use blvm_consensus::types::*;
+/// # use blvm_consensus::mempool::Mempool;
 /// # let new_chain = vec![];
 /// # let new_witnesses = vec![];
 /// # let current_chain = vec![];
@@ -335,6 +335,8 @@ pub fn reorganize_chain_with_witnesses(
 ///     current_height,
 ///     None::<fn(&Block) -> Option<Vec<Witness>>>,
 ///     None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
+///     None::<fn(&blvm_consensus::types::Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
+///     None::<fn(&blvm_consensus::types::Hash, &blvm_consensus::reorganization::BlockUndoLog) -> blvm_consensus::error::Result<()>>,
 /// );
 /// if let Ok(reorg_result) = reorg_result {
 ///     let _removed = update_mempool_after_reorg(

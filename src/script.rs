@@ -158,7 +158,7 @@ static CACHE_DISABLED: AtomicBool = AtomicBool::new(false);
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::disable_caching;
+/// use blvm_consensus::script::disable_caching;
 ///
 /// // Disable caches for benchmarking
 /// disable_caching(true);
@@ -2362,7 +2362,7 @@ pub fn batch_verify_signatures(
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::clear_script_cache;
+/// use blvm_consensus::script::clear_script_cache;
 ///
 /// // Clear cache before benchmark run
 /// clear_script_cache();
@@ -2383,7 +2383,7 @@ pub fn clear_script_cache() {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::clear_hash_cache;
+/// use blvm_consensus::script::clear_hash_cache;
 ///
 /// // Clear cache before benchmark run
 /// clear_hash_cache();
@@ -2403,7 +2403,7 @@ pub fn clear_hash_cache() {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::clear_all_caches;
+/// use blvm_consensus::script::clear_all_caches;
 ///
 /// // Clear all caches before benchmark run
 /// clear_all_caches();
@@ -2422,7 +2422,7 @@ pub fn clear_all_caches() {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::clear_stack_pool;
+/// use blvm_consensus::script::clear_stack_pool;
 ///
 /// // Clear pool before benchmark run
 /// clear_stack_pool();
@@ -2443,7 +2443,7 @@ pub fn clear_stack_pool() {
 /// # Example
 ///
 /// ```rust
-/// use bllvm_consensus::script::reset_benchmarking_state;
+/// use blvm_consensus::script::reset_benchmarking_state;
 ///
 /// // Reset all state before benchmark run
 /// reset_benchmarking_state();
