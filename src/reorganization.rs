@@ -1110,12 +1110,20 @@ mod tests {
 
     #[test]
     fn test_reorganize_chain_deep_reorg() {
-        let new_chain = vec![
-            create_test_block(),
-            create_test_block(),
-            create_test_block(),
-        ];
-        let current_chain = vec![create_test_block(), create_test_block()];
+        // Create blocks with unique hashes by varying nonce
+        let mut block1 = create_test_block();
+        block1.header.nonce = 1;
+        let mut block2 = create_test_block();
+        block2.header.nonce = 2;
+        let mut block3 = create_test_block();
+        block3.header.nonce = 3;
+        let new_chain = vec![block1, block2, block3];
+        
+        let mut current_block1 = create_test_block();
+        current_block1.header.nonce = 10;
+        let mut current_block2 = create_test_block();
+        current_block2.header.nonce = 11;
+        let current_chain = vec![current_block1, current_block2];
         let utxo_set = UtxoSet::new();
 
         let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 2);

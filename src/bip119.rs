@@ -99,22 +99,6 @@ use sha2::{Digest, Sha256};
 /// - Transaction has no outputs
 /// - Serialization fails
 pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<Hash> {
-    // Runtime assertions for debugging
-    debug_assert!(
-        input_index < tx.inputs.len(),
-        "Input index {} must be within bounds (transaction has {} inputs)",
-        input_index,
-        tx.inputs.len()
-    );
-    debug_assert!(
-        !tx.inputs.is_empty(),
-        "Transaction must have at least one input"
-    );
-    debug_assert!(
-        !tx.outputs.is_empty(),
-        "Transaction must have at least one output"
-    );
-
     // Validate inputs
     if input_index >= tx.inputs.len() {
         return Err(ConsensusError::TransactionValidation(
