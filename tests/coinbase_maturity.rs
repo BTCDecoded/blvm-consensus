@@ -10,6 +10,7 @@ use blvm_consensus::types::{
     Block, BlockHeader, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,
     UtxoSet,
 };
+use blvm_consensus::witness::Witness;
 
 use blvm_consensus::constants::COINBASE_MATURITY;
 
@@ -229,7 +230,8 @@ fn test_coinbase_maturity_block_validation() {
 
     // Block should be rejected if coinbase spending is immature
     // (This depends on actual validation implementation)
-    let witnesses = vec![];
+    // Provide empty witnesses for each transaction (non-SegWit)
+    let witnesses: Vec<Witness> = vec![Vec::new(), Vec::new()];
     let result = connect_block(&block, &witnesses, utxo_set, height, None, Network::Mainnet);
 
     // Result may be invalid due to immature coinbase
