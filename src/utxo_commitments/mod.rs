@@ -14,22 +14,25 @@
 //! ## Usage
 //!
 //! ```rust
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use blvm_consensus::utxo_commitments::{UtxoMerkleTree, UtxoCommitment};
 //! use blvm_consensus::types::{OutPoint, UTXO, Hash};
 //!
 //! // Create UTXO Merkle tree
-//! let mut utxo_tree = UtxoMerkleTree::new();
+//! let mut utxo_tree = UtxoMerkleTree::new()?;
 //!
 //! // Add UTXO
 //! let outpoint = OutPoint { hash: [1; 32].into(), index: 0 };
-//! let utxo = UTXO { value: 1000, script_pubkey: vec![].into(), height: 0 };
-//! utxo_tree.insert(outpoint, utxo);
+//! let utxo = UTXO { value: 1000, script_pubkey: vec![].into(), height: 0, is_coinbase: false };
+//! utxo_tree.insert(outpoint, utxo)?;
 //!
 //! // Generate commitment
 //! # let block_hash: Hash = [0; 32].into();
 //! # let height = 0;
 //! let root = utxo_tree.root();
 //! let commitment = UtxoCommitment::new(root, 1000, 1, height, block_hash);
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod config;

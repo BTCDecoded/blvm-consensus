@@ -413,7 +413,7 @@ impl InitialSync {
 /// # let witnesses = vec![];
 /// # let utxo_set = blvm_consensus::types::UtxoSet::new();
 /// # let height = 0;
-/// # let mut utxo_tree = UtxoMerkleTree::new();
+/// # let mut utxo_tree = UtxoMerkleTree::new()?;
 /// let (result, new_utxo_set, _) = connect_block(&block, &witnesses, utxo_set, height, None, Network::Regtest)?;
 /// if matches!(result, ValidationResult::Valid) {
 ///     let spam_filter = SpamFilter::new();
