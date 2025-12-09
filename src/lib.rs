@@ -292,8 +292,11 @@ impl ConsensusProof {
         let witnesses: Vec<segwit::Witness> =
             block.transactions.iter().map(|_| Vec::new()).collect();
         let network = types::Network::from_env();
+        // Network time should be provided by node layer - use a reasonable default for API compatibility
+        // In production, callers should use validate_block_with_context and provide network_time
+        let network_time = block.header.timestamp;
         let (result, new_utxo_set, _undo_log) =
-            block::connect_block(block, &witnesses, utxo_set, height, None, network)?;
+            block::connect_block(block, &witnesses, utxo_set, height, None, network_time, network)?;
         Ok((result, new_utxo_set))
     }
 
@@ -307,8 +310,11 @@ impl ConsensusProof {
         recent_headers: Option<&[BlockHeader]>,
     ) -> Result<(ValidationResult, UtxoSet)> {
         let network = types::Network::from_env();
+        // Network time should be provided by node layer - use a reasonable default for API compatibility
+        // In production, callers should provide adjusted network time from the node layer
+        let network_time = block.header.timestamp;
         let (result, new_utxo_set, _undo_log) =
-            block::connect_block(block, witnesses, utxo_set, height, recent_headers, network)?;
+            block::connect_block(block, witnesses, utxo_set, height, recent_headers, network_time, network)?;
         Ok((result, new_utxo_set))
     }
 

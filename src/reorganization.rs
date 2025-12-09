@@ -124,31 +124,28 @@ pub fn reorganize_chain_with_witnesses(
         new_chain.len()
     );
 
-    // 1. Find common ancestor
-    let common_ancestor_header: BlockHeader = find_common_ancestor(new_chain, current_chain)?;
-    // Find the index of the common ancestor in the new chain
-    // For now, simplified: assume it's at index 0 (genesis)
-    // TODO: Implement proper common ancestor finding by comparing block hashes
-    let common_ancestor_index = 0usize;
-    // Invariant assertion: Common ancestor index must be valid
+    // 1. Find common ancestor by comparing block hashes
+    let common_ancestor = find_common_ancestor(new_chain, current_chain)?;
+    let common_ancestor_header = common_ancestor.header;
+    let common_ancestor_index = common_ancestor.new_chain_index;
+    let current_ancestor_index = common_ancestor.current_chain_index;
+
+    // Invariant assertion: Common ancestor indices must be valid
     assert!(
-        common_ancestor_index <= new_chain.len(),
-        "Common ancestor index {} must be <= new chain length {}",
+        common_ancestor_index < new_chain.len(),
+        "Common ancestor index {} must be < new chain length {}",
         common_ancestor_index,
         new_chain.len()
     );
     assert!(
-        common_ancestor_index <= current_chain.len(),
-        "Common ancestor index {} must be <= current chain length {}",
-        common_ancestor_index,
+        current_ancestor_index < current_chain.len(),
+        "Common ancestor index {} must be < current chain length {}",
+        current_ancestor_index,
         current_chain.len()
     );
 
-    // Use common_ancestor_header for the result
-    // Note: common_ancestor_index is currently hardcoded to 0, but common_ancestor_header
-    // is the actual header returned by find_common_ancestor
-
     // 2. Disconnect blocks from current chain back to common ancestor
+    // We disconnect from (current_ancestor_index + 1) to the tip
     // Undo logs are retrieved from persistent storage via the callback.
     // The node layer (bllvm-node) should provide a callback that uses BlockStore::get_undo_log()
     // to retrieve undo logs from the database (redb/sled).
@@ -160,8 +157,9 @@ pub fn reorganize_chain_with_witnesses(
         utxo_set.len()
     );
 
-    let disconnect_start = 0; // Simplified: disconnect from start
-                              // Invariant assertion: Disconnect start must be valid
+    // Disconnect from the block after the common ancestor to the tip
+    let disconnect_start = current_ancestor_index + 1;
+    // Invariant assertion: Disconnect start must be valid
     assert!(
         disconnect_start <= current_chain.len(),
         "Disconnect start {} must be <= current chain length {}",
@@ -211,7 +209,11 @@ pub fn reorganize_chain_with_witnesses(
     }
 
     // 3. Connect blocks from new chain from common ancestor forward
-    let mut new_height = current_height - (current_chain.len() as Natural) + 1;
+    // We connect from (common_ancestor_index + 1) to the tip of new chain
+    // Calculate the height at the common ancestor
+    let common_ancestor_height = current_height
+        .saturating_sub((current_chain.len() as Natural).saturating_sub(current_ancestor_index as Natural));
+    let mut new_height = common_ancestor_height;
     let mut connected_blocks = Vec::new();
     let mut connected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
 
@@ -227,7 +229,8 @@ pub fn reorganize_chain_with_witnesses(
         ));
     }
 
-    for (i, block) in new_chain.iter().enumerate() {
+    // Connect blocks starting from the block after the common ancestor
+    for (i, block) in new_chain.iter().enumerate().skip(common_ancestor_index + 1) {
         new_height += 1;
         // Get witnesses for this block
         let witnesses = new_chain_witnesses
@@ -241,12 +244,16 @@ pub fn reorganize_chain_with_witnesses(
         // Simplified: use provided headers if available
         let recent_headers = new_chain_headers;
 
+        // Network time should be provided by node layer, use block timestamp as fallback for reorganization
+        // In production, the node layer should provide adjusted network time
+        let network_time = block.header.timestamp;
         let (validation_result, new_utxo_set, undo_log) = connect_block(
             block,
             &witnesses,
             utxo_set,
             new_height,
             recent_headers,
+            network_time,
             crate::types::Network::Mainnet,
         )?;
 
@@ -280,9 +287,9 @@ pub fn reorganize_chain_with_witnesses(
         new_utxo_set: utxo_set,
         new_height,
         common_ancestor: common_ancestor_header,
-        disconnected_blocks: current_chain.to_vec(),
+        disconnected_blocks: current_chain[disconnect_start..].to_vec(),
         connected_blocks,
-        reorganization_depth: current_chain.len(),
+        reorganization_depth: current_chain.len() - disconnect_start,
         connected_block_undo_logs: connected_undo_logs,
     })
 }
@@ -428,19 +435,65 @@ pub fn update_mempool_after_reorg_simple(
     )
 }
 
-/// Find common ancestor between two chains
-fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<BlockHeader> {
-    // Simplified: assume genesis block is common ancestor
-    // In reality, this would traverse both chains to find the actual common ancestor
+/// Common ancestor result with indices in both chains
+struct CommonAncestorResult {
+    header: BlockHeader,
+    new_chain_index: usize,
+    current_chain_index: usize,
+}
+
+/// Find common ancestor between two chains by comparing block hashes
+///
+/// Algorithm: Start from the tips of both chains and work backwards,
+/// comparing blocks at the same distance from tip until we find a match.
+/// This is the common ancestor where the chains diverged.
+fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<CommonAncestorResult> {
     if new_chain.is_empty() || current_chain.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
             "Cannot find common ancestor: empty chain".into(),
         ));
     }
 
-    // For now, return the first block of current chain as common ancestor
-    // This is a simplification - real implementation would hash-compare blocks
-    Ok(current_chain[0].header.clone())
+    // Find the minimum chain length - we can only compare up to this point
+    let min_len = new_chain.len().min(current_chain.len());
+
+    // Work backwards from tips, comparing blocks at the same distance from tip
+    // Distance 0 = tip, distance 1 = one before tip, etc.
+    for distance_from_tip in 0..min_len {
+        let new_idx = new_chain.len() - 1 - distance_from_tip;
+        let current_idx = current_chain.len() - 1 - distance_from_tip;
+
+        let new_hash = calculate_block_hash(&new_chain[new_idx].header);
+        let current_hash = calculate_block_hash(&current_chain[current_idx].header);
+
+        // If hashes match, we found the common ancestor
+        if new_hash == current_hash {
+            return Ok(CommonAncestorResult {
+                header: new_chain[new_idx].header.clone(),
+                new_chain_index: new_idx,
+                current_chain_index: current_idx,
+            });
+        }
+    }
+
+    // If we've checked all blocks up to min_len and none match,
+    // check if genesis blocks match (they should always be the same)
+    if new_chain.len() > 0 && current_chain.len() > 0 {
+        let new_genesis_hash = calculate_block_hash(&new_chain[0].header);
+        let current_genesis_hash = calculate_block_hash(&current_chain[0].header);
+        if new_genesis_hash == current_genesis_hash {
+            return Ok(CommonAncestorResult {
+                header: new_chain[0].header.clone(),
+                new_chain_index: 0,
+                current_chain_index: 0,
+            });
+        }
+    }
+
+    // Chains don't share a common ancestor (should never happen in Bitcoin)
+    Err(crate::error::ConsensusError::ConsensusRuleViolation(
+        "Chains do not share a common ancestor".into(),
+    ))
 }
 
 /// Disconnect a block from the chain (reverse of ConnectBlock)
@@ -1065,7 +1118,9 @@ mod tests {
         let current_chain = vec![create_test_block()];
 
         let ancestor = find_common_ancestor(&new_chain, &current_chain).unwrap();
-        assert_eq!(ancestor.version, 1);
+        assert_eq!(ancestor.header.version, 1);
+        assert_eq!(ancestor.new_chain_index, 0);
+        assert_eq!(ancestor.current_chain_index, 0);
     }
 
     #[test]

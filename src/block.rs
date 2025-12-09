@@ -167,19 +167,25 @@ pub fn reset_assume_valid_height() {
 /// * `height` - Current block height
 /// * `recent_headers` - Optional recent block headers for median time-past calculation (BIP113)
 #[track_caller] // Better error messages showing caller location
+/// ConnectBlock: Validate and apply a block to the UTXO set.
+///
+/// # Consensus Engine Purity
+/// This function requires `network_time` to be provided by the caller (node layer).
+/// The consensus engine must not call `SystemTime::now()` directly.
 pub fn connect_block(
     block: &Block,
     witnesses: &[Witness],
     utxo_set: UtxoSet,
     height: Natural,
     recent_headers: Option<&[BlockHeader]>,
+    network_time: u64,
     network: crate::types::Network,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
     crate::reorganization::BlockUndoLog,
 )> {
-    let time_context = build_time_context(recent_headers);
+    let time_context = build_time_context(recent_headers, network_time);
     connect_block_inner(block, witnesses, utxo_set, height, time_context, network)
 }
 
@@ -205,17 +211,17 @@ pub fn connect_block_with_context(
     connect_block_inner(block, witnesses, utxo_set, height, time_context, network)
 }
 
-/// Helper to construct a `TimeContext` from recent headers using the existing
-/// median-time-past + `SystemTime::now()` logic.
-fn build_time_context(recent_headers: Option<&[BlockHeader]>) -> Option<crate::types::TimeContext> {
+/// Helper to construct a `TimeContext` from recent headers and network time.
+///
+/// # Consensus Engine Purity
+/// This function does NOT call `SystemTime::now()`. The `network_time` parameter
+/// must be provided by the node layer, ensuring the consensus engine remains pure.
+fn build_time_context(
+    recent_headers: Option<&[BlockHeader]>,
+    network_time: u64,
+) -> Option<crate::types::TimeContext> {
     recent_headers.map(|headers| {
         let median_time_past = get_median_time_past(headers);
-        // Network time would come from node's network layer
-        // For now, use current system time as fallback (caller should provide network_time)
-        let network_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
         crate::types::TimeContext {
             network_time,
             median_time_past,
@@ -2364,6 +2370,7 @@ mod kani_proofs {
             utxo_set,
             height,
             None,
+            block.header.timestamp,
             crate::types::Network::Mainnet,
         );
 
@@ -2647,6 +2654,7 @@ mod kani_proofs {
             utxo_set,
             height,
             None,
+            block.header.timestamp,
             crate::types::Network::Mainnet,
         );
 
@@ -2887,7 +2895,7 @@ mod property_tests {
             }
 
             let witnesses: Vec<Witness> = bounded_block.transactions.iter().map(|_| Vec::new()).collect();
-            let result = connect_block(&bounded_block, &witnesses, utxo_set, height, None, crate::types::Network::Mainnet);
+            let result = connect_block(&bounded_block, &witnesses, utxo_set, height, None, bounded_block.header.timestamp, crate::types::Network::Mainnet);
 
             match result {
                 Ok((validation_result, _, _undo_log)) => {
@@ -3343,6 +3351,7 @@ mod kani_proofs_2 {
             utxo_set,
             height,
             None,
+            block.header.timestamp,
             crate::types::Network::Mainnet,
         );
 
@@ -3429,6 +3438,7 @@ mod kani_proofs_2 {
             utxo_set,
             height,
             None,
+            block.header.timestamp,
             crate::types::Network::Mainnet,
         );
 
