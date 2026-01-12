@@ -21,6 +21,8 @@ use crate::types::*;
 /// - invalid if ∃ tx ∈ txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
 /// - valid otherwise
 ///
+/// **Known Exceptions**: Blocks 91842 and 91880 have duplicate coinbases (historical bug, grandfathered in)
+///
 /// Activation: Block 0 (always active)
 pub fn check_bip30(block: &Block, utxo_set: &UtxoSet) -> Result<bool> {
     // Find coinbase transaction
@@ -34,24 +36,25 @@ pub fn check_bip30(block: &Block, utxo_set: &UtxoSet) -> Result<bool> {
 
         let txid = calculate_tx_id(tx);
 
-        // Check if this coinbase txid already exists in UTXO set
-        // We need to check if any UTXO was created by a coinbase with this txid
-        // Since UTXOs store the outpoint (txid, index), we can check if any outpoint
-        // has this txid and was created by a coinbase transaction.
+        // BIP30: Check if ANY UTXO exists with this txid
+        // This means a previous transaction (coinbase) with this txid already created outputs
+        // that are still unspent. Since coinbase txids should be unique, this is a violation.
         //
-        // Note: In practice, we need to track coinbase txids separately or check
-        // against a set of known coinbase txids. For now, we'll check if any UTXO
-        // exists with this txid (which would indicate a duplicate coinbase).
-        //
-        // However, this is a simplified check. A full implementation would maintain
-        // a set of coinbase txids that have created UTXOs.
-
-        // Check if any UTXO exists with this txid (indicating duplicate coinbase)
-        for (outpoint, _utxo) in utxo_set.iter() {
+        // Note: We check ANY UTXO, not just coinbase UTXOs, because:
+        // 1. We're only checking coinbase transactions (verified above)
+        // 2. If a UTXO with this txid exists, it means a previous transaction created it
+        // 3. For coinbases, this should never happen (except blocks 91842/91880)
+        let mut found_duplicate = false;
+        let mut matching_outpoints = Vec::new();
+        for (outpoint, utxo) in utxo_set.iter() {
             if outpoint.hash == txid {
-                // Found a UTXO with the same txid - this is a duplicate coinbase
-                return Ok(false);
+                matching_outpoints.push((outpoint.clone(), utxo.is_coinbase));
+                found_duplicate = true;
             }
+        }
+        
+        if found_duplicate {
+            return Ok(false);
         }
     }
 
