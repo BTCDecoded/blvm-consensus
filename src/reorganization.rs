@@ -38,9 +38,14 @@ pub fn reorganize_chain(
     );
 
     // Create empty witnesses for all blocks (simplified)
-    let empty_witnesses: Vec<Vec<Witness>> = new_chain
+    // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> per block (one Vec per transaction, each containing one Witness per input)
+    let empty_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
         .iter()
-        .map(|block| block.transactions.iter().map(|_| Vec::new()).collect())
+        .map(|block| {
+            block.transactions.iter()
+                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                .collect()
+        })
         .collect();
     // Invariant assertion: Witness count must match block count
     assert!(
@@ -87,7 +92,8 @@ pub fn reorganize_chain(
 #[allow(clippy::too_many_arguments)]
 pub fn reorganize_chain_with_witnesses(
     new_chain: &[Block],
-    new_chain_witnesses: &[Vec<Witness>],
+    new_chain_witnesses: &[Vec<Vec<Witness>>], // CRITICAL FIX: Changed from &[Vec<Witness>] to &[Vec<Vec<Witness>>]
+    // Each block has Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
     new_chain_headers: Option<&[BlockHeader]>,
     current_chain: &[Block],
     current_utxo_set: UtxoSet,
@@ -233,10 +239,15 @@ pub fn reorganize_chain_with_witnesses(
     for (i, block) in new_chain.iter().enumerate().skip(common_ancestor_index + 1) {
         new_height += 1;
         // Get witnesses for this block
+        // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
         let witnesses = new_chain_witnesses
             .get(i)
             .cloned()
-            .unwrap_or_else(|| block.transactions.iter().map(|_| Vec::new()).collect());
+            .unwrap_or_else(|| {
+                block.transactions.iter()
+                    .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                    .collect()
+            });
 
         // Get recent headers for median time-past (if available)
         // For the first block in new chain, use provided headers

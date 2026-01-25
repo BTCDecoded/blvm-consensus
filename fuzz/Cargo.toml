@@ -9,9 +9,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-bllvm-consensus = { path = "..", features = ["utxo-commitments"] }
-
-[dependencies]
+blvm-consensus = { path = "..", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
 
 # Prevent warnings in generated code

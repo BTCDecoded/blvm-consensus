@@ -227,8 +227,12 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
     // actual witness contents here, so we rely on the transaction structure itself
     // (including SegWit/Taproot outputs) in `calculate_script_flags_for_block`.
     // Witness data is still threaded through to `verify_script` separately.
+    //
+    // For mempool policy, we use a height that activates all soft forks (well past all activations).
+    // This ensures we validate using the most strict rules.
     let _ = witnesses;
-    crate::block::calculate_script_flags_for_block(tx, None)
+    const MEMPOOL_POLICY_HEIGHT: u64 = 1_000_000; // All soft forks active at this height
+    crate::block::calculate_script_flags_for_block(tx, None, MEMPOOL_POLICY_HEIGHT, crate::types::Network::Mainnet)
 }
 
 /// IsStandardTx: 𝒯𝒳 → {true, false}

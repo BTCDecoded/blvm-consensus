@@ -237,6 +237,18 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
     ]) as u64;
     offset += 4;
 
+    // Check for SegWit marker (0x00 0x01) after version
+    // In SegWit transactions: version (4) + marker (1) + flag (1) + inputs...
+    let is_segwit = if data.len() >= offset + 2 {
+        data[offset] == 0x00 && data[offset + 1] == 0x01
+    } else {
+        false
+    };
+
+    if is_segwit {
+        offset += 2; // Skip marker (0x00) and flag (0x01)
+    }
+
     // Input count (VarInt)
     let (input_count, varint_len) = decode_varint(&data[offset..])?;
     offset += varint_len;
@@ -366,6 +378,29 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         });
     }
 
+    // For SegWit transactions, skip witness data (one stack per input)
+    // Witness data comes after outputs but before locktime
+    if is_segwit {
+        for _ in 0..input_count {
+            // Number of stack items for this input
+            let (stack_count, varint_len) = decode_varint(&data[offset..])?;
+            offset += varint_len;
+            
+            // Skip each stack item
+            for _ in 0..stack_count {
+                let (item_len, varint_len) = decode_varint(&data[offset..])?;
+                offset += varint_len;
+                
+                if data.len() < offset + item_len as usize {
+                    return Err(ConsensusError::Serialization(Cow::Owned(
+                        TransactionParseError::InsufficientBytes.to_string(),
+                    )));
+                }
+                offset += item_len as usize;
+            }
+        }
+    }
+
     // Lock time (4 bytes) - Bitcoin uses u32 in wire format, but we store as u64
     if data.len() < offset + 4 {
         return Err(ConsensusError::Serialization(Cow::Owned(
@@ -385,6 +420,220 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
         outputs,
         lock_time,
     })
+}
+
+/// Deserialize a transaction from Bitcoin wire format, returning transaction, witness, and bytes consumed
+/// 
+/// This is used by block deserialization to track how many bytes each transaction uses.
+pub fn deserialize_transaction_with_witness(data: &[u8]) -> Result<(Transaction, Vec<crate::witness::Witness>, usize)> {
+    let mut offset = 0;
+
+    // Version (4 bytes)
+    if data.len() < offset + 4 {
+        return Err(ConsensusError::Serialization(Cow::Owned(
+            TransactionParseError::InsufficientBytes.to_string(),
+        )));
+    }
+    let version = i32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ]) as u64;
+    offset += 4;
+
+    // Check for SegWit marker (0x00 0x01) after version
+    let is_segwit = if data.len() >= offset + 2 {
+        data[offset] == 0x00 && data[offset + 1] == 0x01
+    } else {
+        false
+    };
+
+    if is_segwit {
+        offset += 2; // Skip marker (0x00) and flag (0x01)
+    }
+
+    // Input count (VarInt)
+    let (input_count, varint_len) = decode_varint(&data[offset..])?;
+    offset += varint_len;
+
+    if input_count > 1000000 {
+        return Err(ConsensusError::Serialization(Cow::Owned(
+            TransactionParseError::InvalidInputCount.to_string(),
+        )));
+    }
+
+    #[cfg(feature = "production")]
+    let mut inputs = SmallVec::<[TransactionInput; 2]>::new();
+    #[cfg(not(feature = "production"))]
+    let mut inputs = Vec::new();
+    
+    for _ in 0..input_count {
+        // Previous output hash (32 bytes)
+        if data.len() < offset + 32 {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&data[offset..offset + 32]);
+        offset += 32;
+
+        // Previous output index (4 bytes)
+        if data.len() < offset + 4 {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let index = u64::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+            0, 0, 0, 0,
+        ]);
+        offset += 4;
+
+        // Script length (VarInt)
+        let (script_len, varint_len) = decode_varint(&data[offset..])?;
+        offset += varint_len;
+
+        // Script bytes
+        if data.len() < offset + script_len as usize {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let script_sig = data[offset..offset + script_len as usize].to_vec();
+        offset += script_len as usize;
+
+        // Sequence (4 bytes)
+        if data.len() < offset + 4 {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let sequence = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as u64;
+        offset += 4;
+
+        inputs.push(TransactionInput {
+            prevout: OutPoint { hash, index },
+            script_sig,
+            sequence,
+        });
+    }
+
+    // Output count (VarInt)
+    let (output_count, varint_len) = decode_varint(&data[offset..])?;
+    offset += varint_len;
+
+    if output_count > 1000000 {
+        return Err(ConsensusError::Serialization(Cow::Owned(
+            TransactionParseError::InvalidOutputCount.to_string(),
+        )));
+    }
+
+    #[cfg(feature = "production")]
+    let mut outputs = SmallVec::<[TransactionOutput; 2]>::new();
+    #[cfg(not(feature = "production"))]
+    let mut outputs = Vec::new();
+    
+    for _ in 0..output_count {
+        // Value (8 bytes)
+        if data.len() < offset + 8 {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let value = i64::from_le_bytes([
+            data[offset], data[offset + 1], data[offset + 2], data[offset + 3],
+            data[offset + 4], data[offset + 5], data[offset + 6], data[offset + 7],
+        ]);
+        offset += 8;
+
+        // Script length (VarInt)
+        let (script_len, varint_len) = decode_varint(&data[offset..])?;
+        offset += varint_len;
+
+        // Script bytes
+        if data.len() < offset + script_len as usize {
+            return Err(ConsensusError::Serialization(Cow::Owned(
+                TransactionParseError::InsufficientBytes.to_string(),
+            )));
+        }
+        let script_pubkey = data[offset..offset + script_len as usize].to_vec();
+        offset += script_len as usize;
+
+        outputs.push(TransactionOutput {
+            value,
+            script_pubkey,
+        });
+    }
+
+    // Parse witness data for SegWit transactions
+    // CRITICAL FIX: Return Vec<Witness> (one Witness per input) instead of flattening
+    // Each Witness is Vec<ByteString> representing the witness stack for that input
+    use crate::witness::Witness;
+    let mut all_witnesses: Vec<Witness> = Vec::new();
+    if is_segwit {
+        for _ in 0..input_count {
+            // Number of stack items for this input
+            let (stack_count, varint_len) = decode_varint(&data[offset..])?;
+            offset += varint_len;
+            
+            // Create witness stack for this input
+            let mut witness_stack: Witness = Vec::new();
+            
+            // Parse each stack item
+            for _ in 0..stack_count {
+                let (item_len, varint_len) = decode_varint(&data[offset..])?;
+                offset += varint_len;
+                
+                if data.len() < offset + item_len as usize {
+                    return Err(ConsensusError::Serialization(Cow::Owned(
+                        TransactionParseError::InsufficientBytes.to_string(),
+                    )));
+                }
+                witness_stack.push(data[offset..offset + item_len as usize].to_vec());
+                offset += item_len as usize;
+            }
+            
+            all_witnesses.push(witness_stack);
+        }
+    } else {
+        // Non-SegWit: create empty witness stacks for all inputs
+        for _ in 0..input_count {
+            all_witnesses.push(Witness::new());
+        }
+    }
+
+    // Lock time (4 bytes)
+    if data.len() < offset + 4 {
+        return Err(ConsensusError::Serialization(Cow::Owned(
+            TransactionParseError::InsufficientBytes.to_string(),
+        )));
+    }
+    let lock_time = u32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ]) as u64;
+    offset += 4;
+
+    let tx = Transaction {
+        version,
+        inputs,
+        outputs,
+        lock_time,
+    };
+
+    Ok((tx, all_witnesses, offset))
 }
 
 #[cfg(test)]

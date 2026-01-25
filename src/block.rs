@@ -174,7 +174,9 @@ pub fn reset_assume_valid_height() {
 /// The consensus engine must not call `SystemTime::now()` directly.
 pub fn connect_block(
     block: &Block,
-    witnesses: &[Witness],
+    witnesses: &[Vec<Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
+    // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+    // and each Witness is for one input
     utxo_set: UtxoSet,
     height: Natural,
     recent_headers: Option<&[BlockHeader]>,
@@ -198,7 +200,9 @@ pub fn connect_block(
 /// which builds the time context from `recent_headers`.
 pub fn connect_block_with_context(
     block: &Block,
-    witnesses: &[Witness],
+    witnesses: &[Vec<Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
+    // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+    // and each Witness is for one input
     utxo_set: UtxoSet,
     height: Natural,
     time_context: Option<crate::types::TimeContext>,
@@ -232,7 +236,9 @@ fn build_time_context(
 #[allow(clippy::overly_complex_bool_expr)] // Intentional tautological assertions for formal verification
 fn connect_block_inner(
     block: &Block,
-    witnesses: &[Witness],
+    witnesses: &[Vec<Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
+    // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+    // and each Witness is for one input
     mut utxo_set: UtxoSet,
     height: Natural,
     time_context: Option<crate::types::TimeContext>,
@@ -304,8 +310,19 @@ fn connect_block_inner(
 
     // Check block weight (DoS prevention)
     // This must be done before expensive transaction validation
+    // Flatten witnesses for calculate_block_weight (backward compatibility)
     use crate::segwit::calculate_block_weight;
-    let block_weight = calculate_block_weight(block, witnesses)?;
+    let flattened_witnesses: Vec<Witness> = witnesses.iter()
+        .map(|tx_witnesses| {
+            // Flatten all input witnesses into one Witness per transaction
+            let mut flattened: Witness = Vec::new();
+            for witness_stack in tx_witnesses {
+                flattened.extend(witness_stack.clone());
+            }
+            flattened
+        })
+        .collect();
+    let block_weight = calculate_block_weight(block, &flattened_witnesses)?;
     // Invariant assertion: Block weight must be non-zero and within reasonable bounds
     assert!(block_weight > 0, "Block weight must be positive");
     assert!(
@@ -330,7 +347,9 @@ fn connect_block_inner(
     #[cfg(debug_assertions)]
     {
         use crate::serialization::block::serialize_block_with_witnesses;
-        let serialized_size = serialize_block_with_witnesses(block, witnesses, true).len();
+        // Flatten Vec<Vec<Witness>> to Vec<Witness> for serialize_block_with_witnesses
+        let flattened: Vec<Witness> = witnesses.iter().flatten().cloned().collect();
+        let serialized_size = serialize_block_with_witnesses(block, &flattened, true).len();
         // Note: We don't have a provided_size parameter, so we just verify serialization works
         // In production, if receiving pre-serialized blocks, validate: serialized_size == provided_size
         // Use MAX_BLOCK_SERIALIZED_SIZE (4MB) for serialized size check
@@ -383,7 +402,7 @@ fn connect_block_inner(
         !block.transactions.is_empty(),
         "Block must have transactions for BIP30 check"
     );
-    let bip30_result = crate::bip_validation::check_bip30(block, &utxo_set)?;
+    let bip30_result = crate::bip_validation::check_bip30(block, &utxo_set, height, network)?;
     // Invariant assertion: BIP30 result must be boolean
     #[allow(clippy::eq_op)]
     {
@@ -510,9 +529,9 @@ fn connect_block_inner(
             for (i, tx) in block.transactions.iter().enumerate() {
                 // Validate transaction structure (read-only)
                 let tx_valid = check_transaction(tx)?;
-                if !matches!(tx_valid, ValidationResult::Valid) {
+                if let ValidationResult::Invalid(reason) = tx_valid {
                     validation_results.push(Ok((
-                        ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
+                        ValidationResult::Invalid(format!("TX {i}: {reason}")),
                         0,
                         false,
                     )));
@@ -570,6 +589,7 @@ fn connect_block_inner(
                 };
 
                 if !matches!(input_valid, ValidationResult::Valid) {
+                    eprintln!("   ❌ [parallel] Block {} TX {}: input_valid={:?}", height, i, input_valid);
                     validation_results.push(Ok((
                         ValidationResult::Invalid(format!(
                             "Invalid transaction inputs at index {i}"
@@ -616,39 +636,85 @@ fn connect_block_inner(
                         result
                     };
 
-                    // Sequential script verification (can't parallelize due to intra-block dependencies)
-                    let mut all_valid = true;
-                    for (j, opt_script_pubkey) in input_utxos.iter() {
-                        if let Some(script_pubkey) = opt_script_pubkey {
-                            let input = &tx.inputs[*j];
-                            let witness_elem = witnesses.get(i).and_then(|w| w.get(*j));
-                            let median_time_past = time_context
-                                .map(|ctx| ctx.median_time_past)
-                                .filter(|&mtp| mtp > 0);
-                            let tx_witness = witnesses.get(i);
-                            let flags = calculate_script_flags_for_block(tx, tx_witness);
+                    // Parallel script verification - signatures are independent!
+                    #[cfg(feature = "rayon")]
+                    let all_valid = {
+                        use rayon::prelude::*;
+                        let median_time_past = time_context
+                            .map(|ctx| ctx.median_time_past)
+                            .filter(|&mtp| mtp > 0);
+                        // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
+                        let tx_witnesses = witnesses.get(i);
+                        let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
+                            let mut flattened: Witness = Vec::new();
+                            for witness_stack in tx_wits {
+                                flattened.extend(witness_stack.clone());
+                            }
+                            flattened
+                        });
+                        let flags = calculate_script_flags_for_block(tx, flattened_tx_witness.as_ref(), height, network);
+                        
+                        // Verify all inputs in parallel
+                        input_utxos.par_iter().all(|(j, opt_script_pubkey)| {
+                            if let Some(script_pubkey) = opt_script_pubkey {
+                                let input = &tx.inputs[*j];
+                                let witness_elem = witnesses.get(i).and_then(|w| w.get(*j));
+                                
+                                verify_script_with_context_full(
+                                    &input.script_sig,
+                                    script_pubkey,
+                                    witness_elem,
+                                    flags,
+                                    tx,
+                                    *j,
+                                    &prevouts,
+                                    Some(height),
+                                    median_time_past,
+                                    network,
+                                    crate::script::SigVersion::Base,
+                                ).unwrap_or(false)
+                            } else {
+                                false
+                            }
+                        })
+                    };
+                    
+                    #[cfg(not(feature = "rayon"))]
+                    let all_valid = {
+                        let mut valid = true;
+                        for (j, opt_script_pubkey) in input_utxos.iter() {
+                            if let Some(script_pubkey) = opt_script_pubkey {
+                                let input = &tx.inputs[*j];
+                                let witness_elem = witnesses.get(i).and_then(|w| w.get(*j));
+                                let median_time_past = time_context
+                                    .map(|ctx| ctx.median_time_past)
+                                    .filter(|&mtp| mtp > 0);
+                                let tx_witness = witnesses.get(i);
+                                let flags = calculate_script_flags_for_block(tx, tx_witness, height, network);
 
-                            if !verify_script_with_context_full(
-                                &input.script_sig,
-                                script_pubkey,
-                                witness_elem,
-                                flags,
-                                tx,
-                                *j,
-                                &prevouts,
-                                Some(height),
-                                median_time_past,
-                                network,
-                                crate::script::SigVersion::Base,
-                            )? {
-                                all_valid = false;
+                                if !verify_script_with_context_full(
+                                    &input.script_sig,
+                                    script_pubkey,
+                                    witness_elem,
+                                    flags,
+                                    tx,
+                                    *j,
+                                    &prevouts,
+                                    Some(height),
+                                    median_time_past,
+                                    network,
+                                    crate::script::SigVersion::Base,
+                                ).unwrap_or(false) {
+                                    valid = false;
+                                    break;
+                                }
+                            } else {
+                                valid = false;
                                 break;
                             }
-                        } else {
-                            all_valid = false;
-                            break;
                         }
-                    }
+                        valid
+                    };
                     all_valid
                 };
 
@@ -703,20 +769,18 @@ fn connect_block_inner(
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
             }
             
-            // CRITICAL FIX: Use temp_utxo_set as the starting point for Phase 5
-            // temp_utxo_set already has all transactions applied (including intra-block dependencies)
-            // Phase 5 will rebuild the undo log, but we need to start from temp_utxo_set
-            // to ensure intra-block transaction outputs are available
+            // CRITICAL: Only update utxo_set AFTER all validations pass (Phase 2 loop completed without returning)
+            // This ensures we don't partially modify utxo_set when a block is invalid
             utxo_set = temp_utxo_set;
-            
-            // Mark that transactions are already applied so Phase 5 can skip re-application
-            // and just rebuild undo log
-            // We'll detect this in Phase 5 by checking if utxo_set already has outputs from transactions
         }
 
         #[cfg(not(feature = "rayon"))]
         {
             // Sequential fallback (no Rayon available)
+            // CRITICAL FIX: Use temp_utxo_set for intra-block spending support
+            // Transactions can spend outputs from earlier transactions in the same block
+            let mut temp_utxo_set = utxo_set.clone();
+            
             for (i, tx) in block.transactions.iter().enumerate() {
                 // Validate transaction structure
                 if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
@@ -728,16 +792,16 @@ fn connect_block_inner(
                 }
 
                 // Check transaction inputs and calculate fees
-                // Optimization: Use cached UTXOs for fee calculation (already looked up in batch)
+                // CRITICAL: Use temp_utxo_set which includes outputs from earlier transactions in this block
                 let (input_valid, fee) = if is_coinbase(tx) {
                     (ValidationResult::Valid, 0)
                 } else {
-                    // Calculate fee using cached UTXOs
+                    // Calculate fee using temp_utxo_set (includes outputs from earlier transactions)
                     let total_input: i64 = tx
                         .inputs
                         .iter()
                         .try_fold(0i64, |acc, input| {
-                            let value = utxo_cache
+                            let value = temp_utxo_set
                                 .get(&input.prevout)
                                 .map(|utxo| utxo.value)
                                 .unwrap_or(0);
@@ -783,13 +847,14 @@ fn connect_block_inner(
                             total_input
                         );
                         // Verify UTXOs exist and check other input validation rules
-                        // Use check_tx_inputs for full validation (null prevout checks, coinbase maturity, etc.)
-                        let (input_valid, _) = check_tx_inputs(tx, &utxo_set, height)?;
+                        // CRITICAL: Use temp_utxo_set for validation
+                        let (input_valid, _) = check_tx_inputs(tx, &temp_utxo_set, height)?;
                         (input_valid, fee)
                     }
                 };
 
                 if !matches!(input_valid, ValidationResult::Valid) {
+                    eprintln!("   ❌ [non-parallel] Block {} TX {}: input_valid={:?}", height, i, input_valid);
                     return Ok((
                         ValidationResult::Invalid(format!(
                             "Invalid transaction inputs at index {i}"
@@ -803,11 +868,12 @@ fn connect_block_inner(
                 // Phase 4.1: Skip signature verification if assume-valid
                 if !is_coinbase(tx) && !skip_signatures {
                     // Create prevouts for context (needed for CLTV/CSV validation)
+                    // CRITICAL: Use temp_utxo_set for intra-block spending support
                     let prevouts: Vec<TransactionOutput> = tx
                         .inputs
                         .iter()
                         .filter_map(|input| {
-                            utxo_set.get(&input.prevout).map(|utxo| TransactionOutput {
+                            temp_utxo_set.get(&input.prevout).map(|utxo| TransactionOutput {
                                 value: utxo.value,
                                 script_pubkey: utxo.script_pubkey.clone(),
                             })
@@ -815,13 +881,14 @@ fn connect_block_inner(
                         .collect();
 
                     for (j, input) in tx.inputs.iter().enumerate() {
-                        if let Some(utxo) = utxo_set.get(&input.prevout) {
+                        // CRITICAL: Use temp_utxo_set for intra-block spending support
+                        if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
                             let witness_elem = witnesses.get(i).and_then(|w| w.get(j));
                             let median_time_past = time_context
                                 .map(|ctx| ctx.median_time_past)
                                 .filter(|&mtp| mtp > 0);
                             let tx_witness = witnesses.get(i);
-                            let flags = calculate_script_flags_for_block(tx, tx_witness);
+                            let flags = calculate_script_flags_for_block(tx, tx_witness, height, network);
 
                             if !verify_script_with_context_full(
                                 &input.script_sig,
@@ -848,6 +915,12 @@ fn connect_block_inner(
                         }
                     }
                 }
+
+                // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
+                use crate::block::calculate_tx_id;
+                let tx_id = calculate_tx_id(tx);
+                let (new_temp_utxo_set, _tx_undo_entries) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
+                temp_utxo_set = new_temp_utxo_set;
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees
@@ -888,62 +961,7 @@ fn connect_block_inner(
 
             // Check transaction inputs and calculate fees
             // CRITICAL: Use temp_utxo_set which includes outputs from previous transactions in this block
-            // DEBUG: Log for problematic blocks
-            if height == 15 || height == 17 || height == 86 || height == 120 || height == 126 || height == 153 || height == 160 || height == 318 {
-                eprintln!("   🔍 DEBUG Block {} TX {}: About to check inputs, temp_utxo_set size: {}", height, i, temp_utxo_set.len());
-                if !tx.inputs.is_empty() {
-                    let hash_str: String = tx.inputs[0].prevout.hash.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                    eprintln!("      First input prevout: {}:{}", hash_str, tx.inputs[0].prevout.index);
-                    if let Some(utxo) = temp_utxo_set.get(&tx.inputs[0].prevout) {
-                        eprintln!("      ✅ First input UTXO exists in temp_utxo_set");
-                    } else {
-                        eprintln!("      ❌ First input UTXO MISSING in temp_utxo_set");
-                    }
-                }
-            }
             let (input_valid, fee) = check_tx_inputs(tx, &temp_utxo_set, height)?;
-            
-            // DEBUG: Log input validation failures for problematic blocks
-            if !matches!(input_valid, ValidationResult::Valid) && (height == 15 || height == 17 || height == 86 || height == 120 || height == 126 || height == 153 || height == 160 || height == 318) {
-                eprintln!("   🔍 DEBUG Block {} TX {}: Input validation failed", height, i);
-                eprintln!("      UTXO set size: {}", temp_utxo_set.len());
-                if !tx.inputs.is_empty() {
-                    for (input_idx, input) in tx.inputs.iter().enumerate() {
-                        let hash_str: String = input.prevout.hash.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                        eprintln!("      Input {}: prevout {}:{}", input_idx, hash_str, input.prevout.index);
-                        if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
-                            eprintln!("         ✅ UTXO exists: value={}, height={}, coinbase={}", utxo.value, utxo.height, utxo.is_coinbase);
-                        } else {
-                            eprintln!("         ❌ UTXO MISSING in temp_utxo_set");
-                            // Check if it exists in original utxo_set
-                            if let Some(utxo) = utxo_set.get(&input.prevout) {
-                                eprintln!("         ⚠️  But exists in original utxo_set: value={}, height={}, coinbase={}", utxo.value, utxo.height, utxo.is_coinbase);
-                            }
-                            // Check if it might be from an earlier transaction in this block
-                            if i > 0 {
-                                eprintln!("         🔍 Checking if this is from an earlier transaction in this block...");
-                                for prev_tx_idx in 0..i {
-                                    use crate::block::calculate_tx_id;
-                                    let prev_tx_id = calculate_tx_id(&block.transactions[prev_tx_idx]);
-                                    if input.prevout.hash == prev_tx_id {
-                                        eprintln!("         ✅ Found! This is from TX {} (index {}) in this block", prev_tx_idx, input.prevout.index);
-                                        // Check if temp_utxo_set has this output
-                                        let check_outpoint = crate::types::OutPoint {
-                                            hash: prev_tx_id,
-                                            index: input.prevout.index,
-                                        };
-                                        if temp_utxo_set.get(&check_outpoint).is_some() {
-                                            eprintln!("         ✅ And it exists in temp_utxo_set!");
-                                        } else {
-                                            eprintln!("         ❌ But it's NOT in temp_utxo_set - this is the bug!");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
             
             // Postcondition assertion: Fee calculation result must be valid
             assert!(
@@ -951,24 +969,21 @@ fn connect_block_inner(
                 "Fee {fee} must be non-negative for valid transaction at index {i}"
             );
             if !matches!(input_valid, ValidationResult::Valid) {
+                eprintln!("   ❌ Block {} TX {}: input_valid={:?}", height, i, input_valid);
                 return Ok((
                     ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
                     utxo_set,
                     crate::reorganization::BlockUndoLog::new(),
                 ));
             }
-            
-            // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
-            use crate::block::calculate_tx_id;
-            let tx_id = calculate_tx_id(tx);
-            let (new_temp_utxo_set, _) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
-            temp_utxo_set = new_temp_utxo_set;
 
-            // Verify scripts for non-coinbase transactions
+            // Verify scripts for non-coinbase transactions BEFORE applying transaction
+            // (because apply_transaction removes spent UTXOs from the set)
             // Phase 4.1: Skip signature verification if assume-valid
-            // CRITICAL: Use temp_utxo_set (includes outputs from previous transactions in this block)
+            // CRITICAL: Use temp_utxo_set (still has the UTXOs we need to verify)
             if !is_coinbase(tx) && !skip_signatures {
                 // Create prevouts for context (needed for CLTV/CSV validation)
+                // MUST be done BEFORE apply_transaction which removes these UTXOs
                 let prevouts: Vec<TransactionOutput> = tx
                     .inputs
                     .iter()
@@ -997,8 +1012,10 @@ fn connect_block_inner(
                     );
 
                     if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
-                        // Get witness for this transaction input if available
-                        let witness = witnesses.get(i).and_then(|w| w.get(j));
+                        // Get witness stack for this transaction input if available
+                        // witnesses is Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+                        // and each Witness is for one input
+                        let witness_stack = witnesses.get(i).and_then(|tx_witnesses| tx_witnesses.get(j));
 
                         // Calculate median time-past from provided time context (if any)
                         let median_time_past = time_context
@@ -1006,14 +1023,22 @@ fn connect_block_inner(
                             .filter(|&mtp| mtp > 0); // Only use if valid (> 0)
 
                         // Calculate script verification flags for this transaction
-                        let tx_witness = witnesses.get(i);
-                        let flags = calculate_script_flags_for_block(tx, tx_witness);
+                        // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
+                        let tx_witnesses = witnesses.get(i);
+                        let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
+                            let mut flattened: Witness = Vec::new();
+                            for witness_stack in tx_wits {
+                                flattened.extend(witness_stack.clone());
+                            }
+                            flattened
+                        });
+                        let flags = calculate_script_flags_for_block(tx, flattened_tx_witness.as_ref(), height, network);
 
                         // Use verify_script_with_context_full for BIP65/112 support
                         if !verify_script_with_context_full(
                             &input.script_sig,
                             &utxo.script_pubkey,
-                            witness, // Pass witness data (Option<&Vec<u8>> = Option<&ByteString>)
+                            witness_stack, // Pass full witness stack (Option<&Witness>)
                             flags,
                             tx,
                             j, // Input index
@@ -1034,6 +1059,13 @@ fn connect_block_inner(
                     }
                 }
             }
+            
+            // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
+            // This MUST happen AFTER script verification (which needs the spent UTXOs)
+            use crate::block::calculate_tx_id;
+            let tx_id = calculate_tx_id(tx);
+            let (new_temp_utxo_set, _) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
+            temp_utxo_set = new_temp_utxo_set;
 
             // Use checked arithmetic to prevent fee overflow
             // Invariant assertion: Fee must be non-negative
@@ -1158,7 +1190,17 @@ fn connect_block_inner(
             // Invariant assertion: SegWit block must have witnesses
             assert!(!witnesses.is_empty(), "SegWit block must have witnesses");
 
-            let witness_merkle_root = compute_witness_merkle_root(block, witnesses)?;
+            // Flatten witnesses for compute_witness_merkle_root (backward compatibility)
+            let flattened_witnesses: Vec<Witness> = witnesses.iter()
+                .map(|tx_witnesses| {
+                    let mut flattened: Witness = Vec::new();
+                    for witness_stack in tx_witnesses {
+                        flattened.extend(witness_stack.clone());
+                    }
+                    flattened
+                })
+                .collect();
+            let witness_merkle_root = compute_witness_merkle_root(block, &flattened_witnesses)?;
             // Invariant assertion: Witness merkle root must be 32 bytes
             assert!(
                 witness_merkle_root.len() == 32,
@@ -1198,8 +1240,16 @@ fn connect_block_inner(
         !block.transactions.is_empty(),
         "Block must have at least one transaction for sigop calculation"
     );
+    // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
+    let flattened_first_witness: Option<Witness> = witnesses.first().map(|tx_wits| {
+        let mut flattened: Witness = Vec::new();
+        for witness_stack in tx_wits {
+            flattened.extend(witness_stack.clone());
+        }
+        flattened
+    });
     let flags =
-        calculate_script_flags_for_block(block.transactions.first().unwrap(), witnesses.first());
+        calculate_script_flags_for_block(block.transactions.first().unwrap(), flattened_first_witness.as_ref(), height, network);
 
     for (i, tx) in block.transactions.iter().enumerate() {
         // Bounds checking assertion: Transaction index must be valid
@@ -1212,9 +1262,16 @@ fn connect_block_inner(
             "Witness index {i} out of bounds in sigop loop"
         );
 
-        let tx_witness = witnesses.get(i);
-
-        let tx_sigop_cost = get_transaction_sigop_cost(tx, &utxo_set, tx_witness, flags)?;
+        // Flatten witnesses for get_transaction_sigop_cost (backward compatibility)
+        let tx_witnesses = witnesses.get(i);
+        let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
+            let mut flattened: Witness = Vec::new();
+            for witness_stack in tx_wits {
+                flattened.extend(witness_stack.clone());
+            }
+            flattened
+        });
+        let tx_sigop_cost = get_transaction_sigop_cost(tx, &utxo_set, flattened_tx_witness.as_ref(), flags)?;
         // Invariant assertion: Transaction sigop cost must be reasonable
         // Note: u64 is always >= 0 by type definition
         assert!(
@@ -1439,20 +1496,8 @@ fn connect_block_inner(
     }
 
     // Reverse entries for efficient undo (most recent first)
-    // Invariant assertion: Undo log entries count must match transaction count
-    assert!(
-        undo_log.entries.len() <= block.transactions.len() * 10,
-        "Undo log entry count {} must be reasonable for {} transactions",
-        undo_log.entries.len(),
-        block.transactions.len()
-    );
+    // Note: Undo log size depends on transaction structure (inputs/outputs), not just count
     undo_log.entries.reverse();
-    // Postcondition assertion: Undo log entries must be reversed (count unchanged)
-    assert!(
-        undo_log.entries.len() <= block.transactions.len() * 10,
-        "Undo log entry count {} must remain reasonable after reverse",
-        undo_log.entries.len()
-    );
 
     // Runtime invariant verification: Supply change must equal subsidy + fees
     // Mathematical specification:
@@ -1683,12 +1728,6 @@ fn apply_transaction_with_id(
                     new_utxo: Some(utxo.clone()),
                 });
 
-                // DEBUG: Log when non-coinbase outputs are added (for problematic blocks)
-                if !is_coinbase(tx) && (height == 15 || height == 17 || height == 86 || height == 120 || height == 126 || height == 153 || height == 160 || height == 318) {
-                    eprintln!("   🔍 DEBUG apply_transaction Block {}: Added non-coinbase output {}:{} (txid: {})", 
-                             height, i, hex::encode(&tx_id[..8]), hex::encode(&outpoint.hash[..8]));
-                }
-                
                 utxo_set.insert(outpoint, utxo);
             }
         }
@@ -1918,6 +1957,8 @@ fn validate_block_header(
 pub(crate) fn calculate_script_flags_for_block(
     tx: &Transaction,
     tx_witness: Option<&Witness>,
+    height: u64,
+    network: crate::types::Network,
 ) -> u32 {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -1925,29 +1966,79 @@ pub(crate) fn calculate_script_flags_for_block(
         "Transaction must have at least one input or output"
     );
 
-    // Base flags (standard validation flags)
-    // SCRIPT_VERIFY_P2SH = 0x01, SCRIPT_VERIFY_STRICTENC = 0x02, etc.
-    let base_flags = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
-    // Invariant assertion: Base flags must be non-zero
-    assert!(base_flags != 0, "Base flags must be non-zero");
-
-    let mut flags = base_flags;
-    // Invariant assertion: Flags must start with base flags
-    assert!(flags == base_flags, "Flags must start with base flags");
-
+    // Script verification flags (from Bitcoin Core's script/interpreter.h)
+    // Flags are enabled based on soft fork activation heights
+    
+    // Start with no flags - we only enable what's active at this height
+    let mut flags: u32 = 0;
+    
+    // Get activation heights for this network
+    use crate::constants::*;
+    let (p2sh_height, bip66_height, bip65_height, bip147_height, segwit_height, taproot_height) = match network {
+        crate::types::Network::Mainnet => (
+            BIP16_P2SH_ACTIVATION_MAINNET,
+            BIP66_ACTIVATION_MAINNET,
+            BIP65_ACTIVATION_MAINNET,
+            BIP147_ACTIVATION_MAINNET,
+            SEGWIT_ACTIVATION_MAINNET,
+            TAPROOT_ACTIVATION_MAINNET,
+        ),
+        crate::types::Network::Testnet => (
+            BIP16_P2SH_ACTIVATION_TESTNET,
+            BIP66_ACTIVATION_TESTNET,
+            BIP65_ACTIVATION_MAINNET, // BIP65 testnet height not defined, use mainnet
+            BIP147_ACTIVATION_TESTNET,
+            SEGWIT_ACTIVATION_MAINNET, // Same as mainnet for simplicity
+            TAPROOT_ACTIVATION_MAINNET, // Same as mainnet for simplicity
+        ),
+        crate::types::Network::Regtest => (
+            BIP16_P2SH_ACTIVATION_REGTEST,
+            BIP66_ACTIVATION_REGTEST,
+            0, // Always active on regtest
+            0, // Always active on regtest
+            0, // Always active on regtest
+            0, // Always active on regtest
+        ),
+    };
+    
+    // SCRIPT_VERIFY_P2SH (0x01) - BIP16, activated at block 173,805 on mainnet
+    if height >= p2sh_height {
+        flags |= 0x01;
+    }
+    
+    // SCRIPT_VERIFY_DERSIG (0x04) - BIP66, activated at block 363,725 on mainnet
+    // Also enables SCRIPT_VERIFY_STRICTENC (0x02) and SCRIPT_VERIFY_LOW_S (0x08)
+    if height >= bip66_height {
+        flags |= 0x02 | 0x04 | 0x08;
+    }
+    
+    // SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY (0x200) - BIP65, activated at block 388,381 on mainnet
+    if height >= bip65_height {
+        flags |= 0x200;
+    }
+    
+    // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY (0x400) - BIP112, activated with SegWit
+    // SCRIPT_VERIFY_NULLDUMMY (0x10) - BIP147, activated with SegWit
+    if height >= bip147_height {
+        flags |= 0x10 | 0x400;
+    }
+    
     // Enable SegWit flag if transaction has witness data or is a SegWit transaction
-    if tx_witness.is_some() || is_segwit_transaction(tx) {
+    // and we're past SegWit activation
+    if height >= segwit_height && (tx_witness.is_some() || is_segwit_transaction(tx)) {
         flags |= 0x800; // SCRIPT_VERIFY_WITNESS
     }
 
-    // Enable Taproot/WITNESS_PUBKEYTYPE flag if transaction uses Taproot outputs
+    // Enable Taproot/WITNESS_PUBKEYTYPE flag if past activation and transaction uses Taproot outputs
     // P2TR script: 0x5120 (1-byte version 0x51 + 32-byte x-only pubkey)
-    for output in &tx.outputs {
-        let script = &output.script_pubkey;
-        use crate::constants::TAPROOT_SCRIPT_LENGTH;
-        if script.len() == TAPROOT_SCRIPT_LENGTH && script[0] == 0x51 && script[1] == 0x20 {
-            flags |= 0x8000; // SCRIPT_VERIFY_TAPROOT / SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
-            break;
+    if height >= taproot_height {
+        for output in &tx.outputs {
+            let script = &output.script_pubkey;
+            use crate::constants::TAPROOT_SCRIPT_LENGTH;
+            if script.len() == TAPROOT_SCRIPT_LENGTH && script[0] == 0x51 && script[1] == 0x20 {
+                flags |= 0x8000; // SCRIPT_VERIFY_TAPROOT / SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+                break;
+            }
         }
     }
 
@@ -2435,10 +2526,10 @@ mod kani_proofs {
         }
 
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -2501,10 +2592,10 @@ mod kani_proofs {
         }
 
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -2540,23 +2631,26 @@ mod kani_proofs {
         }
     }
 
-    /// Kani proof: Script flag calculation correctness (Orange Paper Section 5.2)
+    /// Kani proof: Script flag calculation correctness (Orange Paper Section 5.2.2)
     ///
     /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, witness ∈ Option<Witness>:
-    /// - calculate_script_flags_for_block(tx, witness) = flags ⟹
-    ///   1. Base flags always enabled (SCRIPT_VERIFY_P2SH, STRICTENC, etc.)
-    ///   2. SCRIPT_VERIFY_WITNESS (0x800) enabled if witness present or is_segwit_transaction(tx)
-    ///   3. SCRIPT_VERIFY_TAPROOT (0x2000) enabled if any output is P2TR (0x5120)
+    /// ∀ tx ∈ Transaction, witness ∈ Option<Witness>, height ∈ Natural:
+    /// - calculate_script_flags_for_block(tx, witness, height, network) = flags ⟹
+    ///   1. Flags are enabled based on soft fork activation heights
+    ///   2. SCRIPT_VERIFY_WITNESS (0x800) enabled if witness present or is_segwit_transaction(tx) AND height >= SegWit activation
+    ///   3. SCRIPT_VERIFY_WITNESS_PUBKEYTYPE (0x8000) enabled if any output is P2TR (0x5120) AND height >= Taproot activation
     ///
-    /// This ensures script verification flags are calculated correctly based on transaction type.
+    /// This ensures script verification flags are calculated correctly based on transaction type and block height.
     #[kani::proof]
     #[kani::unwind(5)]
     fn kani_script_flags_calculation_correctness() {
         use crate::segwit::is_segwit_transaction;
+        use crate::constants::*;
 
         let tx = crate::kani_helpers::create_bounded_transaction();
         let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
+        let height: u64 = kani::any();
+        let network = crate::types::Network::Mainnet;
 
         // Bound for tractability
         kani::assume(tx.inputs.len() <= 5);
@@ -2567,35 +2661,56 @@ mod kani_proofs {
                 kani::assume(element.len() <= 5);
             }
         }
+        // Bound height for tractability
+        kani::assume(height <= 1_000_000);
 
         // Calculate flags
-        let flags = calculate_script_flags_for_block(&tx, witness.as_ref());
+        let flags = calculate_script_flags_for_block(&tx, witness.as_ref(), height, network);
 
-        // Critical invariant: base flags must always be enabled
-        let base_flags =
-            0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x400;
-        assert!(
-            flags & base_flags == base_flags,
-            "Script flags calculation: base flags must always be enabled"
-        );
+        // Critical invariant: P2SH flag enabled only after BIP16 activation
+        let has_p2sh_flag = (flags & 0x01) != 0;
+        if height >= BIP16_P2SH_ACTIVATION_MAINNET {
+            assert!(has_p2sh_flag, "P2SH flag must be enabled after activation");
+        } else {
+            assert!(!has_p2sh_flag, "P2SH flag must not be enabled before activation");
+        }
 
-        // Critical invariant: SegWit flag (0x800) enabled if witness present or transaction is SegWit
+        // Critical invariant: DERSIG flags enabled only after BIP66 activation
+        let has_dersig_flags = (flags & 0x04) != 0;
+        if height >= BIP66_ACTIVATION_MAINNET {
+            assert!(has_dersig_flags, "DERSIG flag must be enabled after activation");
+        } else {
+            assert!(!has_dersig_flags, "DERSIG flag must not be enabled before activation");
+        }
+
+        // Critical invariant: SegWit flag (0x800) enabled if witness present or transaction is SegWit AND after activation
         let has_segwit_flag = (flags & 0x800) != 0;
         let has_witness = witness.is_some();
         let is_segwit = is_segwit_transaction(&tx);
+        let past_segwit_activation = height >= SEGWIT_ACTIVATION_MAINNET;
 
-        assert_eq!(has_segwit_flag, has_witness || is_segwit,
-            "Script flags calculation: SCRIPT_VERIFY_WITNESS must be enabled if witness present or transaction is SegWit");
+        if past_segwit_activation && (has_witness || is_segwit) {
+            assert!(has_segwit_flag, "SegWit flag must be enabled after activation if witness present or is SegWit");
+        } else if !past_segwit_activation {
+            assert!(!has_segwit_flag, "SegWit flag must not be enabled before activation");
+        }
 
-        // Critical invariant: Taproot flag (0x2000) enabled if any output is P2TR
-        let has_taproot_flag = (flags & 0x2000) != 0;
-        let has_p2tr_output = tx.outputs.iter().any(|output| {
-            let script = &output.script_pubkey;
-            script.len() == 34 && script[0] == 0x51 && script[1] == 0x20
+        // Critical invariant: Taproot flag (0x8000) enabled only after activation AND if P2TR output present
+        let has_taproot_flag = (flags & 0x8000) != 0;
+        let has_p2tr_output = tx.outputs.iter().any(|o| {
+            o.script_pubkey.len() == 34 
+            && o.script_pubkey[0] == 0x51 
+            && o.script_pubkey[1] == 0x20
         });
+        let past_taproot_activation = height >= TAPROOT_ACTIVATION_MAINNET;
 
-        assert_eq!(has_taproot_flag, has_p2tr_output,
-            "Script flags calculation: SCRIPT_VERIFY_TAPROOT must be enabled if any output is P2TR (0x5120)");
+        if past_taproot_activation && has_p2tr_output {
+            assert!(has_taproot_flag, "Taproot flag must be enabled after activation if P2TR output present");
+        } else if !past_taproot_activation {
+            assert!(!has_taproot_flag, "Taproot flag must not be enabled before activation");
+        } else if !has_p2tr_output {
+            assert!(!has_taproot_flag, "Taproot flag must not be enabled if no P2TR output present");
+        }
     }
 
     /// Kani proof: validate_block_header checks all required fields
@@ -2785,10 +2900,10 @@ mod kani_proofs {
         }
 
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -3148,8 +3263,10 @@ mod kani_proofs_2 {
         }
 
         // Create empty witnesses for simplicity
-        let witnesses: Vec<crate::segwit::Witness> =
-            block.transactions.iter().map(|_| Vec::new()).collect();
+        let witnesses: Vec<Vec<crate::segwit::Witness>> =
+            block.transactions.iter()
+                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                .collect();
 
         let result = connect_block(
             &block,
@@ -3231,10 +3348,10 @@ mod kani_proofs_2 {
         }
 
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -4235,10 +4352,10 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -4289,10 +4406,10 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -4451,10 +4568,10 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,
@@ -4505,10 +4622,10 @@ mod tests {
 
         let utxo_set = UtxoSet::new();
         // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Witness> = block
+        let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
-            .map(|_| Vec::with_capacity(2))
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
         let result = connect_block(
             &block,

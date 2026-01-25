@@ -518,16 +518,10 @@ pub fn check_tx_inputs(
                 "Total input value {total_input_value} must be non-negative after input {i}"
             );
         } else {
-            // DEBUG: Log missing UTXO details for problematic blocks
-            if height == 15 || height == 17 || height == 86 || height == 120 || height == 126 || height == 153 || height == 160 || height == 318 {
-                let hash_str: String = tx.inputs[i].prevout.hash.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                eprintln!("   🔍 DEBUG check_tx_inputs Block {}: Input {} not found in UTXO set", height, i);
-                eprintln!("      Prevout: {}:{}", hash_str, tx.inputs[i].prevout.index);
-                eprintln!("      UTXO set size: {}", utxo_set.len());
-                eprintln!("      Transaction index in block: checking...");
-                // Check if this might be from an earlier transaction in the same block
-                eprintln!("      This error occurs during validation - checking if UTXO should exist...");
-            }
+            // Temporary debug for block 546
+            let hash_str: String = tx.inputs[i].prevout.hash.iter().map(|b| format!("{:02x}", b)).collect();
+            eprintln!("   ❌ UTXO NOT FOUND: Input {} prevout {}:{}", i, hash_str, tx.inputs[i].prevout.index);
+            eprintln!("      UTXO set size: {}", utxo_set.len());
             return Ok((
                 ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
                 0,

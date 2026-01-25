@@ -21,10 +21,14 @@ pub const MAX_BLOCK_WEIGHT: usize = 4_000_000;
 pub const MAX_BLOCK_SIZE: usize = MAX_BLOCK_WEIGHT;
 
 /// Maximum number of inputs per transaction
-pub const MAX_INPUTS: usize = 1000;
+// Note: Bitcoin Core has no explicit input limit - only bounded by block weight
+// Setting to a very high value to match Core's behavior
+pub const MAX_INPUTS: usize = 100_000;
 
 /// Maximum number of outputs per transaction
-pub const MAX_OUTPUTS: usize = 1000;
+// Note: Bitcoin Core has no explicit output limit - only bounded by block weight
+// Setting to a very high value to match Core's behavior
+pub const MAX_OUTPUTS: usize = 100_000;
 
 /// Maximum script length
 pub const MAX_SCRIPT_SIZE: usize = 10_000;
@@ -147,6 +151,38 @@ pub const SEGWIT_P2WSH_LENGTH: usize = 32;
 // ============================================================================
 // Consensus-critical activation heights. Any change to these values would cause
 // a chain split. These heights are locked via Kani proofs to match Bitcoin Core.
+
+/// BIP30: Duplicate Coinbase Prevention - Mainnet deactivation height
+///
+/// BIP30 was disabled after this block to allow duplicate coinbases in blocks 91842 and 91880.
+/// Reference: Bitcoin Core disabled BIP30 after block 91722
+pub const BIP30_DEACTIVATION_MAINNET: u64 = 91722;
+
+/// BIP30: Duplicate Coinbase Prevention - Testnet deactivation height
+///
+/// BIP30 was disabled after this block on testnet.
+pub const BIP30_DEACTIVATION_TESTNET: u64 = 0; // BIP30 never enforced on testnet
+
+/// BIP30: Duplicate Coinbase Prevention - Regtest deactivation height
+///
+/// BIP30 is never enforced on regtest.
+pub const BIP30_DEACTIVATION_REGTEST: u64 = 0;
+
+/// BIP16: P2SH (Pay-to-Script-Hash) - Mainnet activation height
+///
+/// Starting at this block, P2SH scripts are valid.
+/// Reference: BIP16, activated April 1, 2012 at block 173,805
+pub const BIP16_P2SH_ACTIVATION_MAINNET: u64 = 173_805;
+
+/// BIP16: P2SH (Pay-to-Script-Hash) - Testnet activation height
+///
+/// Reference: BIP16, always active on testnet
+pub const BIP16_P2SH_ACTIVATION_TESTNET: u64 = 0;
+
+/// BIP16: P2SH (Pay-to-Script-Hash) - Regtest activation height
+///
+/// Reference: BIP16, always active on regtest
+pub const BIP16_P2SH_ACTIVATION_REGTEST: u64 = 0;
 
 /// BIP34: Block Height in Coinbase - Mainnet activation height
 ///

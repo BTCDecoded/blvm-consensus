@@ -289,8 +289,11 @@ impl ConsensusProof {
     ) -> Result<(ValidationResult, UtxoSet)> {
         // Create empty witnesses for backward compatibility
         // Callers should use validate_block_with_context for full witness support
-        let witnesses: Vec<segwit::Witness> =
-            block.transactions.iter().map(|_| Vec::new()).collect();
+        // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
+        let witnesses: Vec<Vec<segwit::Witness>> =
+            block.transactions.iter()
+                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                .collect();
         let network = types::Network::from_env();
         // Network time should be provided by node layer - use a reasonable default for API compatibility
         // In production, callers should use validate_block_with_context and provide network_time
@@ -304,7 +307,9 @@ impl ConsensusProof {
     pub fn validate_block_with_context(
         &self,
         block: &Block,
-        witnesses: &[segwit::Witness],
+        witnesses: &[Vec<segwit::Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
+        // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+        // and each Witness is for one input
         utxo_set: UtxoSet,
         height: Natural,
         recent_headers: Option<&[BlockHeader]>,
@@ -326,7 +331,9 @@ impl ConsensusProof {
     pub fn validate_block_with_time_context(
         &self,
         block: &Block,
-        witnesses: &[segwit::Witness],
+        witnesses: &[Vec<segwit::Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
+        // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
+        // and each Witness is for one input
         utxo_set: UtxoSet,
         height: Natural,
         time_context: Option<crate::types::TimeContext>,

@@ -75,7 +75,7 @@ bolero = []
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
 # Keep separate from 'verify' to maintain Kani compatibility
-production = ["lru", "dep:rayon", "smallvec"]
+production = ["lru", "rayon", "smallvec"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
 rayon = ["dep:rayon"]

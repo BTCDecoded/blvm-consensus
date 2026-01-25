@@ -3,7 +3,7 @@
 //! Bitcoin block header wire format specification.
 //! Must match Bitcoin Core's serialization exactly for consensus compatibility.
 
-use super::transaction::{deserialize_transaction, serialize_transaction};
+use super::transaction::{deserialize_transaction, deserialize_transaction_with_witness, serialize_transaction};
 use super::varint::{decode_varint, encode_varint};
 use crate::error::{ConsensusError, Result};
 use crate::segwit::Witness;
@@ -170,7 +170,9 @@ fn parse_witness(data: &[u8], mut offset: usize) -> Result<(Witness, usize)> {
 ///   - Transaction (non-witness serialization)
 /// - If SegWit block (marker 0x0001 found):
 ///   - Witness data for each transaction
-pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witness>)> {
+// CRITICAL FIX: Return Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
+// This allows proper P2WSH-in-P2SH handling where we need the full witness stack per input
+pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Vec<Witness>>)> {
     if data.len() < 80 {
         return Err(ConsensusError::Serialization(Cow::Owned(
             BlockParseError::InsufficientBytes.to_string(),
@@ -194,69 +196,33 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Witne
     }
 
     let mut transactions = Vec::new();
-    let mut witnesses = Vec::new();
+    // CRITICAL FIX: Store Vec<Witness> per transaction (one Witness per input)
+    // This allows proper P2WSH-in-P2SH handling where we need the full witness stack per input
+    let mut all_witnesses: Vec<Vec<Witness>> = Vec::new();
 
-    // Check for SegWit marker (0x0001) after transaction count
-    // In SegWit blocks, the transaction count is followed by 0x00 0x01 (witness marker)
-    let is_segwit = if data.len() >= offset + 2 {
-        data[offset] == 0x00 && data[offset + 1] == 0x01
-    } else {
-        false
-    };
-
-    if is_segwit {
-        offset += 2; // Skip witness marker
-    }
-
-    // Parse transactions (non-witness serialization)
-    // Use deserialize_transaction which handles the format correctly
-    // Then calculate size by re-serializing (inefficient but correct)
+    // Parse transactions - each transaction handles its own SegWit format internally
+    // The deserialize_transaction_with_witness function returns both the tx and its witness stacks
+    // (one Witness per input)
     for _ in 0..tx_count {
-        // Parse transaction
-        let tx = deserialize_transaction(&data[offset..])?;
-
-        // Calculate size by serializing back (to know where witness data starts)
-        // Note: This is inefficient but ensures correctness
-        // In production, we'd track the size during parsing
-        let tx_serialized = serialize_transaction(&tx);
-        offset += tx_serialized.len();
-
+        let (tx, input_witnesses, bytes_consumed) = deserialize_transaction_with_witness(&data[offset..])?;
+        offset += bytes_consumed;
         transactions.push(tx);
-    }
-
-    // Parse witness data if SegWit block
-    // In Bitcoin wire format, witness data comes after ALL transactions
-    // Each transaction's witness is parsed sequentially
-    if is_segwit {
-        for _ in 0..tx_count {
-            if offset >= data.len() {
-                // No more witness data - create empty witness
-                witnesses.push(Witness::new());
-                continue;
-            }
-
-            let (witness, new_offset) = parse_witness(data, offset)?;
-            witnesses.push(witness);
-            offset = new_offset;
-        }
-    } else {
-        // Non-SegWit block: all witnesses are empty
-        for _ in 0..tx_count {
-            witnesses.push(Witness::new());
-        }
+        all_witnesses.push(input_witnesses);
     }
 
     // Ensure we have witnesses for all transactions
-    while witnesses.len() < transactions.len() {
-        witnesses.push(Witness::new());
+    while all_witnesses.len() < transactions.len() {
+        all_witnesses.push(Vec::new());
     }
-
+    
+    // Return Vec<Vec<Witness>> - one Vec per transaction, each containing one Witness per input
+    // This preserves the per-input witness structure needed for P2WSH-in-P2SH
     Ok((
         Block {
             header,
             transactions: transactions.into_boxed_slice(),
         },
-        witnesses,
+        all_witnesses,
     ))
 }
 
@@ -324,11 +290,22 @@ pub fn serialize_block_with_witnesses(
 /// witness data) and compares the length against the provided size.
 pub fn validate_block_serialized_size(
     block: &Block,
-    witnesses: &[Witness],
+    witnesses: &[Vec<Witness>],
     include_witness: bool,
     provided_size: usize,
 ) -> bool {
-    let serialized = serialize_block_with_witnesses(block, witnesses, include_witness);
+    // Flatten Vec<Vec<Witness>> to Vec<Witness> for serialize_block_with_witnesses
+    // TODO: Update serialize_block_with_witnesses to accept Vec<Vec<Witness>>
+    let flattened: Vec<Witness> = witnesses.iter()
+        .map(|input_witnesses| {
+            let mut flattened: Witness = Vec::new();
+            for witness_stack in input_witnesses {
+                flattened.extend(witness_stack.clone());
+            }
+            flattened
+        })
+        .collect();
+    let serialized = serialize_block_with_witnesses(block, &flattened, include_witness);
     serialized.len() == provided_size
 }
 

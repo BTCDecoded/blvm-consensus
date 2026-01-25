@@ -29,7 +29,7 @@ mod kani_proofs {
         kani::assume(height <= 1_000_000);
         
         // Check BIP30 directly
-        let bip30_result = bip_validation::check_bip30(&block, &utxo_set);
+        let bip30_result = bip_validation::check_bip30(&block, &utxo_set, height, crate::types::Network::Mainnet);
         
         // If BIP30 check fails, connect_block must also fail
         if let Ok(false) = bip30_result {

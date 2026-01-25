@@ -15,16 +15,30 @@ use crate::types::*;
 /// Prevents duplicate coinbase transactions (same txid) from being added to the blockchain.
 /// Mathematical specification: Orange Paper Section 5.4.1
 ///
-/// **BIP30Check**: ℬ × 𝒰𝒮 → {valid, invalid}
+/// **BIP30Check**: ℬ × 𝒰𝒮 × ℕ × Network → {valid, invalid}
 ///
-/// For block b = (h, txs) with UTXO set us:
-/// - invalid if ∃ tx ∈ txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
+/// For block b = (h, txs) with UTXO set us, height h, and network n:
+/// - invalid if h ≤ deactivation_height(n) ∧ ∃ tx ∈ txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
 /// - valid otherwise
 ///
-/// **Known Exceptions**: Blocks 91842 and 91880 have duplicate coinbases (historical bug, grandfathered in)
+/// **Deactivation**: BIP30 was disabled after block 91722 (mainnet) to allow duplicate coinbases
+/// in blocks 91842 and 91880 (historical bug, grandfathered in).
 ///
-/// Activation: Block 0 (always active)
-pub fn check_bip30(block: &Block, utxo_set: &UtxoSet) -> Result<bool> {
+/// Activation: Block 0 (always active until deactivation)
+pub fn check_bip30(block: &Block, utxo_set: &UtxoSet, height: Natural, network: crate::types::Network) -> Result<bool> {
+    use crate::constants::{BIP30_DEACTIVATION_MAINNET, BIP30_DEACTIVATION_TESTNET, BIP30_DEACTIVATION_REGTEST};
+    
+    // Check if BIP30 is still active at this height
+    let deactivation_height = match network {
+        crate::types::Network::Mainnet => BIP30_DEACTIVATION_MAINNET,
+        crate::types::Network::Testnet => BIP30_DEACTIVATION_TESTNET,
+        crate::types::Network::Regtest => BIP30_DEACTIVATION_REGTEST,
+    };
+    
+    // BIP30 is disabled after deactivation height
+    if height > deactivation_height {
+        return Ok(true);
+    }
     // Find coinbase transaction
     let coinbase = block.transactions.first();
 
@@ -255,20 +269,103 @@ pub fn check_bip66(
 }
 
 /// Check if signature is strictly DER-encoded
+/// 
+/// This implements Bitcoin Core's IsValidSignatureEncoding function exactly.
+/// BIP66 requires strict DER encoding with specific rules:
+/// - Format: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]
+/// - No leading zeros in R or S (unless needed to prevent negative interpretation)
+/// - Minimal length encoding
 fn is_strict_der(signature: &[u8]) -> Result<bool> {
-    use secp256k1::ecdsa::Signature;
+    // Format: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]
+    // * total-length: 1-byte length descriptor of everything that follows,
+    //   excluding the sighash byte.
+    // * R-length: 1-byte length descriptor of the R value that follows.
+    // * R: arbitrary-length big-endian encoded R value. It must use the shortest
+    //   possible encoding for a positive integer (which means no null bytes at
+    //   the start, except a single one when the next byte has its highest bit set).
+    // * S-length: 1-byte length descriptor of the S value that follows.
+    // * S: arbitrary-length big-endian encoded S value. The same rules apply.
+    // * sighash: 1-byte value indicating what data is hashed (not part of the DER
+    //   signature)
 
-    // Attempt to parse as DER
-    match Signature::from_der(signature) {
-        Ok(_) => {
-            // secp256k1's from_der() enforces strict DER, so if it parses, it's valid
-            Ok(true)
-        }
-        Err(_) => {
-            // Invalid DER encoding
-            Ok(false)
-        }
+    // Minimum and maximum size constraints.
+    if signature.len() < 9 {
+        return Ok(false);
     }
+    if signature.len() > 73 {
+        return Ok(false);
+    }
+
+    // A signature is of type 0x30 (compound).
+    if signature[0] != 0x30 {
+        return Ok(false);
+    }
+
+    // Make sure the length covers the entire signature.
+    if signature[1] != (signature.len() - 3) as u8 {
+        return Ok(false);
+    }
+
+    // Extract the length of the R element.
+    let len_r = signature[3] as usize;
+
+    // Make sure the length of the S element is still inside the signature.
+    if 5 + len_r >= signature.len() {
+        return Ok(false);
+    }
+
+    // Extract the length of the S element.
+    let len_s = signature[5 + len_r] as usize;
+
+    // Verify that the length of the signature matches the sum of the length
+    // of the elements.
+    if (len_r + len_s + 7) != signature.len() {
+        return Ok(false);
+    }
+
+    // Check whether the R element is an integer.
+    if signature[2] != 0x02 {
+        return Ok(false);
+    }
+
+    // Zero-length integers are not allowed for R.
+    if len_r == 0 {
+        return Ok(false);
+    }
+
+    // Negative numbers are not allowed for R.
+    if (signature[4] & 0x80) != 0 {
+        return Ok(false);
+    }
+
+    // Null bytes at the start of R are not allowed, unless R would
+    // otherwise be interpreted as a negative number.
+    if len_r > 1 && signature[4] == 0x00 && (signature[5] & 0x80) == 0 {
+        return Ok(false);
+    }
+
+    // Check whether the S element is an integer.
+    if signature[len_r + 4] != 0x02 {
+        return Ok(false);
+    }
+
+    // Zero-length integers are not allowed for S.
+    if len_s == 0 {
+        return Ok(false);
+    }
+
+    // Negative numbers are not allowed for S.
+    if (signature[len_r + 6] & 0x80) != 0 {
+        return Ok(false);
+    }
+
+    // Null bytes at the start of S are not allowed, unless S would otherwise be
+    // interpreted as a negative number.
+    if len_s > 1 && signature[len_r + 6] == 0x00 && (signature[len_r + 7] & 0x80) == 0 {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 // Network type is now in crate::types::Network
@@ -431,7 +528,7 @@ mod kani_proofs {
         };
         let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
 
-        let result = check_bip30(&block, &utxo_set);
+        let result = check_bip30(&block, &utxo_set, 0, crate::types::Network::Mainnet);
 
         // Should never panic
         assert!(result.is_ok(), "BIP30 check should never panic");
@@ -612,7 +709,7 @@ mod tests {
         };
 
         let utxo_set = UtxoSet::new();
-        let result = check_bip30(&block, &utxo_set).unwrap();
+        let result = check_bip30(&block, &utxo_set, 0, crate::types::Network::Mainnet).unwrap();
         assert!(result, "BIP30 should pass for new coinbase");
     }
 
@@ -783,7 +880,7 @@ mod tests {
         };
 
         // BIP30 should fail for duplicate coinbase
-        let result = check_bip30(&block, &utxo_set).unwrap();
+        let result = check_bip30(&block, &utxo_set, 0, crate::types::Network::Mainnet).unwrap();
         assert!(!result, "BIP30 should fail for duplicate coinbase");
     }
 
