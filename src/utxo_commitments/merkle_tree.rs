@@ -304,10 +304,67 @@ impl UtxoMerkleTree {
         commitment.merkle_root == tree_root
     }
 
+    /// Verify a UTXO Merkle proof against a commitment's root
+    ///
+    /// This is a static/associated function - it doesn't need a tree instance,
+    /// only the commitment's merkle root for verification.
+    ///
+    /// This function cryptographically verifies that a UTXO exists in the
+    /// commitment's UTXO set without requiring the full tree.
+    ///
+    /// # Arguments
+    /// * `commitment` - The UTXO commitment containing the merkle root
+    /// * `outpoint` - The outpoint to verify
+    /// * `utxo` - The UTXO data to verify
+    /// * `proof` - The Merkle proof (takes ownership)
+    ///
+    /// # Returns
+    /// `Ok(true)` if proof is valid, `Ok(false)` or `Err` if invalid
+    pub fn verify_utxo_proof(
+        commitment: &UtxoCommitment,
+        outpoint: &OutPoint,
+        utxo: &UTXO,
+        proof: sparse_merkle_tree::MerkleProof,
+    ) -> UtxoCommitmentResult<bool> {
+        // 1. Hash outpoint to get key (H256)
+        let key = Self::hash_outpoint_static(outpoint);
+
+        // 2. Serialize UTXO to bytes
+        let utxo_bytes = Self::serialize_utxo_static(utxo)?;
+
+        // 3. Hash UTXO bytes to get value (H256)
+        // The verify() method expects H256 (hashed value), not raw bytes
+        let utxo_value = UtxoValue { data: utxo_bytes };
+        let value_h256 = utxo_value.to_h256();
+
+        // 4. Convert commitment root to H256
+        let root_h256 = H256::from(commitment.merkle_root);
+
+        // 5. Create leaves vector: [(key, value_hash)]
+        let leaves = vec![(key, value_h256)];
+
+        // 6. Verify proof using library's verify method
+        let is_valid = proof
+            .verify::<UtxoHasher>(&root_h256, leaves)
+            .map_err(|e| UtxoCommitmentError::VerificationFailed(format!(
+                "Proof verification failed: {:?}",
+                e
+            )))?;
+
+        Ok(is_valid)
+    }
+
     // Helper methods
 
     /// Hash an OutPoint to H256 key
     fn hash_outpoint(&self, outpoint: &OutPoint) -> H256 {
+        Self::hash_outpoint_static(outpoint)
+    }
+
+    /// Static helper: Hash an OutPoint to H256 key
+    ///
+    /// This is used by both instance methods and the static verify function.
+    fn hash_outpoint_static(outpoint: &OutPoint) -> H256 {
         let mut hasher = Sha256::new();
         hasher.update(&outpoint.hash);
         hasher.update(&outpoint.index.to_be_bytes());
@@ -319,7 +376,15 @@ impl UtxoMerkleTree {
 
     /// Serialize UTXO to bytes
     fn serialize_utxo(&self, utxo: &UTXO) -> UtxoCommitmentResult<Vec<u8>> {
-        // Serialization: value (8 bytes) + height (8 bytes) + is_coinbase (1 byte) + script_pubkey (variable)
+        Self::serialize_utxo_static(utxo)
+    }
+
+    /// Static helper: Serialize UTXO to bytes
+    ///
+    /// Serialization format: value (8 bytes) + height (8 bytes) + is_coinbase (1 byte) + script_len (1 byte) + script_pubkey (variable)
+    ///
+    /// This is used by both instance methods and the static verify function.
+    fn serialize_utxo_static(utxo: &UTXO) -> UtxoCommitmentResult<Vec<u8>> {
         let mut bytes = Vec::with_capacity(17 + utxo.script_pubkey.len());
         bytes.extend_from_slice(&utxo.value.to_be_bytes());
         bytes.extend_from_slice(&utxo.height.to_be_bytes());

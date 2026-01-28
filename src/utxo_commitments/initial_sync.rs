@@ -133,7 +133,19 @@ impl InitialSync {
         self.peer_consensus
             .verify_consensus_commitment(&consensus, header_chain)?;
 
-        // Step 6: Return verified commitment
+        // Step 6: Optionally verify UTXO proofs for critical UTXOs
+        // This prevents coin freezing attacks where malicious peers provide
+        // commitments with correct total supply but missing/modified UTXOs.
+        // Note: This requires network protocol support for proof requests.
+        // For now, this is optional and can be enabled when needed.
+        #[cfg(feature = "utxo-proof-verification")]
+        {
+            // Verify proofs for wallet UTXOs or random sampling
+            // Implementation depends on having access to wallet UTXOs
+            // or implementing random sampling strategy
+        }
+
+        // Step 7: Return verified commitment
         Ok(consensus.commitment)
     }
 

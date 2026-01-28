@@ -12,6 +12,8 @@ mod bllvm_integration_tests;
 // UTXO commitments integration tests (only compiled with utxo-commitments feature)
 #[cfg(feature = "utxo-commitments")]
 mod utxo_commitments_integration;
+#[cfg(feature = "utxo-commitments")]
+mod utxo_proof_verification_tests;
 
 // Bitcoin Core test vector integration (read-only, safe)
 mod core_test_vectors;

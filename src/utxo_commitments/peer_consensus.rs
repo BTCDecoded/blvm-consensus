@@ -15,6 +15,8 @@ use crate::utxo_commitments::network_integration::UtxoCommitmentsNetworkClient;
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::verification::{verify_header_chain, verify_supply};
 #[cfg(feature = "utxo-commitments")]
+use sparse_merkle_tree::MerkleProof;
+#[cfg(feature = "utxo-commitments")]
 use std::collections::{HashMap, HashSet};
 #[cfg(feature = "utxo-commitments")]
 use std::net::IpAddr;
@@ -425,6 +427,137 @@ impl PeerConsensus {
         }
 
         Ok(true)
+    }
+
+    /// Verify UTXO proofs for critical UTXOs after consensus verification
+    ///
+    /// This function should be called after `verify_consensus_commitment()` succeeds
+    /// to cryptographically verify that specific UTXOs exist in the consensus commitment.
+    ///
+    /// This prevents coin freezing attacks where malicious peers provide commitments
+    /// with correct total supply but missing/modified individual UTXOs.
+    ///
+    /// # Arguments
+    /// * `consensus` - The verified consensus commitment
+    /// * `utxos_to_verify` - Vector of (outpoint, expected_utxo, proof) tuples to verify
+    ///
+    /// # Returns
+    /// `Ok(true)` if all proofs are valid, `Err` if any verification fails
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use blvm_consensus::utxo_commitments::{UtxoMerkleTree, peer_consensus::PeerConsensus};
+    ///
+    /// // After verify_consensus_commitment succeeds:
+    /// let utxos_to_verify = vec![
+    ///     (outpoint1, utxo1, proof1),
+    ///     (outpoint2, utxo2, proof2),
+    /// ];
+    ///
+    /// peer_consensus.verify_utxo_proofs(&consensus, utxos_to_verify)?;
+    /// ```
+    pub fn verify_utxo_proofs(
+        &self,
+        consensus: &ConsensusResult,
+        utxos_to_verify: Vec<(
+            crate::types::OutPoint,
+            crate::types::UTXO,
+            MerkleProof,
+        )>,
+    ) -> UtxoCommitmentResult<bool> {
+        use crate::utxo_commitments::merkle_tree::UtxoMerkleTree;
+
+        // Sequential verification (baseline)
+        for (outpoint, expected_utxo, proof) in utxos_to_verify {
+            let is_valid = UtxoMerkleTree::verify_utxo_proof(
+                &consensus.commitment,
+                &outpoint,
+                &expected_utxo,
+                proof,
+            )?;
+
+            if !is_valid {
+                return Err(UtxoCommitmentError::VerificationFailed(format!(
+                    "UTXO proof verification failed for outpoint {:?} - possible attack",
+                    outpoint
+                )));
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Verify UTXO proofs in parallel (optimized for batch verification)
+    ///
+    /// This function performs parallel verification of multiple UTXO proofs,
+    /// which is more efficient when verifying many UTXOs at once.
+    ///
+    /// # Arguments
+    /// * `consensus` - The verified consensus commitment
+    /// * `utxos_to_verify` - Vector of (outpoint, expected_utxo, proof) tuples to verify
+    ///
+    /// # Returns
+    /// `Ok(true)` if all proofs are valid, `Err` if any verification fails
+    ///
+    /// # Performance
+    /// Uses parallel processing for better performance when verifying many proofs.
+    /// For small batches (< 10), sequential verification may be faster due to overhead.
+    #[cfg(feature = "parallel-verification")]
+    pub fn verify_utxo_proofs_parallel(
+        &self,
+        consensus: &ConsensusResult,
+        utxos_to_verify: Vec<(
+            crate::types::OutPoint,
+            crate::types::UTXO,
+            MerkleProof,
+        )>,
+    ) -> UtxoCommitmentResult<bool> {
+        use crate::utxo_commitments::merkle_tree::UtxoMerkleTree;
+        use rayon::prelude::*;
+
+        // Parallel verification using rayon
+        let results: Vec<UtxoCommitmentResult<bool>> = utxos_to_verify
+            .into_par_iter()
+            .map(|(outpoint, expected_utxo, proof)| {
+                UtxoMerkleTree::verify_utxo_proof(
+                    &consensus.commitment,
+                    &outpoint,
+                    &expected_utxo,
+                    proof,
+                )
+            })
+            .collect();
+
+        // Check all results
+        for (i, result) in results.iter().enumerate() {
+            match result {
+                Ok(true) => continue,
+                Ok(false) | Err(_) => {
+                    return Err(UtxoCommitmentError::VerificationFailed(format!(
+                        "UTXO proof verification failed at index {} - possible attack",
+                        i
+                    )));
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Verify UTXO proofs in parallel (fallback for when rayon is not available)
+    ///
+    /// Falls back to sequential verification if parallel feature is not enabled.
+    pub fn verify_utxo_proofs_parallel_fallback(
+        &self,
+        consensus: &ConsensusResult,
+        utxos_to_verify: Vec<(
+            crate::types::OutPoint,
+            crate::types::UTXO,
+            MerkleProof,
+        )>,
+    ) -> UtxoCommitmentResult<bool> {
+        // Use sequential verification as fallback
+        self.verify_utxo_proofs(consensus, utxos_to_verify)
     }
 }
 
