@@ -374,5 +374,72 @@ mod tests {
         hash.copy_from_slice(&second_hash);
         hash
     }
+
+    #[test]
+    fn test_utxo_set_to_merkle_tree_conversion() {
+        use blvm_consensus::utxo_commitments::merkle_tree::UtxoMerkleTree;
+        use blvm_consensus::types::UtxoSet;
+
+        // Create UtxoSet
+        let mut utxo_set = UtxoSet::new();
+        let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
+        let utxo1 = create_test_utxo(10000, 100);
+        utxo_set.insert(outpoint1.clone(), utxo1.clone());
+
+        let outpoint2 = OutPoint { hash: [2; 32], index: 0 };
+        let utxo2 = create_test_utxo(5000, 100);
+        utxo_set.insert(outpoint2.clone(), utxo2.clone());
+
+        // Convert to UtxoMerkleTree
+        let tree = UtxoMerkleTree::from_utxo_set(&utxo_set).unwrap();
+
+        // Verify tree matches UtxoSet
+        assert_eq!(tree.total_supply(), 15000);
+        assert_eq!(tree.utxo_count(), 2);
+        assert!(tree.get(&outpoint1).unwrap().is_some());
+        assert!(tree.get(&outpoint2).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_utxo_tree_incremental_update_from_utxo_set() {
+        use blvm_consensus::utxo_commitments::merkle_tree::UtxoMerkleTree;
+        use blvm_consensus::types::UtxoSet;
+
+        // Create initial tree
+        let mut tree = UtxoMerkleTree::new().unwrap();
+        let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
+        let utxo1 = create_test_utxo(10000, 100);
+        tree.insert(outpoint1.clone(), utxo1.clone()).unwrap();
+
+        let outpoint2 = OutPoint { hash: [2; 32], index: 0 };
+        let utxo2 = create_test_utxo(5000, 100);
+        tree.insert(outpoint2.clone(), utxo2.clone()).unwrap();
+
+        let initial_root = tree.root();
+        let initial_supply = tree.total_supply();
+
+        // Create new UtxoSet (removed outpoint1, added outpoint3)
+        let mut new_utxo_set = UtxoSet::new();
+        let outpoint3 = OutPoint { hash: [3; 32], index: 0 };
+        let utxo3 = create_test_utxo(8000, 101);
+        new_utxo_set.insert(outpoint2.clone(), utxo2.clone()); // Kept
+        new_utxo_set.insert(outpoint3.clone(), utxo3.clone()); // Added
+
+        // Create old UtxoSet for comparison
+        let mut old_utxo_set = UtxoSet::new();
+        old_utxo_set.insert(outpoint1.clone(), utxo1.clone());
+        old_utxo_set.insert(outpoint2.clone(), utxo2.clone());
+
+        // Update tree incrementally
+        let new_root = tree.update_from_utxo_set(&new_utxo_set, &old_utxo_set).unwrap();
+
+        // Verify changes
+        assert_ne!(new_root, initial_root);
+        assert_eq!(tree.total_supply(), 13000); // 5000 + 8000
+        assert_eq!(tree.utxo_count(), 2);
+        assert!(tree.get(&outpoint1).unwrap().is_none()); // Removed
+        assert!(tree.get(&outpoint2).unwrap().is_some()); // Kept
+        assert!(tree.get(&outpoint3).unwrap().is_some()); // Added
+    }
 }
 

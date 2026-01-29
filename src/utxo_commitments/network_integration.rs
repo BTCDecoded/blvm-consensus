@@ -52,8 +52,30 @@ pub trait UtxoCommitmentsNetworkClient: Send + Sync {
         Box<dyn std::future::Future<Output = UtxoCommitmentResult<FilteredBlock>> + Send + '_>,
     >;
 
+    /// Request full block from a peer (with witnesses)
+    ///
+    /// Returns the full block and its witnesses for complete validation.
+    /// This is required for full transaction validation during sync forward.
+    fn request_full_block(
+        &self,
+        peer_id: &str,
+        block_hash: Hash,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = UtxoCommitmentResult<FullBlock>> + Send + '_>,
+    >;
+
     /// Get list of connected peer IDs
     fn get_peer_ids(&self) -> Vec<String>;
+}
+
+/// Full block structure with witnesses
+///
+/// Used for complete block validation during sync forward.
+/// The commitment is computed after validation, not included here.
+#[derive(Debug, Clone)]
+pub struct FullBlock {
+    pub block: crate::types::Block,
+    pub witnesses: Vec<Vec<crate::segwit::Witness>>,
 }
 
 /// Helper function to request UTXO sets from multiple peers

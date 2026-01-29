@@ -10,7 +10,7 @@
 
 use crate::spam_filter::{SpamBreakdown, SpamFilter, SpamFilterConfig, SpamSummary, SpamType};
 #[cfg(feature = "utxo-commitments")]
-use crate::types::{BlockHeader, Hash, Natural, OutPoint, Transaction, UTXO};
+use crate::types::{BlockHeader, Hash, Natural, OutPoint, Transaction, UTXO, UtxoSet};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
@@ -18,7 +18,7 @@ use crate::utxo_commitments::data_structures::{
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::merkle_tree::UtxoMerkleTree;
 #[cfg(feature = "utxo-commitments")]
-use crate::utxo_commitments::network_integration::UtxoCommitmentsNetworkClient;
+use crate::utxo_commitments::network_integration::{UtxoCommitmentsNetworkClient, FullBlock};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::peer_consensus::{ConsensusConfig, PeerConsensus, PeerInfo};
 
@@ -151,29 +151,34 @@ impl InitialSync {
 
     /// Complete sync from checkpoint to current tip
     ///
-    /// Syncs forward from checkpoint using filtered blocks.
-    /// Updates UTXO set incrementally for each block.
+    /// Syncs forward from checkpoint using FULL blocks with complete validation.
+    /// Fully validates all transactions (signatures, scripts) before updating UTXO set.
     ///
     /// # Arguments
     ///
     /// * `utxo_tree` - UTXO Merkle tree to update incrementally
     /// * `checkpoint_height` - Starting height (checkpoint)
     /// * `current_tip` - Ending height (current chain tip)
-    /// * `network_client` - Network client for requesting filtered blocks
+    /// * `network_client` - Network client for requesting blocks
     /// * `get_block_hash` - Function to get block hash for a given height
-    /// * `peer_id` - Peer ID to request filtered blocks from
+    /// * `peer_id` - Peer ID to request blocks from
+    /// * `network` - Network type (Mainnet, Testnet, Regtest)
+    /// * `network_time` - Current network time (Unix timestamp)
+    /// * `recent_headers` - Recent block headers for median time-past calculation
+    /// * `checkpoint_utxo_set` - Full UTXO set at checkpoint (required for validation)
+    ///                          If None, starts with empty set (cannot verify checkpoint commitment until end)
     ///
     /// # Implementation
     ///
-    /// 1. Requests filtered blocks from checkpoint+1 to tip
-    /// 2. For each filtered block:
-    ///    - Verifies block header
-    ///    - Verifies commitment
-    ///    - Applies filtered transactions to UTXO tree
-    ///    - Verifies new commitment matches
-    /// 3. Updates UTXO tree incrementally
+    /// 1. Requests FULL blocks from checkpoint+1 to tip
+    /// 2. For each full block:
+    ///    - Fully validates block with connect_block() (signatures, scripts, all consensus rules)
+    ///    - Updates UTXO set from validated result
+    ///    - Updates UTXO tree from validated UTXO set
+    ///    - Verifies commitment matches computed root
+    /// 3. Updates UTXO tree incrementally after validation
     ///
-    /// Uses BIP37 merkleblock messages for efficient filtered block downloads.
+    /// **Security**: All transactions are cryptographically verified before UTXO set update.
     pub async fn complete_sync_from_checkpoint<C, F, Fut>(
         &self,
         utxo_tree: &mut UtxoMerkleTree,
@@ -182,68 +187,90 @@ impl InitialSync {
         network_client: &C,
         get_block_hash: F,
         peer_id: &str,
+        network: crate::types::Network,
+        network_time: u64,
+        recent_headers: Option<&[BlockHeader]>,
+        checkpoint_utxo_set: Option<UtxoSet>,
     ) -> UtxoCommitmentResult<()>
     where
         C: UtxoCommitmentsNetworkClient,
         F: Fn(Natural) -> Fut,
         Fut: std::future::Future<Output = UtxoCommitmentResult<Hash>>,
     {
+        use crate::block::connect_block;
+
+        // Start with checkpoint UTXO set, or empty if not provided
+        // Note: If empty, we cannot verify checkpoint commitment until we've built the full set
+        let mut utxo_set: UtxoSet = checkpoint_utxo_set.unwrap_or_default();
+
         // Process blocks incrementally from checkpoint+1 to current tip
         for height in checkpoint_height + 1..=current_tip {
             // Get block hash for this height
             let block_hash = get_block_hash(height).await?;
 
-            // Request filtered block from network peer
-            // This uses the UtxoCommitmentsNetworkClient trait which supports:
-            // - BIP37 merkleblock messages (filtered blocks)
-            // - Bloom filter-based transaction filtering
-            // - Async/await for network operations
-            let filtered_block = network_client
-                .request_filtered_block(peer_id, block_hash)
+            // Request FULL block (not filtered) from network peer
+            // This includes all transactions with witnesses for complete validation
+            let full_block = network_client
+                .request_full_block(peer_id, block_hash)
                 .await?;
 
-            // Verify filtered block header height matches expected height
-            // (Full header chain verification should be done separately)
-            if filtered_block.header.timestamp == 0 {
+            // Verify block header height matches expected height
+            if full_block.block.header.timestamp == 0 {
                 return Err(UtxoCommitmentError::VerificationFailed(format!(
                     "Invalid block header at height {}",
                     height
                 )));
             }
 
-            // Process the filtered block: apply transactions to UTXO tree
-            // This removes spent inputs and adds non-spam outputs
-            let (_spam_summary, computed_root) =
-                self.process_filtered_block(utxo_tree, height, &filtered_block.transactions)?;
+            // FULLY VALIDATE block with connect_block()
+            // This validates all transactions, signatures, scripts, and consensus rules
+            let (validation_result, new_utxo_set, _undo_log) = connect_block(
+                &full_block.block,
+                &full_block.witnesses,
+                utxo_set.clone(),
+                height,
+                recent_headers,
+                network_time,
+                network,
+            )
+            .map_err(|e| UtxoCommitmentError::VerificationFailed(format!(
+                "connect_block failed at height {}: {}",
+                height, e
+            )))?;
 
-            // Verify commitment matches computed root
-            if computed_root != filtered_block.commitment.merkle_root {
+            // Reject if validation failed
+            if !matches!(validation_result, crate::types::ValidationResult::Valid) {
                 return Err(UtxoCommitmentError::VerificationFailed(format!(
-                    "Commitment mismatch at height {}: computed root {:?}, expected {:?}",
-                    height, computed_root, filtered_block.commitment.merkle_root
+                    "Block validation failed at height {}: {:?}",
+                    height, validation_result
                 )));
             }
 
-            // Verify commitment height matches
-            if filtered_block.commitment.block_height != height {
+            // Update UTXO tree from validated UTXO set
+            // This ensures the tree matches the cryptographically verified state
+            // Pass old utxo_set to detect removals efficiently
+            let old_utxo_set = utxo_set.clone();
+            utxo_tree.update_from_utxo_set(&new_utxo_set, &old_utxo_set)?;
+
+            // Generate commitment from validated UTXO tree
+            let computed_block_hash = compute_block_hash(&full_block.block.header);
+            let computed_commitment = utxo_tree.generate_commitment(computed_block_hash, height);
+
+            // Verify commitment supply matches expected
+            use crate::economic::total_supply;
+            let expected_supply = total_supply(height) as u64;
+            if computed_commitment.total_supply != expected_supply {
                 return Err(UtxoCommitmentError::VerificationFailed(format!(
-                    "Commitment height mismatch: expected {}, got {}",
-                    height, filtered_block.commitment.block_height
+                    "Supply mismatch at height {}: computed {}, expected {}",
+                    height, computed_commitment.total_supply, expected_supply
                 )));
             }
 
-            // Verify commitment block hash matches
-            let computed_block_hash = compute_block_hash(&filtered_block.header);
-            if filtered_block.commitment.block_hash != computed_block_hash {
-                return Err(UtxoCommitmentError::VerificationFailed(format!(
-                    "Block hash mismatch at height {}: computed {:?}, expected {:?}",
-                    height, computed_block_hash, filtered_block.commitment.block_hash
-                )));
-            }
+            // Note: Commitment root, height, and block hash are verified implicitly
+            // by the fact that we computed them from the validated UTXO set
 
-            // Note: Spam summary verification is optional - summaries may differ due to filter
-            // differences, but this is acceptable as long as the commitment root matches.
-            // The commitment root is the authoritative verification.
+            // Update utxo_set for next iteration
+            utxo_set = new_utxo_set;
         }
 
         Ok(())

@@ -298,6 +298,83 @@ impl UtxoMerkleTree {
         Ok(true)
     }
 
+    /// Rebuild tree from UtxoSet
+    ///
+    /// Used after connect_block() to update the Merkle tree
+    /// with the validated UTXO set. This rebuilds the entire tree.
+    pub fn from_utxo_set(utxo_set: &crate::types::UtxoSet) -> UtxoCommitmentResult<Self> {
+        let mut tree = Self::new()?;
+        for (outpoint, utxo) in utxo_set {
+            tree.insert(outpoint.clone(), utxo.clone())?;
+        }
+        Ok(tree)
+    }
+
+    /// Update tree from UtxoSet (incremental update)
+    ///
+    /// Compares current tree state with new UtxoSet and applies
+    /// only the differences. More efficient than full rebuild.
+    ///
+    /// **Note**: This function requires knowing the previous UtxoSet to
+    /// efficiently detect removals. If the previous set is not available,
+    /// use `from_utxo_set()` to rebuild the tree.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_utxo_set` - The new UTXO set (from connect_block)
+    /// * `old_utxo_set` - The previous UTXO set (for detecting removals)
+    pub fn update_from_utxo_set(
+        &mut self,
+        new_utxo_set: &crate::types::UtxoSet,
+        old_utxo_set: &crate::types::UtxoSet,
+    ) -> UtxoCommitmentResult<Hash> {
+        // Find removed UTXOs (in old but not in new)
+        for (outpoint, old_utxo) in old_utxo_set {
+            if !new_utxo_set.contains_key(outpoint) {
+                // UTXO was removed, remove from tree
+                self.remove(outpoint, old_utxo)?;
+            }
+        }
+
+        // Find added/modified UTXOs
+        for (outpoint, new_utxo) in new_utxo_set {
+            match old_utxo_set.get(outpoint) {
+                Some(old_utxo) if old_utxo == new_utxo => {
+                    // Unchanged, skip
+                }
+                _ => {
+                    // New or modified, update
+                    if let Some(old_utxo) = old_utxo_set.get(outpoint) {
+                        // Modified - remove old first
+                        self.remove(outpoint, old_utxo)?;
+                    }
+                    // Insert new (or add if it's new)
+                    self.insert(outpoint.clone(), new_utxo.clone())?;
+                }
+            }
+        }
+
+        Ok(self.root())
+    }
+
+    /// Convert UtxoMerkleTree to UtxoSet
+    ///
+    /// Iterates through the tree and builds a UtxoSet.
+    /// Note: This is expensive as sparse merkle trees don't support
+    /// efficient iteration. Use only when necessary.
+    pub fn to_utxo_set(&self) -> UtxoCommitmentResult<crate::types::UtxoSet> {
+        // Sparse merkle tree doesn't support iteration efficiently.
+        // We need to use the utxo_index if available, or rebuild from
+        // known outpoints. For now, this is a placeholder that would
+        // need the utxo_index to be populated.
+        //
+        // Alternative: Keep a separate HashMap<OutPoint, UTXO> in sync
+        // with the tree for efficient conversion.
+        Err(UtxoCommitmentError::MerkleTreeError(
+            "UtxoMerkleTree iteration not efficiently supported. Use update_from_utxo_set() instead.".to_string()
+        ))
+    }
+
     /// Verify a commitment's Merkle root matches the tree's root
     pub fn verify_commitment_root(&self, commitment: &UtxoCommitment) -> bool {
         let tree_root = self.root();
