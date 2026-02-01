@@ -7,6 +7,7 @@
 
 use crate::types::{Hash, Natural};
 use serde::{Deserialize, Serialize};
+use blvm_spec_lock::spec_locked;
 
 /// UTXO Commitment
 ///
@@ -62,6 +63,7 @@ impl UtxoCommitment {
     }
 
     /// Deserialize commitment from bytes
+    #[spec_locked("13.1")]
     pub fn from_bytes(data: &[u8]) -> Result<Self, UtxoCommitmentError> {
         if data.len() != 84 {
             return Err(UtxoCommitmentError::InvalidSize(data.len()));
@@ -112,11 +114,13 @@ impl UtxoCommitment {
     }
 
     /// Verify commitment matches UTXO set parameters
+    #[spec_locked("13.2")]
     pub fn verify_supply(&self, expected_supply: u64) -> bool {
         self.total_supply == expected_supply
     }
 
     /// Verify commitment matches expected UTXO count
+    #[spec_locked("13.2")]
     pub fn verify_count(&self, expected_count: u64) -> bool {
         self.utxo_count == expected_count
     }
@@ -179,74 +183,7 @@ pub type UtxoCommitmentResult<T> = Result<T, UtxoCommitmentError>;
 /// - from_bytes(to_bytes(commitment)) = commitment (round-trip)
 /// - verify_supply(expected) = true ⟺ commitment.total_supply = expected
 ///
-/// Invariants:
-/// - Serialization is deterministic and reversible
-/// - Supply verification is exact (no tolerance)
+// Invariants:
+// - Serialization is deterministic and reversible
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Commitment serialization round-trip
-    ///
-    /// Verifies that serialization and deserialization are inverse operations.
-    #[kani::proof]
-    fn kani_commitment_serialization_roundtrip() {
-        let commitment = UtxoCommitment::new(
-            kani::any(), // merkle_root
-            kani::any(), // total_supply
-            kani::any(), // utxo_count
-            kani::any(), // block_height
-            kani::any(), // block_hash
-        );
-
-        // Serialize
-        let bytes = commitment.to_bytes();
-        assert_eq!(bytes.len(), 84, "Serialized commitment must be 84 bytes");
-
-        // Deserialize
-        let deserialized = UtxoCommitment::from_bytes(&bytes);
-        assert!(
-            deserialized.is_ok(),
-            "Deserialization should succeed for valid bytes"
-        );
-
-        let deserialized = deserialized.unwrap();
-
-        // Round-trip invariant
-        assert_eq!(
-            commitment, deserialized,
-            "Serialization and deserialization must be inverse operations"
-        );
-    }
-
-    /// Kani proof: Supply verification exactness
-    ///
-    /// Verifies that supply verification is exact (no tolerance).
-    #[kani::proof]
-    fn kani_supply_verification_exact() {
-        let commitment = UtxoCommitment::new(
-            [0; 32],
-            kani::any(), // total_supply
-            0,
-            0,
-            [0; 32],
-        );
-
-        let expected_supply = commitment.total_supply;
-
-        // Exact match should pass
-        assert!(
-            commitment.verify_supply(expected_supply),
-            "Exact supply match should pass verification"
-        );
-
-        // Any mismatch should fail
-        let wrong_supply = expected_supply.wrapping_add(1);
-        assert!(
-            !commitment.verify_supply(wrong_supply),
-            "Supply mismatch must fail verification"
-        );
-    }
-}
+// End of module

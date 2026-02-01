@@ -8,6 +8,7 @@ use super::varint::{decode_varint, encode_varint};
 use crate::error::{ConsensusError, Result};
 use crate::segwit::Witness;
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 use std::borrow::Cow;
 
 /// Error type for block parsing failures
@@ -49,6 +50,7 @@ impl std::error::Error for BlockParseError {}
 /// - Timestamp (4 bytes, little-endian)
 /// - Bits (4 bytes, little-endian)
 /// - Nonce (4 bytes, little-endian)
+#[spec_locked("3.2")]
 pub fn serialize_block_header(header: &BlockHeader) -> Vec<u8> {
     let mut result = Vec::with_capacity(80);
     result.extend_from_slice(&(header.version as i32).to_le_bytes());
@@ -62,6 +64,7 @@ pub fn serialize_block_header(header: &BlockHeader) -> Vec<u8> {
 }
 
 /// Deserialize a block header from Bitcoin wire format
+#[spec_locked("3.2")]
 pub fn deserialize_block_header(data: &[u8]) -> Result<BlockHeader> {
     // Block header must be exactly 80 bytes
     if data.len() < 80 {
@@ -172,6 +175,7 @@ fn parse_witness(data: &[u8], mut offset: usize) -> Result<(Witness, usize)> {
 ///   - Witness data for each transaction
 // CRITICAL FIX: Return Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
 // This allows proper P2WSH-in-P2SH handling where we need the full witness stack per input
+#[spec_locked("3.2")]
 pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Vec<Witness>>)> {
     if data.len() < 80 {
         return Err(ConsensusError::Serialization(Cow::Owned(
@@ -237,6 +241,7 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Vec<W
 ///   - Transaction (non-witness serialization)
 /// - If `include_witness` and any witness data present:
 ///   - Witness data for each transaction
+#[spec_locked("3.2")]
 pub fn serialize_block_with_witnesses(
     block: &Block,
     witnesses: &[Witness],
@@ -288,6 +293,7 @@ pub fn serialize_block_with_witnesses(
 /// This is intended for wire-level validation where a pre-serialized block is provided
 /// alongside its parsed representation. It re-serializes the block (with or without
 /// witness data) and compares the length against the provided size.
+#[spec_locked("3.2")]
 pub fn validate_block_serialized_size(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -344,75 +350,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::BlockHeader;
-    use kani::*;
-
-    /// Kani proof: Block header serialization round-trip correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ header ∈ BlockHeader: deserialize(serialize(header)) = header
-    ///
-    /// This ensures serialization and deserialization are inverse operations.
-    #[kani::proof]
-    fn kani_block_header_serialization_round_trip() {
-        let header = crate::kani_helpers::create_bounded_block_header();
-
-        // Serialize and deserialize
-        let serialized = serialize_block_header(&header);
-        let deserialized_result = deserialize_block_header(&serialized);
-
-        if deserialized_result.is_ok() {
-            let deserialized = deserialized_result.unwrap();
-
-            // Round-trip property: deserialize(serialize(header)) = header
-            assert_eq!(
-                deserialized.version, header.version,
-                "Block header serialization round-trip: version must match"
-            );
-            assert_eq!(
-                deserialized.prev_block_hash, header.prev_block_hash,
-                "Block header serialization round-trip: prev_block_hash must match"
-            );
-            assert_eq!(
-                deserialized.merkle_root, header.merkle_root,
-                "Block header serialization round-trip: merkle_root must match"
-            );
-            assert_eq!(
-                deserialized.timestamp, header.timestamp,
-                "Block header serialization round-trip: time must match"
-            );
-            assert_eq!(
-                deserialized.bits, header.bits,
-                "Block header serialization round-trip: bits must match"
-            );
-            assert_eq!(
-                deserialized.nonce, header.nonce,
-                "Block header serialization round-trip: nonce must match"
-            );
-        }
-    }
-
-    /// Kani proof: Block header serialization determinism (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ header ∈ BlockHeader: serialize(header) is deterministic (same header → same bytes)
-    ///
-    /// This ensures serialization produces consistent results.
-    #[kani::proof]
-    fn kani_block_header_serialization_determinism() {
-        let header = crate::kani_helpers::create_bounded_block_header();
-
-        // Serialize twice
-        let serialized1 = serialize_block_header(&header);
-        let serialized2 = serialize_block_header(&header);
-
-        // Determinism: same header must produce same serialization
-        assert_eq!(
-            serialized1, serialized2,
-            "Block header serialization determinism: same header must produce same bytes"
-        );
-    }
-}

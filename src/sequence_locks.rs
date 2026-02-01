@@ -12,6 +12,7 @@ use crate::locktime::{
     extract_sequence_locktime_value, extract_sequence_type_flag, is_sequence_disabled,
 };
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 
 /// Sequence locktime disable flag (bit 31)
 /// When set, the sequence number is not treated as a relative locktime
@@ -53,6 +54,7 @@ const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 /// Pair (min_height, min_time) that must be satisfied:
 /// - min_height: Minimum block height (or -1 if no height constraint)
 /// - min_time: Minimum block time (or -1 if no time constraint)
+#[spec_locked("5.5")]
 pub fn calculate_sequence_locks(
     tx: &Transaction,
     flags: u32,
@@ -198,6 +200,7 @@ pub fn calculate_sequence_locks(
 ///
 /// # Returns
 /// true if locks are satisfied, false otherwise
+#[spec_locked("5.5")]
 pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i64, i64)) -> bool {
     let (min_height, min_time) = lock_pair;
 
@@ -240,6 +243,7 @@ pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i
 ///
 /// # Returns
 /// true if sequence locks are satisfied, false otherwise
+#[spec_locked("5.5")]
 pub fn sequence_locks(
     tx: &Transaction,
     flags: u32,
@@ -323,173 +327,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Sequence lock arithmetic overflow safety
-    ///
-    /// Mathematical specification:
-    /// ∀ locktime_value ∈ [0, 65535], coin_height, coin_time ∈ i64:
-    /// - coin_height + locktime_value - 1 does not overflow
-    /// - coin_time + (locktime_value << 9) - 1 does not overflow
-    ///
-    /// This proves that sequence lock calculations are safe from arithmetic overflow.
-    #[kani::proof]
-    fn kani_sequence_lock_arithmetic_safety() {
-        let locktime_value: u16 = kani::any();
-        let coin_height: i64 = kani::any();
-        let coin_time: i64 = kani::any();
-
-        // Bound for tractability
-        kani::assume(coin_height >= 0);
-        kani::assume(coin_height <= 1_000_000_000); // Reasonable block height
-        kani::assume(coin_time >= 0);
-        kani::assume(coin_time <= 2_000_000_000); // Reasonable timestamp
-
-        // Test block-based lock calculation
-        let locktime_i64 = locktime_value as i64;
-        let required_height = coin_height
-            .checked_add(locktime_i64)
-            .and_then(|sum| sum.checked_sub(1));
-
-        // Critical invariant: Calculation must not overflow
-        assert!(
-            required_height.is_some(),
-            "Sequence lock height calculation must not overflow (coin_height: {}, locktime: {})",
-            coin_height,
-            locktime_value
-        );
-
-        if let Some(height) = required_height {
-            // Critical invariant: Required height must be >= coin_height - 1
-            assert!(
-                height >= coin_height.saturating_sub(1),
-                "Required height ({}) must be >= coin_height - 1 ({})",
-                height,
-                coin_height
-            );
-        }
-
-        // Test time-based lock calculation
-        let locktime_seconds = (locktime_value as i64) << SEQUENCE_LOCKTIME_GRANULARITY;
-        let required_time = coin_time
-            .checked_add(locktime_seconds)
-            .and_then(|sum| sum.checked_sub(1));
-
-        // Critical invariant: Calculation must not overflow
-        assert!(
-            required_time.is_some(),
-            "Sequence lock time calculation must not overflow (coin_time: {}, locktime: {})",
-            coin_time,
-            locktime_value
-        );
-
-        if let Some(time) = required_time {
-            // Critical invariant: Required time must be >= coin_time - 1
-            assert!(
-                time >= coin_time.saturating_sub(1),
-                "Required time ({}) must be >= coin_time - 1 ({})",
-                time,
-                coin_time
-            );
-        }
-    }
-
-    /// Kani proof: Sequence locks calculation correctness (BIP68)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, prev_heights ∈ [ℕ]:
-    /// - calculate_sequence_locks(tx, flags, prev_heights, headers) = (min_height, min_time)
-    /// - min_height = max(coin_height + locktime_value - 1) for all block-based inputs
-    /// - min_time = max(coin_time + locktime_seconds - 1) for all time-based inputs
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_sequence_locks_calculation_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let flags: u32 = kani::any();
-        let prev_heights = crate::kani_helpers::create_bounded_u64_vec(10);
-        let headers = crate::kani_helpers::create_bounded_block_header_vec(10);
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(prev_heights.len() == tx.inputs.len());
-        kani::assume(headers.len() <= 20);
-
-        // Ensure tx version >= 2 for BIP68
-        let mut tx = tx;
-        tx.version = kani::any();
-        kani::assume(tx.version >= 2);
-
-        // Set LOCKTIME_VERIFY_SEQUENCE flag
-        let flags = flags | 0x01;
-
-        let result = calculate_sequence_locks(&tx, flags, &prev_heights, Some(&headers));
-
-        if result.is_ok() {
-            let (min_height, min_time) = result.unwrap();
-
-            // Critical invariant: min_height and min_time should be >= -1
-            // (-1 means no constraint)
-            assert!(
-                min_height >= -1,
-                "Sequence locks calculation: min_height must be >= -1"
-            );
-            assert!(
-                min_time >= -1,
-                "Sequence locks calculation: min_time must be >= -1"
-            );
-        }
-    }
-
-    /// Kani proof: Sequence locks evaluation correctness (BIP68)
-    ///
-    /// Mathematical specification:
-    /// ∀ block_height, block_time ∈ ℕ, lock_pair ∈ (ℤ, ℤ):
-    /// - evaluate_sequence_locks(block_height, block_time, lock_pair) = true ⟹
-    ///   (block_height > min_height ∧ block_time > min_time)
-    #[kani::proof]
-    fn kani_sequence_locks_evaluation_correctness() {
-        let block_height: u64 = kani::any();
-        let block_time: u64 = kani::any();
-        let min_height: i64 = kani::any();
-        let min_time: i64 = kani::any();
-
-        // Bound for tractability
-        kani::assume(block_height <= 1000000);
-        kani::assume(block_time <= 1000000000);
-        kani::assume(min_height >= -1);
-        kani::assume(min_time >= -1);
-        kani::assume(min_height <= 1000000);
-        kani::assume(min_time <= 1000000000);
-
-        let lock_pair = (min_height, min_time);
-        let result = evaluate_sequence_locks(block_height, block_time, lock_pair);
-
-        // Critical invariant: locks are satisfied if and only if:
-        // - block_height > min_height (when min_height >= 0)
-        // - block_time > min_time (when min_time >= 0)
-        if min_height >= 0 && block_height <= min_height as u64 {
-            assert!(
-                !result,
-                "Sequence locks evaluation: block_height <= min_height must fail"
-            );
-        }
-
-        if min_time >= 0 && block_time <= min_time as u64 {
-            assert!(
-                !result,
-                "Sequence locks evaluation: block_time <= min_time must fail"
-            );
-        }
-
-        if min_height < 0 && min_time < 0 {
-            // No constraints: should always pass
-            assert!(
-                result,
-                "Sequence locks evaluation: no constraints should always pass"
-            );
-        }
-    }
-}

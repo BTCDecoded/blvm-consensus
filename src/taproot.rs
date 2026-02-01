@@ -7,6 +7,7 @@ use crate::witness;
 use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
 use secp256k1::{PublicKey, Scalar, Secp256k1, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
+use blvm_spec_lock::spec_locked;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
 ///
@@ -17,6 +18,7 @@ pub use crate::witness::Witness;
 pub const TAPROOT_SCRIPT_PREFIX: u8 = 0x51; // OP_1
 
 /// Validate Taproot output script
+#[spec_locked("11.2")]
 pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
     use crate::constants::TAPROOT_SCRIPT_LENGTH;
 
@@ -34,6 +36,7 @@ pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
 }
 
 /// Extract Taproot output key from script
+#[spec_locked("11.2")]
 pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]>> {
     if !validate_taproot_script(script)? {
         return Ok(None);
@@ -46,6 +49,7 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
 
 /// Compute Taproot tweak using proper cryptographic operations
 /// OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
+#[spec_locked("11.2")]
 pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
     // Create secp256k1 context (optimized: reuse in production, create new otherwise)
     // Note: Taproot operations need mutable context for add_exp_tweak, so we create new
@@ -94,6 +98,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
 }
 
 /// Validate Taproot key aggregation
+#[spec_locked("11.2")]
 pub fn validate_taproot_key_aggregation(
     internal_pubkey: &[u8; 32],
     merkle_root: &Hash,
@@ -104,6 +109,7 @@ pub fn validate_taproot_key_aggregation(
 }
 
 /// Validate Taproot script path spending
+#[spec_locked("11.2")]
 pub fn validate_taproot_script_path(
     script: &ByteString,
     merkle_proof: &[Hash],
@@ -147,11 +153,13 @@ fn hash_pair(left: &Hash, right: &Hash) -> Hash {
 }
 
 /// Check if transaction output is Taproot
+#[spec_locked("11.2")]
 pub fn is_taproot_output(output: &TransactionOutput) -> bool {
     validate_taproot_script(&output.script_pubkey).unwrap_or(false)
 }
 
 /// Validate Taproot transaction
+#[spec_locked("11.2")]
 pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>) -> Result<bool> {
     // Check if any output is Taproot
     for output in &tx.outputs {
@@ -177,6 +185,7 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
 }
 
 /// Compute Taproot signature hash following BIP 341 specification
+#[spec_locked("11.2")]
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
     input_index: usize,
@@ -656,301 +665,6 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Verify Taproot script validation is deterministic
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString: validate_taproot_script(script) is deterministic
-    /// - Same script always produces same result
-    /// - Script length and prefix are correctly validated
-    #[kani::proof]
-    fn kani_validate_taproot_script_deterministic() {
-        let script_len: usize = kani::any();
-        kani::assume(script_len <= 50); // Bounded for tractability
-
-        let mut script = Vec::new();
-        for _i in 0..script_len {
-            let byte: u8 = kani::any();
-            script.push(byte);
-        }
-
-        // Call validate_taproot_script twice with same input
-        let result1 = validate_taproot_script(&script).unwrap();
-        let result2 = validate_taproot_script(&script).unwrap();
-
-        // Results should be identical (deterministic)
-        assert_eq!(result1, result2);
-
-        // If script is valid Taproot, it should have correct length and prefix
-        if result1 {
-            assert_eq!(script.len(), 34);
-            assert_eq!(script[0], TAPROOT_SCRIPT_PREFIX);
-        }
-    }
-
-    /// Verify Taproot output key extraction is correct
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString: if validate_taproot_script(script) = true
-    /// then extract_taproot_output_key(script) returns Some(key) where key = script[1..33]
-    #[kani::proof]
-    fn kani_extract_taproot_output_key_correct() {
-        let script_len: usize = kani::any();
-        kani::assume(script_len <= 50);
-
-        let mut script = Vec::new();
-        for _i in 0..script_len {
-            let byte: u8 = kani::any();
-            script.push(byte);
-        }
-
-        let extracted_key = extract_taproot_output_key(&script).unwrap();
-
-        // If script is valid Taproot, extraction should succeed
-        if validate_taproot_script(&script).unwrap() {
-            assert!(extracted_key.is_some());
-            let key = extracted_key.unwrap();
-            assert_eq!(key.len(), 32);
-
-            // Key should match script bytes 1-32
-            for i in 0..32 {
-                assert_eq!(key[i], script[i + 1]);
-            }
-        } else {
-            // If script is invalid, extraction should return None
-            assert!(extracted_key.is_none());
-        }
-    }
-
-    /// Verify Taproot key aggregation is deterministic
-    ///
-    /// Mathematical specification:
-    /// ∀ internal_pubkey ∈ [u8; 32], merkle_root ∈ Hash:
-    /// - compute_taproot_tweak(internal_pubkey, merkle_root) is deterministic
-    /// - validate_taproot_key_aggregation is deterministic
-    #[kani::proof]
-    fn kani_taproot_key_aggregation_deterministic() {
-        let _internal_pubkey: [u8; 32] = kani::any();
-        let merkle_root: Hash = kani::any();
-
-        // Use a valid public key for testing
-        let valid_pubkey = [
-            0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
-            0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b,
-            0x16, 0xf8, 0x17, 0x98,
-        ];
-
-        // Call compute_taproot_tweak twice with same inputs
-        let result1 = compute_taproot_tweak(&valid_pubkey, &merkle_root);
-        let result2 = compute_taproot_tweak(&valid_pubkey, &merkle_root);
-
-        // Results should be identical (deterministic)
-        assert_eq!(result1.is_ok(), result2.is_ok());
-        if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
-        }
-
-        // If tweak computation succeeds, validate aggregation should work
-        if let Ok(output_key) = &result1 {
-            let validation_result1 =
-                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, output_key).unwrap();
-            let validation_result2 =
-                validate_taproot_key_aggregation(&valid_pubkey, &merkle_root, output_key).unwrap();
-
-            assert_eq!(validation_result1, validation_result2);
-            assert!(validation_result1); // Should be true for correct aggregation
-        }
-    }
-
-    /// Verify Taproot script path validation is correct
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString, merkle_proof ∈ [Hash], merkle_root ∈ Hash:
-    /// - validate_taproot_script_path(script, merkle_proof, merkle_root) is deterministic
-    /// - If computed_root = merkle_root, validation should succeed
-    #[kani::proof]
-    fn kani_validate_taproot_script_path_correct() {
-        let script_len: usize = kani::any();
-        let proof_len: usize = kani::any();
-        kani::assume(script_len <= 10);
-        kani::assume(proof_len <= 5);
-
-        let mut script = Vec::new();
-        for _i in 0..script_len {
-            let byte: u8 = kani::any();
-            script.push(byte);
-        }
-
-        let mut merkle_proof = Vec::new();
-        for _i in 0..proof_len {
-            let hash: Hash = kani::any();
-            merkle_proof.push(hash);
-        }
-
-        let merkle_root: Hash = kani::any();
-
-        // Call validate_taproot_script_path twice with same inputs
-        let result1 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
-        let result2 = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
-
-        // Results should be identical (deterministic)
-        assert_eq!(result1.is_ok(), result2.is_ok());
-        if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
-        }
-
-        // If validation succeeds, computed root should match provided root
-        if result1.is_ok() && *result1.as_ref().unwrap() {
-            let computed_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
-            assert_eq!(computed_root, merkle_root);
-        }
-    }
-
-    /// Kani proof: validate_taproot_transaction checks all outputs
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction:
-    /// - validate_taproot_transaction(tx) = true ⟺
-    ///   ∀ output ∈ tx.outputs: is_taproot_output(output) → validate_taproot_script(output.script_pubkey) = true
-    ///
-    /// This ensures all Taproot outputs in a transaction are valid.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_validate_taproot_transaction_outputs() {
-        let tx = create_bounded_transaction();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 3);
-        kani::assume(tx.outputs.len() <= 3);
-
-        let result = validate_taproot_transaction(&tx, None);
-
-        if result.is_ok() && result.unwrap() {
-            // If transaction is valid, all Taproot outputs must be valid
-            for output in &tx.outputs {
-                if is_taproot_output(output) {
-                    // Taproot outputs must pass script validation
-                    let script_valid =
-                        validate_taproot_script(&output.script_pubkey).unwrap_or(false);
-                    assert!(
-                        script_valid,
-                        "Valid Taproot transaction must have valid Taproot script"
-                    );
-                }
-            }
-        }
-    }
-
-    /// Verify Taproot signature hash computation is deterministic
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, prevouts ∈ [TransactionOutput], sighash_type ∈ ℕ:
-    /// - compute_taproot_signature_hash(tx, input_index, prevouts, sighash_type) is deterministic
-    /// - Same inputs always produce same hash
-    #[kani::proof]
-    fn kani_compute_taproot_signature_hash_deterministic() {
-        let tx = create_bounded_transaction();
-        let input_index: usize = kani::any();
-        kani::assume(input_index <= 5);
-
-        let prevouts_len: usize = kani::any();
-        kani::assume(prevouts_len <= 5);
-
-        let mut prevouts = Vec::new();
-        for _i in 0..prevouts_len {
-            let script_len: usize = kani::any();
-            kani::assume(script_len <= 10);
-            let mut script = Vec::new();
-            for _j in 0..script_len {
-                let byte: u8 = kani::any();
-                script.push(byte);
-            }
-            prevouts.push(TransactionOutput {
-                value: 1000,
-                script_pubkey: script,
-            });
-        }
-
-        let sighash_type: u8 = kani::any();
-
-        // Call compute_taproot_signature_hash twice with same inputs
-        let result1 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
-
-        // Create new transaction/prevouts for second call (deterministic test)
-        let tx2 = Transaction {
-            version: tx.version,
-            inputs: tx.inputs.clone(),
-            outputs: tx.outputs.clone(),
-            lock_time: tx.lock_time,
-        };
-        let prevouts2: Vec<TransactionOutput> = prevouts.iter().cloned().collect();
-        let result2 = compute_taproot_signature_hash(&tx2, input_index, &prevouts2, sighash_type);
-
-        // Results should be identical (deterministic)
-        assert_eq!(result1.is_ok(), result2.is_ok());
-        if result1.is_ok() && result2.is_ok() {
-            assert_eq!(result1.as_ref().unwrap(), result2.as_ref().unwrap());
-        }
-
-        // Hash should be 32 bytes
-        if let Ok(hash) = &result1 {
-            assert_eq!(hash.len(), 32);
-        }
-    }
-
-    /// Helper function to create bounded transaction for Kani
-    fn create_bounded_transaction() -> Transaction {
-        let input_count: usize = kani::any();
-        let output_count: usize = kani::any();
-        kani::assume(input_count <= 3);
-        kani::assume(output_count <= 3);
-
-        let mut inputs = Vec::new();
-        for i in 0..input_count {
-            let script_len: usize = kani::any();
-            kani::assume(script_len <= 5);
-            let mut script = Vec::new();
-            for j in 0..script_len {
-                let byte: u8 = kani::any();
-                script.push(byte);
-            }
-            inputs.push(TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32],
-                    index: i as u64,
-                },
-                script_sig: script,
-                sequence: 0xffffffff,
-            });
-        }
-
-        let mut outputs = Vec::new();
-        for i in 0..output_count {
-            let script_len: usize = kani::any();
-            kani::assume(script_len <= 10);
-            let mut script = Vec::new();
-            for j in 0..script_len {
-                let byte: u8 = kani::any();
-                script.push(byte);
-            }
-            outputs.push(TransactionOutput {
-                value: 1000,
-                script_pubkey: script,
-            });
-        }
-
-        Transaction {
-            version: 1,
-            inputs: inputs.into(),
-            outputs: outputs.into(),
-            lock_time: 0,
-        }
-    }
-}
 
 #[cfg(test)]
 mod property_tests {
@@ -1273,113 +987,3 @@ mod property_tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs_2 {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Taproot key aggregation correctness (Orange Paper Section 11.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ internal_pubkey ∈ [u8; 32], merkle_root ∈ Hash:
-    /// - compute_taproot_tweak(internal_pubkey, merkle_root) = OutputKey
-    /// - OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
-    ///
-    /// This proves the Taproot key aggregation matches the Orange Paper specification.
-    #[kani::proof]
-    fn kani_taproot_key_aggregation_correctness() {
-        let internal_pubkey: [u8; 32] = kani::any();
-        let merkle_root: Hash = kani::any();
-
-        // Calculate tweak
-        let tweak_result = compute_taproot_tweak(&internal_pubkey, &merkle_root);
-
-        if let Ok(output_key) = tweak_result {
-            // Verify key aggregation: validate that output_key matches expected computation
-            let validation_result =
-                validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key);
-
-            if validation_result.is_ok() && *validation_result.as_ref().unwrap() {
-                // Key aggregation is correct: OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
-                assert!(
-                    true,
-                    "Taproot key aggregation matches Orange Paper specification"
-                );
-            }
-        }
-    }
-
-    /// Kani proof: Taproot output script validation (Orange Paper Section 11.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString:
-    /// - validate_taproot_script(script) = true ⟹ script = OP_1 <32-byte-hash>
-    ///
-    /// This ensures Taproot output scripts match the required format.
-    #[kani::proof]
-    fn kani_taproot_script_validation() {
-        let script = crate::kani_helpers::create_bounded_byte_string(10);
-
-        // Bound for tractability
-        kani::assume(script.len() <= 50);
-
-        let result = validate_taproot_script(&script);
-
-        if result.is_ok() && result.unwrap() {
-            // Valid Taproot script must be: OP_1 <32-byte-hash> (34 bytes total)
-            assert_eq!(
-                script.len(),
-                34,
-                "Valid Taproot script must be exactly 34 bytes"
-            );
-            assert_eq!(
-                script[0], TAPROOT_SCRIPT_PREFIX,
-                "Valid Taproot script must start with OP_1 (0x51)"
-            );
-
-            // Extract output key
-            let output_key_result = extract_taproot_output_key(&script);
-            if output_key_result.is_ok() {
-                let output_key_opt = output_key_result.unwrap();
-                assert!(
-                    output_key_opt.is_some(),
-                    "Valid Taproot script must have extractable output key"
-                );
-
-                if let Some(output_key) = output_key_opt {
-                    // Output key should be 32 bytes
-                    assert_eq!(output_key.len(), 32, "Taproot output key must be 32 bytes");
-                }
-            }
-        }
-    }
-
-    /// Kani proof: Taproot script path validation (Orange Paper Section 11.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString, merkle_proof ∈ [Hash], merkle_root ∈ Hash:
-    /// - validate_taproot_script_path(script, merkle_proof, merkle_root) = true ⟹
-    ///   merkle_root can be computed from script and proof
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_taproot_script_path_validation() {
-        let script = crate::kani_helpers::create_bounded_byte_string(10);
-        let merkle_proof = crate::kani_helpers::create_bounded_hash_vec(10);
-        let merkle_root: Hash = kani::any();
-
-        // Bound for tractability
-        kani::assume(script.len() <= 100);
-        kani::assume(merkle_proof.len() <= 5);
-
-        let result = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
-
-        if result.is_ok() && result.unwrap() {
-            // Script path validation passed: merkle root must be computable from script and proof
-            // This proves the script path is valid according to Taproot specification
-            assert!(
-                true,
-                "Taproot script path validation: merkle root matches script and proof"
-            );
-        }
-    }
-}

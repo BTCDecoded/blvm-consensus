@@ -3,6 +3,8 @@
 //! Provides fast byte array copying and concatenation using AVX2 SIMD instructions
 //! when available, with automatic fallback to sequential operations for compatibility.
 
+use blvm_spec_lock::spec_locked;
+
 /// Copy bytes from source to destination using SIMD when beneficial
 ///
 /// Uses AVX2 SIMD for large arrays (>64 bytes), falls back to sequential
@@ -14,6 +16,7 @@
 ///
 /// # Safety
 /// Caller must ensure `dst.len() >= src.len()` to avoid buffer overflows.
+#[spec_locked("2.1")]
 #[inline]
 pub fn copy_bytes_simd(dst: &mut [u8], src: &[u8]) {
     #[cfg(all(target_arch = "x86_64", feature = "production"))]

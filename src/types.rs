@@ -16,7 +16,7 @@ pub use smallvec;
 macro_rules! tx_inputs {
     ($($item:expr),* $(,)?) => {
         {
-            $crate::smallvec::SmallVec::from_vec(vec![$($item),*])
+            ::smallvec::SmallVec::from_vec(vec![$($item),*])
         }
     };
 }
@@ -34,7 +34,7 @@ macro_rules! tx_inputs {
 macro_rules! tx_outputs {
     ($($item:expr),* $(,)?) => {
         {
-            $crate::smallvec::SmallVec::from_vec(vec![$($item),*])
+            ::smallvec::SmallVec::from_vec(vec![$($item),*])
         }
     };
 }

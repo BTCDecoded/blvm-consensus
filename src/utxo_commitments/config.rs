@@ -7,9 +7,10 @@
 //! - Verification levels
 
 use crate::spam_filter::{SpamFilterConfig, SpamFilterConfigSerializable};
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::peer_consensus::ConsensusConfig;
-use serde::{Deserialize, Serialize};
 
 /// Sync mode selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +83,7 @@ pub struct ConsensusConfigSerializable {
     pub safety_margin: u64,
 }
 
+#[cfg(feature = "utxo-commitments")]
 impl From<ConsensusConfigSerializable> for ConsensusConfig {
     fn from(serializable: ConsensusConfigSerializable) -> Self {
         ConsensusConfig {
@@ -94,6 +96,7 @@ impl From<ConsensusConfigSerializable> for ConsensusConfig {
     }
 }
 
+#[cfg(feature = "utxo-commitments")]
 impl From<ConsensusConfig> for ConsensusConfigSerializable {
     fn from(config: ConsensusConfig) -> Self {
         ConsensusConfigSerializable {
@@ -165,6 +168,7 @@ impl UtxoCommitmentsConfig {
     }
 
     /// Convert to ConsensusConfig
+    #[cfg(feature = "utxo-commitments")]
     pub fn to_consensus_config(&self) -> ConsensusConfig {
         self.consensus.clone().into()
     }

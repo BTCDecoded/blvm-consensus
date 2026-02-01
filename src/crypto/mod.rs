@@ -10,6 +10,7 @@
 //! but we can add batch processing and CPU feature detection for better
 //! performance in batch scenarios.
 
+use blvm_spec_lock::spec_locked;
 use sha2::{Digest, Sha256};
 
 #[cfg(target_arch = "x86_64")]
@@ -110,6 +111,7 @@ impl OptimizedSha256 {
     /// Compute double SHA256 (SHA256(SHA256(data)))
     ///
     /// Uses SHA-NI if available for optimal single-hash performance.
+    #[spec_locked("2.1")]
     pub fn hash256(&self, data: &[u8]) -> [u8; 32] {
         #[cfg(target_arch = "x86_64")]
         {
@@ -130,11 +132,13 @@ impl Default for OptimizedSha256 {
 }
 
 /// Convenience function for single SHA256 hash
+#[spec_locked("2.1")]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     OptimizedSha256::new().hash(data)
 }
 
 /// Convenience function for double SHA256 hash (Bitcoin standard)
+#[spec_locked("2.1")]
 pub fn hash256(data: &[u8]) -> [u8; 32] {
     OptimizedSha256::new().hash256(data)
 }

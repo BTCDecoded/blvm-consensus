@@ -7,6 +7,7 @@
 
 use crate::constants::MAX_MONEY;
 use crate::error::{ConsensusError, Result};
+use blvm_spec_lock::spec_locked;
 
 // Cold error construction helper - this path is rarely taken
 #[cold]
@@ -34,6 +35,7 @@ const MAX_SAFE_VALUE: i64 = MAX_MONEY / 2;
 /// but with better performance for common cases.
 #[inline(always)]
 #[cfg(feature = "production")]
+#[spec_locked("2.2")]
 pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Fast path: both values are positive (common case in Bitcoin)
     // Manual overflow check: a + b > i64::MAX is equivalent to a > i64::MAX - b
@@ -59,6 +61,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
 
 #[cfg(not(feature = "production"))]
 #[inline]
+#[spec_locked("2.2")]
 pub fn safe_add(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
     a.checked_add(b).ok_or_else(make_arithmetic_overflow_error)
@@ -75,6 +78,7 @@ pub fn safe_add(a: i64, b: i64) -> Result<i64> {
 /// but with better performance for common cases.
 #[inline(always)]
 #[cfg(feature = "production")]
+#[spec_locked("2.2")]
 pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
     // Fast path: a >= 0, b >= 0 (common case: subtracting output from input)
     // Manual underflow check: a - b < i64::MIN is equivalent to a < i64::MIN + b
@@ -97,6 +101,7 @@ pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
 
 #[cfg(not(feature = "production"))]
 #[inline]
+#[spec_locked("2.2")]
 pub fn safe_sub(a: i64, b: i64) -> Result<i64> {
     // Always use checked arithmetic in non-production builds
     a.checked_sub(b)

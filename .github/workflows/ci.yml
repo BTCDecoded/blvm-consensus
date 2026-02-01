@@ -61,6 +61,14 @@ jobs:
 
       - uses: actions/checkout@v4
       
+      - name: Setup blvm-spec-lock dependency
+        run: |
+          # blvm-spec-lock dependency resolution:
+          # 1. Default: Use crate from crates.io (blvm-spec-lock = "0.1.0")
+          # 2. Fallback: Clone GitHub repo and use path dependency if crate not available
+          # 3. Local dev: Use .cargo/config.toml with [patch.crates-io] (not in CI)
+          bash scripts/setup-spec-lock.sh
+      
       - name: Cache
         id: setup-cache
         run: |
@@ -237,6 +245,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Setup blvm-spec-lock dependency
+        run: bash scripts/setup-spec-lock.sh
+      
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
@@ -315,6 +326,9 @@ jobs:
         !contains(github.event.head_commit.message, '[no ci]')))
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Setup blvm-spec-lock dependency
+        run: bash scripts/setup-spec-lock.sh
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -744,6 +758,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Setup blvm-spec-lock dependency
+        run: bash scripts/setup-spec-lock.sh
+      
       - name: Cache
         run: |
           CACHE_ROOT="/tmp/runner-cache"
@@ -821,6 +838,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      - name: Setup blvm-spec-lock dependency
+        run: bash scripts/setup-spec-lock.sh
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master

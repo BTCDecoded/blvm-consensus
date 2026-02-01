@@ -90,3 +90,6 @@ pnpm-lock.yaml
 # Misc
 .cache/
 *.pid
+
+# Local Cargo configuration (for local development only)
+.cargo/config.toml

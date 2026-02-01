@@ -3,6 +3,7 @@
 use crate::error::Result;
 use crate::types::*;
 use std::collections::HashMap;
+use blvm_spec_lock::spec_locked;
 
 /// NetworkMessage: 𝒯𝒳 × 𝒰𝒮 → {accepted, rejected}
 ///
@@ -104,6 +105,7 @@ pub struct InventoryVector {
 }
 
 /// Process incoming network message
+#[spec_locked("9.2")]
 pub fn process_network_message(
     message: &NetworkMessage,
     peer_state: &mut PeerState,
@@ -352,147 +354,6 @@ fn process_feefilter_message(
     Ok(NetworkResponse::Ok)
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: headers message enforces size limit
-    ///
-    /// Mathematical specification:
-    /// ∀ headers ∈ HeadersMessage:
-    /// - If headers.headers.len() > 2000: process_headers_message returns Reject
-    /// - Otherwise: process_headers_message processes headers
-    ///
-    /// This ensures network message size limits are enforced.
-    #[kani::proof]
-    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
-    fn kani_headers_message_size_limit() {
-        // Bound headers for tractability - Vec<BlockHeader> doesn't implement Arbitrary
-        let headers_vec: Vec<crate::types::BlockHeader> = vec![];
-        let mut headers = HeadersMessage {
-            headers: headers_vec,
-        };
-
-        // Bound for tractability
-        kani::assume(headers.headers.len() <= 100);
-
-        let mut peer_state = PeerState::new();
-        let chain_state = ChainState::new();
-
-        let result = process_headers_message(&headers, &mut peer_state, &chain_state);
-
-        // Critical invariant: messages over limit are rejected
-        if headers.headers.len() > 2000 {
-            assert!(
-                matches!(result, Ok(NetworkResponse::Reject(_))),
-                "Headers messages over limit (2000) must be rejected"
-            );
-        }
-    }
-
-    /// Kani proof: inv message enforces reasonable size limit
-    ///
-    /// Mathematical specification:
-    /// ∀ inv ∈ InvMessage:
-    /// - If inv.inventory.len() > MAX_INV_SIZE: message should be rejected or truncated
-    /// - MAX_INV_SIZE is typically 50000 for Bitcoin protocol
-    ///
-    /// This ensures inventory messages don't cause DoS.
-    #[kani::proof]
-    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
-    fn kani_inv_message_size_limit() {
-        // Bound inventory for tractability - Vec<InventoryVector> doesn't implement Arbitrary
-        let inv = InvMessage { inventory: vec![] };
-
-        // Bound for tractability
-        kani::assume(inv.inventory.len() <= 100);
-
-        let mut peer_state = PeerState::new();
-        let chain_state = ChainState::new();
-
-        let result = process_inv_message(&inv, &mut peer_state, &chain_state);
-
-        // Critical invariant: very large messages should be handled safely
-        // (The actual implementation may accept or reject, but must not panic)
-        assert!(
-            result.is_ok(),
-            "Inv message processing must not panic, even for large messages"
-        );
-    }
-
-    /// Kani proof: getdata message enforces reasonable size limit
-    ///
-    /// Mathematical specification:
-    /// ∀ getdata ∈ GetDataMessage:
-    /// - If getdata.inventory.len() > MAX_GETDATA_SIZE: message should be rejected or truncated
-    /// - MAX_GETDATA_SIZE is typically 50000 for Bitcoin protocol
-    ///
-    /// This ensures getdata messages don't cause DoS.
-    #[kani::proof]
-    #[kani::unwind(3)] // FAST tier - simple size check, runs on every push
-    fn kani_getdata_message_size_limit() {
-        // Bound inventory for tractability - Vec<InventoryVector> doesn't implement Arbitrary
-        let getdata = GetDataMessage { inventory: vec![] };
-
-        // Bound for tractability
-        kani::assume(getdata.inventory.len() <= 100);
-
-        let mut peer_state = PeerState::new();
-        let chain_state = ChainState::new();
-
-        let result = process_getdata_message(&getdata, &mut peer_state, &chain_state);
-
-        // Critical invariant: very large messages should be handled safely
-        assert!(
-            result.is_ok(),
-            "GetData message processing must not panic, even for large messages"
-        );
-    }
-
-    /// Kani proof: version message validation
-    ///
-    /// Mathematical specification:
-    /// ∀ version ∈ VersionMessage:
-    /// - Version must be >= MIN_PROTOCOL_VERSION
-    /// - Timestamp must be reasonable (not too far in future/past)
-    ///
-    /// This ensures version messages are validated correctly.
-    #[kani::proof]
-    #[kani::unwind(3)] // FAST tier - simple validation, runs on every push
-    fn kani_version_message_validation() {
-        let version = VersionMessage {
-            version: kani::any(),
-            services: kani::any(),
-            timestamp: kani::any(),
-            addr_recv: NetworkAddress {
-                services: kani::any(),
-                ip: kani::any(),
-                port: kani::any(),
-            },
-            addr_from: NetworkAddress {
-                services: kani::any(),
-                ip: kani::any(),
-                port: kani::any(),
-            },
-            nonce: kani::any(),
-            user_agent: String::new(), // String doesn't implement Arbitrary, use empty string
-            start_height: kani::any(),
-            relay: kani::any(),
-        };
-
-        // Bound for tractability
-        kani::assume(version.user_agent.len() <= 100);
-
-        let mut peer_state = PeerState::new();
-        let chain_state = ChainState::new();
-
-        let result = process_version_message(&version, &mut peer_state);
-
-        // Critical invariant: version message processing must not panic
-        assert!(result.is_ok(), "Version message processing must not panic");
-    }
-}
 
 // ============================================================================
 // TYPES

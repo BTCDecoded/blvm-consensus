@@ -35,19 +35,33 @@
 //! # }
 //! ```
 
+#[cfg(feature = "utxo-commitments")]
 pub mod config;
+#[cfg(feature = "utxo-commitments")]
 pub mod data_structures;
+#[cfg(feature = "utxo-commitments")]
 pub mod initial_sync;
+#[cfg(feature = "utxo-commitments")]
 pub mod merkle_tree;
+#[cfg(feature = "utxo-commitments")]
 pub mod network_integration;
+#[cfg(feature = "utxo-commitments")]
 pub mod peer_consensus;
+#[cfg(feature = "utxo-commitments")]
 pub mod verification;
 
 // Re-export main types
+#[cfg(feature = "utxo-commitments")]
 pub use config::*;
+#[cfg(feature = "utxo-commitments")]
 pub use data_structures::*;
+#[cfg(feature = "utxo-commitments")]
 pub use initial_sync::{update_commitments_after_block, InitialSync};
+#[cfg(feature = "utxo-commitments")]
 pub use merkle_tree::UtxoMerkleTree;
+#[cfg(feature = "utxo-commitments")]
 pub use network_integration::*;
+#[cfg(feature = "utxo-commitments")]
 pub use peer_consensus::*;
+#[cfg(feature = "utxo-commitments")]
 pub use verification::*;

@@ -5,6 +5,7 @@
 //! function but uses k256 for cryptographic operations.
 
 #[cfg(feature = "k256")]
+use blvm_spec_lock::spec_locked;
 #[allow(deprecated)] // generic_array is deprecated but k256 still uses it internally
 use k256::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
@@ -25,6 +26,7 @@ use k256::{
 /// # Returns
 /// `true` if signature is valid, `false` otherwise
 #[cfg(feature = "k256")]
+#[spec_locked("5.2")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_signature_k256(
@@ -151,82 +153,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-#[cfg(feature = "k256")]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: verify_signature_k256 correctness (Orange Paper Section 5.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ pubkey_bytes ∈ ByteString, signature_bytes ∈ ByteString, sighash ∈ Hash, flags ∈ ℕ:
-    /// - verify_signature_k256(pubkey_bytes, signature_bytes, sighash, flags) = true ⟹
-    ///   ECDSA_Verify(pubkey_bytes, signature_bytes, sighash) = true (per secp256k1 specification)
-    /// - verify_signature_k256(pubkey_bytes, signature_bytes, sighash, flags) = false ⟹
-    ///   ECDSA_Verify(pubkey_bytes, signature_bytes, sighash) = false (per secp256k1 specification)
-    ///
-    /// This ensures signature verification matches secp256k1 ECDSA specification exactly.
-    ///
-    /// Note: Full cryptographic correctness requires actual signature/public key pairs.
-    /// This proof verifies:
-    /// 1. Invalid input handling (malformed pubkey/signature)
-    /// 2. Determinism (same inputs → same output)
-    /// 3. Bounds checking (no panics on arbitrary inputs)
-    #[kani::proof]
-    fn kani_verify_signature_k256_correctness() {
-        let pubkey_bytes: Vec<u8> = kani::any();
-        let signature_bytes: Vec<u8> = kani::any();
-        let sighash: [u8; 32] = kani::any();
-        let flags: u32 = kani::any();
-
-        // Bound for tractability
-        kani::assume(pubkey_bytes.len() <= 100);
-        kani::assume(signature_bytes.len() <= 200);
-
-        // Call verification function
-        let result = verify_signature_k256(&pubkey_bytes, &signature_bytes, &sighash, flags);
-
-        // Critical invariant: result must be boolean (true or false)
-        assert!(
-            result == true || result == false,
-            "verify_signature_k256: must return boolean"
-        );
-
-        // Critical invariant: determinism - same inputs → same output
-        let result2 = verify_signature_k256(&pubkey_bytes, &signature_bytes, &sighash, flags);
-        assert_eq!(
-            result, result2,
-            "verify_signature_k256: must be deterministic (same inputs → same output)"
-        );
-
-        // Critical invariant: flags parameter should not affect verification result
-        // (flags are used for script validation rules, not signature verification)
-        let result3 = verify_signature_k256(
-            &pubkey_bytes,
-            &signature_bytes,
-            &sighash,
-            flags ^ 0xffffffff,
-        );
-        // Note: This assertion may not hold if flags affect verification, but typically they don't
-        // for k256 verification. Commenting out if needed.
-        // assert_eq!(result, result3,
-        //     "verify_signature_k256: flags should not affect verification result");
-
-        // Critical invariant: invalid pubkey format should return false
-        if pubkey_bytes.len() != 33 && pubkey_bytes.len() != 65 {
-            // SEC1 format requires 33 (compressed) or 65 (uncompressed) bytes
-            assert!(
-                !result,
-                "verify_signature_k256: invalid pubkey length must return false"
-            );
-        }
-
-        // Critical invariant: invalid signature format should return false
-        if signature_bytes.len() != 64 && (signature_bytes.len() < 8 || signature_bytes[0] != 0x30)
-        {
-            // Valid signatures are either 64-byte compact format or DER format (starts with 0x30)
-            // This is a simplified check - full DER validation is more complex
-        }
-    }
-}

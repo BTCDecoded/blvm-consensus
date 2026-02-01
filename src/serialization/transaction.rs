@@ -6,6 +6,7 @@
 use super::varint::{decode_varint, encode_varint};
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 use std::borrow::Cow;
 
 #[cfg(feature = "production")]
@@ -125,6 +126,7 @@ impl std::error::Error for TransactionParseError {}
 /// Performance optimization: Caches serialized results to avoid re-serializing
 /// the same transaction multiple times (used in block validation, network messages, etc.)
 #[inline(always)]
+#[spec_locked("3.2")]
 pub fn serialize_transaction(tx: &Transaction) -> Vec<u8> {
     #[cfg(feature = "production")]
     {
@@ -165,7 +167,7 @@ fn serialize_transaction_inner(tx: &Transaction) -> Vec<u8> {
     // This avoids reallocations during serialization
     #[cfg(feature = "production")]
     let mut result = {
-        // BLLVM Optimization: Use preallocated buffer with Kani-proven maximum size
+        // BLLVM Optimization: Use preallocated buffer with proven maximum size
         // This avoids reallocations and uses proven-safe maximum size
         use crate::optimizations::prealloc_tx_buffer;
         prealloc_tx_buffer()
@@ -220,6 +222,7 @@ fn serialize_transaction_inner(tx: &Transaction) -> Vec<u8> {
 }
 
 /// Deserialize a transaction from Bitcoin wire format
+#[spec_locked("3.2")]
 pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
     let mut offset = 0;
 
@@ -425,6 +428,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
 /// Deserialize a transaction from Bitcoin wire format, returning transaction, witness, and bytes consumed
 /// 
 /// This is used by block deserialization to track how many bytes each transaction uses.
+#[spec_locked("3.2")]
 pub fn deserialize_transaction_with_witness(data: &[u8]) -> Result<(Transaction, Vec<crate::witness::Witness>, usize)> {
     let mut offset = 0;
 
@@ -691,124 +695,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::Transaction;
-    use kani::*;
-
-    /// Kani proof: Transaction serialization round-trip correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction: deserialize(serialize(tx)) = tx
-    ///
-    /// This ensures serialization and deserialization are inverse operations.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_serialization_round_trip() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-
-        // Serialize and deserialize
-        let serialized = serialize_transaction(&tx);
-        let deserialized_result = deserialize_transaction(&serialized);
-
-        if deserialized_result.is_ok() {
-            let deserialized = deserialized_result.unwrap();
-
-            // Round-trip property: deserialize(serialize(tx)) = tx
-            assert_eq!(
-                deserialized.version, tx.version,
-                "Transaction serialization round-trip: version must match"
-            );
-            assert_eq!(
-                deserialized.inputs.len(),
-                tx.inputs.len(),
-                "Transaction serialization round-trip: input count must match"
-            );
-            assert_eq!(
-                deserialized.outputs.len(),
-                tx.outputs.len(),
-                "Transaction serialization round-trip: output count must match"
-            );
-            assert_eq!(
-                deserialized.lock_time, tx.lock_time,
-                "Transaction serialization round-trip: lock_time must match"
-            );
-
-            // Verify inputs match
-            for (i, (input, deserialized_input)) in
-                tx.inputs.iter().zip(deserialized.inputs.iter()).enumerate()
-            {
-                assert_eq!(
-                    deserialized_input.prevout.hash, input.prevout.hash,
-                    "Transaction serialization round-trip: input {} prevout hash must match",
-                    i
-                );
-                assert_eq!(
-                    deserialized_input.prevout.index, input.prevout.index,
-                    "Transaction serialization round-trip: input {} prevout index must match",
-                    i
-                );
-                assert_eq!(
-                    deserialized_input.script_sig, input.script_sig,
-                    "Transaction serialization round-trip: input {} script_sig must match",
-                    i
-                );
-                assert_eq!(
-                    deserialized_input.sequence, input.sequence,
-                    "Transaction serialization round-trip: input {} sequence must match",
-                    i
-                );
-            }
-
-            // Verify outputs match
-            for (i, (output, deserialized_output)) in tx
-                .outputs
-                .iter()
-                .zip(deserialized.outputs.iter())
-                .enumerate()
-            {
-                assert_eq!(
-                    deserialized_output.value, output.value,
-                    "Transaction serialization round-trip: output {} value must match",
-                    i
-                );
-                assert_eq!(
-                    deserialized_output.script_pubkey, output.script_pubkey,
-                    "Transaction serialization round-trip: output {} script_pubkey must match",
-                    i
-                );
-            }
-        }
-    }
-
-    /// Kani proof: Transaction serialization determinism (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction: serialize(tx) is deterministic (same tx → same bytes)
-    ///
-    /// This ensures serialization produces consistent results.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_serialization_determinism() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-
-        // Serialize twice
-        let serialized1 = serialize_transaction(&tx);
-        let serialized2 = serialize_transaction(&tx);
-
-        // Determinism: same transaction must produce same serialization
-        assert_eq!(
-            serialized1, serialized2,
-            "Transaction serialization determinism: same transaction must produce same bytes"
-        );
-    }
-}

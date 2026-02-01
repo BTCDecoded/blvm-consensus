@@ -13,7 +13,7 @@ categories = ["cryptography::cryptocurrencies", "algorithms"]
 rust-version = "1.83"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+unexpected_cfgs = { level = "warn" }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -43,6 +43,15 @@ bincode = "=1.3.3"
 # Hex encoding (for RPC communication)
 hex = "=0.4.3"
 
+# Spec-lock for mathematical verification
+# Default: Use crate from crates.io (once published)
+# Fallback: Git dependency (if crate not available, CI will clone repo)
+# Local dev: Use .cargo/config.toml with [patch.crates-io] (see .cargo/config.toml.example)
+# Version range allows compatible updates (^0.1.0 allows 0.1.x but not 0.2.x)
+blvm-spec-lock = "^0.1.0"
+# Spec-macros for spec_locked attributes (migration in progress - commented out until committed)
+# blvm-spec-macros = { path = "../blvm-spec-macros", optional = true }
+
 
 [dev-dependencies]
 # Formal verification tools - EXACT VERSIONS for reproducibility
@@ -56,14 +65,8 @@ tokio = { version = "1.35", features = ["rt", "macros"] }
 # Performance benchmarking framework
 criterion = "0.5"
 
-[dependencies.kani-verifier]
-version = "0.66"
-optional = true
-
 [features]
 default = []
-# Enable formal verification tools
-verify = ["kani-verifier"]
 # Enable k256 (uses deprecated generic_array from elliptic_curve, will be fixed when k256 updates)
 k256 = ["dep:k256"]
 
@@ -72,9 +75,14 @@ k256 = ["dep:k256"]
 # Users should use: cargo test --features bolero
 bolero = []
 
+# Local development: Use local filesystem path for blvm-spec-lock
+# Only enable this when developing locally (not in CI)
+# Usage: cargo build --features local-spec-lock
+# Note: When enabled, [patch.crates-io] section overrides the crate dependency
+local-spec-lock = []
+
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
-# Keep separate from 'verify' to maintain Kani compatibility
 production = ["lru", "rayon", "smallvec"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
@@ -88,6 +96,11 @@ benchmarking = []
 # Enables UTXO set commitments and peer consensus sync
 utxo-commitments = ["sparse-merkle-tree"]
 
+# blvm-spec-macros feature (for spec_locked attributes)  
+# Enables spec_locked attribute macro from blvm-spec-macros
+# Commented out until blvm-spec-macros is committed
+# blvm-spec-macros = ["dep:blvm-spec-macros"]
+
 # Runtime invariant checks in production builds
 # Enables runtime verification of mathematical invariants (supply, UTXO consistency, etc.)
 # Can be enabled in production for additional safety at performance cost
@@ -97,8 +110,6 @@ runtime-invariants = []
 # Enables OP_CHECKTEMPLATEVERIFY opcode support
 ctv = []
 
-# Note: Kani proofs use #[cfg(kani)] which is set by the Kani toolchain, not cargo features
-# To run Kani proofs, use: cargo kani --features utxo-commitments
 
 [dependencies.lru]
 version = "0.12"
@@ -124,6 +135,14 @@ sha2 = { version = "=0.10.9" }
 # Also explicitly handle the GNU Windows target (for cross-compilation)
 [target.x86_64-pc-windows-gnu.dependencies]
 sha2 = { version = "=0.10.9" }
+
+# Local development: Override blvm-spec-lock to use local path
+# This section is only used when developing locally
+# In CI, this section is ignored and the default crate/git dependency is used
+# To use locally: Create .cargo/config.toml with:
+# [patch.crates-io]
+# blvm-spec-lock = { path = "../blvm-spec-lock" }
+# Or uncomment the section below (not recommended for committed code)
 
 [profile.release]
 # Aggressive optimizations for production builds
@@ -160,3 +179,6 @@ codegen-units = 16  # Faster compilation
 
 # Benchmarks have been moved to blvm-bench crate
 # See: https://github.com/BTCDecoded/blvm-bench
+
+[patch.crates-io]
+blvm-spec-lock = { path = "../blvm-spec-lock" }

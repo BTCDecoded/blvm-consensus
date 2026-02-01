@@ -8,6 +8,7 @@
 use crate::error::Result;
 use crate::segwit::Witness;
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 
 /// Maximum number of public keys in a multisig (for sigop counting)
 /// This is used when we can't accurately determine the number from the script
@@ -28,6 +29,7 @@ const WITNESS_SCALE_FACTOR: u64 = 4;
 ///
 /// # Returns
 /// Number of sigops in the script
+#[spec_locked("5.2.2")]
 pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
     let mut count = 0u32;
     let mut last_opcode: Option<u8> = None;
@@ -197,6 +199,7 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
 ///
 /// # Returns
 /// Total number of legacy sigops
+#[spec_locked("5.2.2")]
 pub fn get_legacy_sigop_count(tx: &Transaction) -> u32 {
     let mut count = 0u32;
 
@@ -225,6 +228,7 @@ pub fn get_legacy_sigop_count(tx: &Transaction) -> u32 {
 ///
 /// # Returns
 /// Total number of P2SH sigops
+#[spec_locked("5.2.2")]
 pub fn get_p2sh_sigop_count(tx: &Transaction, utxo_set: &UtxoSet) -> Result<u32> {
     // Coinbase transactions have no P2SH sigops
     use crate::transaction::is_coinbase;
@@ -335,6 +339,7 @@ fn count_witness_sigops(
 ///
 /// # Returns
 /// Total sigop cost
+#[spec_locked("5.2.2")]
 pub fn get_transaction_sigop_cost(
     tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -438,93 +443,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::Transaction;
-    use kani::*;
-
-    /// Kani proof: Sigop counting correctness (Orange Paper Section 5.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString:
-    /// - count_sigops_in_script(script, accurate) = count of OP_CHECKSIG, OP_CHECKSIGVERIFY,
-    ///   OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY in script
-    #[kani::proof]
-    fn kani_sigop_counting_correctness() {
-        let script = crate::kani_helpers::create_bounded_byte_string(10);
-        let accurate: bool = kani::any();
-
-        // Bound for tractability
-        kani::assume(script.len() <= 100);
-
-        let count = count_sigops_in_script(&script, accurate);
-
-        // Critical invariant: sigop count must be non-negative
-        assert!(
-            count >= 0,
-            "Sigop counting correctness: count must be non-negative"
-        );
-
-        // Critical invariant: count must be bounded by script length
-        // (Each opcode can contribute at most MAX_PUBKEYS_PER_MULTISIG sigops)
-        assert!(
-            count <= (script.len() as u32) * MAX_PUBKEYS_PER_MULTISIG,
-            "Sigop counting correctness: count must be bounded by script length"
-        );
-    }
-
-    /// Kani proof: Transaction sigop cost correctness (Orange Paper Section 5.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, utxo_set ∈ UtxoSet:
-    /// - get_transaction_sigop_cost(tx, utxo_set, witness, flags) =
-    ///   (legacy_sigops × 4) + (p2sh_sigops × 4) + witness_sigops
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_sigop_cost_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let witness = Some(crate::kani_helpers::create_bounded_witness(5, 10));
-        let flags: u32 = kani::any();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-
-        // Populate UTXO set for inputs
-        for input in &tx.inputs {
-            if !utxo_set.contains_key(&input.prevout) {
-                utxo_set.insert(
-                    input.prevout.clone(),
-                    crate::types::UTXO {
-                        value: 1000,
-                        script_pubkey: vec![],
-                        height: 0,
-                        is_coinbase: false,
-                    },
-                );
-            }
-        }
-
-        let result = get_transaction_sigop_cost(&tx, &utxo_set, witness.as_ref(), flags);
-
-        if result.is_ok() {
-            let cost = result.unwrap();
-
-            // Critical invariant: sigop cost must be non-negative
-            assert!(
-                cost >= 0,
-                "Transaction sigop cost correctness: cost must be non-negative"
-            );
-
-            // Critical invariant: cost must not exceed MAX_BLOCK_SIGOPS_COST (80,000)
-            // This is enforced at block level, but we verify the calculation is bounded
-            let max_sigops_per_tx = 1000; // Reasonable upper bound per transaction
-            assert!(
-                cost <= (max_sigops_per_tx as u64) * 4,
-                "Transaction sigop cost correctness: cost must be bounded"
-            );
-        }
-    }
-}

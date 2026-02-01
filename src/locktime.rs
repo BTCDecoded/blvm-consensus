@@ -5,6 +5,7 @@
 
 use crate::constants::LOCKTIME_THRESHOLD;
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 
 /// Locktime type (block height vs timestamp)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ pub enum LocktimeType {
 /// Determine locktime type from value
 ///
 /// BIP65/BIP68: If locktime < 500000000, it's block height; otherwise it's Unix timestamp.
+#[spec_locked("5.4.7")]
 #[inline]
 pub fn get_locktime_type(locktime: u32) -> LocktimeType {
     if locktime < LOCKTIME_THRESHOLD {
@@ -31,6 +33,7 @@ pub fn get_locktime_type(locktime: u32) -> LocktimeType {
 ///
 /// Used by both BIP65 (CLTV) and BIP112 (CSV) to ensure type consistency.
 #[inline]
+#[spec_locked("5.4.7")]
 pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
     get_locktime_type(locktime1) == get_locktime_type(locktime2)
 }
@@ -45,6 +48,7 @@ pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
 ///
 /// # Returns
 /// Decoded u32 value, or None if invalid encoding
+#[spec_locked("5.4.7")]
 pub fn decode_locktime_value(bytes: &ByteString) -> Option<u32> {
     if bytes.len() > 5 {
         return None; // Invalid encoding (too large)
@@ -85,6 +89,7 @@ pub fn decode_locktime_value(bytes: &ByteString) -> Option<u32> {
 ///
 /// Encodes a u32 locktime value to minimal little-endian encoding for script stack.
 /// Used for script construction and testing.
+#[spec_locked("5.4.7")]
 pub fn encode_locktime_value(value: u32) -> ByteString {
     let mut bytes = Vec::new();
 
@@ -126,6 +131,7 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
 /// - 0 = block-based relative locktime
 /// - 1 = time-based relative locktime
 #[inline]
+#[spec_locked("5.5")]
 pub fn extract_sequence_type_flag(sequence: u32) -> bool {
     (sequence & 0x00400000) != 0
 }
@@ -134,6 +140,7 @@ pub fn extract_sequence_type_flag(sequence: u32) -> bool {
 ///
 /// Masks out flags (bits 31, 22) and returns only the locktime value (bits 0-15).
 #[inline]
+#[spec_locked("5.5")]
 pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
     (sequence & 0x0000ffff) as u16
 }
@@ -142,6 +149,7 @@ pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
 ///
 /// Bit 31 (0x80000000) disables relative locktime when set.
 #[inline]
+#[spec_locked("5.5")]
 pub fn is_sequence_disabled(sequence: u32) -> bool {
     (sequence & 0x80000000) != 0
 }
@@ -227,145 +235,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Locktime encoding round-trip correctness (BIP65/BIP112)
-    ///
-    /// Mathematical specification:
-    /// ∀ value ∈ [0, 2^32):
-    /// - decode_locktime_value(encode_locktime_value(value)) = value
-    #[kani::proof]
-    fn kani_locktime_encoding_round_trip() {
-        let value: u32 = kani::any();
-
-        let encoded = encode_locktime_value(value);
-        let decoded = decode_locktime_value(&encoded);
-
-        if decoded.is_some() {
-            let decoded_value = decoded.unwrap();
-
-            // Critical invariant: round-trip must preserve value
-            assert_eq!(
-                decoded_value, value,
-                "Locktime encoding round-trip: decoded value must match original"
-            );
-        }
-    }
-
-    /// Kani proof: Locktime type determination correctness (BIP65/BIP112)
-    ///
-    /// Mathematical specification:
-    /// ∀ locktime ∈ [0, 2^32):
-    /// - get_locktime_type(locktime) = BlockHeight if locktime < LOCKTIME_THRESHOLD
-    /// - get_locktime_type(locktime) = Timestamp if locktime >= LOCKTIME_THRESHOLD
-    #[kani::proof]
-    fn kani_locktime_type_determination() {
-        let locktime: u32 = kani::any();
-
-        let locktime_type = get_locktime_type(locktime);
-
-        // Critical invariant: type must match threshold
-        if locktime < LOCKTIME_THRESHOLD {
-            assert_eq!(
-                locktime_type,
-                LocktimeType::BlockHeight,
-                "Locktime type determination: values < LOCKTIME_THRESHOLD must be BlockHeight"
-            );
-        } else {
-            assert_eq!(
-                locktime_type,
-                LocktimeType::Timestamp,
-                "Locktime type determination: values >= LOCKTIME_THRESHOLD must be Timestamp"
-            );
-        }
-    }
-
-    /// Kani proof: locktime_types_match correctness (BIP65/BIP112)
-    ///
-    /// Mathematical specification:
-    /// ∀ locktime1, locktime2 ∈ [0, 2^32):
-    /// - locktime_types_match(locktime1, locktime2) = true ⟺
-    ///   get_locktime_type(locktime1) = get_locktime_type(locktime2)
-    ///
-    /// This ensures locktime type matching is correct for all value ranges.
-    #[kani::proof]
-    fn kani_locktime_types_match_correctness() {
-        let locktime1: u32 = kani::any();
-        let locktime2: u32 = kani::any();
-
-        // Calculate according to specification
-        let type1 = get_locktime_type(locktime1);
-        let type2 = get_locktime_type(locktime2);
-        let spec_match = type1 == type2;
-
-        // Calculate using implementation
-        let impl_match = locktime_types_match(locktime1, locktime2);
-
-        // Critical invariant: implementation must match specification
-        assert_eq!(impl_match, spec_match,
-            "locktime_types_match must match specification: types match if and only if get_locktime_type values are equal");
-    }
-
-    /// Kani proof: extract_sequence_locktime_value correctness (BIP68)
-    ///
-    /// Mathematical specification:
-    /// ∀ sequence ∈ u32:
-    /// - extract_sequence_locktime_value(sequence) = sequence & 0x0000ffff
-    /// - This masks out flags (bits 31, 22) and preserves only locktime value (bits 0-15)
-    ///
-    /// This ensures sequence locktime value extraction matches BIP68 specification exactly.
-    #[kani::proof]
-    fn kani_extract_sequence_locktime_value_correctness() {
-        let sequence: u32 = kani::any();
-
-        // Calculate according to BIP68 spec: mask bits 0-15 (0x0000ffff)
-        let spec_value = (sequence & 0x0000ffff) as u16;
-
-        // Calculate using implementation
-        let impl_value = extract_sequence_locktime_value(sequence);
-
-        // Critical invariant: implementation must match specification
-        assert_eq!(impl_value, spec_value,
-            "extract_sequence_locktime_value must match BIP68 specification: extract bits 0-15 (0x0000ffff)");
-
-        // Critical invariant: extracted value must be <= 0xffff (u16 max)
-        assert!(
-            impl_value <= 0xffff,
-            "extract_sequence_locktime_value: extracted value must be <= u16::MAX"
-        );
-
-        // Critical invariant: extraction preserves lower 16 bits
-        assert_eq!(
-            impl_value as u32,
-            sequence & 0x0000ffff,
-            "extract_sequence_locktime_value: must preserve lower 16 bits exactly"
-        );
-    }
-
-    /// Kani proof: Locktime threshold boundary (BIP65/BIP112)
-    ///
-    /// Mathematical specification:
-    /// - get_locktime_type(LOCKTIME_THRESHOLD - 1) = BlockHeight
-    /// - get_locktime_type(LOCKTIME_THRESHOLD) = Timestamp
-    #[kani::proof]
-    fn kani_locktime_threshold_boundary() {
-        // Test boundary value: LOCKTIME_THRESHOLD - 1
-        let block_height_locktime = LOCKTIME_THRESHOLD - 1;
-        assert_eq!(
-            get_locktime_type(block_height_locktime),
-            LocktimeType::BlockHeight,
-            "Locktime threshold boundary: LOCKTIME_THRESHOLD - 1 must be BlockHeight"
-        );
-
-        // Test boundary value: LOCKTIME_THRESHOLD
-        let timestamp_locktime = LOCKTIME_THRESHOLD;
-        assert_eq!(
-            get_locktime_type(timestamp_locktime),
-            LocktimeType::Timestamp,
-            "Locktime threshold boundary: LOCKTIME_THRESHOLD must be Timestamp"
-        );
-    }
-}

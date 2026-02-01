@@ -10,7 +10,9 @@
 
 use crate::spam_filter::{SpamBreakdown, SpamFilter, SpamFilterConfig, SpamSummary, SpamType};
 #[cfg(feature = "utxo-commitments")]
-use crate::types::{BlockHeader, Hash, Natural, OutPoint, Transaction, UTXO, UtxoSet};
+use blvm_spec_lock::spec_locked;
+#[cfg(feature = "utxo-commitments")]
+use crate::types::{BlockHeader, Hash as HashType, Natural, OutPoint, Transaction, UTXO, UtxoSet};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
@@ -195,7 +197,7 @@ impl InitialSync {
     where
         C: UtxoCommitmentsNetworkClient,
         F: Fn(Natural) -> Fut,
-        Fut: std::future::Future<Output = UtxoCommitmentResult<Hash>>,
+        Fut: std::future::Future<Output = UtxoCommitmentResult<HashType>>,
     {
         use crate::block::connect_block;
 
@@ -291,12 +293,13 @@ impl InitialSync {
     /// purposes. Full signature verification should be done during block validation
     /// before calling this function. This function assumes transactions are already
     /// validated.
+    #[spec_locked("13.3")]
     pub fn process_filtered_block(
         &self,
         utxo_tree: &mut UtxoMerkleTree,
         block_height: Natural,
         block_transactions: &[Transaction],
-    ) -> UtxoCommitmentResult<(SpamSummary, Hash)> {
+    ) -> UtxoCommitmentResult<(SpamSummary, HashType)> {
         use crate::transaction::is_coinbase;
 
         let mut spam_summary = SpamSummary {
@@ -363,7 +366,7 @@ impl InitialSync {
                         Ok(Some(utxo)) => {
                             // Remove the UTXO (even if transaction is spam)
                             if let Err(e) = utxo_tree.remove(&input.prevout, &utxo) {
-                                return Err(crate::utxo_commitments::UtxoCommitmentError::TransactionApplication(
+                                return Err(UtxoCommitmentError::TransactionApplication(
                                     format!("Failed to remove spent input: {:?}", e)
                                 ));
                             }
@@ -374,7 +377,7 @@ impl InitialSync {
                             // Continue but log - this should be validated before calling
                         }
                         Err(e) => {
-                            return Err(crate::utxo_commitments::UtxoCommitmentError::TransactionApplication(
+                            return Err(UtxoCommitmentError::TransactionApplication(
                                 format!("Failed to get UTXO for removal: {:?}", e)
                             ));
                         }
@@ -400,7 +403,7 @@ impl InitialSync {
 
                     if let Err(e) = utxo_tree.insert(outpoint, utxo) {
                         return Err(
-                            crate::utxo_commitments::UtxoCommitmentError::TransactionApplication(
+                            UtxoCommitmentError::TransactionApplication(
                                 format!("Failed to add output: {:?}", e),
                             ),
                         );
@@ -468,12 +471,13 @@ impl InitialSync {
 /// # }
 /// ```
 #[cfg(feature = "utxo-commitments")]
+#[spec_locked("13.3")]
 pub fn update_commitments_after_block(
     utxo_tree: &mut UtxoMerkleTree,
     block: &crate::types::Block,
     block_height: Natural,
     spam_filter: Option<&SpamFilter>,
-) -> UtxoCommitmentResult<Hash> {
+    ) -> UtxoCommitmentResult<HashType> {
     use crate::block::calculate_tx_id;
     use crate::transaction::is_coinbase;
 
@@ -506,7 +510,7 @@ pub fn update_commitments_after_block(
                             // Continue but this should have been caught during validation
                         }
                         Err(e) => {
-                            return Err(crate::utxo_commitments::UtxoCommitmentError::TransactionApplication(
+                            return Err(UtxoCommitmentError::TransactionApplication(
                                 format!("Failed to get UTXO for removal: {:?}", e)
                             ));
                         }
@@ -545,7 +549,7 @@ pub fn update_commitments_after_block(
 /// (witness data is excluded from txid calculation).
 ///
 /// This matches Bitcoin Core's transaction ID computation exactly.
-fn compute_tx_id(tx: &Transaction) -> Hash {
+fn compute_tx_id(tx: &Transaction) -> HashType {
     use crate::serialization::transaction::serialize_transaction;
     use sha2::{Digest, Sha256};
 
@@ -556,7 +560,7 @@ fn compute_tx_id(tx: &Transaction) -> Hash {
     let first_hash = Sha256::digest(&serialized);
     let second_hash = Sha256::digest(first_hash);
 
-    // Convert to Hash type [u8; 32]
+    // Convert to HashType [u8; 32]
     let mut txid = [0u8; 32];
     txid.copy_from_slice(&second_hash);
 
@@ -564,7 +568,7 @@ fn compute_tx_id(tx: &Transaction) -> Hash {
 }
 
 /// Compute block header hash (double SHA256)
-fn compute_block_hash(header: &BlockHeader) -> Hash {
+fn compute_block_hash(header: &BlockHeader) -> HashType {
     use sha2::{Digest, Sha256};
 
     let mut bytes = Vec::with_capacity(80);

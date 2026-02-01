@@ -4,9 +4,11 @@
 //! with the P2P network layer in reference-node.
 
 #[cfg(feature = "utxo-commitments")]
+use blvm_spec_lock::spec_locked;
+#[cfg(feature = "utxo-commitments")]
 use crate::spam_filter::{SpamFilter, SpamSummary};
 #[cfg(feature = "utxo-commitments")]
-use crate::types::{BlockHeader, Hash, Natural, Transaction};
+use crate::types::{BlockHeader, Hash as HashType, Natural, Transaction};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
@@ -38,7 +40,7 @@ pub trait UtxoCommitmentsNetworkClient: Send + Sync {
         &self,
         peer_id: &str,
         height: Natural,
-        block_hash: Hash,
+        block_hash: HashType,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = UtxoCommitmentResult<UtxoCommitment>> + Send + '_>,
     >;
@@ -47,7 +49,7 @@ pub trait UtxoCommitmentsNetworkClient: Send + Sync {
     fn request_filtered_block(
         &self,
         peer_id: &str,
-        block_hash: Hash,
+        block_hash: HashType,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = UtxoCommitmentResult<FilteredBlock>> + Send + '_>,
     >;
@@ -59,7 +61,7 @@ pub trait UtxoCommitmentsNetworkClient: Send + Sync {
     fn request_full_block(
         &self,
         peer_id: &str,
-        block_hash: Hash,
+        block_hash: HashType,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = UtxoCommitmentResult<FullBlock>> + Send + '_>,
     >;
@@ -85,10 +87,10 @@ pub async fn request_utxo_sets_from_peers_fn<F, Fut>(
     request_fn: F,
     peers: &[String],
     height: Natural,
-    block_hash: Hash,
+    block_hash: HashType,
 ) -> Vec<(String, UtxoCommitmentResult<UtxoCommitment>)>
 where
-    F: Fn(&str, Natural, Hash) -> Fut,
+    F: Fn(&str, Natural, HashType) -> Fut,
     Fut: std::future::Future<Output = UtxoCommitmentResult<UtxoCommitment>>,
 {
     let mut results = Vec::new();
@@ -102,6 +104,7 @@ where
 }
 
 /// Helper to process filtered block and verify commitment
+#[spec_locked("13.3")]
 pub fn process_and_verify_filtered_block(
     filtered_block: &FilteredBlock,
     expected_height: Natural,
@@ -134,7 +137,7 @@ pub fn process_and_verify_filtered_block(
 }
 
 /// Compute block header hash (double SHA256)
-fn compute_block_hash(header: &BlockHeader) -> Hash {
+fn compute_block_hash(header: &BlockHeader) -> HashType {
     use sha2::{Digest, Sha256};
 
     let mut bytes = Vec::with_capacity(80);

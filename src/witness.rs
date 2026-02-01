@@ -5,6 +5,7 @@
 
 use crate::error::Result;
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
 ///
@@ -26,6 +27,7 @@ pub enum WitnessVersion {
 ///
 /// BIP141: Witness must be a vector of byte strings (stack elements).
 /// Each element can be up to MAX_SCRIPT_ELEMENT_SIZE bytes.
+#[spec_locked("11.1")]
 pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
     // Check each witness element size
     // BIP141: Each witness element can be up to 520 bytes (MAX_SCRIPT_ELEMENT_SIZE)
@@ -44,6 +46,7 @@ pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
 /// BIP341: Taproot witness structure depends on spending path:
 /// - Key path: single signature (64 bytes)
 /// - Script path: script, control block (33 + 32n bytes), and witness items
+#[spec_locked("11.2")]
 pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: bool) -> Result<bool> {
     if witness.is_empty() {
         return Ok(false);
@@ -84,6 +87,7 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
 /// BIP141: Weight(tx) = 4 × BaseSize(tx) + TotalSize(tx)
 /// BaseSize: Transaction size without witness data
 /// TotalSize: Transaction size with witness data
+#[spec_locked("11.1")]
 pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natural) -> Natural {
     4 * base_size + total_size
 }
@@ -96,6 +100,7 @@ pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natur
 /// Mathematical specification:
 /// - vsize = ⌈weight / 4⌉
 /// - Implemented as: vsize = (weight + 3) / 4 (integer ceiling division)
+#[spec_locked("11.1")]
 pub fn weight_to_vsize(weight: Natural) -> Natural {
     #[allow(clippy::manual_div_ceil)]
     let result = (weight + 3) / 4; // Ceiling division
@@ -125,6 +130,7 @@ pub fn weight_to_vsize(weight: Natural) -> Natural {
 ///
 /// Shared function for extracting and validating witness version
 /// from SegWit v0 (OP_0 <witness-program>) or Taproot v1 (OP_1 <witness-program>)
+#[spec_locked("11.1")]
 pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
     if script.is_empty() {
         return None;
@@ -144,6 +150,7 @@ pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
 ///
 /// Format: [version_opcode, push_opcode, program_bytes]
 /// Returns: program_bytes (without push opcode)
+#[spec_locked("11.1")]
 pub fn extract_witness_program(
     script: &ByteString,
     _version: WitnessVersion,
@@ -172,6 +179,7 @@ pub fn extract_witness_program(
 ///
 /// BIP141: SegWit v0 programs are 20 or 32 bytes (P2WPKH or P2WSH)
 /// BIP341: Taproot v1 programs are 32 bytes (P2TR)
+#[spec_locked("11.1")]
 pub fn validate_witness_program_length(program: &ByteString, version: WitnessVersion) -> bool {
     use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
 
@@ -188,6 +196,7 @@ pub fn validate_witness_program_length(program: &ByteString, version: WitnessVer
 }
 
 /// Check if witness is empty (non-witness transaction)
+#[spec_locked("11.1")]
 pub fn is_witness_empty(witness: &Witness) -> bool {
     witness.is_empty() || witness.iter().all(|elem| elem.is_empty())
 }
@@ -336,129 +345,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: SegWit witness structure validation correctness (BIP141)
-    ///
-    /// Mathematical specification:
-    /// ∀ witness ∈ Witness:
-    /// - validate_segwit_witness_structure(witness) = true ⟹
-    ///   (∀ element ∈ witness: |element| ≤ MAX_WITNESS_ELEMENT_SIZE)
-    #[kani::proof]
-    fn kani_segwit_witness_structure_validation() {
-        let witness = crate::kani_helpers::create_bounded_witness(5, 10);
-
-        // Bound for tractability
-        kani::assume(witness.len() <= 10);
-        for element in &witness {
-            kani::assume(element.len() <= 600); // Allow testing boundary cases
-        }
-
-        const MAX_WITNESS_ELEMENT_SIZE: usize = 520;
-        let result = validate_segwit_witness_structure(&witness);
-
-        if result.is_ok() {
-            let is_valid = result.unwrap();
-
-            // Critical invariant: if valid, all elements must be <= MAX_WITNESS_ELEMENT_SIZE
-            if is_valid {
-                for element in &witness {
-                    assert!(element.len() <= MAX_WITNESS_ELEMENT_SIZE,
-                        "SegWit witness structure validation: valid witness must have all elements <= 520 bytes");
-                }
-            }
-        }
-    }
-
-    /// Kani proof: Taproot witness structure validation correctness (BIP341)
-    ///
-    /// Mathematical specification:
-    /// ∀ witness ∈ Witness, is_script_path ∈ bool:
-    /// - validate_taproot_witness_structure(witness, is_script_path) = true ⟹
-    ///   (if is_script_path: |witness| >= 2 ∧ |witness[-1]| >= 33 ∧ (|witness[-1]| - 33) % 32 == 0)
-    ///   (if !is_script_path: |witness| == 1 ∧ |witness[0]| == 64)
-    #[kani::proof]
-    fn kani_taproot_witness_structure_validation() {
-        let witness = crate::kani_helpers::create_bounded_witness(5, 10);
-        let is_script_path: bool = kani::any();
-
-        // Bound for tractability
-        kani::assume(witness.len() <= 10);
-        for element in &witness {
-            kani::assume(element.len() <= 200);
-        }
-
-        let result = validate_taproot_witness_structure(&witness, is_script_path);
-
-        if result.is_ok() {
-            let is_valid = result.unwrap();
-
-            if is_valid {
-                if is_script_path {
-                    // Script path: at least 2 elements, control block >= 33 bytes, valid size
-                    assert!(witness.len() >= 2,
-                        "Taproot witness structure validation: script path must have at least 2 elements");
-                    if !witness.is_empty() {
-                        let control_block = &witness[witness.len() - 1];
-                        assert!(control_block.len() >= 33,
-                            "Taproot witness structure validation: control block must be >= 33 bytes");
-                        assert!((control_block.len() - 33) % 32 == 0,
-                            "Taproot witness structure validation: control block size must be 33 + 32n bytes");
-                    }
-                } else {
-                    // Key path: exactly 1 element, 64 bytes
-                    assert_eq!(witness.len(), 1,
-                        "Taproot witness structure validation: key path must have exactly 1 element");
-                    if !witness.is_empty() {
-                        assert_eq!(witness[0].len(), 64,
-                            "Taproot witness structure validation: key path signature must be 64 bytes");
-                    }
-                }
-            }
-        }
-    }
-
-    /// Kani proof: Witness program length validation correctness (BIP141/BIP341)
-    ///
-    /// Mathematical specification:
-    /// ∀ program ∈ ByteString, version ∈ WitnessVersion:
-    /// - validate_witness_program_length(program, version) = true ⟹
-    ///   (if version = SegWitV0: |program| ∈ {20, 32})
-    ///   (if version = TaprootV1: |program| == 32)
-    #[kani::proof]
-    fn kani_witness_program_length_validation() {
-        let program = crate::kani_helpers::create_bounded_byte_string(10);
-        let version = crate::kani_helpers::create_bounded_witness_version();
-
-        // Bound for tractability
-        kani::assume(program.len() <= 40);
-
-        let result = validate_witness_program_length(&program, version);
-
-        // Critical invariant: result must match specification
-        use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
-
-        match version {
-            WitnessVersion::SegWitV0 => {
-                assert_eq!(
-                    result,
-                    program.len() == SEGWIT_P2WPKH_LENGTH || program.len() == SEGWIT_P2WSH_LENGTH,
-                    "Witness program length validation: SegWit v0 must be {} or {} bytes",
-                    SEGWIT_P2WPKH_LENGTH,
-                    SEGWIT_P2WSH_LENGTH
-                );
-            }
-            WitnessVersion::TaprootV1 => {
-                assert_eq!(
-                    result,
-                    program.len() == TAPROOT_PROGRAM_LENGTH,
-                    "Witness program length validation: Taproot v1 must be {} bytes",
-                    TAPROOT_PROGRAM_LENGTH
-                );
-            }
-        }
-    }
-}

@@ -1,0 +1,13 @@
+# Local development configuration for blvm-consensus
+# 
+# Copy this file to .cargo/config.toml to use local blvm-spec-lock during development
+# This file is NOT committed to git - it's for local use only
+#
+# Dependency resolution priority:
+# 1. Default: Use crate from crates.io (blvm-spec-lock = "^0.1.0" - allows compatible updates)
+# 2. Fallback: Git dependency (CI clones repo if crate not available)
+# 3. Local dev: Path dependency via this config file (only when developing locally)
+
+[patch.crates-io]
+blvm-spec-lock = { path = "../blvm-spec-lock" }
+

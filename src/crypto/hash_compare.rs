@@ -4,6 +4,7 @@
 //! with automatic fallback to sequential comparison for compatibility.
 
 use crate::types::Hash;
+use blvm_spec_lock::spec_locked;
 
 /// Compare two 32-byte hashes for equality
 ///
@@ -16,6 +17,7 @@ use crate::types::Hash;
 ///
 /// # Returns
 /// `true` if hashes are equal, `false` otherwise
+#[spec_locked("2.1")]
 #[inline]
 pub fn hash_eq(hash1: &Hash, hash2: &Hash) -> bool {
     #[cfg(all(target_arch = "x86_64", feature = "production"))]

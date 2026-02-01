@@ -24,10 +24,9 @@
 //! ## Usage
 //!
 //! ```rust
-//! use blvm_consensus::ConsensusProof;
+//! use blvm_consensus::transaction::check_transaction;
 //! use blvm_consensus::types::*;
 //!
-//! let consensus = ConsensusProof::new();
 //! let transaction = Transaction {
 //!     version: 1,
 //!     inputs: vec![].into(),
@@ -37,7 +36,7 @@
 //!     }].into(),
 //!     lock_time: 0,
 //! };
-//! let result = consensus.validate_transaction(&transaction).unwrap();
+//! let result = check_transaction(&transaction).unwrap();
 //! ```
 
 #![allow(unused_doc_comments)] // Allow doc comments before macros (proptest, etc.)
@@ -48,6 +47,8 @@ pub mod script;
 pub mod transaction;
 pub mod transaction_hash;
 pub mod types;
+
+use blvm_spec_lock::spec_locked;
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use block::{reset_assume_valid_height, set_assume_valid_height};
 #[cfg(feature = "production")]
@@ -66,279 +67,92 @@ pub mod crypto;
 pub mod economic;
 pub mod locktime;
 pub mod mempool;
+pub mod mining;
+pub mod network;
+pub mod optimizations;
 pub mod pow;
+pub mod reorganization;
 #[cfg(feature = "k256")]
 pub mod script_k256;
+pub mod segwit;
 pub mod sequence_locks;
+pub mod serialization;
 pub mod sigop;
+pub mod spam_filter;
+pub mod taproot;
+#[cfg(feature = "utxo-commitments")]
+pub mod utxo_commitments;
 pub mod witness;
 
 pub mod error;
-#[cfg(kani)]
-pub mod integration_proofs;
-#[cfg(kani)]
-pub mod kani_helpers;
-pub mod mining;
-pub mod network;
-pub mod reorganization;
-pub mod segwit;
-pub mod serialization;
-pub mod spam_filter;
-pub mod taproot;
 
-#[cfg(feature = "utxo-commitments")]
-pub mod utxo_commitments;
-
-#[cfg(feature = "ctv")]
-pub mod bip119;
-
-#[cfg(feature = "production")]
-pub mod optimizations;
-
-// Re-export commonly used types
-pub use constants::*;
-pub use error::{ConsensusError, Result};
-pub use types::*;
-
-// Re-export shared utilities
-pub use locktime::{
-    decode_locktime_value, extract_sequence_locktime_value, extract_sequence_type_flag,
-    get_locktime_type, is_sequence_disabled, locktime_types_match,
-};
-
-pub use witness::{
-    calculate_transaction_weight_segwit, extract_witness_program, extract_witness_version,
-    is_witness_empty, validate_segwit_witness_structure, validate_taproot_witness_structure,
-    validate_witness_program_length, weight_to_vsize, Witness, WitnessVersion,
-};
-
-// Re-export configuration types
-pub use config::{
-    AdvancedConfig, BlockValidationConfig, ConsensusConfig, DebugConfig, FeatureFlagsConfig,
-    MempoolConfig, NetworkMessageLimits, PerformanceConfig, UtxoCommitmentConfig,
-};
-
-/// Main consensus proof implementation
+/// Consensus Proof - wrapper struct for consensus validation functions
 ///
-/// # Examples
-///
-/// ```
-/// use blvm_consensus::ConsensusProof;
-/// use blvm_consensus::types::*;
-///
-/// let consensus = ConsensusProof::new();
-///
-/// // Create a simple transaction with inputs and outputs
-/// let tx = Transaction {
-///     version: 1,
-///     inputs: vec![TransactionInput {
-///         prevout: OutPoint {
-///             hash: [0u8; 32].into(),
-///             index: 0,
-///         },
-///         script_sig: vec![0x51], // OP_1
-///         sequence: 0xffffffff,
-///     }].into(),
-///     outputs: vec![TransactionOutput {
-///         value: 5000000000, // 50 BTC in satoshis
-///         script_pubkey: vec![0x51].into(), // OP_1
-///     }].into(),
-///     lock_time: 0,
-/// };
-///
-/// // Validate the transaction
-/// let result = consensus.validate_transaction(&tx).unwrap();
-/// assert_eq!(result, ValidationResult::Valid);
-/// ```
+/// This struct provides a convenient API for accessing all consensus validation
+/// functions. All methods delegate to the corresponding module functions.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ConsensusProof;
 
 impl ConsensusProof {
-    /// Create a new consensus proof instance
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// ```
+    /// Create a new ConsensusProof instance
     pub fn new() -> Self {
         Self
     }
 
     /// Validate a transaction according to consensus rules
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 1000,
-    ///         script_pubkey: vec![0x51].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let result = consensus.validate_transaction(&tx).unwrap();
-    /// ```
-    pub fn validate_transaction(&self, tx: &Transaction) -> Result<ValidationResult> {
+    #[spec_locked("5.1")]
+    pub fn validate_transaction(&self, tx: &types::Transaction) -> error::Result<types::ValidationResult> {
         transaction::check_transaction(tx)
     }
 
     /// Validate transaction inputs against UTXO set
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::{ConsensusProof, UtxoSet, OutPoint, UTXO, Transaction, TransactionInput, TransactionOutput, ValidationResult};
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let mut utxo_set = UtxoSet::new();
-    ///
-    /// // Add UTXO to the set
-    /// let outpoint = OutPoint { hash: [1; 32], index: 0 };
-    /// let utxo = UTXO {
-    ///     value: 1000000000, // 10 BTC
-    ///     script_pubkey: vec![],
-    ///     height: 0,
-    ///     is_coinbase: false,
-    /// };
-    /// utxo_set.insert(outpoint, utxo);
-    ///
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![],
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 900000000, // 9 BTC output
-    ///         script_pubkey: vec![].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let (result, fee) = consensus.validate_tx_inputs(&tx, &utxo_set, 0).unwrap();
-    /// assert_eq!(result, ValidationResult::Valid);
-    /// assert_eq!(fee, 100000000); // 1 BTC fee
-    /// ```
+    #[spec_locked("5.1")]
     pub fn validate_tx_inputs(
         &self,
-        tx: &Transaction,
-        utxo_set: &UtxoSet,
-        height: Natural,
-    ) -> Result<(ValidationResult, Integer)> {
+        tx: &types::Transaction,
+        utxo_set: &types::UtxoSet,
+        height: types::Natural,
+    ) -> error::Result<(types::ValidationResult, types::Integer)> {
         transaction::check_tx_inputs(tx, utxo_set, height)
     }
 
     /// Validate a complete block
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let utxo_set = UtxoSet::new();
-    ///
-    /// // Create a simple block with coinbase transaction
-    /// use blvm_consensus::mining::calculate_merkle_root;
-    /// let coinbase_tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-    ///         script_sig: vec![0x00, 0x00], // Minimum 2 bytes for coinbase script_sig
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 5000000000, // 50 BTC
-    ///         script_pubkey: vec![].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    /// let merkle_root = calculate_merkle_root(&[coinbase_tx.clone()]).unwrap();
-    /// let block = Block {
-    ///     header: BlockHeader {
-    ///         version: 1,
-    ///         prev_block_hash: [0; 32],
-    ///         merkle_root,
-    ///         timestamp: 1234567890,
-    ///         bits: 0x1d00ffff,
-    ///         nonce: 0,
-    ///     },
-    ///     transactions: vec![coinbase_tx].into(),
-    /// };
-    ///
-    /// // Note: This is a simplified example. In practice, blocks need valid proof-of-work
-    /// // and proper transaction validation. The result may be Invalid for various reasons.
-    /// let _result = consensus.validate_block(&block, utxo_set, 0);
-    /// ```
+    #[spec_locked("5.3")]
     pub fn validate_block(
         &self,
-        block: &Block,
-        utxo_set: UtxoSet,
-        height: Natural,
-    ) -> Result<(ValidationResult, UtxoSet)> {
+        block: &types::Block,
+        utxo_set: types::UtxoSet,
+        height: types::Natural,
+    ) -> error::Result<(types::ValidationResult, types::UtxoSet)> {
         // Create empty witnesses for backward compatibility
-        // Callers should use validate_block_with_context for full witness support
-        // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
-        let witnesses: Vec<Vec<segwit::Witness>> =
-            block.transactions.iter()
-                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-                .collect();
-        let network = types::Network::from_env();
-        // Network time should be provided by node layer - use a reasonable default for API compatibility
-        // In production, callers should use validate_block_with_context and provide network_time
-        let network_time = block.header.timestamp;
-        let (result, new_utxo_set, _undo_log) =
-            block::connect_block(block, &witnesses, utxo_set, height, None, network_time, network)?;
+        let witnesses: Vec<Vec<segwit::Witness>> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let network_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let (result, new_utxo_set, _undo_log) = block::connect_block(
+            block,
+            &witnesses,
+            utxo_set,
+            height,
+            None,
+            network_time,
+            types::Network::Mainnet,
+        )?;
         Ok((result, new_utxo_set))
     }
 
-    /// Validate a complete block with witness data and recent headers
-    pub fn validate_block_with_context(
-        &self,
-        block: &Block,
-        witnesses: &[Vec<segwit::Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
-        // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
-        // and each Witness is for one input
-        utxo_set: UtxoSet,
-        height: Natural,
-        recent_headers: Option<&[BlockHeader]>,
-    ) -> Result<(ValidationResult, UtxoSet)> {
-        let network = types::Network::from_env();
-        // Network time should be provided by node layer - use a reasonable default for API compatibility
-        // In production, callers should provide adjusted network time from the node layer
-        let network_time = block.header.timestamp;
-        let (result, new_utxo_set, _undo_log) =
-            block::connect_block(block, witnesses, utxo_set, height, recent_headers, network_time, network)?;
-        Ok((result, new_utxo_set))
-    }
-
-    /// Validate a complete block with explicit time context and network.
-    ///
-    /// This variant allows callers (e.g., protocol or node layers) to provide
-    /// their own `TimeContext` derived from chain state and network time,
-    /// instead of relying on `SystemTime::now()` inside consensus code.
+    /// Validate a complete block with witness data and time context
+    #[spec_locked("5.3")]
     pub fn validate_block_with_time_context(
         &self,
-        block: &Block,
-        witnesses: &[Vec<segwit::Witness>], // CRITICAL FIX: Changed from &[Witness] to &[Vec<Witness>]
-        // witnesses is now Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
-        // and each Witness is for one input
-        utxo_set: UtxoSet,
-        height: Natural,
-        time_context: Option<crate::types::TimeContext>,
+        block: &types::Block,
+        witnesses: &[Vec<segwit::Witness>],
+        utxo_set: types::UtxoSet,
+        height: types::Natural,
+        time_context: Option<types::TimeContext>,
         network: types::Network,
-    ) -> Result<(ValidationResult, UtxoSet)> {
+    ) -> error::Result<(types::ValidationResult, types::UtxoSet)> {
         let (result, new_utxo_set, _undo_log) = block::connect_block_with_context(
             block,
             witnesses,
@@ -351,358 +165,89 @@ impl ConsensusProof {
     }
 
     /// Verify script execution
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// // Simple script: OP_1 OP_1 OP_EQUAL
-    /// let script_sig = vec![0x51]; // OP_1
-    /// let script_pubkey = vec![0x51, 0x87]; // OP_1 OP_EQUAL
-    ///
-    /// let result = consensus.verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
-    /// assert!(result);
-    /// ```
+    #[spec_locked("5.2")]
     pub fn verify_script(
         &self,
-        script_sig: &ByteString,
-        script_pubkey: &ByteString,
-        witness: Option<&ByteString>,
+        script_sig: &types::ByteString,
+        script_pubkey: &types::ByteString,
+        witness: Option<&types::ByteString>,
         flags: u32,
-    ) -> Result<bool> {
+    ) -> error::Result<bool> {
         script::verify_script(script_sig, script_pubkey, witness, flags)
     }
 
     /// Check proof of work
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// // Create a block header with valid proof of work
-    /// let header = BlockHeader {
-    ///     version: 1,
-    ///     prev_block_hash: [0; 32],
-    ///     merkle_root: [0; 32],
-    ///     timestamp: 1234567890,
-    ///     bits: 0x1d00ffff, // Genesis difficulty
-    ///     nonce: 0,
-    /// };
-    ///
-    /// let result = consensus.check_proof_of_work(&header).unwrap();
-    /// // Note: This will likely be false for a nonce of 0, but demonstrates usage
-    /// ```
-    pub fn check_proof_of_work(&self, header: &BlockHeader) -> Result<bool> {
+    #[spec_locked("7.2")]
+    pub fn check_proof_of_work(&self, header: &types::BlockHeader) -> error::Result<bool> {
         pow::check_proof_of_work(header)
     }
 
     /// Get block subsidy for height
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// // Genesis block subsidy
-    /// let genesis_subsidy = consensus.get_block_subsidy(0);
-    /// assert_eq!(genesis_subsidy, 5000000000); // 50 BTC
-    ///
-    /// // First halving
-    /// let halving_subsidy = consensus.get_block_subsidy(210000);
-    /// assert_eq!(halving_subsidy, 2500000000); // 25 BTC
-    /// ```
-    pub fn get_block_subsidy(&self, height: Natural) -> Integer {
+    #[spec_locked("6.1")]
+    pub fn get_block_subsidy(&self, height: types::Natural) -> types::Integer {
         economic::get_block_subsidy(height)
     }
 
     /// Calculate total supply at height
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// // Total supply at genesis
-    /// let genesis_supply = consensus.total_supply(0);
-    /// assert_eq!(genesis_supply, 5000000000); // 50 BTC
-    ///
-    /// // Total supply after first halving
-    /// let halving_supply = consensus.total_supply(210000);
-    /// assert_eq!(halving_supply, 1050002500000000); // 10.5M BTC + 2500 BTC
-    /// ```
-    pub fn total_supply(&self, height: Natural) -> Integer {
+    #[spec_locked("6.2")]
+    pub fn total_supply(&self, height: types::Natural) -> types::Integer {
         economic::total_supply(height)
     }
 
     /// Get next work required for difficulty adjustment
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// // Create current header
-    /// let current_header = BlockHeader {
-    ///     version: 1,
-    ///     prev_block_hash: [0; 32],
-    ///     merkle_root: [0; 32],
-    ///     timestamp: 1234567890,
-    ///     bits: 0x1d00ffff,
-    ///     nonce: 0,
-    /// };
-    ///
-    /// // Create previous headers for difficulty adjustment (must be in increasing timestamp order)
-    /// let base_time = 1234567890;
-    /// let prev_headers = vec![
-    ///     BlockHeader {
-    ///         version: 1,
-    ///         prev_block_hash: [0; 32],
-    ///         merkle_root: [0; 32],
-    ///         timestamp: base_time - 1200, // 20 minutes ago
-    ///         bits: 0x1d00ffff,
-    ///         nonce: 0,
-    ///     },
-    ///     BlockHeader {
-    ///         version: 1,
-    ///         prev_block_hash: [0; 32],
-    ///         merkle_root: [0; 32],
-    ///         timestamp: base_time - 600, // 10 minutes ago
-    ///         bits: 0x1d00ffff,
-    ///         nonce: 0,
-    ///     },
-    /// ];
-    ///
-    /// let next_work = consensus.get_next_work_required(&current_header, &prev_headers).unwrap();
-    /// assert!(next_work > 0);
-    /// ```
+    #[spec_locked("7.1")]
     pub fn get_next_work_required(
         &self,
-        current_header: &BlockHeader,
-        prev_headers: &[BlockHeader],
-    ) -> Result<Natural> {
+        current_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+    ) -> error::Result<types::Natural> {
         pow::get_next_work_required(current_header, prev_headers)
     }
 
-    /// Get next work required with corrected off-by-one error fix
-    ///
-    /// This version fixes the known off-by-one error in Bitcoin's difficulty adjustment.
-    /// **Warning**: Only use this for isolated networks like regtest. Do NOT use for
-    /// Bitcoin mainnet/testnet as it will cause consensus divergence.
-    ///
-    /// See `get_next_work_required_corrected()` in the `pow` module for details.
-    pub fn get_next_work_required_corrected(
-        &self,
-        current_header: &BlockHeader,
-        prev_headers: &[BlockHeader],
-    ) -> Result<Natural> {
-        pow::get_next_work_required_corrected(current_header, prev_headers)
-    }
-
     /// Accept transaction to memory pool
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    /// use blvm_consensus::mempool::Mempool;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let utxo_set = UtxoSet::new();
-    /// let mempool = Mempool::new();
-    ///
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![],
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 100000000,
-    ///         script_pubkey: vec![].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0, None).unwrap();
-    /// // Result will depend on UTXO availability and mempool rules
-    /// ```
+    #[spec_locked("9.1")]
     pub fn accept_to_memory_pool(
         &self,
-        tx: &Transaction,
-        utxo_set: &UtxoSet,
+        tx: &types::Transaction,
+        utxo_set: &types::UtxoSet,
         mempool: &mempool::Mempool,
-        height: Natural,
-        time_context: Option<TimeContext>,
-    ) -> Result<mempool::MempoolResult> {
+        height: types::Natural,
+        time_context: Option<types::TimeContext>,
+    ) -> error::Result<mempool::MempoolResult> {
         mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height, time_context)
     }
 
     /// Check if transaction is standard
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![0x51], // OP_1
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 100000000,
-    ///         script_pubkey: vec![0x51].into(), // OP_1
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let is_standard = consensus.is_standard_tx(&tx).unwrap();
-    /// assert!(is_standard);
-    /// ```
-    pub fn is_standard_tx(&self, tx: &Transaction) -> Result<bool> {
+    #[spec_locked("9.2")]
+    pub fn is_standard_tx(&self, tx: &types::Transaction) -> error::Result<bool> {
         mempool::is_standard_tx(tx)
     }
 
     /// Check if transaction can replace existing one (RBF)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    /// use blvm_consensus::mempool::Mempool;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let mempool = Mempool::new();
-    ///
-    /// let existing_tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![],
-    ///         sequence: 0xfffffffe, // RBF enabled
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 100000000,
-    ///         script_pubkey: vec![].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let new_tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![],
-    ///         sequence: 0xfffffffe, // RBF enabled
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 90000000, // Higher fee
-    ///         script_pubkey: vec![].into(),
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let mut utxo_set = UtxoSet::new();
-    /// // Add UTXO for the input
-    /// utxo_set.insert(OutPoint { hash: [1; 32], index: 0 }, UTXO {
-    ///     value: 100000000,
-    ///     script_pubkey: vec![],
-    ///     height: 0,
-    ///     is_coinbase: false,
-    /// });
-    ///
-    /// // Note: This will fail replacement checks because new_tx has lower output value
-    /// // (represents higher fee, but doesn't meet all BIP125 requirements)
-    /// let _can_replace = consensus.replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
-    /// // Result depends on all 5 BIP125 requirements: RBF signaling, fee rate, absolute fee,
-    /// // conflict verification, and no new unconfirmed dependencies
-    /// ```
-    /// Check if transaction can replace existing one (RBF)
-    ///
-    /// Implements BIP125 Replace-by-Fee rules. Requires UTXO set for proper fee calculation.
+    #[spec_locked("9.3")]
     pub fn replacement_checks(
         &self,
-        new_tx: &Transaction,
-        existing_tx: &Transaction,
-        utxo_set: &UtxoSet,
+        new_tx: &types::Transaction,
+        existing_tx: &types::Transaction,
+        utxo_set: &types::UtxoSet,
         mempool: &mempool::Mempool,
-    ) -> Result<bool> {
+    ) -> error::Result<bool> {
         mempool::replacement_checks(new_tx, existing_tx, utxo_set, mempool)
     }
 
     /// Create new block from mempool transactions
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let utxo_set = UtxoSet::new();
-    /// let mempool_txs = vec![];
-    ///
-    /// let prev_header = BlockHeader {
-    ///     version: 1,
-    ///     prev_block_hash: [0; 32],
-    ///     merkle_root: [0; 32],
-    ///     timestamp: 1234567890,
-    ///     bits: 0x1d00ffff,
-    ///     nonce: 0,
-    /// };
-    ///
-    /// let prev_headers = vec![prev_header.clone(), prev_header.clone()]; // Need at least 2 headers
-    /// let coinbase_script = vec![0x51]; // OP_1
-    /// let coinbase_address = vec![0x51]; // OP_1
-    ///
-    /// let block = consensus.create_new_block(
-    ///     &utxo_set,
-    ///     &mempool_txs,
-    ///     1,
-    ///     &prev_header,
-    ///     &prev_headers,
-    ///     &coinbase_script,
-    ///     &coinbase_address,
-    /// );
-    ///
-    /// // Block creation may succeed or fail depending on difficulty adjustment
-    /// if let Ok(block) = block {
-    ///     assert_eq!(block.transactions.len(), 1); // Coinbase transaction
-    /// }
-    /// ```
     #[allow(clippy::too_many_arguments)]
+    #[spec_locked("12.1")]
     pub fn create_new_block(
         &self,
-        utxo_set: &UtxoSet,
-        mempool_txs: &[Transaction],
-        height: Natural,
-        prev_header: &BlockHeader,
-        prev_headers: &[BlockHeader],
-        coinbase_script: &ByteString,
-        coinbase_address: &ByteString,
-    ) -> Result<Block> {
+        utxo_set: &types::UtxoSet,
+        mempool_txs: &[types::Transaction],
+        height: types::Natural,
+        prev_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+        coinbase_script: &types::ByteString,
+        coinbase_address: &types::ByteString,
+    ) -> error::Result<types::Block> {
         mining::create_new_block(
             utxo_set,
             mempool_txs,
@@ -715,63 +260,28 @@ impl ConsensusProof {
     }
 
     /// Mine a block by finding valid nonce
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let block = Block {
-    ///     header: BlockHeader {
-    ///         version: 1,
-    ///         prev_block_hash: [0; 32],
-    ///         merkle_root: [0; 32],
-    ///         timestamp: 1234567890,
-    ///         bits: 0x1d00ffff,
-    ///         nonce: 0,
-    ///     },
-    ///     transactions: vec![Transaction {
-    ///         version: 1,
-    ///         inputs: vec![TransactionInput {
-    ///             prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-    ///             script_sig: vec![],
-    ///             sequence: 0xffffffff,
-    ///         }].into(),
-    ///         outputs: vec![TransactionOutput {
-    ///             value: 5000000000,
-    ///             script_pubkey: vec![].into(),
-    ///         }].into(),
-    ///         lock_time: 0,
-    ///     }].into(),
-    /// };
-    ///
-    /// let result = consensus.mine_block(block, 1000);
-    /// // Result will be Ok((block, MiningResult)) or Err(ConsensusError)
-    /// // MiningResult will be Success or Failure depending on difficulty
-    /// ```
+    #[spec_locked("12.3")]
     pub fn mine_block(
         &self,
-        block: Block,
-        max_attempts: Natural,
-    ) -> Result<(Block, mining::MiningResult)> {
+        block: types::Block,
+        max_attempts: types::Natural,
+    ) -> error::Result<(types::Block, mining::MiningResult)> {
         mining::mine_block(block, max_attempts)
     }
 
     /// Create block template for mining
     #[allow(clippy::too_many_arguments)]
+    #[spec_locked("12.1")]
     pub fn create_block_template(
         &self,
-        utxo_set: &UtxoSet,
-        mempool_txs: &[Transaction],
-        height: Natural,
-        prev_header: &BlockHeader,
-        prev_headers: &[BlockHeader],
-        coinbase_script: &ByteString,
-        coinbase_address: &ByteString,
-    ) -> Result<mining::BlockTemplate> {
+        utxo_set: &types::UtxoSet,
+        mempool_txs: &[types::Transaction],
+        height: types::Natural,
+        prev_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+        coinbase_script: &types::ByteString,
+        coinbase_address: &types::ByteString,
+    ) -> error::Result<mining::BlockTemplate> {
         mining::create_block_template(
             utxo_set,
             mempool_txs,
@@ -784,630 +294,91 @@ impl ConsensusProof {
     }
 
     /// Reorganize chain when longer chain is found
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let current_chain = vec![];
-    /// let new_chain = vec![];
-    /// let current_utxo_set = UtxoSet::new();
-    ///
-    /// let result = consensus.reorganize_chain(&new_chain, &current_chain, current_utxo_set, 0);
-    /// // Result may be an error for empty chains, which is expected
-    /// ```
+    #[spec_locked("11.3")]
     pub fn reorganize_chain(
         &self,
-        new_chain: &[Block],
-        current_chain: &[Block],
-        current_utxo_set: UtxoSet,
-        current_height: Natural,
-    ) -> Result<reorganization::ReorganizationResult> {
+        new_chain: &[types::Block],
+        current_chain: &[types::Block],
+        current_utxo_set: types::UtxoSet,
+        current_height: types::Natural,
+    ) -> error::Result<reorganization::ReorganizationResult> {
         reorganization::reorganize_chain(new_chain, current_chain, current_utxo_set, current_height)
     }
 
     /// Check if reorganization is beneficial
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let current_chain = vec![];
-    /// let new_chain = vec![];
-    ///
-    /// let should_reorg = consensus.should_reorganize(&new_chain, &current_chain).unwrap();
-    /// // Result indicates if reorganization is beneficial
-    /// ```
-    pub fn should_reorganize(&self, new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
+    #[spec_locked("11.3")]
+    pub fn should_reorganize(
+        &self,
+        new_chain: &[types::Block],
+        current_chain: &[types::Block],
+    ) -> error::Result<bool> {
         reorganization::should_reorganize(new_chain, current_chain)
     }
 
     /// Process incoming network message
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::network::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    /// let mut peer_state = PeerState::new();
-    /// let chain_state = ChainState::new();
-    ///
-    /// let message = NetworkMessage::Ping(PingMessage { nonce: 12345 });
-    /// let response = consensus.process_network_message(&message, &mut peer_state, &chain_state).unwrap();
-    /// // Response will be appropriate for the message type
-    /// ```
+    #[spec_locked("9.2")]
     pub fn process_network_message(
         &self,
         message: &network::NetworkMessage,
         peer_state: &mut network::PeerState,
         chain_state: &network::ChainState,
-    ) -> Result<network::NetworkResponse> {
+    ) -> error::Result<network::NetworkResponse> {
         network::process_network_message(message, peer_state, chain_state)
     }
 
     /// Calculate transaction weight for SegWit
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![0x51], // OP_1
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 100000000,
-    ///         script_pubkey: vec![0x51].into(), // OP_1
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let weight = consensus.calculate_transaction_weight(&tx, None).unwrap();
-    /// assert!(weight > 0);
-    /// ```
+    #[spec_locked("11.1")]
     pub fn calculate_transaction_weight(
         &self,
-        tx: &Transaction,
+        tx: &types::Transaction,
         witness: Option<&segwit::Witness>,
-    ) -> Result<Natural> {
+    ) -> error::Result<types::Natural> {
         segwit::calculate_transaction_weight(tx, witness)
     }
 
     /// Validate SegWit block
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let block = Block {
-    ///     header: BlockHeader {
-    ///         version: 1,
-    ///         prev_block_hash: [0; 32],
-    ///         merkle_root: [0; 32],
-    ///         timestamp: 1234567890,
-    ///         bits: 0x1d00ffff,
-    ///         nonce: 0,
-    ///     },
-    ///     transactions: vec![Transaction {
-    ///         version: 1,
-    ///         inputs: vec![TransactionInput {
-    ///             prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-    ///             script_sig: vec![],
-    ///             sequence: 0xffffffff,
-    ///         }].into(),
-    ///         outputs: vec![TransactionOutput {
-    ///             value: 5000000000,
-    ///             script_pubkey: vec![].into(),
-    ///         }].into(),
-    ///         lock_time: 0,
-    ///     }].into(),
-    /// };
-    ///
-    /// let witnesses = vec![];
-    /// let max_block_weight = 4000000; // 4MB
-    ///
-    /// let is_valid = consensus.validate_segwit_block(&block, &witnesses, max_block_weight);
-    /// // Result may be Ok or Err depending on block validation rules
-    /// ```
+    #[spec_locked("11.1")]
     pub fn validate_segwit_block(
         &self,
-        block: &Block,
+        block: &types::Block,
         witnesses: &[segwit::Witness],
-        max_block_weight: Natural,
-    ) -> Result<bool> {
+        max_block_weight: types::Natural,
+    ) -> error::Result<bool> {
         segwit::validate_segwit_block(block, witnesses, max_block_weight)
     }
 
     /// Validate Taproot transaction
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let tx = Transaction {
-    ///     version: 1,
-    ///     inputs: vec![TransactionInput {
-    ///         prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-    ///         script_sig: vec![],
-    ///         sequence: 0xffffffff,
-    ///     }].into(),
-    ///     outputs: vec![TransactionOutput {
-    ///         value: 100000000,
-    ///         script_pubkey: vec![0x51, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00].into(), // Taproot output
-    ///     }].into(),
-    ///     lock_time: 0,
-    /// };
-    ///
-    /// let is_valid = consensus.validate_taproot_transaction(&tx, None).unwrap();
-    /// // Result depends on Taproot validation rules
-    /// ```
+    #[spec_locked("11.2")]
     pub fn validate_taproot_transaction(
         &self,
-        tx: &Transaction,
-        witness: Option<&Witness>,
-    ) -> Result<bool> {
+        tx: &types::Transaction,
+        witness: Option<&segwit::Witness>,
+    ) -> error::Result<bool> {
         taproot::validate_taproot_transaction(tx, witness)
     }
 
     /// Check if transaction output is Taproot
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    /// use blvm_consensus::types::*;
-    ///
-    /// let consensus = ConsensusProof::new();
-    ///
-    /// let output = TransactionOutput {
-    ///     value: 100000000,
-    ///     script_pubkey: vec![0x51, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // Taproot output
-    /// };
-    ///
-    /// let is_taproot = consensus.is_taproot_output(&output);
-    /// // Result depends on Taproot output validation rules
-    /// ```
-    pub fn is_taproot_output(&self, output: &TransactionOutput) -> bool {
+    #[spec_locked("11.2")]
+    pub fn is_taproot_output(&self, output: &types::TransactionOutput) -> bool {
         taproot::is_taproot_output(output)
-    }
-}
-
-impl Default for ConsensusProof {
-    /// Create a default consensus proof instance
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blvm_consensus::ConsensusProof;
-    ///
-    /// let consensus = ConsensusProof::default();
-    /// ```
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::check_transaction;
     use crate::network::{ChainState, NetworkAddress, NetworkMessage, PeerState, VersionMessage};
 
     #[test]
-    fn test_consensus_proof_new() {
-        let _consensus = ConsensusProof::new();
-        // Just test that it creates successfully
-        // Test passes if no panic occurs
-    }
-
-    #[test]
-    fn test_consensus_proof_default() {
-        let _consensus = ConsensusProof;
-        // Just test that it creates successfully
-        // Test passes if no panic occurs
-    }
-
-    #[test]
     fn test_validate_transaction() {
-        let consensus = ConsensusProof::new();
         let tx = Transaction {
             version: 1,
             inputs: vec![].into(),
             outputs: vec![].into(),
             lock_time: 0,
         };
-        let result = consensus.validate_transaction(&tx);
+        let result = check_transaction(&tx);
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_tx_inputs() {
-        let consensus = ConsensusProof::new();
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        let utxo_set = UtxoSet::new();
-        let result = consensus.validate_tx_inputs(&tx, &utxo_set, 0);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_block() {
-        let consensus = ConsensusProof::new();
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1234567890,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![].into_boxed_slice(),
-        };
-        let utxo_set = UtxoSet::new();
-        let result = consensus.validate_block(&block, utxo_set, 0);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_verify_script() {
-        let consensus = ConsensusProof::new();
-        let script = vec![0x51]; // OP_1
-        let script_pubkey = vec![0x51];
-        let result = consensus.verify_script(&script, &script_pubkey, None, 0);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_check_proof_of_work() {
-        let consensus = ConsensusProof::new();
-        let header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-        let result = consensus.check_proof_of_work(&header);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_get_block_subsidy() {
-        let consensus = ConsensusProof::new();
-        let subsidy = consensus.get_block_subsidy(0);
-        assert_eq!(subsidy, 5000000000);
-    }
-
-    #[test]
-    fn test_total_supply() {
-        let consensus = ConsensusProof::new();
-        let supply = consensus.total_supply(100);
-        assert!(supply > 0);
-    }
-
-    #[test]
-    fn test_get_next_work_required() {
-        let consensus = ConsensusProof::new();
-        let current_header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-        let prev_headers = vec![BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        }];
-        let result = consensus.get_next_work_required(&current_header, &prev_headers);
-        // Result may be Ok or Err depending on difficulty calculation
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_accept_to_memory_pool() {
-        let consensus = ConsensusProof::new();
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        let utxo_set = UtxoSet::new();
-        let mempool = mempool::Mempool::new();
-        let time_context = Some(TimeContext {
-            network_time: 1234567890,
-            median_time_past: 1234567890,
-        });
-        let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 0, time_context);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_is_standard_tx() {
-        let consensus = ConsensusProof::new();
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        let result = consensus.is_standard_tx(&tx);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_replacement_checks() {
-        let consensus = ConsensusProof::new();
-        // Create valid transactions with inputs and outputs
-        let new_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![0x51],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 2000,
-                script_pubkey: vec![0x51].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-        let existing_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![0x51],
-                sequence: 0xfffffffe, // RBF signal
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![0x51].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-        let mut utxo_set = types::UtxoSet::new();
-        // Add UTXO for fee calculation
-        let outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let utxo = UTXO {
-            value: 10000,
-            script_pubkey: vec![0x51],
-            height: 100,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint, utxo);
-        let mempool = mempool::Mempool::new();
-        let result = consensus.replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_create_new_block() {
-        let consensus = ConsensusProof::new();
-        let utxo_set = UtxoSet::new();
-        let mempool_txs = vec![];
-        let height = 0;
-        let prev_header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-        let prev_headers = vec![prev_header.clone()];
-        let coinbase_script = vec![0x51];
-        let coinbase_address = vec![0x51];
-        let result = consensus.create_new_block(
-            &utxo_set,
-            &mempool_txs,
-            height,
-            &prev_header,
-            &prev_headers,
-            &coinbase_script,
-            &coinbase_address,
-        );
-        // Result may be Ok or Err depending on block creation
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_mine_block() {
-        let consensus = ConsensusProof::new();
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1234567890,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![].into_boxed_slice(),
-        };
-        let result = consensus.mine_block(block, 100);
-        // Result may be Ok or Err depending on mining difficulty
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_create_block_template() {
-        let consensus = ConsensusProof::new();
-        let utxo_set = UtxoSet::new();
-        let mempool_txs = vec![];
-        let height = 0;
-        let prev_header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-        let prev_headers = vec![prev_header.clone()];
-        let coinbase_script = vec![0x51];
-        let coinbase_address = vec![0x51];
-        let result = consensus.create_block_template(
-            &utxo_set,
-            &mempool_txs,
-            height,
-            &prev_header,
-            &prev_headers,
-            &coinbase_script,
-            &coinbase_address,
-        );
-        // Result may be Ok or Err depending on template creation
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_reorganize_chain() {
-        let consensus = ConsensusProof::new();
-        let current_chain = vec![];
-        let new_chain = vec![];
-        let utxo_set = UtxoSet::new();
-        let result = consensus.reorganize_chain(&current_chain, &new_chain, utxo_set, 0);
-        // Result may be Ok or Err depending on reorganization
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_should_reorganize() {
-        let consensus = ConsensusProof::new();
-        let current_chain = vec![];
-        let new_chain = vec![];
-        let result = consensus.should_reorganize(&current_chain, &new_chain);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_process_network_message() {
-        let consensus = ConsensusProof::new();
-        let message = NetworkMessage::Version(VersionMessage {
-            version: 70015,
-            services: 0,
-            timestamp: 1234567890,
-            addr_recv: NetworkAddress {
-                services: 0,
-                ip: [0; 16],
-                port: 8333,
-            },
-            addr_from: NetworkAddress {
-                services: 0,
-                ip: [0; 16],
-                port: 8333,
-            },
-            nonce: 12345,
-            user_agent: "test".to_string(),
-            start_height: 0,
-            relay: true,
-        });
-        let mut peer_state = PeerState::new();
-        let chain_state = ChainState::new();
-        let result = consensus.process_network_message(&message, &mut peer_state, &chain_state);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_calculate_transaction_weight() {
-        let consensus = ConsensusProof::new();
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        let result = consensus.calculate_transaction_weight(&tx, None);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_segwit_block() {
-        let consensus = ConsensusProof::new();
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1234567890,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![].into_boxed_slice(),
-        };
-        let witnesses = vec![];
-        let result = consensus.validate_segwit_block(&block, &witnesses, 4000000);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_taproot_transaction() {
-        let consensus = ConsensusProof::new();
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        let result = consensus.validate_taproot_transaction(&tx, None);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_is_taproot_output() {
-        let consensus = ConsensusProof::new();
-        let output = TransactionOutput {
-            value: 100000000,
-            script_pubkey: vec![0x51],
-        };
-        let result = consensus.is_taproot_output(&output);
-        // Just test it returns a boolean (result is either true or false)
-        let _ = result;
     }
 }

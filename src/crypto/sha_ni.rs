@@ -17,6 +17,7 @@
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+use blvm_spec_lock::spec_locked;
 
 /// Check if SHA-NI is available at runtime
 #[cfg(target_arch = "x86_64")]
@@ -372,6 +373,7 @@ fn fallback_sha256(data: &[u8]) -> [u8; 32] {
 /// Public API: Single SHA256 with automatic dispatch
 ///
 /// Uses Intel SHA-NI if available, otherwise falls back to sha2 crate.
+#[spec_locked("2.1")]
 #[inline]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     #[cfg(target_arch = "x86_64")]
@@ -392,6 +394,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// Double SHA256 (SHA256D) using SHA-NI
 ///
 /// Computes SHA256(SHA256(data)), which is Bitcoin's standard hash function.
+#[spec_locked("2.1")]
 #[inline]
 pub fn hash256(data: &[u8]) -> [u8; 32] {
     let first = sha256(data);

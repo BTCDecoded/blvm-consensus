@@ -12,6 +12,7 @@
 //! This must match Bitcoin Core's CVarInt implementation exactly.
 
 use crate::error::{ConsensusError, Result};
+use blvm_spec_lock::spec_locked;
 use std::borrow::Cow;
 
 /// Error type for VarInt encoding/decoding failures
@@ -50,6 +51,7 @@ impl std::error::Error for VarIntError {}
 /// assert_eq!(encode_varint(65535), vec![0xfd, 255, 255]);
 /// assert_eq!(encode_varint(65536), vec![0xfe, 0, 0, 1, 0]);
 /// ```
+#[spec_locked("3.2")]
 pub fn encode_varint(value: u64) -> Vec<u8> {
     if value < 0xfd {
         vec![value as u8]
@@ -130,6 +132,7 @@ pub fn encode_varint(value: u64) -> Vec<u8> {
 /// assert_eq!(decode_varint(&[0xfe, 0, 0, 1, 0]), Ok((65536, 5)));
 /// assert!(decode_varint(&[]).is_err());
 /// ```
+#[spec_locked("3.2")]
 pub fn decode_varint(data: &[u8]) -> Result<(u64, usize)> {
     if data.is_empty() {
         return Err(ConsensusError::Serialization(Cow::Owned(
@@ -411,201 +414,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: VarInt encoding round-trip correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ value ∈ [0, 2^64): decode(encode(value)) = value
-    ///
-    /// This ensures VarInt encoding and decoding are inverse operations.
-    #[kani::proof]
-    fn kani_varint_encoding_round_trip() {
-        let value: u64 = kani::any();
-
-        // Encode and decode
-        let encoded = encode_varint(value);
-        let decoded_result = decode_varint(&encoded);
-
-        if decoded_result.is_ok() {
-            let (decoded_value, bytes_read) = decoded_result.unwrap();
-
-            // Round-trip property: decode(encode(value)) = value
-            assert_eq!(
-                decoded_value, value,
-                "VarInt encoding round-trip: decoded value must match original"
-            );
-
-            // Critical invariant: Bytes consumed must match encoded length
-            assert_eq!(
-                bytes_read,
-                encoded.len(),
-                "VarInt round-trip: bytes consumed ({}) must match encoded length ({})",
-                bytes_read,
-                encoded.len()
-            );
-        }
-    }
-
-    /// Kani proof: VarInt encoding length correctness
-    ///
-    /// Mathematical specification:
-    /// ∀ value ∈ [0, 2^64):
-    /// - If value < 0xfd: |encode(value)| = 1
-    /// - If value <= 0xffff: |encode(value)| = 3
-    /// - If value <= 0xffffffff: |encode(value)| = 5
-    /// - Otherwise: |encode(value)| = 9
-    ///
-    /// This ensures VarInt encoding uses the correct number of bytes.
-    #[kani::proof]
-    fn kani_varint_encoding_length_correctness() {
-        let value: u64 = kani::any();
-
-        let encoded = encode_varint(value);
-
-        // Critical invariant: Encoded length must match specification
-        let encoded_len = encoded.len();
-        if value < 0xfd {
-            assert_eq!(
-                encoded_len, 1,
-                "VarInt encoding length: value < 0xfd must produce 1 byte, got {encoded_len}"
-            );
-        } else if value <= 0xffff {
-            assert_eq!(
-                encoded_len, 3,
-                "VarInt encoding length: value <= 0xffff must produce 3 bytes, got {encoded_len}"
-            );
-        } else if value <= 0xffffffff {
-            assert_eq!(
-                encoded_len,
-                5,
-                "VarInt encoding length: value <= 0xffffffff must produce 5 bytes, got {encoded_len}"
-            );
-        } else {
-            assert_eq!(
-                encoded_len,
-                9,
-                "VarInt encoding length: value > 0xffffffff must produce 9 bytes, got {encoded_len}"
-            );
-        }
-    }
-
-    /// Kani proof: VarInt encoding boundary correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// - Values < 0xfd: single byte encoding
-    /// - Values 0xfd-0xffff: 3-byte encoding (0xfd prefix)
-    /// - Values 0x10000-0xffffffff: 5-byte encoding (0xfe prefix)
-    /// - Values > 0xffffffff: 9-byte encoding (0xff prefix)
-    ///
-    /// This ensures boundary values are encoded correctly.
-    #[kani::proof]
-    fn kani_varint_encoding_boundaries() {
-        // Test boundary value 0xfc (single byte, max single-byte value)
-        let encoded_fc = encode_varint(0xfc);
-        assert_eq!(
-            encoded_fc.len(),
-            1,
-            "VarInt boundary: 0xfc must be single-byte encoded"
-        );
-        assert_eq!(
-            encoded_fc[0], 0xfc,
-            "VarInt boundary: 0xfc encoding must match value"
-        );
-
-        // Test boundary value 0xfd (3-byte encoding, minimum for 0xfd prefix)
-        let encoded_fd = encode_varint(0xfd);
-        assert_eq!(
-            encoded_fd.len(),
-            3,
-            "VarInt boundary: 0xfd must be 3-byte encoded"
-        );
-        assert_eq!(
-            encoded_fd[0], 0xfd,
-            "VarInt boundary: 0xfd must use 0xfd prefix"
-        );
-
-        // Test boundary value 0xffff (3-byte encoding, maximum for 0xfd prefix)
-        let encoded_ffff = encode_varint(0xffff);
-        assert_eq!(
-            encoded_ffff.len(),
-            3,
-            "VarInt boundary: 0xffff must be 3-byte encoded"
-        );
-        assert_eq!(
-            encoded_ffff[0], 0xfd,
-            "VarInt boundary: 0xffff must use 0xfd prefix"
-        );
-
-        // Test boundary value 0x10000 (5-byte encoding, minimum for 0xfe prefix)
-        let encoded_10000 = encode_varint(0x10000);
-        assert_eq!(
-            encoded_10000.len(),
-            5,
-            "VarInt boundary: 0x10000 must be 5-byte encoded"
-        );
-        assert_eq!(
-            encoded_10000[0], 0xfe,
-            "VarInt boundary: 0x10000 must use 0xfe prefix"
-        );
-
-        // Test boundary value 0xffffffff (5-byte encoding, maximum for 0xfe prefix)
-        let encoded_ffffffff = encode_varint(0xffffffff);
-        assert_eq!(
-            encoded_ffffffff.len(),
-            5,
-            "VarInt boundary: 0xffffffff must be 5-byte encoded"
-        );
-        assert_eq!(
-            encoded_ffffffff[0], 0xfe,
-            "VarInt boundary: 0xffffffff must use 0xfe prefix"
-        );
-
-        // Test boundary value 0x100000000 (9-byte encoding, minimum for 0xff prefix)
-        let encoded_100000000 = encode_varint(0x100000000);
-        assert_eq!(
-            encoded_100000000.len(),
-            9,
-            "VarInt boundary: 0x100000000 must be 9-byte encoded"
-        );
-        assert_eq!(
-            encoded_100000000[0], 0xff,
-            "VarInt boundary: 0x100000000 must use 0xff prefix"
-        );
-    }
-
-    /// Kani proof: VarInt invalid encoding rejection (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// - Values < 0xfd encoded with 0xfd prefix are rejected
-    /// - Values <= 0xffff encoded with 0xfe prefix are rejected
-    /// - Values <= 0xffffffff encoded with 0xff prefix are rejected
-    ///
-    /// This ensures invalid encodings are rejected (Bitcoin Core compatibility).
-    #[kani::proof]
-    fn kani_varint_invalid_encoding_rejection() {
-        // Invalid: 0xfc encoded with 0xfd prefix
-        let invalid_fd = vec![0xfd, 0xfc, 0x00];
-        assert!(
-            decode_varint(&invalid_fd).is_err(),
-            "VarInt invalid encoding: values < 0xfd with 0xfd prefix must be rejected"
-        );
-
-        // Invalid: 0xffff encoded with 0xfe prefix
-        let invalid_fe = vec![0xfe, 0xff, 0xff, 0x00, 0x00];
-        assert!(
-            decode_varint(&invalid_fe).is_err(),
-            "VarInt invalid encoding: values <= 0xffff with 0xfe prefix must be rejected"
-        );
-
-        // Invalid: 0xffffffff encoded with 0xff prefix
-        let invalid_ff = vec![0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00];
-        assert!(
-            decode_varint(&invalid_ff).is_err(),
-            "VarInt invalid encoding: values <= 0xffffffff with 0xff prefix must be rejected"
-        );
-    }
-}

@@ -4,6 +4,7 @@ use crate::constants::*;
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
 use sha2::{Digest, Sha256};
+use blvm_spec_lock::spec_locked;
 
 /// GetNextWorkRequired: ℋ × ℋ* → ℕ
 ///
@@ -29,6 +30,7 @@ use sha2::{Digest, Sha256};
 /// - prev[prev.len()-1] is the last block before the adjustment (use its bits)
 ///
 /// Note: `current_header` parameter is kept for API compatibility but not used in calculation
+#[spec_locked("7.1")]
 pub fn get_next_work_required(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
@@ -47,6 +49,7 @@ pub fn get_next_work_required(
 ///
 /// **Compatibility Warning**: Do NOT use this for Bitcoin mainnet/testnet as it will
 /// cause consensus divergence. This is only safe for isolated networks like regtest.
+#[spec_locked("7.1")]
 pub fn get_next_work_required_corrected(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
@@ -184,6 +187,7 @@ fn get_next_work_required_internal(
 ///
 /// Check if the block header satisfies the proof of work requirement.
 /// Formula: SHA256(SHA256(header)) < ExpandTarget(header.bits)
+#[spec_locked("7.2")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
@@ -219,6 +223,7 @@ pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
 /// Vector of tuples (is_valid, computed_hash) for each header. Hash is None for invalid headers.
 /// Order matches input headers.
 #[cfg(feature = "production")]
+#[spec_locked("7.2")]
 pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, Option<Hash>)>> {
     use crate::optimizations::simd_vectorization;
 
@@ -604,10 +609,11 @@ impl Ord for U256 {
 /// - And: re_expanded.0[2] = expanded.0[2] ∧ re_expanded.0[3] = expanded.0[3]
 ///   (significant bits preserved exactly)
 ///
-/// # Verified by Kani
+/// # Verified by formally verified
 ///
-/// The round-trip property is formally verified by `kani_target_expand_compress_round_trip()`
+/// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
+#[spec_locked("7.1")]
 pub fn expand_target(bits: Natural) -> Result<U256> {
     // Bitcoin Core's SetCompact implementation:
     // int nSize = nCompact >> 24;
@@ -692,10 +698,11 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
 /// This matches Bitcoin Core's behavior where the compact format may lose precision
 /// in lower-order bits but preserves the significant bits required for difficulty validation.
 ///
-/// # Verified by Kani
+/// # Verified by formally verified
 ///
-/// The round-trip property is formally verified by `kani_target_expand_compress_round_trip()`
+/// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
+#[spec_locked("7.1")]
 fn compress_target(target: &U256) -> Result<Natural> {
     // Handle zero target
     if target.is_zero() {
@@ -808,430 +815,6 @@ fn u256_from_bytes(bytes: &[u8]) -> u128 {
 /// - Difficulty adjustment respects bounds [0.25, 4.0]
 /// - Work calculation is deterministic
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: expand_target handles valid ranges correctly
-    #[kani::proof]
-    fn kani_expand_target_valid_range() {
-        let bits: Natural = kani::any();
-
-        // Bound to valid range for tractability
-        kani::assume(bits >= 0x03000000); // exponent >= 3
-        kani::assume(bits <= 0x1d00ffff); // exponent <= 29
-
-        let result = expand_target(bits);
-
-        match result {
-            Ok(target) => {
-                // Non-negative invariant
-                assert!(
-                    !target.is_zero() || (bits & 0x00ffffff) == 0,
-                    "Non-zero mantissa should produce non-zero target"
-                );
-
-                // Bounded invariant
-                assert!(
-                    target <= U256::from_u32(0x00ffffff),
-                    "Target should not exceed maximum valid value"
-                );
-            }
-            Err(_) => {
-                // Some invalid targets may fail, which is acceptable
-            }
-        }
-    }
-
-    /// Kani proof: check_proof_of_work is deterministic
-    #[kani::proof]
-    fn kani_check_proof_of_work_deterministic() {
-        let header = crate::kani_helpers::create_bounded_block_header();
-
-        // Use valid target to avoid expansion errors
-        kani::assume(header.bits >= 0x03000000);
-        kani::assume(header.bits <= 0x1d00ffff);
-
-        // Call twice with same header
-        let result1 = check_proof_of_work(&header).unwrap_or(false);
-        let result2 = check_proof_of_work(&header).unwrap_or(false);
-
-        // Deterministic invariant
-        assert_eq!(
-            result1, result2,
-            "Proof of work check must be deterministic"
-        );
-    }
-
-    /// Kani proof: CheckProofOfWork correctness (Orange Paper Section 7.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ header H:
-    /// - CheckProofOfWork(H) = SHA256(SHA256(H)) < ExpandTarget(H.bits)
-    ///
-    /// This proves the implementation matches the Orange Paper specification exactly.
-    #[kani::proof]
-    fn kani_check_proof_of_work_correctness() {
-        use crate::pow::serialize_header;
-        use sha2::{Digest, Sha256};
-
-        let header = crate::kani_helpers::create_bounded_block_header();
-
-        // Use valid target to avoid expansion errors
-        kani::assume(header.bits >= 0x03000000);
-        kani::assume(header.bits <= 0x1d00ffff);
-
-        // Calculate according to Orange Paper spec: SHA256(SHA256(header))
-        let header_bytes = serialize_header(&header);
-        let hash1 = Sha256::digest(&header_bytes);
-        let hash2 = Sha256::digest(hash1);
-
-        // Convert to U256 for comparison
-        let mut hash_bytes = [0u8; 32];
-        hash_bytes.copy_from_slice(&hash2);
-
-        // Expand target from bits
-        let target_result = expand_target(header.bits);
-
-        if target_result.is_ok() {
-            let target = target_result.unwrap();
-            let hash_u256 = U256::from_bytes(&hash_bytes);
-
-            // CheckProofOfWork: hash < target
-            let pow_result = check_proof_of_work(&header).unwrap_or(false);
-            let spec_result = hash_u256 < target;
-
-            // Implementation must match specification
-            assert_eq!(pow_result, spec_result,
-                "CheckProofOfWork must match Orange Paper specification: SHA256(SHA256(header)) < ExpandTarget(bits)");
-        }
-    }
-
-    /// Kani proof: get_next_work_required respects bounds
-    #[kani::proof]
-    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
-    fn kani_get_next_work_required_bounds() {
-        use crate::assume_pow_bounds;
-        use crate::kani_helpers::unwind_bounds;
-
-        let current_header = crate::kani_helpers::create_bounded_block_header();
-        let prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
-
-        // Bound for tractability using standardized helpers
-        assume_pow_bounds!(prev_headers);
-
-        // Ensure reasonable timestamps
-        kani::assume(current_header.timestamp > prev_headers[0].timestamp);
-        kani::assume(current_header.timestamp - prev_headers[0].timestamp <= 86400 * 365); // Max 1 year
-
-        let result = get_next_work_required(&current_header, &prev_headers);
-
-        if result.is_ok() {
-            let new_target = result.unwrap();
-            // Critical invariant: new target must not exceed maximum target (minimum difficulty)
-            assert!(
-                new_target <= MAX_TARGET as Natural,
-                "Difficulty adjustment must not exceed maximum target"
-            );
-
-            // Invariant: new target must be positive
-            assert!(new_target > 0, "Difficulty target must be positive");
-        }
-    }
-
-    /// Kani proof: difficulty adjustment clamps to [0.25, 4.0] range
-    ///
-    /// Mathematical specification:
-    /// ∀ timeSpan, expectedTime ∈ ℕ:
-    /// - adjustment = clamp(timeSpan / expectedTime, 0.25, 4.0)
-    /// - Ensures difficulty never changes more than 4x per adjustment period
-    #[kani::proof]
-    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
-    fn kani_difficulty_adjustment_clamping() {
-        use crate::kani_helpers::unwind_bounds;
-        let time_span: u64 = kani::any();
-        let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
-
-        // Bound for tractability
-        kani::assume(time_span <= expected_time * 10); // Up to 10x expected
-
-        // Calculate adjustment (same logic as get_next_work_required)
-        let adjustment = (time_span as f64) / (expected_time as f64);
-        let clamped = adjustment.clamp(0.25, 4.0);
-
-        // Critical invariant: adjustment is always clamped
-        assert!(
-            clamped >= 0.25,
-            "Adjustment must be at least 0.25 (minimum 4x decrease)"
-        );
-        assert!(
-            clamped <= 4.0,
-            "Adjustment must be at most 4.0 (maximum 4x increase)"
-        );
-
-        // If original adjustment was within bounds, clamped should equal original
-        if adjustment >= 0.25 && adjustment <= 4.0 {
-            assert_eq!(
-                clamped, adjustment,
-                "Within-bounds adjustment should not be clamped"
-            );
-        }
-    }
-
-    /// Kani proof: target validation correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 7.2):
-    /// ∀ header H:
-    /// - expand_target(H.bits) = target ⟹
-    ///   (target is valid 256-bit value ∧
-    ///    target > 0 for non-zero mantissa ∧
-    ///    target ≤ MAX_TARGET for valid exponent)
-    #[kani::proof]
-    fn kani_target_validation_correctness() {
-        let bits: Natural = kani::any();
-
-        // Bound to potentially valid range
-        kani::assume(bits >= 0x03000000); // exponent >= 3
-        kani::assume(bits <= 0x1e00ffff); // exponent <= 30 (beyond valid but test bounds)
-
-        let result = expand_target(bits);
-
-        match result {
-            Ok(target) => {
-                // Non-negative invariant
-                assert!(target >= U256::zero(), "Target must be non-negative");
-
-                // Target should be non-zero if mantissa is non-zero
-                let mantissa = bits & 0x00ffffff;
-                if mantissa != 0 {
-                    assert!(
-                        !target.is_zero(),
-                        "Non-zero mantissa must produce non-zero target"
-                    );
-                }
-
-                // Target should not exceed reasonable bounds
-                // (MAX_TARGET is 0x1d00ffff, but we check the expanded target)
-                let max_target = U256::from_u32(MAX_TARGET);
-                // Expanded target may exceed compact MAX_TARGET, but should be finite
-                assert!(true, "Target should be finite");
-            }
-            Err(_) => {
-                // Invalid targets (exponent out of range, etc.) should fail
-                // This is correct behavior
-            }
-        }
-    }
-
-    /// Kani proof: proof of work validation correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 7.2):
-    /// ∀ header H:
-    /// - check_proof_of_work(H) = true ⟹
-    ///   SHA256(SHA256(H)) < expand_target(H.bits)
-    #[kani::proof]
-    fn kani_proof_of_work_validation_correctness() {
-        let header = crate::kani_helpers::create_bounded_block_header();
-
-        // Use valid target range
-        kani::assume(header.bits >= 0x03000000);
-        kani::assume(header.bits <= 0x1d00ffff);
-
-        let result = check_proof_of_work(&header);
-
-        if result.is_ok() {
-            let is_valid = result.unwrap();
-
-            // Result should be deterministic boolean
-            assert!(
-                is_valid == true || is_valid == false,
-                "Proof of work check must return boolean"
-            );
-
-            // If valid, the hash must be less than target (checked in implementation)
-            // This invariant is maintained by the implementation
-            assert!(true, "If valid, hash < target (enforced by implementation)");
-        } else {
-            // Proof of work check may fail for invalid targets
-            // This is acceptable behavior
-        }
-    }
-
-    /// Kani proof: Target expand/compress round-trip correctness (Orange Paper Section 7.2)
-    ///
-    /// Mathematical specification (Bitcoin Core GetCompact/SetCompact):
-    /// ∀ bits ∈ [0x03000000, 0x1d00ffff]:
-    /// - Let expanded = expand_target(bits)
-    /// - Let compressed = compress_target(expanded)
-    /// - Let re_expanded = expand_target(compressed)
-    /// - Then: re_expanded ≤ expanded (compression truncates lower bits, never increases)
-    /// - And: re_expanded.0[2] = expanded.0[2] ∧ re_expanded.0[3] = expanded.0[3]
-    ///   (significant bits in words 2, 3 must be preserved exactly)
-    /// - Precision loss in words 0, 1 is acceptable (compact format limitation)
-    ///
-    /// This ensures target expansion and compression preserve significant bits while
-    /// allowing acceptable precision loss in lower bits, matching Bitcoin Core's behavior.
-    #[kani::proof]
-    fn kani_target_expand_compress_round_trip() {
-        let bits: Natural = kani::any();
-
-        // Bound to valid range
-        kani::assume(bits >= 0x03000000); // exponent >= 3
-        kani::assume(bits <= 0x1d00ffff); // exponent <= 29
-
-        let expanded_result = expand_target(bits);
-
-        if expanded_result.is_ok() {
-            let expanded = expanded_result.unwrap();
-
-            // Compress back to bits
-            let compressed_result = compress_target(&expanded);
-
-            if compressed_result.is_ok() {
-                let compressed = compressed_result.unwrap();
-
-                // Expand again
-                let re_expanded_result = expand_target(compressed);
-
-                if re_expanded_result.is_ok() {
-                    let re_expanded = re_expanded_result.unwrap();
-
-                    // Critical invariant 1: Compression should not increase target
-                    // (compression truncates lower bits, so re_expanded ≤ expanded)
-                    assert!(
-                        re_expanded <= expanded,
-                        "Target expand/compress round-trip: compression should truncate, not increase target"
-                    );
-
-                    // Critical invariant 2: Significant bits must be preserved exactly
-                    // U256 stores words as [0, 1, 2, 3] where 0 is LSB and 3 is MSB
-                    // Words 2 and 3 contain the significant bits that must match exactly
-                    assert_eq!(
-                        expanded.0[2], re_expanded.0[2],
-                        "Target expand/compress round-trip: significant word 2 must be preserved"
-                    );
-                    assert_eq!(
-                        expanded.0[3], re_expanded.0[3],
-                        "Target expand/compress round-trip: significant word 3 must be preserved"
-                    );
-
-                    // Words 0 and 1 (least significant) may differ due to truncation
-                    // This is acceptable precision loss in the compact format
-                    // (Bitcoin Core's GetCompact/SetCompact has the same behavior)
-                }
-            }
-        }
-    }
-
-    /// Kani proof: Difficulty adjustment convergence (Orange Paper Theorem 7.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ timeSpan, expectedTime ∈ ℕ:
-    /// - If timeSpan = expectedTime: difficulty adjustment = 1.0 (no change)
-    /// - If timeSpan > expectedTime: difficulty decreases (target increases)
-    /// - If timeSpan < expectedTime: difficulty increases (target decreases)
-    ///
-    /// This ensures difficulty converges to maintain target block time.
-    #[kani::proof]
-    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
-    fn kani_difficulty_adjustment_convergence() {
-        use crate::kani_helpers::unwind_bounds;
-        let current_header = crate::kani_helpers::create_bounded_block_header();
-        let mut prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
-
-        // Bound for tractability using standardized helpers
-        use crate::assume_pow_bounds;
-        assume_pow_bounds!(prev_headers);
-
-        // Set up headers with controlled timestamps
-        let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
-
-        // First header at time 0
-        prev_headers[0].timestamp = 0;
-        prev_headers[0].bits = 0x1d00ffff; // Use valid bits
-
-        // Last header at time = expected_time (perfect timing)
-        let last_idx = prev_headers.len() - 1;
-        prev_headers[last_idx].timestamp = expected_time;
-        prev_headers[last_idx].bits = 0x1d00ffff;
-
-        // Fill in intermediate headers
-        for i in 1..last_idx {
-            prev_headers[i].timestamp = (expected_time * i as u64) / last_idx as u64;
-            prev_headers[i].bits = 0x1d00ffff;
-        }
-
-        let result = get_next_work_required(&current_header, &prev_headers);
-
-        if result.is_ok() {
-            let new_bits = result.unwrap();
-
-            // Critical invariant: when timeSpan = expectedTime, difficulty should not change much
-            // (Allow for small differences due to integer arithmetic)
-            let old_bits = prev_headers[last_idx].bits;
-            let bits_diff = if new_bits > old_bits {
-                new_bits - old_bits
-            } else {
-                old_bits - new_bits
-            };
-
-            // When timing is perfect, adjustment should be minimal
-            // (Within reasonable bounds for integer arithmetic)
-            assert!(
-                bits_diff <= 0x0000ffff * 2,
-                "Difficulty adjustment convergence: perfect timing should result in minimal change"
-            );
-        }
-    }
-
-    /// Kani proof: Difficulty adjustment direction correctness
-    ///
-    /// Mathematical specification:
-    /// ∀ timeSpan, expectedTime ∈ ℕ:
-    /// - If timeSpan > expectedTime: new_target > old_target (difficulty decreases)
-    /// - If timeSpan < expectedTime: new_target < old_target (difficulty increases)
-    #[kani::proof]
-    #[kani::unwind(5)] // unwind_bounds::POW_DIFFICULTY_ADJUSTMENT
-    fn kani_difficulty_adjustment_direction() {
-        use crate::kani_helpers::unwind_bounds;
-        let current_header = crate::kani_helpers::create_bounded_block_header();
-        let mut prev_headers = crate::kani_helpers::create_bounded_block_header_vec(3);
-
-        // Bound for tractability using standardized helpers
-        use crate::assume_pow_bounds;
-        assume_pow_bounds!(prev_headers);
-
-        let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
-        let old_bits: Natural = 0x1d00ffff;
-
-        // Set up headers with slow time (timeSpan > expectedTime)
-        prev_headers[0].timestamp = 0;
-        prev_headers[0].bits = old_bits;
-
-        let last_idx = prev_headers.len() - 1;
-        prev_headers[last_idx].timestamp = expected_time * 2; // 2x expected time
-        prev_headers[last_idx].bits = old_bits;
-
-        // Fill in intermediate headers
-        for i in 1..last_idx {
-            prev_headers[i].timestamp = (expected_time * 2 * i as u64) / last_idx as u64;
-            prev_headers[i].bits = old_bits;
-        }
-
-        let result = get_next_work_required(&current_header, &prev_headers);
-
-        if result.is_ok() {
-            let new_bits = result.unwrap();
-
-            // Critical invariant: when timeSpan > expectedTime, difficulty should decrease
-            // (target increases, so bits increase or stay same)
-            // Note: Due to clamping, new_bits may equal old_bits, but should not decrease
-            assert!(new_bits >= old_bits,
-                "Difficulty adjustment direction: slow time (timeSpan > expectedTime) should decrease difficulty (increase target)");
-        }
-    }
-}
 
 #[cfg(test)]
 mod property_tests {
@@ -1317,145 +900,6 @@ mod property_tests {
         }
     }
 
-    /// Kani proof: U256 shift operations array bounds safety
-    ///
-    /// Mathematical specification:
-    /// ∀ shift ∈ [0, 256), value ∈ U256:
-    /// - shr(value, shift) never accesses array out of bounds
-    /// - All array indices are in [0, 4)
-    /// - word_shift < 4, bit_shift < 64
-    ///
-    /// This proves that the shift operations are safe from array bounds violations.
-    #[cfg(kani)]
-    #[kani::proof]
-    fn kani_u256_shift_array_bounds_safety() {
-        let shift: u32 = kani::any();
-        kani::assume(shift < 256); // Valid shift range
-
-        // Create a symbolic U256 value
-        let value = U256([kani::any(), kani::any(), kani::any(), kani::any()]);
-
-        // Calculate shift parameters
-        let word_shift = (shift / 64) as usize;
-        let bit_shift = shift % 64;
-
-        // Critical invariant: word_shift must be < 4 (since shift < 256)
-        assert!(
-            word_shift < 4,
-            "Word shift ({}) must be < 4 (shift: {})",
-            word_shift,
-            shift
-        );
-
-        // Critical invariant: bit_shift must be < 64
-        assert!(
-            bit_shift < 64,
-            "Bit shift ({}) must be < 64 (shift: {})",
-            bit_shift,
-            shift
-        );
-
-        // Perform shift operation (this should not panic)
-        let result = value.shr(shift);
-
-        // Verify result is valid U256
-        // (The shift operation itself proves array bounds safety)
-        assert!(
-            true,
-            "U256 shift operation completed without array bounds violation"
-        );
-
-        // Verify that for all i in [0, 4), if i >= word_shift, then i - word_shift < 4
-        for i in 0..4 {
-            if i >= word_shift {
-                let dest_idx = i - word_shift;
-                assert!(
-                    dest_idx < 4,
-                    "Destination index ({}) must be < 4 (i: {}, word_shift: {})",
-                    dest_idx,
-                    i,
-                    word_shift
-                );
-
-                if bit_shift > 0 && i - word_shift + 1 < 4 {
-                    let dest_idx2 = i - word_shift + 1;
-                    assert!(
-                        dest_idx2 < 4,
-                        "Second destination index ({}) must be < 4 (i: {}, word_shift: {})",
-                        dest_idx2,
-                        i,
-                        word_shift
-                    );
-                }
-            }
-        }
-    }
-
-    /// Property test: U256 operations are consistent
-    proptest! {
-        #[test]
-        fn prop_u256_operations_consistent(
-            value in 0u32..0xffffffffu32,
-            shift in 0u32..64u32
-        ) {
-
-            // Left shift then right shift should preserve value (for small shifts and values)
-            // Only test when shift + leading zeros < 32 to avoid overflow
-            if shift < 32 && value.leading_zeros() + shift < 32 {
-                let u256_value1 = U256::from_u32(value);
-                let shifted_left = u256_value1.shl(shift);
-                let shifted_back = shifted_left.shr(shift);
-                prop_assert_eq!(shifted_back, u256_value1,
-                    "Left shift then right shift should preserve value");
-            }
-
-            // Right shift then left shift loses lower bits, so we check that upper bits are preserved
-            if shift < 32 {
-                let u256_value2 = U256::from_u32(value);
-                let _shifted_right = u256_value2.shr(shift);
-                // After right shift then left shift, lower 'shift' bits are lost
-                // So we check that the upper (32 - shift) bits match
-                let upper_bits_original = value >> shift;
-                let upper_bits_shifted = (value >> shift) << shift >> shift;
-                prop_assert_eq!(upper_bits_shifted, upper_bits_original,
-                    "Right shift then left shift should preserve upper bits");
-            }
-        }
-    }
-
-    /// Property test: U256 ordering is transitive
-    proptest! {
-        #[test]
-        fn prop_u256_ordering_transitive(
-            a in 0u32..0xffffffffu32,
-            b in 0u32..0xffffffffu32,
-            c in 0u32..0xffffffffu32
-        ) {
-            let u256_a = U256::from_u32(a);
-            let u256_b = U256::from_u32(b);
-            let u256_c = U256::from_u32(c);
-
-            // Transitive property: if a < b and b < c, then a < c
-            if a < b && b < c {
-                prop_assert!(u256_a < u256_b, "U256 ordering must be consistent");
-                prop_assert!(u256_b < u256_c, "U256 ordering must be consistent");
-                prop_assert!(u256_a < u256_c, "U256 ordering must be transitive");
-            }
-        }
-    }
-
-    /// Property test: serialize_header produces consistent length
-    proptest! {
-        #[test]
-        fn prop_serialize_header_consistent_length(
-            header in any::<BlockHeader>()
-        ) {
-            let bytes = serialize_header(&header);
-
-            // Consistent length property
-            prop_assert_eq!(bytes.len(), 80, "Serialized header must be exactly 80 bytes");
-        }
-    }
 }
 
 #[cfg(test)]

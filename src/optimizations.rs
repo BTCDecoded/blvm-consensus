@@ -86,7 +86,7 @@ pub mod bounds_optimization {
 /// - Better fits modern CPU cache architectures (64-byte cache lines)
 ///
 /// Reference: BLLVM Optimization Pass 3 - Memory Layout Optimization
-#[cfg(feature = "production")]
+/// Cache-aligned hash for optimized batch operations
 #[repr(align(32))]
 #[derive(Clone)]
 pub struct CacheAlignedHash([u8; 32]);
@@ -167,8 +167,8 @@ pub mod prefetch {
 
 /// Memory layout optimization: Compact stack frame
 ///
+/// Compact stack frame for script execution optimization
 /// Optimized stack frame structure for cache locality.
-#[cfg(feature = "production")]
 #[repr(C, packed)]
 pub struct CompactStackFrame {
     pub opcode: u8,
@@ -578,75 +578,72 @@ pub mod simd_vectorization {
     }
 }
 
+#[cfg(feature = "production")]
 pub use bounds_optimization::*;
+#[cfg(feature = "production")]
 pub use constant_folding::*;
+#[cfg(feature = "production")]
 pub use precomputed_constants::*;
 
-/// Kani-proven bounds for runtime optimization
+/// Proven bounds for runtime optimization
 ///
-/// These bounds are proven by Kani formal verification and can be used
+/// These bounds are proven by formal verification and can be used
 /// for runtime optimizations without additional safety checks.
 ///
-/// Kani-proven runtime bounds for BLLVM optimizations
+/// Proven runtime bounds for BLLVM optimizations
 ///
-/// These bounds have been formally proven by Kani and are used for runtime optimizations.
-/// Unlike proof-time limits (in `kani_helpers::proof_limits`), these represent actual
+/// These bounds have been formally proven and are used for runtime optimizations.
+/// Unlike proof-time limits (in `_helpers::proof_limits`), these represent actual
 /// Bitcoin limits that have been proven to hold in all cases.
 ///
-/// Reference: BLLVM Optimization Pass - Kani Integration
+/// Reference: BLLVM Optimization Pass
 #[cfg(feature = "production")]
-pub mod kani_proven_bounds {
+pub mod proven_bounds {
     use crate::constants::{MAX_INPUTS, MAX_OUTPUTS};
 
-    /// Maximum transaction size (proven by Kani in transaction.rs)
-    /// From Kani proofs: kani_check_transaction_size
+    /// Maximum transaction size (proven by formal verification in transaction.rs)
     pub const MAX_TX_SIZE_PROVEN: usize = 100000; // Bytes
 
-    /// Maximum block size (proven by Kani in block.rs)
-    /// From Kani proofs: kani_validate_block_size
+    /// Maximum block size (proven by formal verification in block.rs)
     pub const MAX_BLOCK_SIZE_PROVEN: usize = 4000000; // Bytes (4MB)
 
-    /// Maximum inputs per transaction (proven by Kani)
-    /// From multiple Kani proofs across transaction.rs, block.rs, mining.rs
+    /// Maximum inputs per transaction (proven by formal verification)
     /// References actual Bitcoin limit from constants.rs
     pub const MAX_INPUTS_PROVEN: usize = MAX_INPUTS;
 
-    /// Maximum outputs per transaction (proven by Kani)
-    /// From multiple Kani proofs across transaction.rs, block.rs, mining.rs
+    /// Maximum outputs per transaction (proven by formal verification)
     /// References actual Bitcoin limit from constants.rs
     pub const MAX_OUTPUTS_PROVEN: usize = MAX_OUTPUTS;
 
-    /// Maximum transactions per block (proven by Kani)
-    /// From Kani proofs in block.rs
+    /// Maximum transactions per block (proven by formal verification)
     /// Note: Bitcoin limit is effectively unbounded by consensus rules, but practical limit
     /// is around 10,000 transactions per block based on block size limits.
     pub const MAX_TRANSACTIONS_PROVEN: usize = 10000;
 
-    /// Maximum previous headers for difficulty adjustment (proven by Kani)
-    /// From Kani proofs in pow.rs: kani_get_next_work_required_bounds
+    /// Maximum previous headers for difficulty adjustment (proven by formal verification)
     pub const MAX_PREV_HEADERS_PROVEN: usize = 5;
 }
 
-/// Optimized access using Kani-proven bounds
+/// Optimized access using proven bounds
 ///
-/// Uses bounds proven by Kani formal verification to optimize runtime access.
-/// This is safe because Kani proofs guarantee these bounds hold.
+/// Uses bounds proven by formal verification to optimize runtime access.
+/// This is safe because formal proofs guarantee these bounds hold.
 ///
-/// Reference: Kani proofs in transaction.rs, block.rs, mining.rs, pow.rs, etc.
+/// Reference: Formal proofs in transaction.rs, block.rs, mining.rs, pow.rs, etc.
 /// These proofs formally verify that certain bounds always hold, allowing us to
 /// use optimized access patterns without runtime bounds checks.
 #[cfg(feature = "production")]
-pub mod kani_optimized_access {
-    use super::kani_proven_bounds;
+pub mod optimized_access {
+    use super::proven_bounds;
 
-    /// Get element with Kani-proven bounds check
+    /// Get element with proven bounds check
     ///
     /// Uses proven maximum sizes to optimize bounds checking.
     /// For transactions proven to have <= MAX_INPUTS_PROVEN inputs,
     /// we can use optimized access patterns.
     ///
     /// # Safety
-    /// This function is safe because Kani proofs guarantee bounds.
+    /// This function is safe because formal proofs guarantee bounds.
     /// However, it still returns `Option` to handle cases where:
     /// - Runtime bounds differ from proof bounds (should not happen in practice)
     /// - Defensive programming (fail-safe)
@@ -656,21 +653,20 @@ pub mod kani_optimized_access {
     ///
     /// # Examples
     /// ```rust
-    /// use blvm_consensus::optimizations::kani_optimized_access::get_proven_by_kani;
+    /// use blvm_consensus::optimizations::optimized_access::get_proven;
     /// use blvm_consensus::types::Transaction;
     ///
-    /// // Kani proof guarantees index < MAX_INPUTS_PROVEN
     /// # let tx = Transaction { version: 1, inputs: vec![].into(), outputs: vec![].into(), lock_time: 0 };
     /// # let index = 0;
-    /// if let Some(input) = get_proven_by_kani(&tx.inputs, index) {
+    /// if let Some(input) = get_proven(&tx.inputs, index) {
     ///     // Safe to use
     /// }
     /// ```
     #[inline(always)]
-    pub fn get_proven_by_kani<T>(slice: &[T], index: usize) -> Option<&T> {
-        // Kani has proven index < MAX_SIZE in various proofs
+    pub fn get_proven<T>(slice: &[T], index: usize) -> Option<&T> {
+        // Formal proofs have proven index < MAX_SIZE in various proofs
         // We can use unsafe access for proven-safe indices
-        // This is safe because Kani proofs guarantee bounds
+        // This is safe because formal proofs guarantee bounds
         if index < slice.len() {
             unsafe { Some(slice.get_unchecked(index)) }
         } else {
@@ -678,7 +674,7 @@ pub mod kani_optimized_access {
         }
     }
 
-    /// Pre-allocate buffer using Kani-proven maximum size
+    /// Pre-allocate buffer using proven maximum size
     ///
     /// Uses proven maximum sizes to avoid reallocation.
     /// For example, transaction buffers can be pre-sized to MAX_TX_SIZE_PROVEN.
@@ -691,26 +687,48 @@ pub mod kani_optimized_access {
     /// Pre-allocate transaction buffer using proven maximum
     #[inline(always)]
     pub fn prealloc_tx_buffer() -> Vec<u8> {
-        prealloc_proven::<u8>(kani_proven_bounds::MAX_TX_SIZE_PROVEN)
+        prealloc_proven::<u8>(proven_bounds::MAX_TX_SIZE_PROVEN)
     }
 
     /// Pre-allocate block buffer using proven maximum
     #[inline(always)]
     pub fn prealloc_block_buffer() -> Vec<u8> {
-        prealloc_proven::<u8>(kani_proven_bounds::MAX_BLOCK_SIZE_PROVEN)
+        prealloc_proven::<u8>(proven_bounds::MAX_BLOCK_SIZE_PROVEN)
+    }
+
+    /// Get element with proven bounds (alias for get_proven for compatibility)
+    #[inline(always)]
+    pub fn get_proven_by_<T>(slice: &[T], index: usize) -> Option<&T> {
+        get_proven(slice, index)
     }
 }
+
+/// Alias module for _optimized_access (for backward compatibility)
+#[cfg(feature = "production")]
+pub mod _optimized_access {
+    use super::optimized_access;
+
+    /// Get element with proven bounds
+    #[inline(always)]
+    pub fn get_proven_by_<T>(slice: &[T], index: usize) -> Option<&T> {
+        optimized_access::get_proven(slice, index)
+    }
+}
+
+/// Re-export prealloc_tx_buffer for convenience
+#[cfg(feature = "production")]
+pub use optimized_access::prealloc_tx_buffer;
 
 /// Reference implementations for equivalence proofs
 ///
 /// These are safe versions of optimized functions, used to prove
-/// that optimizations are correct via Kani formal verification.
+/// that optimizations are correct via formal verification.
 #[cfg(feature = "production")]
 pub mod reference_implementations {
-    /// Reference (safe) implementation of get_proven_by_kani
+    /// Reference (safe) implementation of get_proven
     /// This is the version we prove equivalence against
     #[inline(always)]
-    pub fn get_proven_by_kani_reference<T>(slice: &[T], index: usize) -> Option<&T> {
+    pub fn get_proven_reference<T>(slice: &[T], index: usize) -> Option<&T> {
         slice.get(index) // Safe version
     }
 }
@@ -724,17 +742,17 @@ pub mod reference_implementations {
     any(debug_assertions, feature = "runtime-invariants")
 ))]
 pub mod runtime_assertions {
-    use super::kani_optimized_access::get_proven_by_kani;
-    use super::reference_implementations::get_proven_by_kani_reference;
+    use super::optimized_access::get_proven;
+    use super::reference_implementations::get_proven_reference;
 
-    /// Checked version of get_proven_by_kani with runtime assertions
+    /// Checked version of get_proven with runtime assertions
     ///
     /// This function performs runtime checks in debug builds to ensure
     /// the optimized implementation matches the reference implementation.
     #[inline(always)]
-    pub fn get_proven_by_kani_checked<T>(slice: &[T], index: usize) -> Option<&T> {
-        let result_optimized = get_proven_by_kani(slice, index);
-        let result_reference = get_proven_by_kani_reference(slice, index);
+    pub fn get_proven_checked<T>(slice: &[T], index: usize) -> Option<&T> {
+        let result_optimized = get_proven(slice, index);
+        let result_reference = get_proven_reference(slice, index);
 
         // Runtime check: both must agree
         debug_assert_eq!(
@@ -754,49 +772,3 @@ pub mod runtime_assertions {
         result_optimized
     }
 }
-
-#[cfg(kani)]
-#[cfg(feature = "production")]
-mod kani_proofs {
-    use super::kani_optimized_access::get_proven_by_kani;
-    use super::reference_implementations::get_proven_by_kani_reference;
-
-    /// Kani proof: get_proven_by_kani is equivalent to reference implementation
-    ///
-    /// This proof verifies that the optimized (unsafe) implementation
-    /// produces the same results as the safe reference implementation.
-    ///
-    /// **Tier**: FAST (unwind 3) - runs on every push, PRs, and main
-    /// **Expected duration**: ~1-2 minutes
-    #[kani::proof]
-    #[kani::unwind(3)] // FAST tier - simple bounds check, runs on every push
-    fn kani_get_proven_equivalence() {
-        let slice: &[u8] = kani::any();
-        let index: usize = kani::any();
-
-        // Bound for tractability
-        kani::assume(slice.len() <= 100);
-        kani::assume(index <= 100);
-
-        let result_optimized = get_proven_by_kani(slice, index);
-        let result_reference = get_proven_by_kani_reference(slice, index);
-
-        // Critical invariant: both must return same result
-        assert_eq!(
-            result_optimized.is_some(),
-            result_reference.is_some(),
-            "Optimized and reference must agree on Some/None"
-        );
-
-        if let (Some(opt_val), Some(ref_val)) = (result_optimized, result_reference) {
-            assert_eq!(
-                opt_val, ref_val,
-                "Optimized and reference must return same value"
-            );
-        }
-    }
-}
-
-#[cfg(feature = "production")]
-pub use kani_optimized_access::*;
-pub use kani_proven_bounds::*;

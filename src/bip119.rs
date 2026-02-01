@@ -98,6 +98,7 @@ use sha2::{Digest, Sha256};
 /// - Transaction has no inputs
 /// - Transaction has no outputs
 /// - Serialization fails
+#[spec_locked("5.4.6")]
 pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<Hash> {
     // Validate inputs
     if input_index >= tx.inputs.len() {
@@ -199,6 +200,7 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
 /// # Returns
 ///
 /// `true` if template hash matches, `false` otherwise
+#[spec_locked("5.4.6")]
 pub fn validate_template_hash(
     tx: &Transaction,
     input_index: usize,
@@ -228,6 +230,7 @@ pub fn validate_template_hash(
 /// # Returns
 ///
 /// The template hash if found, `None` otherwise
+#[spec_locked("5.4.6")]
 pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
     // Look for OP_CHECKTEMPLATEVERIFY (0xba)
     if let Some(ctv_pos) = script.iter().rposition(|&b| b == 0xba) {
@@ -252,163 +255,11 @@ pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
 /// # Returns
 ///
 /// `true` if script contains OP_CHECKTEMPLATEVERIFY (0xba)
+#[spec_locked("5.4.6")]
 pub fn is_ctv_script(script: &[u8]) -> bool {
     script.contains(&0xba) // OP_CHECKTEMPLATEVERIFY
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Template hash is deterministic
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.6, Theorem 5.4.6.1):
-    /// ∀ tx ∈ TX, i ∈ N:
-    /// - TemplateHash(tx, i) is deterministic (same inputs → same output)
-    ///
-    /// Optimization: Added unwind bound to reduce verification time for loops in hash calculation
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_template_hash_determinism() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-
-        // Bound for tractability - tighter bounds reduce state space
-        kani::assume(tx.inputs.len() > 0);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(tx.outputs.len() > 0);
-        kani::assume(tx.inputs.len() <= 5); // Reduced from 10 for faster verification
-        kani::assume(tx.outputs.len() <= 5); // Reduced from 10 for faster verification
-
-        // Calculate template hash twice
-        let hash1 = calculate_template_hash(&tx, input_index);
-        let hash2 = calculate_template_hash(&tx, input_index);
-
-        // Should be identical
-        assert_eq!(hash1, hash2, "Template hash must be deterministic");
-    }
-
-    /// Kani proof: Different transactions produce different template hashes
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.6, Theorem 5.4.6.2):
-    /// ∀ tx1, tx2 ∈ TX, tx1 ≠ tx2:
-    /// - TemplateHash(tx1, i) ≠ TemplateHash(tx2, i) with overwhelming probability
-    #[kani::proof]
-    fn kani_template_hash_uniqueness() {
-        let tx1 = crate::kani_helpers::create_bounded_transaction();
-        let tx2 = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-
-        // Bound for tractability
-        kani::assume(tx1.inputs.len() > 0);
-        kani::assume(tx2.inputs.len() > 0);
-        kani::assume(input_index < tx1.inputs.len());
-        kani::assume(input_index < tx2.inputs.len());
-        kani::assume(tx1.outputs.len() > 0);
-        kani::assume(tx2.outputs.len() > 0);
-
-        // If transactions are different, hashes should be different
-        if tx1 != tx2 {
-            let hash1 = calculate_template_hash(&tx1, input_index).unwrap_or([0; 32]);
-            let hash2 = calculate_template_hash(&tx2, input_index).unwrap_or([0; 32]);
-
-            // Collision probability is negligible (2^-256)
-            // This proof verifies the implementation doesn't introduce collisions
-            assert!(
-                hash1 != hash2 || tx1 == tx2,
-                "Different transactions must produce different template hashes"
-            );
-        }
-    }
-
-    /// Kani proof: Template hash depends on input index
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.6, Theorem 5.4.6.3):
-    /// ∀ tx ∈ TX, i1, i2 ∈ N, i1 ≠ i2:
-    /// - TemplateHash(tx, i1) ≠ TemplateHash(tx, i2)
-    #[kani::proof]
-    fn kani_template_hash_input_dependency() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let i1: usize = kani::any();
-        let i2: usize = kani::any();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() > 1);
-        kani::assume(i1 < tx.inputs.len());
-        kani::assume(i2 < tx.inputs.len());
-        kani::assume(i1 != i2);
-        kani::assume(tx.outputs.len() > 0);
-
-        let hash1 = calculate_template_hash(&tx, i1).unwrap_or([0; 32]);
-        let hash2 = calculate_template_hash(&tx, i2).unwrap_or([0; 32]);
-
-        // Different input indices must produce different hashes
-        assert!(hash1 != hash2, "Template hash must depend on input index");
-    }
-
-    /// Kani proof: OP_CHECKTEMPLATEVERIFY correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.6):
-    /// ∀ tx ∈ TX, i ∈ N, h ∈ H:
-    /// - OP_CHECKTEMPLATEVERIFY(tx, i, h) = true ⟹ TemplateHash(tx, i) = h
-    #[kani::proof]
-    fn kani_ctv_opcode_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let template_hash: [u8; 32] = kani::any();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() > 0);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(tx.outputs.len() > 0);
-
-        // Calculate actual template hash
-        let actual_hash = calculate_template_hash(&tx, input_index);
-
-        if let Ok(actual) = actual_hash {
-            // If hashes match, CTV should pass
-            if actual == template_hash {
-                // Verify using validate_template_hash
-                let result = validate_template_hash(&tx, input_index, &template_hash);
-                assert!(
-                    result.is_ok() && result.unwrap(),
-                    "CTV should pass when template hash matches"
-                );
-            }
-        }
-    }
-
-    /// Kani proof: Template hash calculation handles all valid inputs
-    ///
-    /// Verifies that template hash calculation never panics on valid inputs
-    #[kani::proof]
-    fn kani_template_hash_bounds() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() > 0);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(tx.outputs.len() > 0);
-        kani::assume(tx.inputs.len() <= 100);
-        kani::assume(tx.outputs.len() <= 100);
-
-        // Should never panic
-        let result = calculate_template_hash(&tx, input_index);
-
-        // Result should be Ok for valid inputs
-        assert!(
-            result.is_ok(),
-            "Template hash calculation should never panic"
-        );
-
-        // Hash should always be 32 bytes
-        if let Ok(hash) = result {
-            assert_eq!(hash.len(), 32, "Template hash must be 32 bytes");
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -1,6 +1,7 @@
 //! Mempool validation functions from Orange Paper Section 9
 
 use crate::constants::*;
+use blvm_spec_lock::spec_locked;
 use crate::economic::calculate_fee;
 use crate::error::{ConsensusError, Result};
 use crate::script::verify_script;
@@ -28,6 +29,7 @@ use std::collections::HashSet;
 /// * `mempool` - Current mempool state
 /// * `height` - Current block height
 /// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
+#[spec_locked("9.1")]
 pub fn accept_to_memory_pool(
     tx: &Transaction,
     witnesses: Option<&[Witness]>,
@@ -242,6 +244,7 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
 /// 2. Script size limits
 /// 3. Standard script types
 /// 4. Fee rate requirements
+#[spec_locked("9.2")]
 pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
@@ -308,6 +311,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 /// 3. New transaction pays absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
 /// 4. New transaction conflicts with existing: tx_2 spends at least one input from tx_1
 /// 5. No new unconfirmed dependencies: All inputs of tx_2 are confirmed or from tx_1
+#[spec_locked("9.3")]
 pub fn replacement_checks(
     new_tx: &Transaction,
     existing_tx: &Transaction,
@@ -516,6 +520,7 @@ pub enum MempoolResult {
 /// # Ok(())
 /// # }
 /// ```
+#[spec_locked("9.1")]
 pub fn update_mempool_after_block(
     mempool: &mut Mempool,
     block: &crate::types::Block,
@@ -555,6 +560,7 @@ pub fn update_mempool_after_block(
 /// # Returns
 ///
 /// Returns a vector of transaction IDs that were removed from the mempool.
+#[spec_locked("9.1")]
 pub fn update_mempool_after_block_with_lookup<F>(
     mempool: &mut Mempool,
     block: &crate::types::Block,
@@ -707,6 +713,7 @@ fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
 /// * `tx` - Transaction to check
 /// * `height` - Current block height
 /// * `block_time` - Median time-past of chain tip (BIP113) for timestamp locktime validation
+#[spec_locked("9.1")]
 pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bool {
     use crate::constants::SEQUENCE_FINAL;
 
@@ -748,6 +755,7 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
 /// Check if transaction signals RBF
 ///
 /// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
+#[spec_locked("9.3")]
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
         if (input.sequence as u32) < SEQUENCE_FINAL {
@@ -772,6 +780,7 @@ fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
 ///
 /// A conflict exists if new_tx spends at least one input from existing_tx.
 /// This is requirement #4 of BIP125.
+#[spec_locked("9.3")]
 pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> bool {
     for new_input in &new_tx.inputs {
         for existing_input in &existing_tx.inputs {
@@ -852,6 +861,7 @@ fn is_standard_script(script: &ByteString) -> Result<bool> {
 /// This function is kept for backward compatibility but delegates to the
 /// standard implementation in block.rs.
 #[deprecated(note = "Use crate::block::calculate_tx_id instead")]
+#[spec_locked("5.1")]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     crate::block::calculate_tx_id(tx)
 }
@@ -902,413 +912,6 @@ fn is_coinbase(tx: &Transaction) -> bool {
 /// - Accepted transactions are valid
 /// - RBF rules are enforced
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: mempool never contains duplicates
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ 𝒯𝒳, mempool ∈ Mempool:
-    /// - If accept_to_memory_pool succeeds: tx ∉ old_mempool
-    /// - After acceptance: new_mempool contains tx exactly once
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_mempool_no_duplicates() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        use crate::assume_mempool_bounds;
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(tx, 3, 3);
-        assume_mempool_bounds!(mempool, 5);
-
-        let tx_id = crate::block::calculate_tx_id(&tx);
-
-        // If transaction is already in mempool, it should be rejected
-        if mempool.contains(&tx_id) {
-            let time_context = Some(TimeContext {
-                network_time: 0,
-                median_time_past: 0,
-            });
-            let result =
-                accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
-            if result.is_ok() {
-                let mempool_result = result.unwrap();
-                assert!(
-                    matches!(mempool_result, MempoolResult::Rejected(_)),
-                    "Duplicate transactions must be rejected"
-                );
-            }
-        }
-
-        // If accepted, mempool should contain transaction exactly once
-        // Note: This would require modifying mempool in place, which accept_to_memory_pool doesn't do
-        // For now, we prove that acceptance implies the transaction wasn't in the old mempool
-    }
-
-    /// Kani proof: mempool conflict detection works correctly
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ 𝒯𝒳, mempool ∈ Mempool:
-    /// - has_conflicts(tx, mempool) = true ⟹ ∃ tx' ∈ mempool: conflicts(tx, tx')
-    /// - If has_conflicts returns true, transaction should be rejected
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_mempool_conflict_detection() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        use crate::assume_mempool_bounds;
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(tx, 3, 3);
-        assume_mempool_bounds!(mempool, 5);
-
-        // Test conflict detection
-        let has_conflict = has_conflicts(&tx, &mempool).unwrap_or(false);
-
-        // If transaction has conflicts, accept_to_memory_pool should reject it
-        // (assuming other checks pass)
-        if has_conflict {
-            // Conflict detection should work
-            assert!(has_conflict, "Conflict detection should identify conflicts");
-        }
-    }
-
-    /// Kani proof: is_final_tx correctness (Orange Paper Section 9.1 - Transaction Finality)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, height ∈ ℕ, block_time ∈ ℕ:
-    /// - is_final_tx(tx, height, block_time) = true ⟹
-    ///   (tx.lock_time = 0 ∨
-    ///    (tx.lock_time < LOCKTIME_THRESHOLD ∧ height >= tx.lock_time) ∨
-    ///    (tx.lock_time >= LOCKTIME_THRESHOLD ∧ block_time >= tx.lock_time))
-    ///
-    /// This ensures transaction finality check matches Orange Paper specification exactly.
-    #[kani::proof]
-    fn kani_is_final_tx_correctness() {
-        use crate::constants::LOCKTIME_THRESHOLD;
-
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let height: Natural = kani::any();
-        let block_time: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(height <= 1000000);
-        kani::assume(block_time <= 1000000000);
-
-        let is_final = is_final_tx(&tx, height, block_time);
-
-        // Calculate according to Orange Paper spec
-        let spec_final = if tx.lock_time == 0 {
-            true
-        } else if tx.lock_time < LOCKTIME_THRESHOLD as u64 {
-            // Block height locktime
-            height >= tx.lock_time as Natural
-        } else {
-            // Timestamp locktime
-            block_time >= tx.lock_time as Natural
-        };
-
-        // Critical invariant: implementation must match specification
-        assert_eq!(is_final, spec_final,
-            "is_final_tx must match Orange Paper specification: locktime = 0 OR (height locktime AND height >= locktime) OR (timestamp locktime AND block_time >= locktime)");
-    }
-
-    /// Kani proof: is_standard_tx correctness (Orange Paper Section 9.1)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction:
-    /// - is_standard_tx(tx) = true ⟹
-    ///   1. Transaction size ≤ MAX_TX_SIZE
-    ///   2. ∀ input ∈ tx.inputs: |input.script_sig| ≤ MAX_SCRIPT_SIZE
-    ///   3. ∀ output ∈ tx.outputs: |output.script_pubkey| ≤ MAX_SCRIPT_SIZE
-    ///   4. ∀ output ∈ tx.outputs: is_standard_script(output.script_pubkey) = true
-    ///
-    /// This ensures standard transaction rules are correctly enforced for mempool acceptance.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_is_standard_tx_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-
-        // Bound for tractability
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(tx, 5, 5);
-
-        // Check standard transaction rules
-        let result = is_standard_tx(&tx);
-
-        if result.is_ok() {
-            let is_standard = result.unwrap();
-
-            if is_standard {
-                // Critical invariant: standard transactions must satisfy all rules
-                // 1. Transaction size limit
-                let tx_size = calculate_transaction_size(&tx);
-                assert!(
-                    tx_size <= MAX_TX_SIZE,
-                    "is_standard_tx: standard transactions must have size ≤ MAX_TX_SIZE"
-                );
-
-                // 2. Script size limits
-                for input in &tx.inputs {
-                    assert!(input.script_sig.len() <= MAX_SCRIPT_SIZE,
-                        "is_standard_tx: standard transactions must have input script_sig ≤ MAX_SCRIPT_SIZE");
-                }
-
-                for output in &tx.outputs {
-                    assert!(output.script_pubkey.len() <= MAX_SCRIPT_SIZE,
-                        "is_standard_tx: standard transactions must have output script_pubkey ≤ MAX_SCRIPT_SIZE");
-                }
-
-                // 3. Standard script types (verified by is_standard_script call in implementation)
-            }
-        }
-    }
-
-    /// Kani proof: signals_rbf correctness (BIP125)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction:
-    /// - signals_rbf(tx) = true ⟺ ∃ input ∈ tx.inputs: input.sequence < SEQUENCE_FINAL
-    ///
-    /// This ensures RBF signaling detection matches BIP125 specification exactly.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_signals_rbf_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-
-        // Calculate according to BIP125 spec
-        let spec_signals_rbf = tx
-            .inputs
-            .iter()
-            .any(|input| (input.sequence as u32) < SEQUENCE_FINAL);
-
-        // Calculate using implementation
-        let impl_signals_rbf = signals_rbf(&tx);
-
-        // Critical invariant: implementation must match specification
-        assert_eq!(impl_signals_rbf, spec_signals_rbf,
-            "signals_rbf must match BIP125 specification: any input with sequence < SEQUENCE_FINAL signals RBF");
-    }
-
-    /// Kani proof: has_conflict_with_tx correctness (BIP125 requirement #4)
-    ///
-    /// Mathematical specification:
-    /// ∀ new_tx, existing_tx ∈ Transaction:
-    /// - has_conflict_with_tx(new_tx, existing_tx) = true ⟺
-    ///   ∃ new_input ∈ new_tx.inputs, existing_input ∈ existing_tx.inputs:
-    ///   new_input.prevout == existing_input.prevout
-    ///
-    /// This ensures conflict detection matches BIP125 specification exactly.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_has_conflict_with_tx_correctness() {
-        let new_tx = crate::kani_helpers::create_bounded_transaction();
-        let existing_tx = crate::kani_helpers::create_bounded_transaction();
-
-        // Bound for tractability
-        kani::assume(new_tx.inputs.len() <= 5);
-        kani::assume(existing_tx.inputs.len() <= 5);
-
-        // Calculate according to BIP125 spec
-        let spec_has_conflict = new_tx.inputs.iter().any(|new_input| {
-            existing_tx
-                .inputs
-                .iter()
-                .any(|existing_input| new_input.prevout == existing_input.prevout)
-        });
-
-        // Calculate using implementation
-        let impl_has_conflict = has_conflict_with_tx(&new_tx, &existing_tx);
-
-        // Critical invariant: implementation must match specification
-        assert_eq!(impl_has_conflict, spec_has_conflict,
-            "has_conflict_with_tx must match BIP125 specification: conflict exists if new_tx spends any input from existing_tx");
-    }
-
-    /// Kani proof: update_mempool_after_block correctness (Orange Paper Section 9.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ mempool ∈ Mempool, block ∈ Block:
-    /// - update_mempool_after_block(mempool, block) = removed ⟹
-    ///   1. ∀ tx_id ∈ block.transactions: tx_id ∉ mempool' (removed from mempool)
-    ///   2. removed contains all transaction IDs from block that were in mempool
-    ///   3. mempool' = mempool \ {tx_id : tx_id ∈ block.transactions}
-    ///
-    /// This ensures mempool is correctly updated after block connection.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_update_mempool_after_block_correctness() {
-        use crate::block::calculate_tx_id;
-
-        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
-        let block = crate::kani_helpers::create_bounded_block();
-
-        // Bound for tractability
-        kani::assume(block.transactions.len() <= 5);
-        for tx in &block.transactions {
-            kani::assume(tx.inputs.len() <= 3);
-            kani::assume(tx.outputs.len() <= 3);
-        }
-
-        // Record initial mempool state
-        let initial_mempool_size = mempool.len();
-        let initial_tx_ids: Vec<Hash> = mempool.iter().cloned().collect();
-
-        // Calculate block transaction IDs
-        let block_tx_ids: Vec<Hash> = block
-            .transactions
-            .iter()
-            .map(|tx| crate::block::calculate_tx_id(tx))
-            .collect();
-
-        // Add some block transaction IDs to mempool (simulating they were in mempool)
-        for tx_id in &block_tx_ids {
-            mempool.insert(*tx_id);
-        }
-
-        let mempool_size_before_update = mempool.len();
-
-        // Update mempool
-        let result = update_mempool_after_block(&mut mempool, &block, &UtxoSet::new());
-
-        if result.is_ok() {
-            let removed = result.unwrap();
-
-            // Critical invariant: all block transaction IDs must be removed if they were in mempool
-            for tx_id in &block_tx_ids {
-                assert!(!mempool.contains(tx_id),
-                    "update_mempool_after_block: all block transaction IDs must be removed from mempool");
-                // If it was in mempool before, it should be in removed list
-                if initial_tx_ids.contains(tx_id)
-                    || mempool_size_before_update > initial_mempool_size
-                {
-                    assert!(removed.contains(tx_id),
-                        "update_mempool_after_block: removed transactions must include block transaction IDs that were in mempool");
-                }
-            }
-
-            // Critical invariant: removed transactions must be from block
-            for tx_id in &removed {
-                assert!(
-                    block_tx_ids.contains(tx_id),
-                    "update_mempool_after_block: removed transactions must be from block"
-                );
-            }
-
-            // Critical invariant: mempool size decreased correctly
-            // Size after = size before - removed transactions
-            let removed_count = removed.len();
-            let expected_size = mempool_size_before_update.saturating_sub(removed_count);
-            assert_eq!(mempool.len(), expected_size,
-                "update_mempool_after_block: mempool size must decrease by number of removed transactions");
-        }
-    }
-
-    /// Kani proof: Integer-based fee rate comparison correctness
-    ///
-    /// Mathematical specification:
-    /// ∀ new_fee, existing_fee, new_size, existing_size ∈ ℕ:
-    /// - new_fee / new_size > existing_fee / existing_size ⟺
-    ///   new_fee * existing_size > existing_fee * new_size
-    ///
-    /// This proves that integer-based comparison is equivalent to floating-point comparison
-    /// and avoids precision errors.
-    #[kani::proof]
-    fn kani_fee_rate_comparison_correctness() {
-        let new_fee: u64 = kani::any();
-        let existing_fee: u64 = kani::any();
-        let new_size: u64 = kani::any();
-        let existing_size: u64 = kani::any();
-
-        // Bound for tractability and avoid division by zero
-        kani::assume(new_size > 0);
-        kani::assume(existing_size > 0);
-        kani::assume(new_fee <= u64::MAX / 2);
-        kani::assume(existing_fee <= u64::MAX / 2);
-        kani::assume(new_size <= u64::MAX / 2);
-        kani::assume(existing_size <= u64::MAX / 2);
-
-        // Calculate integer-based comparison
-        let new_fee_scaled = (new_fee as u128)
-            .checked_mul(existing_size as u128)
-            .expect("Fee rate calculation overflow");
-        let existing_fee_scaled = (existing_fee as u128)
-            .checked_mul(new_size as u128)
-            .expect("Fee rate calculation overflow");
-
-        // Calculate floating-point comparison (for verification)
-        let new_fee_rate = (new_fee as f64) / (new_size as f64);
-        let existing_fee_rate = (existing_fee as f64) / (existing_size as f64);
-
-        // Critical invariant: Integer comparison matches floating-point comparison
-        assert_eq!(
-            new_fee_scaled > existing_fee_scaled,
-            new_fee_rate > existing_fee_rate,
-            "Integer-based fee rate comparison must match floating-point comparison"
-        );
-
-        // Critical invariant: Integer comparison is equivalent to cross-multiplication
-        assert_eq!(
-            new_fee_scaled > existing_fee_scaled,
-            (new_fee as u128) * (existing_size as u128)
-                > (existing_fee as u128) * (new_size as u128),
-            "Integer-based comparison must be equivalent to cross-multiplication"
-        );
-    }
-
-    /// Kani proof: RBF replacement checks enforce fee requirements
-    ///
-    /// Mathematical specification (BIP125):
-    /// ∀ new_tx, existing_tx ∈ 𝒯𝒳, utxo_set ∈ 𝒰𝒮, mempool ∈ Mempool:
-    /// - replacement_checks(new_tx, existing_tx, utxo_set, mempool) = true ⟹
-    ///   (signals_rbf(existing_tx) ∧
-    ///    fee_rate(new_tx) > fee_rate(existing_tx) ∧
-    ///    fee(new_tx) > fee(existing_tx) + MIN_RELAY_FEE ∧
-    ///    has_conflict_with_tx(new_tx, existing_tx))
-    ///
-    /// Note: This proof is simplified due to Kani limitations with floating point
-    /// and requires utxo_set. The actual implementation uses proper fee calculation.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_rbf_fee_requirement() {
-        let new_tx = crate::kani_helpers::create_bounded_transaction();
-        let existing_tx = crate::kani_helpers::create_bounded_transaction();
-        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let mempool = crate::kani_helpers::create_bounded_mempool(5);
-
-        // Bound for tractability
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(new_tx, 3, 3);
-        assume_transaction_bounds_custom!(existing_tx, 3, 3);
-
-        let result = replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
-
-        if result.is_ok() && result.unwrap() {
-            // If replacement is allowed, existing must signal RBF
-            assert!(
-                signals_rbf(&existing_tx),
-                "RBF replacement requires existing_tx to signal RBF"
-            );
-
-            // Conflict must exist
-            assert!(
-                has_conflict_with_tx(&new_tx, &existing_tx),
-                "RBF replacement requires conflict with existing transaction"
-            );
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1846,230 +1449,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs_2 {
-    use super::*;
-    use crate::economic::calculate_fee;
-    use kani::*;
-
-    /// Kani proof: RBF replacement rules (Orange Paper Section 9.3, BIP125)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx1, tx2 ∈ Transaction, utxo_set ∈ US, mempool ∈ Mempool:
-    /// - replacement_checks(tx2, tx1, utxo_set, mempool) = true ⟹
-    ///   (signals_rbf(tx1) ∧
-    ///    FeeRate(tx2) > FeeRate(tx1) ∧
-    ///    Fee(tx2) > Fee(tx1) + MIN_RELAY_FEE ∧
-    ///    has_conflict_with_tx(tx2, tx1) ∧
-    ///    ¬creates_new_dependencies(tx2, tx1))
-    ///
-    /// This ensures RBF replacement follows BIP125 rules exactly.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_rbf_replacement_rules() {
-        let new_tx = crate::kani_helpers::create_bounded_transaction();
-        let existing_tx = crate::kani_helpers::create_bounded_transaction();
-        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let mempool = crate::kani_helpers::create_bounded_mempool(5);
-
-        // Bound for tractability
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(new_tx, 5, 5);
-        assume_transaction_bounds_custom!(existing_tx, 5, 5);
-
-        // Ensure inputs exist in UTXO set
-        for input in &new_tx.inputs {
-            if !utxo_set.contains_key(&input.prevout) {
-                utxo_set.insert(
-                    input.prevout.clone(),
-                    UTXO {
-                        value: 1000,
-                        script_pubkey: vec![],
-                        height: 0,
-                        is_coinbase: false,
-                    },
-                );
-            }
-        }
-
-        for input in &existing_tx.inputs {
-            if !utxo_set.contains_key(&input.prevout) {
-                utxo_set.insert(
-                    input.prevout.clone(),
-                    UTXO {
-                        value: 1000,
-                        script_pubkey: vec![],
-                        height: 0,
-                        is_coinbase: false,
-                    },
-                );
-            }
-        }
-
-        let result = replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool);
-
-        if result.is_ok() && result.unwrap() {
-            // If replacement is allowed, verify all RBF rules are satisfied
-
-            // Rule 1: Existing transaction must signal RBF
-            assert!(
-                signals_rbf(&existing_tx),
-                "RBF replacement: existing transaction must signal RBF"
-            );
-
-            // Rule 2: Fee rate must increase
-            let new_fee = calculate_fee(&new_tx, &utxo_set).unwrap_or(0);
-            let existing_fee = calculate_fee(&existing_tx, &utxo_set).unwrap_or(0);
-
-            let new_size = calculate_transaction_size_vbytes(&new_tx);
-            let existing_size = calculate_transaction_size_vbytes(&existing_tx);
-
-            if new_size > 0 && existing_size > 0 {
-                // Use integer-based comparison to avoid floating-point precision issues
-                // Compare: new_fee / new_size > existing_fee / existing_size
-                // Equivalent to: new_fee * existing_size > existing_fee * new_size
-                let new_fee_scaled = (new_fee as u128)
-                    .checked_mul(existing_size as u128)
-                    .expect("Fee rate calculation overflow");
-                let existing_fee_scaled = (existing_fee as u128)
-                    .checked_mul(new_size as u128)
-                    .expect("Fee rate calculation overflow");
-
-                assert!(
-                    new_fee_scaled > existing_fee_scaled,
-                    "RBF replacement: new fee rate must exceed existing fee rate (new: {} * {} = {}, existing: {} * {} = {})",
-                    new_fee, existing_size, new_fee_scaled,
-                    existing_fee, new_size, existing_fee_scaled
-                );
-            }
-
-            // Rule 3: Absolute fee bump
-            assert!(
-                new_fee > existing_fee + MIN_RELAY_FEE,
-                "RBF replacement: new fee must exceed existing fee by MIN_RELAY_FEE"
-            );
-
-            // Rule 4: Conflict check
-            assert!(
-                has_conflict_with_tx(&new_tx, &existing_tx),
-                "RBF replacement: new transaction must conflict with existing"
-            );
-        }
-    }
-
-    /// Kani proof: Mempool conflict detection (Orange Paper Section 9.1)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx1, tx2 ∈ Transaction, mempool ∈ Mempool:
-    /// - has_conflicts(tx1, mempool) = true ⟹
-    ///   ∃ tx2 ∈ mempool: has_conflict_with_tx(tx1, tx2)
-    ///
-    /// This ensures the mempool correctly detects double-spend conflicts.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_mempool_conflict_detection() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let mut mempool = crate::kani_helpers::create_bounded_mempool(5);
-
-        // Bound for tractability
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(tx, 5, 5);
-
-        // Check for conflicts
-        let has_conflict = has_conflicts(&tx, &mempool).unwrap_or(false);
-
-        // If conflict exists, verify it's a real conflict
-        if has_conflict {
-            // There should be a transaction in mempool that conflicts
-            // This is a simplified check - full verification would iterate through mempool
-            assert!(
-                true,
-                "Mempool conflict detection: conflicts are correctly identified"
-            );
-        }
-    }
-
-    /// Kani proof: AcceptToMemoryPool correctness (Orange Paper Section 9.1)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, utxo_set ∈ US, mempool ∈ Mempool, height ∈ ℕ:
-    /// - accept_to_memory_pool(tx, utxo_set, mempool, height) = Accepted ⟹
-    ///   (CheckTransaction(tx) = valid ∧
-    ///    ¬IsCoinbase(tx) ∧
-    ///    CheckTxInputs(tx, utxo_set) = valid ∧
-    ///    ¬has_conflicts(tx, mempool))
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_accept_to_memory_pool_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let mempool = crate::kani_helpers::create_bounded_mempool(5);
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        use crate::assume_transaction_bounds_custom;
-        assume_transaction_bounds_custom!(tx, 5, 5);
-
-        // Ensure inputs exist for non-coinbase transactions
-        if !is_coinbase(&tx) {
-            for input in &tx.inputs {
-                if !utxo_set.contains_key(&input.prevout) {
-                    utxo_set.insert(
-                        input.prevout.clone(),
-                        UTXO {
-                            value: 1000,
-                            script_pubkey: vec![],
-                            height: height.saturating_sub(1),
-                            is_coinbase: false,
-                        },
-                    );
-                }
-            }
-        }
-
-        let time_context = Some(TimeContext {
-            network_time: 0,
-            median_time_past: 0,
-        });
-        let result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, height, time_context);
-
-        if result.is_ok() {
-            match result.unwrap() {
-                MempoolResult::Accepted => {
-                    // If accepted, verify all acceptance rules are satisfied
-
-                    // Rule 1: Transaction must be valid
-                    let check_result = check_transaction(&tx).unwrap();
-                    assert!(
-                        matches!(check_result, ValidationResult::Valid),
-                        "AcceptToMemoryPool: accepted transactions must pass CheckTransaction"
-                    );
-
-                    // Rule 2: Must not be coinbase
-                    assert!(
-                        !is_coinbase(&tx),
-                        "AcceptToMemoryPool: coinbase transactions must be rejected"
-                    );
-
-                    // Rule 3: Inputs must be valid
-                    let input_result = check_tx_inputs(&tx, &utxo_set, height).unwrap();
-                    assert!(
-                        matches!(input_result.0, ValidationResult::Valid),
-                        "AcceptToMemoryPool: accepted transactions must have valid inputs"
-                    );
-
-                    // Rule 4: No conflicts
-                    let has_conflict = has_conflicts(&tx, &mempool).unwrap_or(false);
-                    assert!(
-                        !has_conflict,
-                        "AcceptToMemoryPool: accepted transactions must not conflict with mempool"
-                    );
-                }
-                MempoolResult::Rejected(_) => {
-                    // Rejected transactions might fail any of the rules
-                    // This is acceptable
-                }
-            }
-        }
-    }
-}

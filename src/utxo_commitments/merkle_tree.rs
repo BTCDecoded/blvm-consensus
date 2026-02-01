@@ -10,6 +10,8 @@ use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
 };
 #[cfg(feature = "utxo-commitments")]
+use blvm_spec_lock::spec_locked;
+#[cfg(feature = "utxo-commitments")]
 use sha2::{Digest, Sha256};
 #[cfg(feature = "utxo-commitments")]
 use sparse_merkle_tree::default_store::DefaultStore;
@@ -85,6 +87,7 @@ pub struct UtxoMerkleTree {
 #[cfg(feature = "utxo-commitments")]
 impl UtxoMerkleTree {
     /// Create a new empty UTXO Merkle tree
+    #[spec_locked("13.1")]
     pub fn new() -> UtxoCommitmentResult<Self> {
         let store = DefaultStore::default();
         let tree = SparseMerkleTree::new_with_store(store).map_err(|e| {
@@ -100,6 +103,7 @@ impl UtxoMerkleTree {
     }
 
     /// Get the Merkle root of the UTXO set
+    #[spec_locked("13.1")]
     pub fn root(&self) -> Hash {
         let root_h256 = self.tree.root();
         let mut hash = [0u8; 32];
@@ -108,6 +112,7 @@ impl UtxoMerkleTree {
     }
 
     /// Insert a UTXO into the tree
+    #[spec_locked("13.1")]
     pub fn insert(&mut self, outpoint: OutPoint, utxo: UTXO) -> UtxoCommitmentResult<Hash> {
         // Hash the OutPoint to get a key
         let key = self.hash_outpoint(&outpoint);
@@ -149,6 +154,7 @@ impl UtxoMerkleTree {
     }
 
     /// Remove a UTXO from the tree (by updating with zero value)
+    #[spec_locked("13.1")]
     pub fn remove(&mut self, outpoint: &OutPoint, utxo: &UTXO) -> UtxoCommitmentResult<Hash> {
         // Hash the OutPoint to get a key
         let key = self.hash_outpoint(outpoint);
@@ -208,6 +214,7 @@ impl UtxoMerkleTree {
     }
 
     /// Get a UTXO from the tree
+    #[spec_locked("13.1")]
     pub fn get(&self, outpoint: &OutPoint) -> UtxoCommitmentResult<Option<UTXO>> {
         let key = self.hash_outpoint(outpoint);
 
@@ -239,6 +246,8 @@ impl UtxoMerkleTree {
     }
 
     /// Generate a UTXO commitment
+    #[spec_locked("13.1")]
+    #[spec_locked("13.1")]
     pub fn generate_commitment(&self, block_hash: Hash, block_height: Natural) -> UtxoCommitment {
         let merkle_root = self.root();
         UtxoCommitment::new(
@@ -256,6 +265,7 @@ impl UtxoMerkleTree {
     }
 
     /// Get UTXO count
+    #[spec_locked("13.1")]
     pub fn utxo_count(&self) -> u64 {
         self.utxo_count
     }
@@ -263,6 +273,7 @@ impl UtxoMerkleTree {
     /// Generate a Merkle proof for a specific UTXO
     ///
     /// Returns a proof that can be used to verify the UTXO exists in the tree.
+    #[spec_locked("13.1")]
     pub fn generate_proof(
         &self,
         outpoint: &OutPoint,
@@ -279,6 +290,7 @@ impl UtxoMerkleTree {
     ///
     /// Compares the total supply in the commitment against the expected
     /// Bitcoin supply at the given block height.
+    #[spec_locked("13.2")]
     pub fn verify_commitment_supply(
         &self,
         commitment: &UtxoCommitment,
@@ -302,6 +314,7 @@ impl UtxoMerkleTree {
     ///
     /// Used after connect_block() to update the Merkle tree
     /// with the validated UTXO set. This rebuilds the entire tree.
+    #[spec_locked("13.1")]
     pub fn from_utxo_set(utxo_set: &crate::types::UtxoSet) -> UtxoCommitmentResult<Self> {
         let mut tree = Self::new()?;
         for (outpoint, utxo) in utxo_set {
@@ -323,6 +336,7 @@ impl UtxoMerkleTree {
     ///
     /// * `new_utxo_set` - The new UTXO set (from connect_block)
     /// * `old_utxo_set` - The previous UTXO set (for detecting removals)
+    #[spec_locked("13.1")]
     pub fn update_from_utxo_set(
         &mut self,
         new_utxo_set: &crate::types::UtxoSet,
@@ -362,6 +376,7 @@ impl UtxoMerkleTree {
     /// Iterates through the tree and builds a UtxoSet.
     /// Note: This is expensive as sparse merkle trees don't support
     /// efficient iteration. Use only when necessary.
+    #[spec_locked("13.1")]
     pub fn to_utxo_set(&self) -> UtxoCommitmentResult<crate::types::UtxoSet> {
         // Sparse merkle tree doesn't support iteration efficiently.
         // We need to use the utxo_index if available, or rebuild from
@@ -376,6 +391,7 @@ impl UtxoMerkleTree {
     }
 
     /// Verify a commitment's Merkle root matches the tree's root
+    #[spec_locked("13.1")]
     pub fn verify_commitment_root(&self, commitment: &UtxoCommitment) -> bool {
         let tree_root = self.root();
         commitment.merkle_root == tree_root
@@ -397,6 +413,7 @@ impl UtxoMerkleTree {
     ///
     /// # Returns
     /// `Ok(true)` if proof is valid, `Ok(false)` or `Err` if invalid
+    #[spec_locked("13.1")]
     pub fn verify_utxo_proof(
         commitment: &UtxoCommitment,
         outpoint: &OutPoint,
@@ -546,206 +563,9 @@ impl UtxoMerkleTree {
 /// - root(tree) is deterministic (same tree → same root)
 /// - Commitment consistency: commitment.total_supply matches tree.total_supply
 ///
-/// Invariants:
+// Invariants:
 /// - Supply tracking is accurate (never negative, matches UTXO set)
 /// - Merkle root is deterministic for same UTXO set
-/// - Tree operations preserve consistency
-/// - Commitment generation matches actual tree state
+// - Tree operations preserve consistency
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::{OutPoint, UTXO};
-    use kani::*;
-
-    /// Kani proof: Supply tracking accuracy after insert
-    ///
-    /// Verifies that inserting a UTXO correctly increases total supply.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_insert_supply_accuracy() {
-        let mut tree = UtxoMerkleTree::new().unwrap();
-
-        let initial_supply = tree.total_supply();
-        let initial_count = tree.utxo_count();
-
-        // Create test UTXO
-        let outpoint = OutPoint {
-            hash: kani::any(),
-            index: kani::any(),
-        };
-
-        let utxo_value: i64 = kani::any();
-        kani::assume(utxo_value >= 0); // Valid UTXO value
-
-        let utxo = UTXO {
-            value: utxo_value,
-            script_pubkey: vec![], // Simplified for tractability
-            height: 0,
-            is_coinbase: false,
-        };
-
-        // Insert UTXO
-        let result = tree.insert(outpoint, utxo.clone());
-        kani::assume(result.is_ok());
-
-        // Verify supply increased correctly
-        assert_eq!(
-            tree.total_supply(),
-            initial_supply + utxo.value as u64,
-            "Total supply must increase by UTXO value"
-        );
-
-        // Verify count increased
-        assert_eq!(
-            tree.utxo_count(),
-            initial_count + 1,
-            "UTXO count must increase by 1"
-        );
-    }
-
-    /// Kani proof: Supply tracking accuracy after remove
-    ///
-    /// Verifies that removing a UTXO correctly decreases total supply.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_remove_supply_accuracy() {
-        let mut tree = UtxoMerkleTree::new().unwrap();
-
-        // Insert UTXO first
-        let outpoint = OutPoint {
-            hash: kani::any(),
-            index: kani::any(),
-        };
-
-        let utxo_value: i64 = kani::any();
-        kani::assume(utxo_value >= 0);
-        kani::assume(utxo_value <= 1000000); // Bound for tractability
-
-        let utxo = UTXO {
-            value: utxo_value,
-            script_pubkey: vec![],
-            height: 0,
-        };
-
-        tree.insert(outpoint.clone(), utxo.clone()).unwrap();
-        let supply_after_insert = tree.total_supply();
-        let count_after_insert = tree.utxo_count();
-
-        // Remove UTXO
-        let result = tree.remove(&outpoint, &utxo);
-        kani::assume(result.is_ok());
-
-        // Verify supply decreased correctly (using saturating_sub, so can't go negative)
-        assert!(
-            tree.total_supply() <= supply_after_insert,
-            "Total supply must not increase after remove"
-        );
-
-        // Verify count decreased
-        assert_eq!(
-            tree.utxo_count(),
-            count_after_insert.saturating_sub(1),
-            "UTXO count must decrease by 1"
-        );
-    }
-
-    /// Kani proof: Merkle root determinism
-    ///
-    /// Verifies that the same UTXO set always produces the same root.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_merkle_root_deterministic() {
-        let mut tree1 = UtxoMerkleTree::new().unwrap();
-        let mut tree2 = UtxoMerkleTree::new().unwrap();
-
-        // Insert same UTXO in both trees
-        let outpoint = OutPoint {
-            hash: kani::any(),
-            index: kani::any(),
-        };
-
-        let utxo_value: i64 = kani::any();
-        kani::assume(utxo_value >= 0);
-        kani::assume(utxo_value <= 1000000);
-
-        let utxo = UTXO {
-            value: utxo_value,
-            script_pubkey: vec![],
-            height: 0,
-        };
-
-        tree1.insert(outpoint.clone(), utxo.clone()).unwrap();
-        tree2.insert(outpoint.clone(), utxo.clone()).unwrap();
-
-        // Both trees should have same root
-        assert_eq!(
-            tree1.root(),
-            tree2.root(),
-            "Same UTXO set must produce same Merkle root"
-        );
-    }
-
-    /// Kani proof: Commitment consistency
-    ///
-    /// Verifies that generated commitment matches tree state.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_commitment_consistency() {
-        let mut tree = UtxoMerkleTree::new().unwrap();
-
-        // Insert UTXO
-        let outpoint = OutPoint {
-            hash: kani::any(),
-            index: kani::any(),
-        };
-
-        let utxo_value: i64 = kani::any();
-        kani::assume(utxo_value >= 0);
-        kani::assume(utxo_value <= 1000000);
-
-        let utxo = UTXO {
-            value: utxo_value,
-            script_pubkey: vec![],
-            height: 0,
-        };
-
-        tree.insert(outpoint, utxo.clone()).unwrap();
-
-        // Generate commitment
-        let block_hash: Hash = kani::any();
-        let block_height: Natural = kani::any();
-        kani::assume(block_height <= 1000); // Bound for tractability
-
-        let commitment = tree.generate_commitment(block_hash, block_height);
-
-        // Verify commitment matches tree state
-        assert_eq!(
-            commitment.total_supply,
-            tree.total_supply(),
-            "Commitment supply must match tree supply"
-        );
-
-        assert_eq!(
-            commitment.utxo_count,
-            tree.utxo_count(),
-            "Commitment count must match tree count"
-        );
-
-        assert_eq!(
-            commitment.merkle_root,
-            tree.root(),
-            "Commitment root must match tree root"
-        );
-
-        assert_eq!(
-            commitment.block_height, block_height,
-            "Commitment height must match requested height"
-        );
-
-        assert_eq!(
-            commitment.block_hash, block_hash,
-            "Commitment hash must match requested hash"
-        );
-    }
-}
+// End of module

@@ -398,7 +398,7 @@ pub struct FeatureFlagsConfig {
     #[serde(default = "default_false")]
     pub enable_experimental_optimizations: bool,
 
-    /// Enable bounds check optimizations (requires Kani proofs)
+    /// Enable bounds check optimizations (requires formal proofs)
     /// Default: true (if production feature enabled)
     #[serde(default = "default_true")]
     pub enable_bounds_check_optimizations: bool,

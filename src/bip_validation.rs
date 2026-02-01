@@ -9,6 +9,7 @@ use crate::block::calculate_tx_id;
 use crate::error::{ConsensusError, Result};
 use crate::transaction::is_coinbase;
 use crate::types::*;
+use blvm_spec_lock::spec_locked;
 
 /// BIP30: Duplicate Coinbase Prevention
 ///
@@ -25,6 +26,7 @@ use crate::types::*;
 /// in blocks 91842 and 91880 (historical bug, grandfathered in).
 ///
 /// Activation: Block 0 (always active until deactivation)
+#[spec_locked("5.4.1")]
 pub fn check_bip30(block: &Block, utxo_set: &UtxoSet, height: Natural, network: crate::types::Network) -> Result<bool> {
     use crate::constants::{BIP30_DEACTIVATION_MAINNET, BIP30_DEACTIVATION_TESTNET, BIP30_DEACTIVATION_REGTEST};
     
@@ -86,6 +88,7 @@ pub fn check_bip30(block: &Block, utxo_set: &UtxoSet, height: Natural, network: 
 /// - Mainnet: Block 227,836
 /// - Testnet: Block 211,111
 /// - Regtest: Block 0 (always active)
+#[spec_locked("5.4.2")]
 pub fn check_bip34(block: &Block, height: Natural, network: crate::types::Network) -> Result<bool> {
     let activation_height = match network {
         crate::types::Network::Mainnet => crate::constants::BIP34_ACTIVATION_MAINNET,
@@ -246,6 +249,7 @@ fn extract_height_from_script_sig(script_sig: &[u8]) -> Result<Natural> {
 /// - Mainnet: Block 363,724
 /// - Testnet: Block 330,776
 /// - Regtest: Block 0 (always active)
+#[spec_locked("5.4.3")]
 pub fn check_bip66(
     signature: &[u8],
     height: Natural,
@@ -381,6 +385,7 @@ fn is_strict_der(signature: &[u8]) -> Result<bool> {
 /// - BIP34: Mainnet 227,836 (requires version >= 2)
 /// - BIP66: Mainnet 363,724 (requires version >= 3)
 /// - BIP65: Mainnet 388,381 (requires version >= 4)
+#[spec_locked("5.4.4")]
 pub fn check_bip90(
     block_version: i64,
     height: Natural,
@@ -431,6 +436,7 @@ pub fn check_bip90(
 /// - Mainnet: Block 481,824 (SegWit activation)
 /// - Testnet: Block 834,624
 /// - Regtest: Block 0 (always active)
+#[spec_locked("5.4.5")]
 pub fn check_bip147(
     script_sig: &[u8],
     script_pubkey: &[u8],
@@ -508,168 +514,6 @@ pub enum Bip147Network {
     Regtest,
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: BIP30 duplicate coinbase prevention correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.1):
-    /// ∀ block b, UTXO set us:
-    /// - BIP30Check(b, us) = false ⟹ ∃ tx ∈ b.txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
-    #[kani::proof]
-    fn kani_bip30_duplicate_coinbase_prevention() {
-        // Create block with bounded transactions using helper function
-        let transactions_vec = crate::kani_helpers::create_bounded_transaction_vec(10);
-        let block = Block {
-            header: crate::kani_helpers::create_bounded_block_header(),
-            transactions: transactions_vec.into_boxed_slice(),
-        };
-        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-
-        let result = check_bip30(&block, &utxo_set, 0, crate::types::Network::Mainnet);
-
-        // Should never panic
-        assert!(result.is_ok(), "BIP30 check should never panic");
-
-        // If check fails, there must be a duplicate coinbase
-        if let Ok(false) = result {
-            // This means duplicate coinbase was detected
-            // The invariant is that the check correctly identifies duplicates
-            assert!(true, "BIP30 correctly identifies duplicate coinbase");
-        }
-    }
-
-    /// Kani proof: BIP34 block height encoding correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.2):
-    /// ∀ block b, height h ≥ activation_height:
-    /// - BIP34Check(b, h) = true ⟹ ExtractHeight(b.coinbase.scriptSig) = h
-    #[kani::proof]
-    fn kani_bip34_height_encoding_correctness() {
-        // Create block with bounded transactions using helper function
-        let transactions_vec = crate::kani_helpers::create_bounded_transaction_vec(10);
-        let block = Block {
-            header: crate::kani_helpers::create_bounded_block_header(),
-            transactions: transactions_vec.into_boxed_slice(),
-        };
-        let height: Natural = kani::any();
-        kani::assume(height <= 1_000_000);
-
-        let result = check_bip34(&block, height, crate::types::Network::Mainnet);
-
-        // Should never panic
-        assert!(result.is_ok(), "BIP34 check should never panic");
-
-        // Before activation, should always pass
-        if height < 227_836 {
-            assert!(
-                result.unwrap_or(false),
-                "BIP34 should pass before activation"
-            );
-        }
-    }
-
-    /// Kani proof: BIP66 strict DER signature validation correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.3):
-    /// ∀ signature s, height h ≥ activation_height:
-    /// - BIP66Check(s, h) = true ⟹ IsStrictDER(s) = true
-    #[kani::proof]
-    fn kani_bip66_strict_der_validation() {
-        let signature = crate::kani_helpers::create_bounded_byte_string(73); // Max signature size
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(signature.len() <= 73); // Max signature size
-        kani::assume(height <= 1_000_000);
-
-        let result = check_bip66(&signature, height, crate::types::Network::Mainnet);
-
-        // Should never panic
-        assert!(result.is_ok(), "BIP66 check should never panic");
-
-        // Before activation, should always pass
-        if height < 363_724 {
-            assert!(
-                result.unwrap_or(false),
-                "BIP66 should pass before activation"
-            );
-        }
-    }
-
-    /// Kani proof: BIP90 block version enforcement correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.4):
-    /// ∀ version v, height h:
-    /// - BIP90Check(v, h) = false ⟹ v < RequiredVersion(h)
-    #[kani::proof]
-    fn kani_bip90_version_enforcement() {
-        let version: i64 = kani::any();
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(version >= 1 && version <= 10);
-        kani::assume(height <= 1_000_000);
-
-        let result = check_bip90(version, height, crate::types::Network::Mainnet);
-
-        // Should never panic
-        assert!(result.is_ok(), "BIP90 check should never panic");
-
-        // Version enforcement invariants
-        let result_value = result.unwrap_or(true);
-        if height >= 227_836 && version < 2 {
-            assert!(
-                !result_value,
-                "BIP90: Version 1 invalid after BIP34 activation"
-            );
-        }
-        if height >= 363_724 && version < 3 {
-            assert!(
-                !result_value,
-                "BIP90: Version 2 invalid after BIP66 activation"
-            );
-        }
-        if height >= 388_381 && version < 4 {
-            assert!(
-                !result_value,
-                "BIP90: Version 3 invalid after BIP65 activation"
-            );
-        }
-    }
-
-    /// Kani proof: BIP147 NULLDUMMY enforcement correctness
-    ///
-    /// Mathematical specification (Orange Paper Section 5.4.5):
-    /// ∀ scriptSig s, scriptPubkey p, height h ≥ activation_height:
-    /// - BIP147Check(s, p, h) = true ⟹ (ContainsMultisig(p) ⟹ IsNullDummy(s))
-    #[kani::proof]
-    fn kani_bip147_null_dummy_enforcement() {
-        let script_sig = crate::kani_helpers::create_bounded_byte_string(10);
-        let script_pubkey = crate::kani_helpers::create_bounded_byte_string(10);
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(script_sig.len() <= 100);
-        kani::assume(script_pubkey.len() <= 100);
-        kani::assume(height <= 1_000_000);
-
-        let result = check_bip147(&script_sig, &script_pubkey, height, Bip147Network::Mainnet);
-
-        // Should never panic
-        assert!(result.is_ok(), "BIP147 check should never panic");
-
-        // Before activation, should always pass
-        if height < 481_824 {
-            assert!(
-                result.unwrap_or(false),
-                "BIP147 should pass before activation"
-            );
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

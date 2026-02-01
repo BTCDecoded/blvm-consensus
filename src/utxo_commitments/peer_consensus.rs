@@ -5,6 +5,8 @@
 //! without trusting any single peer.
 
 #[cfg(feature = "utxo-commitments")]
+use blvm_spec_lock::spec_locked;
+#[cfg(feature = "utxo-commitments")]
 use crate::types::{BlockHeader, Hash, Natural};
 #[cfg(feature = "utxo-commitments")]
 use crate::utxo_commitments::data_structures::{
@@ -112,6 +114,7 @@ impl PeerConsensus {
     /// - Subnets (/16 for IPv4, /32 for IPv6)
     /// - Geographic regions
     /// - Bitcoin implementations
+    #[spec_locked("13.4")]
     pub fn discover_diverse_peers(&self, all_peers: Vec<PeerInfo>) -> Vec<PeerInfo> {
         let mut diverse_peers = Vec::new();
         let mut seen_asn: HashMap<u32, usize> = HashMap::new();
@@ -154,6 +157,7 @@ impl PeerConsensus {
     /// - Median is always between min(tips) and max(tips)
     /// - Checkpoint height is always >= 0
     /// - Checkpoint height <= median_tip
+    #[spec_locked("13.4")]
     pub fn determine_checkpoint_height(&self, peer_tips: Vec<Natural>) -> Natural {
         if peer_tips.is_empty() {
             return 0;
@@ -259,6 +263,7 @@ impl PeerConsensus {
     ///
     /// Groups commitments by their values and finds the majority consensus.
     /// Returns the consensus commitment if threshold is met.
+    #[spec_locked("13.4")]
     pub fn find_consensus(
         &self,
         peer_commitments: Vec<PeerCommitment>,
@@ -396,6 +401,7 @@ impl PeerConsensus {
     /// 1. Block header chain is valid (PoW verification)
     /// 2. Commitment supply matches expected supply at height
     /// 3. Commitment block hash matches actual block hash
+    #[spec_locked("13.4")]
     pub fn verify_consensus_commitment(
         &self,
         consensus: &ConsensusResult,
@@ -456,6 +462,7 @@ impl PeerConsensus {
     ///
     /// peer_consensus.verify_utxo_proofs(&consensus, utxos_to_verify)?;
     /// ```
+    #[spec_locked("13.4")]
     pub fn verify_utxo_proofs(
         &self,
         consensus: &ConsensusResult,
@@ -503,6 +510,7 @@ impl PeerConsensus {
     /// Uses parallel processing for better performance when verifying many proofs.
     /// For small batches (< 10), sequential verification may be faster due to overhead.
     #[cfg(feature = "parallel-verification")]
+    #[spec_locked("13.4")]
     pub fn verify_utxo_proofs_parallel(
         &self,
         consensus: &ConsensusResult,
@@ -547,6 +555,7 @@ impl PeerConsensus {
     /// Verify UTXO proofs in parallel (fallback for when rayon is not available)
     ///
     /// Falls back to sequential verification if parallel feature is not enabled.
+    #[spec_locked("13.4")]
     pub fn verify_utxo_proofs_parallel_fallback(
         &self,
         consensus: &ConsensusResult,
@@ -594,194 +603,8 @@ fn compute_block_hash(header: &BlockHeader) -> Hash {
 /// - discover_diverse_peers(peers) ⊆ peers (no new peers created)
 /// - verify_consensus_commitment(consensus, headers) verifies PoW + supply
 ///
-/// Invariants:
+// Invariants:
 /// - Consensus requires threshold percentage agreement
-/// - Diverse peer discovery filters for diversity
-/// - Consensus verification ensures cryptographic security
+// - Diverse peer discovery filters for diversity
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: Consensus threshold enforcement
-    ///
-    /// Verifies that consensus finding respects the threshold.
-    #[kani::proof]
-    #[kani::unwind(10)]
-    fn kani_consensus_threshold_enforcement() {
-        let config = ConsensusConfig::default();
-        let peer_consensus = PeerConsensus::new(config);
-
-        // Create multiple peer commitments
-        let commitment1 = UtxoCommitment::new(
-            [1; 32], // Same commitment (consensus)
-            1000, 1, 0, [0; 32],
-        );
-
-        let commitment2 = UtxoCommitment::new(
-            [1; 32], // Same commitment (consensus)
-            1000, 1, 0, [0; 32],
-        );
-
-        let commitment3 = UtxoCommitment::new(
-            [2; 32], // Different commitment (no consensus)
-            2000, 2, 0, [0; 32],
-        );
-
-        let peer_commitments = vec![
-            PeerCommitment {
-                peer_info: PeerInfo {
-                    address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1)),
-                    asn: Some(1),
-                    country: None,
-                    implementation: None,
-                    subnet: 0x01010000,
-                },
-                commitment: commitment1.clone(),
-            },
-            PeerCommitment {
-                peer_info: PeerInfo {
-                    address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(2, 2, 2, 2)),
-                    asn: Some(2),
-                    country: None,
-                    implementation: None,
-                    subnet: 0x02020000,
-                },
-                commitment: commitment2.clone(),
-            },
-            PeerCommitment {
-                peer_info: PeerInfo {
-                    address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(3, 3, 3, 3)),
-                    asn: Some(3),
-                    country: None,
-                    implementation: None,
-                    subnet: 0x03030000,
-                },
-                commitment: commitment3,
-            },
-        ];
-
-        // 2 out of 3 agree (66.7%), but threshold is 80%
-        // So consensus should fail
-        let result = peer_consensus.find_consensus(peer_commitments);
-
-        // With 80% threshold, 2/3 (66.7%) should fail
-        assert!(
-            result.is_err(),
-            "Consensus should fail when agreement < threshold"
-        );
-    }
-
-    /// Kani proof: Integer-based threshold calculation correctness
-    ///
-    /// Verifies that the integer-based threshold calculation correctly implements
-    /// the mathematical requirement: agreement_count >= ceil(total_peers * threshold)
-    #[kani::proof]
-    #[kani::unwind(10)] // Reduced from 20 - assumptions already bound the space well
-    fn kani_integer_threshold_calculation() {
-        let total_peers: usize = kani::any();
-        kani::assume(total_peers >= 1 && total_peers <= 50); // Reduced from 100 for faster verification
-
-        let threshold: f64 = kani::any();
-        kani::assume(threshold > 0.0 && threshold <= 1.0);
-
-        let agreement_count: usize = kani::any();
-        kani::assume(agreement_count <= total_peers);
-
-        // Calculate required agreement count using the same method as find_consensus
-        let required_agreement_count = ((total_peers as f64) * threshold).ceil() as usize;
-
-        // Mathematical invariant: required_agreement_count must be <= total_peers
-        assert!(
-            required_agreement_count <= total_peers,
-            "Required agreement count cannot exceed total peers"
-        );
-
-        // Mathematical invariant: If agreement_count >= required_agreement_count,
-        // then agreement_count / total_peers >= threshold (within floating-point precision)
-        if agreement_count >= required_agreement_count {
-            let actual_ratio = agreement_count as f64 / total_peers as f64;
-            // Allow small floating-point error (epsilon)
-            assert!(
-                actual_ratio >= threshold - f64::EPSILON,
-                "If agreement_count >= required, then ratio >= threshold"
-            );
-        }
-
-        // Mathematical invariant: If agreement_count < required_agreement_count,
-        // then agreement_count / total_peers < threshold (within floating-point precision)
-        if agreement_count < required_agreement_count {
-            let actual_ratio = agreement_count as f64 / total_peers as f64;
-            // For the strict case, we need to account for ceiling rounding
-            // If required = ceil(total * threshold), then agreement < required implies
-            // agreement < ceil(total * threshold), which implies agreement/total < threshold
-            // (with some edge cases around exact boundaries)
-            assert!(
-                actual_ratio < threshold + f64::EPSILON,
-                "If agreement_count < required, then ratio < threshold (within epsilon)"
-            );
-        }
-    }
-
-    // Removed: kani_median_calculation_correctness
-    // This proof verified a trivial mathematical property (min <= median <= max)
-    // that can be verified with unit tests. The unwind=20 bound was excessive.
-
-    // Removed: kani_consensus_result_invariants
-    // This proof verified trivial type/range invariants (agreement_ratio in [0,1],
-    // agreement_count <= total_peers) that are obvious from the type system.
-    // The unwind=20 bound was excessive for simple arithmetic checks.
-
-    /// Kani proof: Diverse peer discovery filtering
-    ///
-    /// Verifies that diverse peer discovery filters out duplicate subnets.
-    #[kani::proof]
-    #[kani::unwind(10)]
-    fn kani_diverse_peer_discovery() {
-        let config = ConsensusConfig::default();
-        let peer_consensus = PeerConsensus::new(config);
-
-        // Create peers with duplicate subnets
-        let all_peers = vec![
-            PeerInfo {
-                address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1)),
-                asn: Some(1),
-                country: None,
-                implementation: None,
-                subnet: 0x01010000, // Same subnet
-            },
-            PeerInfo {
-                address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 2, 2)),
-                asn: Some(2),
-                country: None,
-                implementation: None,
-                subnet: 0x01010000, // Same subnet (duplicate)
-            },
-            PeerInfo {
-                address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(2, 2, 2, 2)),
-                asn: Some(3),
-                country: None,
-                implementation: None,
-                subnet: 0x02020000, // Different subnet
-            },
-        ];
-
-        let diverse_peers = peer_consensus.discover_diverse_peers(all_peers.clone());
-
-        // Should filter out duplicate subnet
-        assert!(
-            diverse_peers.len() <= all_peers.len(),
-            "Diverse peer discovery should not add peers"
-        );
-
-        // Should have at most one peer per subnet
-        let mut seen_subnets = std::collections::HashSet::new();
-        for peer in &diverse_peers {
-            assert!(
-                seen_subnets.insert(peer.subnet),
-                "No duplicate subnets in diverse peers"
-            );
-        }
-    }
-}
+// End of module

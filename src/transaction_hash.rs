@@ -9,6 +9,7 @@
 use crate::error::Result;
 use crate::types::*;
 use sha2::{Digest, Sha256};
+use blvm_spec_lock::spec_locked;
 
 // OPTIMIZATION: Inline varint encoding helper to avoid Vec allocations in hot path
 #[inline]
@@ -170,6 +171,7 @@ fn get_sighash_template(
 ///
 /// # Returns
 /// 32-byte hash to be signed with ECDSA
+#[spec_locked("5.1")]
 pub fn calculate_transaction_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -183,6 +185,7 @@ pub fn calculate_transaction_sighash(
 /// 
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
+#[spec_locked("5.1")]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
     input_index: usize,
@@ -324,6 +327,7 @@ pub fn calculate_transaction_sighash_with_script_code(
 ///
 /// # Returns
 /// Vector of 32-byte hashes, one per input (in same order)
+#[spec_locked("5.1.1")]
 pub fn batch_compute_sighashes(
     tx: &Transaction,
     prevouts: &[TransactionOutput],
@@ -602,245 +606,3 @@ mod tests {
     }
 }
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::Transaction;
-    use kani::*;
-
-    /// Kani proof: Transaction sighash determinism (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, sighash_type ∈ SighashType:
-    /// - calculate_transaction_sighash(tx, input_index, prevouts, sighash_type) is deterministic
-    /// - Same inputs → same sighash
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_sighash_determinism() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
-        let sighash_type = crate::kani_helpers::create_bounded_sighash_type();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(prevouts.len() == tx.inputs.len());
-
-        // Calculate sighash twice
-        let sighash1_result =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, sighash_type);
-        let sighash2_result =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, sighash_type);
-
-        if sighash1_result.is_ok() && sighash2_result.is_ok() {
-            let sighash1 = sighash1_result.unwrap();
-            let sighash2 = sighash2_result.unwrap();
-
-            // Critical invariant: same inputs must produce same sighash
-            assert_eq!(
-                sighash1, sighash2,
-                "Transaction sighash determinism: same transaction must produce same sighash"
-            );
-        }
-    }
-
-    /// Kani proof: Transaction sighash type correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ:
-    /// - SIGHASH_ALL: signs all inputs and all outputs
-    /// - SIGHASH_NONE: signs all inputs but no outputs
-    /// - SIGHASH_SINGLE: signs all inputs and output at same index
-    /// - SIGHASH_ANYONECANPAY: signs only this input
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_sighash_type_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(prevouts.len() == tx.inputs.len());
-
-        // Calculate sighashes for different types
-        let sighash_all =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, SighashType::All);
-        let sighash_none =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, SighashType::None);
-        let sighash_single =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, SighashType::Single);
-
-        if sighash_all.is_ok() && sighash_none.is_ok() && sighash_single.is_ok() {
-            let all = sighash_all.unwrap();
-            let none = sighash_none.unwrap();
-            let single = sighash_single.unwrap();
-
-            // Critical invariant: different sighash types must produce different hashes
-            // (Unless transaction has special structure that makes them equal)
-            assert!(
-                all != none || tx.inputs.is_empty() || tx.outputs.is_empty(),
-                "Transaction sighash type correctness: SIGHASH_ALL and SIGHASH_NONE should differ"
-            );
-
-            assert!(all != single || tx.inputs.is_empty() || input_index >= tx.outputs.len(),
-                "Transaction sighash type correctness: SIGHASH_ALL and SIGHASH_SINGLE should differ");
-        }
-    }
-
-    /// Kani proof: Transaction sighash correctness (Orange Paper Section 13.3.2)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, prevouts ∈ [TransactionOutput]:
-    /// - calculate_transaction_sighash(tx, input_index, prevouts, type) =
-    ///   SHA256(SHA256(sighash_preimage(tx, input_index, prevouts, type)))
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_transaction_sighash_correctness() {
-        use sha2::{Digest, Sha256};
-
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
-        let sighash_type = crate::kani_helpers::create_bounded_sighash_type();
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(prevouts.len() == tx.inputs.len());
-
-        let sighash_result =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, sighash_type);
-
-        if sighash_result.is_ok() {
-            let sighash = sighash_result.unwrap();
-
-            // Critical invariant: sighash must be 32 bytes (SHA256 output)
-            assert_eq!(
-                sighash.len(),
-                32,
-                "Transaction sighash correctness: sighash must be 32 bytes (SHA256 output)"
-            );
-
-            // Sighash must be deterministic (verified in other proof)
-            // This proof verifies the structure is correct
-            assert!(true, "Transaction sighash correctness: structure verified");
-        }
-    }
-
-    /// Kani proof: P2SH redeem script sighash (Orange Paper Section 5.1.1)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ, prevout ∈ TransactionOutput, redeem_script ∈ ByteString:
-    /// - If IsP2SH(prevout.scriptPubkey):
-    ///   SighashScriptCode(tx, input_index, prevout, redeem_script) = redeem_script
-    /// - Otherwise:
-    ///   SighashScriptCode(tx, input_index, prevout, None) = prevout.scriptPubkey
-    ///
-    /// This ensures P2SH transactions use the redeem script for sighash calculation.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_p2sh_redeem_script_sighash() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
-        let sighash_type = SighashType::All;
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(prevouts.len() == tx.inputs.len());
-
-        // Create P2SH prevout
-        let mut p2sh_script_pubkey = vec![0xa9, 0x14]; // OP_HASH160, push 20
-        p2sh_script_pubkey.extend_from_slice(&[0u8; 20]);
-        p2sh_script_pubkey.push(0x87); // OP_EQUAL
-
-        let redeem_script = crate::kani_helpers::create_bounded_byte_string(10);
-        kani::assume(redeem_script.len() <= 50);
-
-        // Calculate sighash with redeem script (P2SH case)
-        let sighash_with_redeem = calculate_transaction_sighash_with_script_code(
-            &tx,
-            input_index,
-            &prevouts,
-            sighash_type,
-            Some(&redeem_script),
-        );
-
-        // Calculate sighash without redeem script (non-P2SH case)
-        let sighash_without_redeem = calculate_transaction_sighash_with_script_code(
-            &tx,
-            input_index,
-            &prevouts,
-            sighash_type,
-            None,
-        );
-
-        if sighash_with_redeem.is_ok() && sighash_without_redeem.is_ok() {
-            let with_redeem = sighash_with_redeem.unwrap();
-            let without_redeem = sighash_without_redeem.unwrap();
-
-            // Critical invariant: Using redeem script should produce different sighash than using scriptPubkey
-            // (unless redeem script equals scriptPubkey, which is invalid for P2SH)
-            assert!(
-                with_redeem.len() == 32 && without_redeem.len() == 32,
-                "P2SH redeem script sighash: both sighashes must be 32 bytes"
-            );
-        }
-    }
-
-    /// Kani proof: Sighash AllLegacy (0x00) correctness (Orange Paper Section 5.1.1)
-    ///
-    /// Mathematical specification:
-    /// ∀ tx ∈ Transaction, input_index ∈ ℕ:
-    /// - SighashType(0x00) = AllLegacy ⟹
-    ///   CalculateSighash(tx, input_index, prevouts, AllLegacy) =
-    ///   CalculateSighash(tx, input_index, prevouts, All)
-    ///
-    /// This ensures early Bitcoin's 0x00 sighash type behaves like SIGHASH_ALL.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_sighash_alllegacy_correctness() {
-        let tx = crate::kani_helpers::create_bounded_transaction();
-        let input_index: usize = kani::any();
-        let prevouts = crate::kani_helpers::create_bounded_transaction_output_vec(10);
-
-        // Bound for tractability
-        kani::assume(tx.inputs.len() <= 5);
-        kani::assume(tx.outputs.len() <= 5);
-        kani::assume(input_index < tx.inputs.len());
-        kani::assume(prevouts.len() == tx.inputs.len());
-
-        // Calculate sighash with AllLegacy (0x00)
-        let sighash_alllegacy =
-            calculate_transaction_sighash(&tx, input_index, &prevouts, SighashType::AllLegacy);
-
-        // Calculate sighash with All (0x01)
-        let sighash_all = calculate_transaction_sighash(&tx, input_index, &prevouts, SighashType::All);
-
-        if sighash_alllegacy.is_ok() && sighash_all.is_ok() {
-            let alllegacy = sighash_alllegacy.unwrap();
-            let all = sighash_all.unwrap();
-
-            // Critical invariant: AllLegacy (0x00) should produce same sighash as All (0x01)
-            assert_eq!(
-                alllegacy, all,
-                "Sighash AllLegacy correctness: AllLegacy (0x00) must equal All (0x01)"
-            );
-        }
-
-        // Verify from_byte correctly maps 0x00 to AllLegacy
-        assert_eq!(
-            SighashType::from_byte(0x00).unwrap(),
-            SighashType::AllLegacy,
-            "Sighash AllLegacy correctness: 0x00 must map to AllLegacy"
-        );
-    }
-}

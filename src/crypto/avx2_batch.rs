@@ -10,6 +10,7 @@
 
 use crate::crypto::sha256_avx2;
 use sha2::{Digest, Sha256};
+use blvm_spec_lock::spec_locked;
 
 /// Batch SHA256 using AVX2 8-way parallel processing
 ///
@@ -26,6 +27,7 @@ use sha2::{Digest, Sha256};
 /// - 8-way parallel processing for batches of 8 or more
 /// - Falls back to sequential for smaller batches or non-AVX2 CPUs
 #[cfg(target_arch = "x86_64")]
+#[spec_locked("2.1")]
 pub fn batch_sha256_avx2(inputs: &[&[u8]]) -> Vec<[u8; 32]> {
     if inputs.is_empty() {
         return Vec::new();

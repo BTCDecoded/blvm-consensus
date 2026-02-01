@@ -15,11 +15,14 @@ use crate::types::{BlockHeader, Hash, Natural};
 use crate::utxo_commitments::data_structures::{
     UtxoCommitment, UtxoCommitmentError, UtxoCommitmentResult,
 };
+#[cfg(feature = "utxo-commitments")]
+use blvm_spec_lock::spec_locked;
 
 /// Verify that a UTXO commitment's supply matches expected Bitcoin supply
 ///
 /// Checks that the total supply in the commitment equals the sum of all
 /// block subsidies up to the commitment's block height.
+#[spec_locked("13.2")]
 pub fn verify_supply(commitment: &UtxoCommitment) -> UtxoCommitmentResult<bool> {
     let expected_supply = total_supply(commitment.block_height) as u64;
 
@@ -37,6 +40,7 @@ pub fn verify_supply(commitment: &UtxoCommitment) -> UtxoCommitmentResult<bool> 
 ///
 /// Verifies the chain of block headers from genesis to the commitment height,
 /// checking that each header satisfies proof of work requirements.
+#[spec_locked("13.2")]
 pub fn verify_header_chain(headers: &[BlockHeader]) -> UtxoCommitmentResult<bool> {
     if headers.is_empty() {
         return Err(UtxoCommitmentError::VerificationFailed(
@@ -85,6 +89,7 @@ pub fn verify_header_chain(headers: &[BlockHeader]) -> UtxoCommitmentResult<bool
 ///
 /// Verifies that the commitment's block_hash matches the actual block hash
 /// at the given height.
+#[spec_locked("13.2")]
 pub fn verify_commitment_block_hash(
     commitment: &UtxoCommitment,
     header: &BlockHeader,
@@ -128,6 +133,7 @@ fn compute_block_hash(header: &BlockHeader) -> Hash {
 /// Verifies that applying a sequence of blocks to a commitment results in
 /// a consistent new commitment. Used to ensure commitments remain valid
 /// as the chain progresses.
+#[spec_locked("13.2")]
 pub fn verify_forward_consistency(
     initial_commitment: &UtxoCommitment,
     new_commitment: &UtxoCommitment,
@@ -165,134 +171,14 @@ pub fn verify_forward_consistency(
 // ============================================================================
 // FORMAL VERIFICATION
 // ============================================================================
+//
+// Mathematical Specification for UTXO Commitment Verification:
+// ∀ commitment ∈ UtxoCommitment, height ∈ ℕ:
+// - verify_supply(commitment) = true ⟺ commitment.total_supply = total_supply(height)
+// - verify_forward_consistency(c1, c2) = true ⟺ c2.height = c1.height + Δ ∧ c2.supply ≥ c1.supply
+//
+// Invariants:
+// - Supply verification prevents inflation
+// - Forward consistency ensures commitments progress correctly
+// - Block hash verification ensures commitment matches actual block
 
-/// Mathematical Specification for UTXO Commitment Verification:
-/// ∀ commitment ∈ UtxoCommitment, height ∈ ℕ:
-/// - verify_supply(commitment) = true ⟺ commitment.total_supply = total_supply(height)
-/// - verify_forward_consistency(c1, c2) = true ⟺ c2.height = c1.height + Δ ∧ c2.supply ≥ c1.supply
-///
-/// Invariants:
-/// - Supply verification prevents inflation
-/// - Forward consistency ensures commitments progress correctly
-/// - Block hash verification ensures commitment matches actual block
-
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use crate::types::BlockHeader;
-    use kani::*;
-
-    /// Kani proof: Supply verification prevents inflation
-    ///
-    /// Verifies that supply verification correctly detects mismatches.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_supply_verification_inflation_prevention() {
-        let height: Natural = kani::any();
-        kani::assume(height <= 1000); // Bound for tractability
-
-        let expected_supply = total_supply(height) as u64;
-
-        // Create commitment with wrong supply (inflation attempt)
-        let mut commitment = UtxoCommitment::new(
-            [0; 32],
-            expected_supply.wrapping_add(1000), // Inflated supply
-            0,
-            height,
-            [0; 32],
-        );
-
-        // Verify should fail
-        let result = verify_supply(&commitment);
-        assert!(
-            result.is_err(),
-            "Supply verification must reject inflated commitments"
-        );
-
-        // Correct supply should pass
-        commitment.total_supply = expected_supply;
-        let result_correct = verify_supply(&commitment);
-        assert!(
-            result_correct.is_ok() && result_correct.unwrap(),
-            "Correct supply should pass verification"
-        );
-    }
-
-    /// Kani proof: Forward consistency prevents supply decrease
-    ///
-    /// Verifies that forward consistency check prevents invalid supply decreases.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_forward_consistency_supply_increase() {
-        let height1: Natural = kani::any();
-        let height2: Natural = kani::any();
-
-        kani::assume(height1 <= 1000);
-        kani::assume(height2 <= 1000);
-        kani::assume(height2 > height1); // height2 must be higher
-
-        let supply1 = total_supply(height1) as u64;
-        let supply2 = total_supply(height2) as u64;
-
-        let commitment1 = UtxoCommitment::new([0; 32], supply1, 0, height1, [0; 32]);
-
-        // Valid forward progression
-        let commitment2_valid = UtxoCommitment::new(
-            [0; 32], supply2, // Should be >= supply1 (supply increases over time)
-            0, height2, [0; 32],
-        );
-
-        let result_valid =
-            verify_forward_consistency(&commitment1, &commitment2_valid, height2 - height1);
-        assert!(
-            result_valid.is_ok() && result_valid.unwrap(),
-            "Valid forward progression should pass"
-        );
-
-        // Invalid: supply decreased
-        let commitment2_invalid = UtxoCommitment::new(
-            [0; 32],
-            supply1.saturating_sub(1000), // Decreased supply
-            0,
-            height2,
-            [0; 32],
-        );
-
-        let result_invalid =
-            verify_forward_consistency(&commitment1, &commitment2_invalid, height2 - height1);
-        assert!(
-            result_invalid.is_err(),
-            "Forward consistency must reject supply decreases"
-        );
-    }
-
-    /// Kani proof: Block hash verification correctness
-    ///
-    /// Verifies that block hash verification correctly matches commitments to headers.
-    #[kani::proof]
-    fn kani_block_hash_verification() {
-        let header = crate::kani_helpers::create_bounded_block_header();
-        let block_hash = super::compute_block_hash(&header);
-
-        // Correct commitment
-        let commitment_correct = UtxoCommitment::new([0; 32], 0, 0, 0, block_hash);
-
-        let result_correct = verify_commitment_block_hash(&commitment_correct, &header);
-        assert!(
-            result_correct.is_ok() && result_correct.unwrap(),
-            "Correct block hash should pass verification"
-        );
-
-        // Wrong block hash
-        let mut wrong_hash = block_hash;
-        wrong_hash[0] ^= 1; // Flip one bit
-
-        let commitment_wrong = UtxoCommitment::new([0; 32], 0, 0, 0, wrong_hash);
-
-        let result_wrong = verify_commitment_block_hash(&commitment_wrong, &header);
-        assert!(
-            result_wrong.is_err(),
-            "Wrong block hash should fail verification"
-        );
-    }
-}

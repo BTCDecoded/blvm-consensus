@@ -5,11 +5,13 @@ use crate::error::Result;
 use crate::segwit::Witness;
 use crate::types::*;
 use std::collections::HashMap;
+use blvm_spec_lock::spec_locked;
 
 /// Reorganization: When a longer chain is found (simplified API)
 ///
 /// Simplified version that creates empty witnesses. For full witness support,
 /// use `reorganize_chain_with_witnesses()`.
+#[spec_locked("11.3")]
 pub fn reorganize_chain(
     new_chain: &[Block],
     current_chain: &[Block],
@@ -90,6 +92,7 @@ pub fn reorganize_chain(
 /// * `get_undo_log_for_block` - Optional callback to retrieve undo log for a block (for current chain disconnection)
 /// * `store_undo_log_for_block` - Optional callback to store undo log for a block (for new chain connection)
 #[allow(clippy::too_many_arguments)]
+#[spec_locked("11.3")]
 pub fn reorganize_chain_with_witnesses(
     new_chain: &[Block],
     new_chain_witnesses: &[Vec<Vec<Witness>>], // CRITICAL FIX: Changed from &[Vec<Witness>] to &[Vec<Vec<Witness>>]
@@ -367,6 +370,7 @@ pub fn reorganize_chain_with_witnesses(
 /// # Ok(())
 /// # }
 /// ```
+#[spec_locked("11.3")]
 pub fn update_mempool_after_reorg<F>(
     mempool: &mut crate::mempool::Mempool,
     reorg_result: &ReorganizationResult,
@@ -433,6 +437,7 @@ where
 }
 
 /// Simplified version without transaction lookup
+#[spec_locked("11.3")]
 pub fn update_mempool_after_reorg_simple(
     mempool: &mut crate::mempool::Mempool,
     reorg_result: &ReorganizationResult,
@@ -567,6 +572,7 @@ fn disconnect_block(
 /// Check if reorganization is beneficial
 #[track_caller] // Better error messages showing caller location
 #[allow(clippy::redundant_comparisons)] // Intentional assertions for formal verification
+#[spec_locked("11.3")]
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -799,156 +805,6 @@ pub struct ReorganizationResult {
 /// - Empty chains are rejected
 /// - Chain work is always non-negative
 
-#[cfg(kani)]
-mod kani_proofs {
-    use super::*;
-    use kani::*;
-
-    /// Kani proof: should_reorganize selects chain with maximum work
-    #[kani::proof]
-    #[kani::unwind(7)] // Reduced from 10: chains bounded to 5, so 7 is sufficient
-    fn kani_should_reorganize_max_work() {
-        // Generate symbolic chains
-        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
-        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
-
-        // Assume non-empty chains for meaningful comparison
-        kani::assume(new_chain.len() > 0);
-        kani::assume(current_chain.len() > 0);
-        kani::assume(new_chain.len() <= 5); // Bound for tractability
-        kani::assume(current_chain.len() <= 5);
-
-        // Calculate work for both chains
-        let new_work = calculate_chain_work(&new_chain).unwrap_or(0);
-        let current_work = calculate_chain_work(&current_chain).unwrap_or(0);
-
-        // Call should_reorganize
-        let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
-
-        // Mathematical invariant: reorganize iff new chain has more work
-        if new_work > current_work {
-            assert!(should_reorg, "Must reorganize when new chain has more work");
-        } else {
-            assert!(
-                !should_reorg,
-                "Must not reorganize when new chain has less or equal work"
-            );
-        }
-    }
-
-    /// Kani proof: calculate_chain_work is deterministic and non-negative
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_calculate_chain_work_deterministic() {
-        let chain = crate::kani_helpers::create_bounded_block_vec(3);
-        kani::assume(chain.len() <= 3); // Bound for tractability
-
-        // Calculate work twice
-        let work1 = calculate_chain_work(&chain).unwrap_or(0);
-        let work2 = calculate_chain_work(&chain).unwrap_or(0);
-
-        // Deterministic invariant
-        assert_eq!(work1, work2, "Chain work calculation must be deterministic");
-
-        // Non-negative invariant
-        assert!(work1 >= 0, "Chain work must be non-negative");
-    }
-
-    /// Kani proof: expand_target handles edge cases correctly
-    #[kani::proof]
-    fn kani_expand_target_edge_cases() {
-        let bits: Natural = kani::any();
-
-        // Test valid range
-        kani::assume(bits <= 0x1d00ffff); // Genesis difficulty
-
-        let result = expand_target(bits);
-
-        // Should not panic and should return reasonable value
-        match result {
-            Ok(target) => {
-                // Target can be zero for bits=0 (valid edge case)
-                // Target must be non-negative and fit in u128
-                assert!(target >= 0, "Target must be non-negative");
-                assert!(target <= u128::MAX, "Target must fit in u128");
-            }
-            Err(_) => {
-                // Some invalid targets may fail, which is acceptable
-            }
-        }
-    }
-
-    /// Kani proof: reorganize_chain maintains UTXO set consistency
-    ///
-    /// Mathematical specification:
-    /// ∀ new_chain, current_chain ∈ [Block], utxo_set ∈ 𝒰𝒮, height ∈ ℕ:
-    /// - If reorganize_chain succeeds: new_utxo_set is consistent
-    /// - UTXO set reflects state after disconnecting current_chain and connecting new_chain
-    /// - All outputs from disconnected blocks are removed
-    /// - All outputs from connected blocks are added
-    ///
-    /// This ensures reorganization preserves UTXO set correctness.
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_reorganize_chain_utxo_consistency() {
-        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
-        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
-        let utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(new_chain.len() <= 3);
-        kani::assume(current_chain.len() <= 3);
-        kani::assume(new_chain.len() > 0);
-        kani::assume(current_chain.len() > 0);
-
-        // Bound transaction counts in blocks
-        for block in &new_chain {
-            kani::assume(block.transactions.len() <= 2);
-            for tx in &block.transactions {
-                kani::assume(tx.inputs.len() <= 2);
-                kani::assume(tx.outputs.len() <= 2);
-            }
-        }
-        for block in &current_chain {
-            kani::assume(block.transactions.len() <= 2);
-            for tx in &block.transactions {
-                kani::assume(tx.inputs.len() <= 2);
-                kani::assume(tx.outputs.len() <= 2);
-            }
-        }
-
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, height);
-
-        if result.is_ok() {
-            let reorg_result = result.unwrap();
-
-            // UTXO set should be non-empty if reorganization succeeded with valid blocks
-            // (assuming initial UTXO set was non-empty or blocks created outputs)
-
-            // Reorganization result should reflect new chain
-            assert_eq!(
-                reorg_result.connected_blocks.len(),
-                new_chain.len(),
-                "Connected blocks should match new chain length"
-            );
-            assert_eq!(
-                reorg_result.disconnected_blocks.len(),
-                current_chain.len(),
-                "Disconnected blocks should match current chain length"
-            );
-
-            // New height should be updated correctly
-            assert!(
-                reorg_result.new_height >= height.saturating_sub(current_chain.len() as Natural),
-                "New height should account for disconnected blocks"
-            );
-
-            // UTXO set should be valid (no negative values, etc.)
-            // This is implicitly ensured by connect_block validation
-        }
-    }
-}
 
 #[cfg(test)]
 mod property_tests {
@@ -1483,391 +1339,6 @@ mod tests {
                 nonce: 0,
             },
             transactions: vec![coinbase_tx].into_boxed_slice(),
-        }
-    }
-
-    /// Kani proof: update_mempool_after_reorg removes all invalid transactions
-    ///
-    /// Mathematical specification:
-    /// ∀ mempool ∈ Mempool, reorg_result ∈ ReorganizationResult, utxo_set ∈ US:
-    /// - After update_mempool_after_reorg(mempool, reorg_result, utxo_set):
-    ///   * All transactions in connected_blocks are removed from mempool
-    ///   * All transactions with inputs spent by connected_blocks are removed
-    ///   * mempool.len() <= initial_mempool.len()
-    ///
-    /// This ensures mempool consistency after chain reorganization.
-    #[cfg(kani)]
-    #[kani::proof]
-    #[kani::unwind(7)] // MEDIUM tier (unwind 4-9) - runs on PRs and main
-    fn kani_mempool_removes_invalid_after_reorg() {
-        use crate::kani_helpers::create_bounded_block;
-        use crate::kani_helpers::create_bounded_mempool;
-        use crate::kani_helpers::create_bounded_utxo_set;
-
-        let mut mempool = crate::mempool::Mempool::from(create_bounded_mempool(5));
-        let utxo_set = create_bounded_utxo_set();
-
-        // Create a simple reorganization result with connected blocks
-        let mut connected_blocks = Vec::new();
-        for _ in 0..2 {
-            let block = create_bounded_block();
-            kani::assume(block.transactions.len() <= 2);
-            for tx in &block.transactions {
-                kani::assume(tx.inputs.len() <= 2);
-                kani::assume(tx.outputs.len() <= 2);
-            }
-            connected_blocks.push(block);
-        }
-
-        // Create reorganization result
-        let reorg_result = ReorganizationResult {
-            new_utxo_set: utxo_set.clone(),
-            new_height: 1,
-            common_ancestor: connected_blocks[0].header.clone(),
-            disconnected_blocks: Vec::new(),
-            connected_blocks: connected_blocks.clone(),
-            reorganization_depth: 0,
-            connected_block_undo_logs: std::collections::HashMap::new(),
-        };
-
-        // Add some transactions to mempool (including ones that will be in connected blocks)
-        let initial_size = mempool.len();
-        for block in &connected_blocks {
-            for tx in &block.transactions {
-                let tx_id = crate::block::calculate_tx_id(tx);
-                mempool.insert(tx_id);
-            }
-        }
-
-        // Add some additional transactions
-        for i in 0..3 {
-            let tx_id = [i as u8; 32];
-            mempool.insert(tx_id);
-        }
-
-        let size_before_update = mempool.len();
-
-        // Update mempool after reorg
-        let removed = update_mempool_after_reorg(
-            &mut mempool,
-            &reorg_result,
-            &utxo_set,
-            None::<fn(&Hash) -> Option<Transaction>>,
-        )
-        .unwrap();
-
-        // Critical invariant: mempool size decreased or stayed same
-        assert!(
-            mempool.len() <= size_before_update,
-            "Mempool size must not increase after reorg"
-        );
-
-        // Critical invariant: all removed transactions were in mempool before
-        // (This is implicit - if they weren't, they couldn't be removed)
-        assert!(
-            removed.len() <= size_before_update,
-            "Cannot remove more transactions than were in mempool"
-        );
-
-        // Critical invariant: transactions from connected blocks are removed
-        for block in &connected_blocks {
-            for tx in &block.transactions {
-                let tx_id = crate::block::calculate_tx_id(tx);
-                assert!(
-                    !mempool.contains(&tx_id),
-                    "Transactions from connected blocks must be removed from mempool"
-                );
-            }
-        }
-    }
-}
-
-#[cfg(kani)]
-mod kani_proofs_2 {
-    use super::*;
-    use crate::block::connect_block;
-    use crate::transaction::is_coinbase;
-    use kani::*;
-
-    /// Kani proof: Chain reorganization preserves UTXO set invariants
-    ///
-    /// Mathematical specification:
-    /// ∀ new_chain, current_chain ∈ [Block], utxo_set ∈ US:
-    /// - If reorganize_chain succeeds: new_utxo_set maintains economic invariants
-    /// - Conservation of Value: sum(UTXO values) preserved (except for new blocks)
-    /// - No double-spending: each UTXO can only be in one state
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_reorganization_utxo_set_preservation() {
-        let new_chain = crate::kani_helpers::create_bounded_block_vec(3);
-        let current_chain = crate::kani_helpers::create_bounded_block_vec(3);
-        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let current_height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(new_chain.len() <= 3);
-        kani::assume(current_chain.len() <= 3);
-
-        for block in &new_chain {
-            kani::assume(block.transactions.len() <= 3);
-            for tx in &block.transactions {
-                kani::assume(tx.inputs.len() <= 3);
-                kani::assume(tx.outputs.len() <= 3);
-            }
-        }
-
-        for block in &current_chain {
-            kani::assume(block.transactions.len() <= 3);
-            for tx in &block.transactions {
-                kani::assume(tx.inputs.len() <= 3);
-                kani::assume(tx.outputs.len() <= 3);
-            }
-        }
-
-        // Ensure inputs exist for non-coinbase transactions
-        for block in &new_chain {
-            for tx in &block.transactions {
-                if !is_coinbase(tx) {
-                    for input in &tx.inputs {
-                        if !utxo_set.contains_key(&input.prevout) {
-                            utxo_set.insert(
-                                input.prevout.clone(),
-                                UTXO {
-                                    value: 1000,
-                                    script_pubkey: vec![],
-                                    height: current_height.saturating_sub(1),
-                                    is_coinbase: false,
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        for block in &current_chain {
-            for tx in &block.transactions {
-                if !is_coinbase(tx) {
-                    for input in &tx.inputs {
-                        if !utxo_set.contains_key(&input.prevout) {
-                            utxo_set.insert(
-                                input.prevout.clone(),
-                                UTXO {
-                                    value: 1000,
-                                    script_pubkey: vec![],
-                                    height: current_height.saturating_sub(1),
-                                    is_coinbase: false,
-                                },
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set.clone(), current_height);
-
-        if result.is_ok() {
-            let reorg_result = result.unwrap();
-            let new_utxo_set = reorg_result.new_utxo_set;
-
-            // UTXO set consistency: no double-spending
-            // All spent inputs from disconnected blocks should be removed
-            // All outputs from new blocks should be added
-
-            // Verify that if a transaction was disconnected, its outputs are removed
-            for block in &current_chain {
-                for tx in &block.transactions {
-                    if !is_coinbase(tx) {
-                        // Check that spent inputs might be restored (if they weren't in new chain)
-                        // This is a simplified check - full verification would check exact UTXO set transformation
-                    }
-                }
-            }
-
-            // Verify that new chain outputs are added
-            for block in &new_chain {
-                for tx in &block.transactions {
-                    // Verify outputs are in new UTXO set
-                    // This is a simplified check - full verification would use calculate_tx_id
-                }
-            }
-
-            // Critical invariant: UTXO set size changes correctly
-            // size(new_utxo_set) = size(utxo_set) - disconnected_outputs + new_outputs
-            assert!(true, "Reorganization preserves UTXO set consistency");
-        }
-    }
-
-    /// Kani proof: Disconnect/connect correctness (Orange Paper Section 11.3)
-    ///
-    /// Mathematical specification:
-    /// ∀ block ∈ Block, utxo_set ∈ US:
-    /// - disconnect_block(block, connect_block(block, utxo_set)) = utxo_set
-    ///
-    /// This proves that disconnect and connect operations are inverse (idempotent).
-    #[kani::proof]
-    #[kani::unwind(5)]
-    fn kani_disconnect_connect_idempotency() {
-        let block = crate::kani_helpers::create_bounded_block();
-        let mut utxo_set = crate::kani_helpers::create_bounded_utxo_set();
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(block.transactions.len() <= 3);
-        for tx in &block.transactions {
-            kani::assume(tx.inputs.len() <= 3);
-            kani::assume(tx.outputs.len() <= 3);
-        }
-
-        // Ensure inputs exist for non-coinbase transactions
-        for tx in &block.transactions {
-            if !is_coinbase(tx) {
-                for input in &tx.inputs {
-                    if !utxo_set.contains_key(&input.prevout) {
-                        utxo_set.insert(
-                            input.prevout.clone(),
-                            UTXO {
-                                value: 1000,
-                                script_pubkey: vec![],
-                                height: height.saturating_sub(1),
-                                is_coinbase: false,
-                            },
-                        );
-                    }
-                }
-            }
-        }
-
-        // Connect block
-        let witnesses: Vec<crate::segwit::Witness> =
-            block.transactions.iter().map(|_| Vec::new()).collect();
-        let connect_result = connect_block(
-            &block,
-            &witnesses,
-            utxo_set.clone(),
-            height,
-            None,
-            crate::types::Network::Mainnet,
-        );
-
-        if connect_result.is_ok() {
-            let (validation_result, connected_utxo_set, undo_log) = connect_result.unwrap();
-            if matches!(validation_result, crate::types::ValidationResult::Valid) {
-                // Disconnect block using undo log
-                let disconnect_result =
-                    disconnect_block(&block, &undo_log, connected_utxo_set.clone(), height);
-
-                if disconnect_result.is_ok() {
-                    let disconnected_utxo_set = disconnect_result.unwrap();
-
-                    // Verify that disconnect(connect(block, utxo_set)) ≈ utxo_set
-                    // Note: Exact equality may not hold due to new outputs from coinbase,
-                    // but the key property is that spent inputs are restored
-
-                    // Verify that spent inputs are restored
-                    for tx in &block.transactions {
-                        if !is_coinbase(tx) {
-                            for input in &tx.inputs {
-                                // Input should be restored in disconnected UTXO set
-                                // (if it existed in original UTXO set)
-                                if utxo_set.contains_key(&input.prevout) {
-                                    assert!(disconnected_utxo_set.contains_key(&input.prevout),
-                                        "Disconnect/connect idempotency: spent inputs must be restored");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Kani proof: disconnect/connect idempotency with undo log
-    ///
-    /// Mathematical specification:
-    /// ∀ block ∈ Block, utxo_set ∈ US, undo_log ∈ BlockUndoLog:
-    /// - disconnect_block(block, undo_log, connect_block(block, utxo_set)) = utxo_set
-    ///
-    /// This proves that disconnect and connect operations are perfect inverses when using undo logs.
-    /// This is a critical invariant for chain reorganization correctness.
-    #[kani::proof]
-    #[kani::unwind(5)] // MEDIUM tier (unwind 4-9) - runs on PRs and main
-    fn kani_disconnect_connect_idempotency_with_undo() {
-        use crate::kani_helpers::create_bounded_block;
-        use crate::kani_helpers::create_bounded_utxo_set;
-
-        let block = create_bounded_block();
-        let mut utxo_set = create_bounded_utxo_set();
-        let height: Natural = kani::any();
-
-        // Bound for tractability
-        kani::assume(block.transactions.len() <= 3);
-        for tx in &block.transactions {
-            kani::assume(tx.inputs.len() <= 3);
-            kani::assume(tx.outputs.len() <= 3);
-        }
-
-        // Ensure inputs exist for non-coinbase transactions
-        for tx in &block.transactions {
-            if !is_coinbase(tx) {
-                for input in &tx.inputs {
-                    if !utxo_set.contains_key(&input.prevout) {
-                        utxo_set.insert(
-                            input.prevout.clone(),
-                            UTXO {
-                                value: 1000,
-                                script_pubkey: vec![],
-                                height: height.saturating_sub(1),
-                                is_coinbase: false,
-                            },
-                        );
-                    }
-                }
-            }
-        }
-
-        // Connect block and get undo log
-        let witnesses: Vec<crate::segwit::Witness> =
-            block.transactions.iter().map(|_| Vec::new()).collect();
-        let connect_result = connect_block(
-            &block,
-            &witnesses,
-            utxo_set.clone(),
-            height,
-            None,
-            crate::types::Network::Mainnet,
-        );
-
-        if let Ok((crate::types::ValidationResult::Valid, connected_utxo_set, undo_log)) =
-            connect_result
-        {
-            // Disconnect using undo log
-            let disconnect_result = disconnect_block(&block, &undo_log, connected_utxo_set, height);
-
-            if let Ok(disconnected_utxo_set) = disconnect_result {
-                // Critical invariant: all original UTXOs are restored
-                for (outpoint, original_utxo) in &utxo_set {
-                    if let Some(restored_utxo) = disconnected_utxo_set.get(outpoint) {
-                        assert_eq!(
-                            restored_utxo.value, original_utxo.value,
-                            "Disconnect must restore original UTXO value"
-                        );
-                        assert_eq!(
-                            restored_utxo.script_pubkey, original_utxo.script_pubkey,
-                            "Disconnect must restore original script_pubkey"
-                        );
-                    }
-                }
-                // Also verify that no extra UTXOs were added (except coinbase outputs which are expected)
-                // For simplicity, we verify that all original UTXOs are present
-                for (outpoint, _) in &utxo_set {
-                    assert!(
-                        disconnected_utxo_set.contains_key(outpoint),
-                        "Disconnected UTXO set must contain all original UTXOs"
-                    );
-                }
-            }
         }
     }
 }
