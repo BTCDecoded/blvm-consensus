@@ -2,26 +2,26 @@
 
 Pure mathematical implementation of Bitcoin consensus rules from the Orange Paper with formal verification.
 
-> **📚 Comprehensive Documentation**: See [bllvm-docs](../bllvm-docs/) for complete system documentation.  
+> **📚 Comprehensive Documentation**: See [blvm-docs](../blvm-docs/) for complete system documentation.  
 > **For verified system status**: See [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) in the BTCDecoded organization repository.
 
-[![Verification Status](https://github.com/BTCDecoded/bllvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/bllvm-consensus/actions/workflows/verify.yml)
-[![Kani Verification](https://img.shields.io/badge/Kani-Verified-green)](https://model-checking.github.io/kani/)
+[![Verification Status](https://github.com/BTCDecoded/blvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/verify.yml)
+[![blvm-spec-lock Verification](https://img.shields.io/badge/blvm--spec--lock-Verified-green)](https://github.com/BTCDecoded/blvm-spec-lock)
 [![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
 
 Provides pure, side-effect-free functions implementing Orange Paper mathematical specifications. Serves as the mathematical foundation for Bitcoin consensus validation with formal verification ensuring mathematical correctness.
 
 ## Architecture Position
 
-Tier 2 of the 6-tier Bitcoin Commons architecture (BLLVM technology stack):
+Tier 2 of the 6-tier Bitcoin Commons architecture (BLVM technology stack):
 
 ```
-1. bllvm-spec (Orange Paper - mathematical foundation)
-2. bllvm-consensus (pure math implementation)
-3. bllvm-protocol (Bitcoin abstraction)
-4. bllvm-node (full node implementation)
-5. bllvm-sdk (developer toolkit)
-6. bllvm-commons (governance enforcement)
+1. blvm-spec (Orange Paper - mathematical foundation)
+2. blvm-consensus (pure math implementation)
+3. blvm-protocol (Bitcoin abstraction)
+4. blvm-node (full node implementation)
+5. blvm-sdk (developer toolkit)
+6. blvm-commons (governance enforcement)
 ```
 
 ## Core Functions
@@ -69,7 +69,7 @@ Implements all major Bitcoin consensus functions from the Orange Paper:
 3. **Exact Version Pinning**: All consensus-critical dependencies pinned to exact versions
 4. **Comprehensive Testing**: Extensive test coverage with integration tests
 5. **No Consensus Rule Interpretation**: Only mathematical implementation
-6. **Formal Verification**: Kani model checking and property-based testing ensure correctness
+6. **Formal Verification**: blvm-spec-lock formal verification and property-based testing ensure correctness
 
 See [docs/VERIFICATION.md](docs/VERIFICATION.md) for detailed verification documentation.
 
@@ -77,7 +77,7 @@ See [docs/VERIFICATION.md](docs/VERIFICATION.md) for detailed verification docum
 
 Implements mathematical verification of Bitcoin consensus rules using:
 
-- **Kani Model Checker**: Symbolic verification with bounded model checking
+- **blvm-spec-lock**: Formal verification linking code to Orange Paper specifications
 - **Property-Based Testing**: Randomized testing with `proptest` to discover edge cases
 - **Mathematical Specifications**: Formal documentation of consensus invariants
 - **CI Enforcement**: Automated verification blocks merge if proofs fail
@@ -88,14 +88,8 @@ Implements mathematical verification of Bitcoin consensus rules using:
 # Run all tests and verification
 cargo test --all-features
 
-# Run Kani model checking
-cargo kani --features verify
-
 # Run property tests only
 cargo test --test property_tests
-
-# Run specific verification
-cargo kani --features verify --harness kani_verify_function
 ```
 
 ### Verification Status
