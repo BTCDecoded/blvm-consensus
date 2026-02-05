@@ -283,11 +283,15 @@ proptest! {
         prop_assert!(subsidy >= 0);
         
         // Subsidy should not exceed initial subsidy
-        prop_assert!(subsidy <= blvm_consensus::constants::INITIAL_SUBSIDY as i64);
+        // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
+        use blvm_consensus::orange_paper_constants::{C, H};
+        let initial_subsidy = 50 * C;
+        prop_assert!(subsidy <= initial_subsidy as i64);
         
         // Subsidy should decrease with height (halving)
-        if height > 210000 {
-            let earlier_height = height - 210000;
+        // Using Orange Paper constant H (halving interval = 210,000)
+        if height > H {
+            let earlier_height = height - H;
             let earlier_subsidy = consensus.get_block_subsidy(earlier_height);
             prop_assert!(earlier_subsidy >= subsidy || subsidy == 0,
                 "Subsidy should decrease after halving");

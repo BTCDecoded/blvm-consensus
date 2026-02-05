@@ -157,7 +157,7 @@ pub fn mine_block(mut block: Block, max_attempts: Natural) -> Result<(Block, Min
 /// 2. Coinbase transaction template
 /// 3. Selected transactions
 /// 4. Mining parameters
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BlockTemplate {
     pub header: BlockHeader,
     pub coinbase_tx: Transaction,

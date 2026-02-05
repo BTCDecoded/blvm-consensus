@@ -6,6 +6,7 @@
 use crate::constants::*;
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+use crate::utxo_overlay::UtxoLookup;
 use std::borrow::Cow;
 use blvm_spec_lock::spec_locked;
 
@@ -361,9 +362,9 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 #[allow(clippy::overly_complex_bool_expr)] // Intentional tautological assertions for formal verification
-pub fn check_tx_inputs(
+pub fn check_tx_inputs<U: UtxoLookup>(
     tx: &Transaction,
-    utxo_set: &UtxoSet,
+    utxo_set: &U,
     height: Natural,
 ) -> Result<(ValidationResult, Integer)> {
     // Precondition checks: Validate function inputs
@@ -521,10 +522,12 @@ pub fn check_tx_inputs(
                 "Total input value {total_input_value} must be non-negative after input {i}"
             );
         } else {
-            // Temporary debug for block 546
-            let hash_str: String = tx.inputs[i].prevout.hash.iter().map(|b| format!("{:02x}", b)).collect();
-            eprintln!("   ❌ UTXO NOT FOUND: Input {} prevout {}:{}", i, hash_str, tx.inputs[i].prevout.index);
-            eprintln!("      UTXO set size: {}", utxo_set.len());
+            #[cfg(debug_assertions)]
+            {
+                let hash_str: String = tx.inputs[i].prevout.hash.iter().map(|b| format!("{:02x}", b)).collect();
+                eprintln!("   ❌ UTXO NOT FOUND: Input {} prevout {}:{}", i, hash_str, tx.inputs[i].prevout.index);
+                eprintln!("      UTXO set size: {}", utxo_set.len());
+            }
             return Ok((
                 ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
                 0,

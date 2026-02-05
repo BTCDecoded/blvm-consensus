@@ -53,6 +53,7 @@ use crate::segwit::{
 };
 use crate::transaction::{check_transaction, check_tx_inputs, is_coinbase};
 use crate::types::*;
+use crate::utxo_overlay::{UtxoOverlay, apply_transaction_to_overlay};
 
 // Rayon is used conditionally in the code, imported where needed
 
@@ -524,9 +525,10 @@ fn connect_block_inner(
         // NOTE: We still use the cached UTXO lookups for performance, but validate sequentially
         #[cfg(feature = "rayon")]
         {
-            // CRITICAL FIX: Use sequential validation with incremental UTXO set
+            // CRITICAL FIX: Use sequential validation with incremental UTXO overlay
             // This allows transactions to spend outputs from earlier transactions in the same block
-            let mut temp_utxo_set = utxo_set.clone();
+            // OPTIMIZATION: UtxoOverlay is O(1) creation vs O(n) clone of the full UTXO set
+            let mut overlay = UtxoOverlay::new(&utxo_set);
             let mut validation_results: Vec<Result<(ValidationResult, i64, bool)>> = Vec::with_capacity(block.transactions.len());
             // CRITICAL: Store undo entries during validation so we can use them in Phase 5
             let mut temp_undo_entries: Vec<Vec<crate::reorganization::UndoEntry>> = Vec::with_capacity(block.transactions.len());
@@ -544,19 +546,36 @@ fn connect_block_inner(
                 }
 
                 // Check transaction inputs and calculate fees
-                // CRITICAL: Use temp_utxo_set which includes outputs from previous transactions in this block
+                // CRITICAL: Use overlay which includes outputs from previous transactions in this block
                 let (input_valid, fee) = if is_coinbase(tx) {
                     (ValidationResult::Valid, 0)
                 } else {
-                    // Calculate fee using temp_utxo_set (includes outputs from earlier transactions)
+                    // Calculate fee using overlay (includes outputs from earlier transactions)
                     let total_input: i64 = tx
                         .inputs
                         .iter()
-                        .try_fold(0i64, |acc, input| {
-                            let value = temp_utxo_set
+                        .enumerate()
+                        .try_fold(0i64, |acc, (input_idx, input)| {
+                            let value = overlay
                                 .get(&input.prevout)
                                 .map(|utxo| utxo.value)
-                                .unwrap_or(0);
+                                .ok_or_else(|| {
+                                    // CRITICAL: Missing UTXO - provide detailed diagnostic (debug only)
+                                    #[cfg(debug_assertions)]
+                                    {
+                                        eprintln!(
+                                            "   ⚠️ [UTXO MISSING] Block {} TX {} input {}: prevout {:?}:{} not found",
+                                            height, i, input_idx,
+                                            hex::encode(&input.prevout.hash),
+                                            input.prevout.index
+                                        );
+                                        eprintln!("      UTXO set size: {}, overlay additions: {}, deletions: {}",
+                                            overlay.base_len(), overlay.additions_len(), overlay.deletions_len());
+                                    }
+                                    ConsensusError::TransactionValidation(
+                                        format!("UTXO not found for input {}", input_idx).into(),
+                                    )
+                                })?;
                             acc.checked_add(value).ok_or_else(|| {
                                     ConsensusError::TransactionValidation(
                                         "Input value overflow".into(),
@@ -587,13 +606,14 @@ fn connect_block_inner(
                         (ValidationResult::Invalid("Negative fee".into()), 0)
                     } else {
                         // Verify UTXOs exist and check other input validation rules
-                        // CRITICAL: Use temp_utxo_set (includes outputs from earlier transactions in this block)
-                        let (input_valid, _) = check_tx_inputs(tx, &temp_utxo_set, height)?;
+                        // CRITICAL: Use overlay (includes outputs from earlier transactions in this block)
+                        let (input_valid, _) = check_tx_inputs(tx, &overlay, height)?;
                         (input_valid, fee)
                     }
                 };
 
                 if !matches!(input_valid, ValidationResult::Valid) {
+                    #[cfg(debug_assertions)]
                     eprintln!("   ❌ [parallel] Block {} TX {}: input_valid={:?}", height, i, input_valid);
                     validation_results.push(Ok((
                         ValidationResult::Invalid(format!(
@@ -607,19 +627,19 @@ fn connect_block_inner(
 
                 // Verify scripts for non-coinbase transactions (read-only operations)
                 // Phase 4.1: Skip signature verification if assume-valid
-                // CRITICAL: Use temp_utxo_set (includes outputs from previous transactions in this block)
+                // CRITICAL: Use overlay (includes outputs from previous transactions in this block)
                 let script_valid = if is_coinbase(tx) || skip_signatures {
                     true
                 } else {
                     // Pre-lookup UTXOs to avoid concurrent HashMap access
                     // Optimization: Pre-allocate with known size
-                    // CRITICAL: Use temp_utxo_set
+                    // CRITICAL: Use overlay
                     let input_utxos: Vec<(usize, Option<&ByteString>)> = {
                         let mut result = Vec::with_capacity(tx.inputs.len());
                         for (j, input) in tx.inputs.iter().enumerate() {
                             result.push((
                                 j,
-                                temp_utxo_set.get(&input.prevout).map(|u| &u.script_pubkey),
+                                overlay.get(&input.prevout).map(|u| &u.script_pubkey),
                             ));
                         }
                         result
@@ -627,11 +647,11 @@ fn connect_block_inner(
 
                     // Create prevouts for context (needed for CLTV/CSV validation)
                     // Optimization: Pre-allocate with estimated size
-                    // CRITICAL: Use temp_utxo_set
+                    // CRITICAL: Use overlay
                     let prevouts: Vec<TransactionOutput> = {
                         let mut result = Vec::with_capacity(tx.inputs.len());
                         for input in &tx.inputs {
-                            if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
+                            if let Some(utxo) = overlay.get(&input.prevout) {
                                 result.push(TransactionOutput {
                                     value: utxo.value,
                                     script_pubkey: utxo.script_pubkey.clone(),
@@ -648,16 +668,9 @@ fn connect_block_inner(
                         let median_time_past = time_context
                             .map(|ctx| ctx.median_time_past)
                             .filter(|&mtp| mtp > 0);
-                        // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
-                        let tx_witnesses = witnesses.get(i);
-                        let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
-                            let mut flattened: Witness = Vec::new();
-                            for witness_stack in tx_wits {
-                                flattened.extend(witness_stack.clone());
-                            }
-                            flattened
-                        });
-                        let flags = calculate_script_flags_for_block(tx, flattened_tx_witness.as_ref(), height, network);
+                        // Check if transaction has witness data (optimization: just check presence, no flattening)
+                        let has_witness = witnesses.get(i).map(|w| !w.is_empty()).unwrap_or(false);
+                        let flags = calculate_script_flags_for_block(tx, has_witness, height, network);
                         
                         // Verify all inputs in parallel
                         input_utxos.par_iter().all(|(j, opt_script_pubkey)| {
@@ -686,16 +699,17 @@ fn connect_block_inner(
                     
                     #[cfg(not(feature = "rayon"))]
                     let all_valid = {
+                        // Calculate flags once outside loop (optimization)
+                        let has_witness = witnesses.get(i).map(|w| !w.is_empty()).unwrap_or(false);
+                        let flags = calculate_script_flags_for_block(tx, has_witness, height, network);
+                        let median_time_past = time_context
+                            .map(|ctx| ctx.median_time_past)
+                            .filter(|&mtp| mtp > 0);
                         let mut valid = true;
                         for (j, opt_script_pubkey) in input_utxos.iter() {
                             if let Some(script_pubkey) = opt_script_pubkey {
                                 let input = &tx.inputs[*j];
                                 let witness_elem = witnesses.get(i).and_then(|w| w.get(*j));
-                                let median_time_past = time_context
-                                    .map(|ctx| ctx.median_time_past)
-                                    .filter(|&mtp| mtp > 0);
-                                let tx_witness = witnesses.get(i);
-                                let flags = calculate_script_flags_for_block(tx, tx_witness, height, network);
 
                                 if !verify_script_with_context_full(
                                     &input.script_sig,
@@ -723,11 +737,11 @@ fn connect_block_inner(
                     all_valid
                 };
 
-                // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
+                // CRITICAL: Apply this transaction to overlay so next transaction can see its outputs
+                // OPTIMIZATION: apply_transaction_to_overlay mutates in place, no allocation
                 use crate::block::calculate_tx_id;
                 let tx_id = calculate_tx_id(tx);
-                let (new_temp_utxo_set, tx_undo_entries) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
-                temp_utxo_set = new_temp_utxo_set;
+                let tx_undo_entries = apply_transaction_to_overlay(&mut overlay, tx, tx_id, height);
                 // Store undo entries for use in Phase 5
                 temp_undo_entries.push(tx_undo_entries);
 
@@ -774,17 +788,19 @@ fn connect_block_inner(
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
             }
             
-            // CRITICAL: Only update utxo_set AFTER all validations pass (Phase 2 loop completed without returning)
-            // This ensures we don't partially modify utxo_set when a block is invalid
-            utxo_set = temp_utxo_set;
+            // NOTE: Overlay is discarded here - Phase 5 (application loop) will apply 
+            // transactions to the real utxo_set and build the undo log.
+            // This is intentional: validation used overlay for O(1) "clone", 
+            // but final application happens on the real utxo_set.
         }
 
         #[cfg(not(feature = "rayon"))]
         {
             // Sequential fallback (no Rayon available)
-            // CRITICAL FIX: Use temp_utxo_set for intra-block spending support
+            // CRITICAL FIX: Use overlay for intra-block spending support
             // Transactions can spend outputs from earlier transactions in the same block
-            let mut temp_utxo_set = utxo_set.clone();
+            // OPTIMIZATION: UtxoOverlay is O(1) creation vs O(n) clone of the full UTXO set
+            let mut overlay = UtxoOverlay::new(&utxo_set);
             
             for (i, tx) in block.transactions.iter().enumerate() {
                 // Validate transaction structure
@@ -797,19 +813,31 @@ fn connect_block_inner(
                 }
 
                 // Check transaction inputs and calculate fees
-                // CRITICAL: Use temp_utxo_set which includes outputs from earlier transactions in this block
+                // CRITICAL: Use overlay which includes outputs from earlier transactions in this block
                 let (input_valid, fee) = if is_coinbase(tx) {
                     (ValidationResult::Valid, 0)
                 } else {
-                    // Calculate fee using temp_utxo_set (includes outputs from earlier transactions)
+                    // Calculate fee using overlay (includes outputs from earlier transactions)
                     let total_input: i64 = tx
                         .inputs
                         .iter()
-                        .try_fold(0i64, |acc, input| {
-                            let value = temp_utxo_set
+                        .enumerate()
+                        .try_fold(0i64, |acc, (input_idx, input)| {
+                            let value = overlay
                                 .get(&input.prevout)
                                 .map(|utxo| utxo.value)
-                                .unwrap_or(0);
+                                .ok_or_else(|| {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "   ⚠️ [UTXO MISSING] Block {} TX {} input {}: prevout {:?}:{} not found",
+                                        height, i, input_idx,
+                                        hex::encode(&input.prevout.hash),
+                                        input.prevout.index
+                                    );
+                                    ConsensusError::TransactionValidation(
+                                        format!("UTXO not found for input {}", input_idx).into(),
+                                    )
+                                })?;
                             acc.checked_add(value).ok_or_else(|| {
                                 ConsensusError::TransactionValidation("Input value overflow".into())
                             })
@@ -852,13 +880,14 @@ fn connect_block_inner(
                             total_input
                         );
                         // Verify UTXOs exist and check other input validation rules
-                        // CRITICAL: Use temp_utxo_set for validation
-                        let (input_valid, _) = check_tx_inputs(tx, &temp_utxo_set, height)?;
+                        // CRITICAL: Use overlay for validation
+                        let (input_valid, _) = check_tx_inputs(tx, &overlay, height)?;
                         (input_valid, fee)
                     }
                 };
 
                 if !matches!(input_valid, ValidationResult::Valid) {
+                    #[cfg(debug_assertions)]
                     eprintln!("   ❌ [non-parallel] Block {} TX {}: input_valid={:?}", height, i, input_valid);
                     return Ok((
                         ValidationResult::Invalid(format!(
@@ -873,27 +902,28 @@ fn connect_block_inner(
                 // Phase 4.1: Skip signature verification if assume-valid
                 if !is_coinbase(tx) && !skip_signatures {
                     // Create prevouts for context (needed for CLTV/CSV validation)
-                    // CRITICAL: Use temp_utxo_set for intra-block spending support
+                    // CRITICAL: Use overlay for intra-block spending support
                     let prevouts: Vec<TransactionOutput> = tx
                         .inputs
                         .iter()
                         .filter_map(|input| {
-                            temp_utxo_set.get(&input.prevout).map(|utxo| TransactionOutput {
+                            overlay.get(&input.prevout).map(|utxo| TransactionOutput {
                                 value: utxo.value,
                                 script_pubkey: utxo.script_pubkey.clone(),
                             })
                         })
                         .collect();
 
+                    // Calculate flags once outside loop (optimization)
+                    let has_witness = witnesses.get(i).map(|w| !w.is_empty()).unwrap_or(false);
+                    let flags = calculate_script_flags_for_block(tx, has_witness, height, network);
+                    let median_time_past = time_context
+                        .map(|ctx| ctx.median_time_past)
+                        .filter(|&mtp| mtp > 0);
                     for (j, input) in tx.inputs.iter().enumerate() {
-                        // CRITICAL: Use temp_utxo_set for intra-block spending support
-                        if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
+                        // CRITICAL: Use overlay for intra-block spending support
+                        if let Some(utxo) = overlay.get(&input.prevout) {
                             let witness_elem = witnesses.get(i).and_then(|w| w.get(j));
-                            let median_time_past = time_context
-                                .map(|ctx| ctx.median_time_past)
-                                .filter(|&mtp| mtp > 0);
-                            let tx_witness = witnesses.get(i);
-                            let flags = calculate_script_flags_for_block(tx, tx_witness, height, network);
 
                             if !verify_script_with_context_full(
                                 &input.script_sig,
@@ -921,11 +951,11 @@ fn connect_block_inner(
                     }
                 }
 
-                // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
+                // CRITICAL: Apply this transaction to overlay so next transaction can see its outputs
+                // OPTIMIZATION: apply_transaction_to_overlay mutates in place, no allocation
                 use crate::block::calculate_tx_id;
                 let tx_id = calculate_tx_id(tx);
-                let (new_temp_utxo_set, _tx_undo_entries) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
-                temp_utxo_set = new_temp_utxo_set;
+                let _tx_undo_entries = apply_transaction_to_overlay(&mut overlay, tx, tx_id, height);
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees
@@ -943,9 +973,8 @@ fn connect_block_inner(
         // So we must validate each transaction against the UTXO set that includes outputs from
         // all previous transactions in this block, not the initial UTXO set.
         // We'll validate and apply in a single loop instead of two separate phases.
-        // NOTE: We use a temporary UTXO set for validation, but still apply to the real UTXO set
-        // in the application phase below to maintain proper undo log generation.
-        let mut temp_utxo_set = utxo_set.clone();
+        // OPTIMIZATION: UtxoOverlay is O(1) creation vs O(n) clone of the full UTXO set
+        let mut overlay = UtxoOverlay::new(&utxo_set);
         for (i, tx) in block.transactions.iter().enumerate() {
             // Bounds checking assertion: Transaction index must be valid
             assert!(
@@ -965,8 +994,8 @@ fn connect_block_inner(
             }
 
             // Check transaction inputs and calculate fees
-            // CRITICAL: Use temp_utxo_set which includes outputs from previous transactions in this block
-            let (input_valid, fee) = check_tx_inputs(tx, &temp_utxo_set, height)?;
+            // CRITICAL: Use overlay which includes outputs from previous transactions in this block
+            let (input_valid, fee) = check_tx_inputs(tx, &overlay, height)?;
             
             // Postcondition assertion: Fee calculation result must be valid
             assert!(
@@ -974,6 +1003,7 @@ fn connect_block_inner(
                 "Fee {fee} must be non-negative for valid transaction at index {i}"
             );
             if !matches!(input_valid, ValidationResult::Valid) {
+                #[cfg(debug_assertions)]
                 eprintln!("   ❌ Block {} TX {}: input_valid={:?}", height, i, input_valid);
                 return Ok((
                     ValidationResult::Invalid(format!("Invalid transaction inputs at index {i}")),
@@ -985,7 +1015,7 @@ fn connect_block_inner(
             // Verify scripts for non-coinbase transactions BEFORE applying transaction
             // (because apply_transaction removes spent UTXOs from the set)
             // Phase 4.1: Skip signature verification if assume-valid
-            // CRITICAL: Use temp_utxo_set (still has the UTXOs we need to verify)
+            // CRITICAL: Use overlay (still has the UTXOs we need to verify)
             if !is_coinbase(tx) && !skip_signatures {
                 // Create prevouts for context (needed for CLTV/CSV validation)
                 // MUST be done BEFORE apply_transaction which removes these UTXOs
@@ -993,7 +1023,7 @@ fn connect_block_inner(
                     .inputs
                     .iter()
                     .filter_map(|input| {
-                        temp_utxo_set.get(&input.prevout).map(|utxo| TransactionOutput {
+                        overlay.get(&input.prevout).map(|utxo| TransactionOutput {
                             value: utxo.value,
                             script_pubkey: utxo.script_pubkey.clone(),
                         })
@@ -1016,7 +1046,7 @@ fn connect_block_inner(
                         witnesses.len()
                     );
 
-                    if let Some(utxo) = temp_utxo_set.get(&input.prevout) {
+                    if let Some(utxo) = overlay.get(&input.prevout) {
                         // Get witness stack for this transaction input if available
                         // witnesses is Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
                         // and each Witness is for one input
@@ -1028,16 +1058,9 @@ fn connect_block_inner(
                             .filter(|&mtp| mtp > 0); // Only use if valid (> 0)
 
                         // Calculate script verification flags for this transaction
-                        // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
-                        let tx_witnesses = witnesses.get(i);
-                        let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
-                            let mut flattened: Witness = Vec::new();
-                            for witness_stack in tx_wits {
-                                flattened.extend(witness_stack.clone());
-                            }
-                            flattened
-                        });
-                        let flags = calculate_script_flags_for_block(tx, flattened_tx_witness.as_ref(), height, network);
+                        // (optimization: just check witness presence, no flattening needed)
+                        let has_witness = witnesses.get(i).map(|w| !w.is_empty()).unwrap_or(false);
+                        let flags = calculate_script_flags_for_block(tx, has_witness, height, network);
 
                         // Use verify_script_with_context_full for BIP65/112 support
                         if !verify_script_with_context_full(
@@ -1065,12 +1088,12 @@ fn connect_block_inner(
                 }
             }
             
-            // CRITICAL: Apply this transaction to temp_utxo_set so next transaction can see its outputs
+            // CRITICAL: Apply this transaction to overlay so next transaction can see its outputs
             // This MUST happen AFTER script verification (which needs the spent UTXOs)
+            // OPTIMIZATION: apply_transaction_to_overlay mutates in place, no allocation
             use crate::block::calculate_tx_id;
             let tx_id = calculate_tx_id(tx);
-            let (new_temp_utxo_set, _) = apply_transaction_with_id(tx, tx_id, temp_utxo_set, height)?;
-            temp_utxo_set = new_temp_utxo_set;
+            let _ = apply_transaction_to_overlay(&mut overlay, tx, tx_id, height);
 
             // Use checked arithmetic to prevent fee overflow
             // Invariant assertion: Fee must be non-negative
@@ -1245,16 +1268,10 @@ fn connect_block_inner(
         !block.transactions.is_empty(),
         "Block must have at least one transaction for sigop calculation"
     );
-    // Flatten witnesses for calculate_script_flags_for_block (backward compatibility)
-    let flattened_first_witness: Option<Witness> = witnesses.first().map(|tx_wits| {
-        let mut flattened: Witness = Vec::new();
-        for witness_stack in tx_wits {
-            flattened.extend(witness_stack.clone());
-        }
-        flattened
-    });
+    // Check if first transaction has witness data (optimization: just check presence, no flattening)
+    let has_witness = witnesses.first().map(|w| !w.is_empty()).unwrap_or(false);
     let flags =
-        calculate_script_flags_for_block(block.transactions.first().unwrap(), flattened_first_witness.as_ref(), height, network);
+        calculate_script_flags_for_block(block.transactions.first().unwrap(), has_witness, height, network);
 
     for (i, tx) in block.transactions.iter().enumerate() {
         // Bounds checking assertion: Transaction index must be valid
@@ -1427,27 +1444,10 @@ fn connect_block_inner(
         block.transactions.len()
     );
 
-    // CRITICAL FIX: In production path with rayon, transactions were already applied to temp_utxo_set
-    // during validation, and utxo_set was set to temp_utxo_set. We can't re-apply because inputs
-    // are already spent. We detect this by checking if the first non-coinbase transaction's inputs
-    // are already spent (not in utxo_set).
-    #[cfg(feature = "rayon")]
-    let transactions_already_applied = {
-        // Check if any non-coinbase transaction's inputs are already spent
-        block.transactions.iter().any(|tx| {
-            !is_coinbase(tx) && !tx.inputs.is_empty() && !utxo_set.contains_key(&tx.inputs[0].prevout)
-        })
-    };
-    
-    #[cfg(not(feature = "rayon"))]
-    let transactions_already_applied = false;
-    
-    if transactions_already_applied {
-        // Transactions already applied - skip re-application
-        // TODO: Rebuild undo log from stored entries (requires passing temp_undo_entries to Phase 5)
-        // For now, create empty undo log (won't break consensus, just means we can't undo this block)
-        undo_log = BlockUndoLog::new();
-    } else {
+    // NOTE: With UtxoOverlay approach, Phase 4 validation uses a read-only view of utxo_set.
+    // The overlay tracks additions/deletions in memory but DOES NOT modify the base utxo_set.
+    // Therefore, Phase 5 MUST ALWAYS run to apply changes to utxo_set.
+    {
         // Normal path: Apply transactions sequentially to build undo log
         for (i, tx) in block.transactions.iter().enumerate() {
         // Bounds checking assertion: Transaction index must be valid
@@ -1964,7 +1964,7 @@ fn validate_block_header(
 /// - Taproot flag (0x8000): Enabled if transaction uses Taproot (also used for WITNESS_PUBKEYTYPE)
 pub(crate) fn calculate_script_flags_for_block(
     tx: &Transaction,
-    tx_witness: Option<&Witness>,
+    has_witness: bool,
     height: u64,
     network: crate::types::Network,
 ) -> u32 {
@@ -2033,7 +2033,7 @@ pub(crate) fn calculate_script_flags_for_block(
     
     // Enable SegWit flag if transaction has witness data or is a SegWit transaction
     // and we're past SegWit activation
-    if height >= segwit_height && (tx_witness.is_some() || is_segwit_transaction(tx)) {
+    if height >= segwit_height && (has_witness || is_segwit_transaction(tx)) {
         flags |= 0x800; // SCRIPT_VERIFY_WITNESS
     }
 

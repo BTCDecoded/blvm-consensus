@@ -68,7 +68,9 @@ fn test_economic_mining_integration() {
     let consensus = ConsensusProof::new();
 
     // 1. Test subsidy calculation at different heights
-    let heights = vec![0, 210000, 420000, 630000]; // Different halving periods
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::H;
+    let heights = vec![0, H, H * 2, H * 3]; // Different halving periods
 
     for height in heights {
         let subsidy = consensus.get_block_subsidy(height);
@@ -342,7 +344,7 @@ fn create_valid_block() -> Block {
                 sequence: 0xffffffff,
             }],
             outputs: tx_outputs![TransactionOutput {
-                value: INITIAL_SUBSIDY,
+                value: 50 * blvm_consensus::orange_paper_constants::C,  // Initial subsidy = 50 BTC
                 script_pubkey: vec![0x51],
             }],
             lock_time: 0,

@@ -227,20 +227,24 @@ fn test_check_proof_of_work() {
 fn test_get_block_subsidy() {
     let consensus = ConsensusProof::new();
 
+    // Using Orange Paper constants
+    use blvm_consensus::orange_paper_constants::{C, H};
+    let initial_subsidy = 50 * C;
+    
     // Test genesis block
     let subsidy = consensus.get_block_subsidy(0);
-    assert_eq!(subsidy, 5000000000);
+    assert_eq!(subsidy, initial_subsidy);
 
     // Test first halving
-    let subsidy = consensus.get_block_subsidy(210000);
-    assert_eq!(subsidy, 2500000000);
+    let subsidy = consensus.get_block_subsidy(H);
+    assert_eq!(subsidy, initial_subsidy / 2);
 
     // Test second halving
-    let subsidy = consensus.get_block_subsidy(420000);
-    assert_eq!(subsidy, 1250000000);
+    let subsidy = consensus.get_block_subsidy(H * 2);
+    assert_eq!(subsidy, initial_subsidy / 4);
 
     // Test max halvings
-    let subsidy = consensus.get_block_subsidy(210000 * 64);
+    let subsidy = consensus.get_block_subsidy(H * 64);
     assert_eq!(subsidy, 0);
 }
 
@@ -255,7 +259,9 @@ fn test_total_supply() {
     let supply = consensus.total_supply(1);
     assert!(supply >= 0); // Allow for different implementations
 
-    let supply = consensus.total_supply(210000);
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::H;
+    let supply = consensus.total_supply(H);
     assert!(supply > 0);
     assert!(supply <= MAX_MONEY);
 }

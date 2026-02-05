@@ -232,9 +232,10 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
     //
     // For mempool policy, we use a height that activates all soft forks (well past all activations).
     // This ensures we validate using the most strict rules.
-    let _ = witnesses;
+    // Check if witness data is present (optimization: just check bool, no witness needed)
+    let has_witness = witnesses.map(|w| !w.is_empty()).unwrap_or(false);
     const MEMPOOL_POLICY_HEIGHT: u64 = 1_000_000; // All soft forks active at this height
-    crate::block::calculate_script_flags_for_block(tx, None, MEMPOOL_POLICY_HEIGHT, crate::types::Network::Mainnet)
+    crate::block::calculate_script_flags_for_block(tx, has_witness, MEMPOOL_POLICY_HEIGHT, crate::types::Network::Mainnet)
 }
 
 /// IsStandardTx: 𝒯𝒳 → {true, false}

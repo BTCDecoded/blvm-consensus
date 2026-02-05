@@ -43,6 +43,8 @@
 
 pub mod config;
 pub mod constants;
+pub mod orange_paper_constants;
+pub mod orange_paper_property_helpers;
 pub mod script;
 pub mod transaction;
 pub mod transaction_hash;
@@ -82,6 +84,7 @@ pub mod spam_filter;
 pub mod taproot;
 #[cfg(feature = "utxo-commitments")]
 pub mod utxo_commitments;
+pub mod utxo_overlay;
 pub mod witness;
 
 pub mod error;

@@ -42,12 +42,15 @@ thiserror = "=1.0.69"
 bincode = "=1.3.3"
 # Hex encoding (for RPC communication)
 hex = "=0.4.3"
+# Fast hash map for UTXO lookups (2-3x faster than std HashMap for fixed-size keys)
+rustc-hash = { version = "2.0", optional = true }
 
 # Spec-lock for mathematical verification
 # Default: Use crate from crates.io (once published)
 # Fallback: Git dependency (if crate not available, CI will clone repo)
 # Local dev: Use .cargo/config.toml with [patch.crates-io] (see .cargo/config.toml.example)
 # Version range allows compatible updates (^0.1.0 allows 0.1.x but not 0.2.x)
+# Note: Constants are always available for property tests; #[spec_locked] attributes are metadata for formal verification
 blvm-spec-lock = "^0.1.0"
 # Spec-macros for spec_locked attributes (migration in progress - commented out until committed)
 # blvm-spec-macros = { path = "../blvm-spec-macros", optional = true }
@@ -83,7 +86,7 @@ local-spec-lock = []
 
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
-production = ["lru", "rayon", "smallvec"]
+production = ["lru", "rayon", "smallvec", "rustc-hash"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
 rayon = ["dep:rayon"]
@@ -95,6 +98,10 @@ benchmarking = []
 # UTXO commitments module
 # Enables UTXO set commitments and peer consensus sync
 utxo-commitments = ["sparse-merkle-tree"]
+
+# Note: spec-lock feature removed - constants and #[spec_locked] attributes are always available
+# Property tests can use constants directly without any feature flag
+# The #[spec_locked] attributes are just metadata for formal verification tools
 
 # blvm-spec-macros feature (for spec_locked attributes)  
 # Enables spec_locked attribute macro from blvm-spec-macros

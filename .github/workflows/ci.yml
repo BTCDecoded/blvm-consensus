@@ -69,6 +69,35 @@ jobs:
           # 3. Local dev: Use .cargo/config.toml with [patch.crates-io] (not in CI)
           bash scripts/setup-spec-lock.sh
       
+      - name: Regenerate Orange Paper constants
+        run: |
+          echo "🔄 Regenerating constants from Orange Paper..."
+          # Build cargo-spec-lock if not already available
+          if [ ! -f "../blvm-spec-lock/target/debug/cargo-spec-lock" ]; then
+            echo "Building cargo-spec-lock..."
+            cd ../blvm-spec-lock
+            cargo build --bin cargo-spec-lock
+            cd ../blvm-consensus
+          fi
+          
+          # Regenerate constants from Orange Paper
+          ../blvm-spec-lock/target/debug/cargo-spec-lock extract-constants \
+            --spec-path ../blvm-spec/THE_ORANGE_PAPER.md \
+            --output src/orange_paper_constants.rs || {
+            echo "⚠️  Failed to regenerate constants (Orange Paper may not be available)"
+            echo "This is expected if blvm-spec is in a separate repository"
+            exit 0  # Non-blocking - constants may already be up to date
+          }
+          
+          # Check if constants file was modified
+          if git diff --quiet src/orange_paper_constants.rs; then
+            echo "✅ Constants are up to date"
+          else
+            echo "⚠️  Constants file was modified - Orange Paper may have changed"
+            echo "Consider committing the updated constants file"
+            git diff src/orange_paper_constants.rs || true
+          fi
+      
       - name: Cache
         id: setup-cache
         run: |

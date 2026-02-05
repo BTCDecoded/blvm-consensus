@@ -200,11 +200,16 @@ fn test_consensus_proof_economic_functions() {
     let consensus = ConsensusProof::new();
     
     // Test block subsidy
+    // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
+    use blvm_consensus::orange_paper_constants::C;
+    let initial_subsidy = 50 * C;
     let subsidy = consensus.get_block_subsidy(0);
-    assert_eq!(subsidy, 5000000000); // 50 BTC in satoshis
+    assert_eq!(subsidy, initial_subsidy); // 50 BTC in satoshis
     
     // Test total supply
-    let supply = consensus.total_supply(210000);
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::H;
+    let supply = consensus.total_supply(H);
     assert!(supply > 0);
     
     // Test difficulty adjustment

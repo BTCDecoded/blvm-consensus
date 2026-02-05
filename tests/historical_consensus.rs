@@ -433,30 +433,34 @@ fn test_historical_block_subsidy() {
     use blvm_consensus::economic::get_block_subsidy;
 
     // Test at various historical heights
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::{C, H};
     let heights = vec![
-        0,      // Genesis block: 50 BTC
-        209999, // Last block before first halving: 50 BTC
-        210000, // First halving: 25 BTC
-        419999, // Last block before second halving: 25 BTC
-        420000, // Second halving: 12.5 BTC
-        629999, // Last block before third halving: 12.5 BTC
-        630000, // Third halving: 6.25 BTC
+        0,              // Genesis block: 50 BTC
+        H - 1,          // Last block before first halving: 50 BTC
+        H,              // First halving: 25 BTC
+        H * 2 - 1,      // Last block before second halving: 25 BTC
+        H * 2,          // Second halving: 12.5 BTC
+        H * 3 - 1,      // Last block before third halving: 12.5 BTC
+        H * 3,          // Third halving: 6.25 BTC
     ];
 
     for height in heights {
         let subsidy = get_block_subsidy(height);
 
         // Verify subsidy is non-negative and within expected bounds
-        // subsidy is u64, always non-negative
-        assert!(subsidy <= 50_0000_0000); // 50 BTC in satoshis
+        // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
+        let initial_subsidy = 50 * C;
+        assert!(subsidy <= initial_subsidy as i64); // 50 BTC in satoshis
     }
 
-    // Verify halving schedule
-    assert_eq!(get_block_subsidy(0), 50_0000_0000); // 50 BTC
-    assert_eq!(get_block_subsidy(209999), 50_0000_0000); // 50 BTC
-    assert_eq!(get_block_subsidy(210000), 25_0000_0000); // 25 BTC
-    assert_eq!(get_block_subsidy(419999), 25_0000_0000); // 25 BTC
-    assert_eq!(get_block_subsidy(420000), 12_5000_0000); // 12.5 BTC
+    // Verify halving schedule using Orange Paper constants
+    let initial_subsidy = 50 * C;
+    assert_eq!(get_block_subsidy(0), initial_subsidy); // 50 BTC
+    assert_eq!(get_block_subsidy(H - 1), initial_subsidy); // 50 BTC
+    assert_eq!(get_block_subsidy(H), initial_subsidy / 2); // 25 BTC
+    assert_eq!(get_block_subsidy(H * 2 - 1), initial_subsidy / 2); // 25 BTC
+    assert_eq!(get_block_subsidy(H * 2), initial_subsidy / 4); // 12.5 BTC
 }
 
 /// Test difficulty adjustment at historical boundaries
