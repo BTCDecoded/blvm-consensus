@@ -435,7 +435,9 @@ fn test_calculate_fee_zero() {
 #[test]
 fn test_validate_supply_limit_excessive() {
     // Test with a height that would create excessive supply
-    let excessive_height = HALVING_INTERVAL * 100; // Way beyond normal operation
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::H;
+    let excessive_height = H * 100; // Way beyond normal operation
     let result = validate_supply_limit(excessive_height);
     // This should either pass (if the calculation is correct) or fail gracefully
     match result {

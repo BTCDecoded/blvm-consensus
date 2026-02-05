@@ -274,7 +274,9 @@ fn test_supply_calculation_boundaries() {
     let consensus = ConsensusProof::new();
     
     // Test supply calculation at various heights
-    let heights = vec![0, 1, HALVING_INTERVAL, HALVING_INTERVAL * 2, HALVING_INTERVAL * 10];
+    // Using Orange Paper constant H (halving interval = 210,000)
+    use blvm_consensus::orange_paper_constants::H;
+    let heights = vec![0, 1, H, H * 2, H * 10];
     
     for height in heights {
         let supply = consensus.total_supply(height);
@@ -283,7 +285,7 @@ fn test_supply_calculation_boundaries() {
     }
     
     // Test supply at very high height (beyond normal operation)
-    let high_height = HALVING_INTERVAL * 100;
+    let high_height = H * 100;
     let supply = consensus.total_supply(high_height);
     assert!(supply >= 0);
     assert!(supply <= MAX_MONEY);

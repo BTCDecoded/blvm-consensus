@@ -3,37 +3,47 @@
 use blvm_consensus::*;
 use blvm_consensus::economic::*;
 use blvm_consensus::constants::*;
+use blvm_consensus::orange_paper_constants::{C, H};
 
 #[test]
 fn test_get_block_subsidy_genesis() {
     let subsidy = get_block_subsidy(0);
-    assert_eq!(subsidy, INITIAL_SUBSIDY);
+    // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
+    let initial_subsidy = 50 * C;
+    assert_eq!(subsidy, initial_subsidy);
 }
 
 #[test]
 fn test_get_block_subsidy_first_halving() {
-    let subsidy = get_block_subsidy(HALVING_INTERVAL);
-    assert_eq!(subsidy, INITIAL_SUBSIDY / 2);
+    // Using Orange Paper constant H (halving interval = 210,000)
+    let subsidy = get_block_subsidy(H);
+    let initial_subsidy = 50 * C;
+    assert_eq!(subsidy, initial_subsidy / 2);
 }
 
 #[test]
 fn test_get_block_subsidy_second_halving() {
-    let subsidy = get_block_subsidy(HALVING_INTERVAL * 2);
-    assert_eq!(subsidy, INITIAL_SUBSIDY / 4);
+    // Using Orange Paper constant H (halving interval = 210,000)
+    let subsidy = get_block_subsidy(H * 2);
+    let initial_subsidy = 50 * C;
+    assert_eq!(subsidy, initial_subsidy / 4);
 }
 
 #[test]
 fn test_get_block_subsidy_max_halvings() {
     // After 64 halvings, subsidy should be 0
-    assert_eq!(get_block_subsidy(HALVING_INTERVAL * 64), 0);
+    // Using Orange Paper constant H (halving interval = 210,000)
+    assert_eq!(get_block_subsidy(H * 64), 0);
 }
 
 #[test]
 fn test_total_supply_convergence() {
     // Test that total supply approaches 21M BTC
-    let supply_at_halving = total_supply(HALVING_INTERVAL);
-    // At the first halving, we have 210,000 blocks of 50 BTC each
-    let expected_at_halving = (HALVING_INTERVAL as i64) * INITIAL_SUBSIDY;
+    // Using Orange Paper constant H (halving interval = 210,000)
+    let supply_at_halving = total_supply(H);
+    // At the first halving, we have H blocks of 50 BTC each
+    let initial_subsidy = 50 * C;
+    let expected_at_halving = (H as i64) * initial_subsidy;
     // The difference is due to bit shifting in get_block_subsidy
     // Allow for significant rounding differences due to bit operations
     let difference = (supply_at_halving - expected_at_halving).abs();
@@ -43,9 +53,10 @@ fn test_total_supply_convergence() {
 #[test]
 fn test_supply_limit() {
     // Test that supply limit is respected
+    // Using Orange Paper constant H (halving interval = 210,000)
     assert!(validate_supply_limit(0).unwrap());
-    assert!(validate_supply_limit(HALVING_INTERVAL).unwrap());
-    assert!(validate_supply_limit(HALVING_INTERVAL * 10).unwrap());
+    assert!(validate_supply_limit(H).unwrap());
+    assert!(validate_supply_limit(H * 10).unwrap());
 }
 
 #[test]
@@ -75,7 +86,8 @@ fn test_calculate_fee_zero() {
 #[test]
 fn test_validate_supply_limit_excessive() {
     // Test with a height that would create excessive supply
-    let excessive_height = HALVING_INTERVAL * 100; // Way beyond normal operation
+    // Using Orange Paper constant H (halving interval = 210,000)
+    let excessive_height = H * 100; // Way beyond normal operation
     let result = validate_supply_limit(excessive_height);
     // This should either pass (if the calculation is correct) or fail gracefully
     match result {

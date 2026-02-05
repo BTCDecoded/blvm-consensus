@@ -6,7 +6,8 @@
 use blvm_consensus::*;
 use blvm_consensus::ConsensusProof;
 use blvm_consensus::types::*;
-use blvm_consensus::constants::{MAX_MONEY, HALVING_INTERVAL, INITIAL_SUBSIDY};
+use blvm_consensus::constants::MAX_MONEY;
+use blvm_consensus::orange_paper_constants::{C, H};
 use proptest::prelude::*;
 
 /// Property test: block subsidy is always non-negative
@@ -31,8 +32,10 @@ proptest! {
         let consensus = ConsensusProof::new();
         let subsidy = consensus.get_block_subsidy(height);
         
-        prop_assert!(subsidy <= INITIAL_SUBSIDY as i64,
-            "Block subsidy must not exceed initial subsidy");
+        // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
+        let initial_subsidy = 50 * C;
+        prop_assert!(subsidy <= initial_subsidy as i64,
+            "Block subsidy must not exceed initial subsidy (50 * C)");
     }
 }
 
@@ -43,8 +46,9 @@ proptest! {
         halving_period in 0u64..64u64 // Maximum 64 halvings
     ) {
         let consensus = ConsensusProof::new();
-        let height_before = halving_period * HALVING_INTERVAL as u64;
-        let height_after = (halving_period + 1) * HALVING_INTERVAL as u64;
+        // Using Orange Paper constant H (halving interval = 210,000)
+        let height_before = halving_period * H;
+        let height_after = (halving_period + 1) * H;
         
         if height_after < 10000000 { // Reasonable bound
             let subsidy_before = consensus.get_block_subsidy(height_before);
@@ -53,7 +57,7 @@ proptest! {
             // After halving, subsidy should be half (or zero if at limit)
             if subsidy_before > 0 && halving_period < 64 {
                 prop_assert!(subsidy_after == subsidy_before / 2 || subsidy_after == 0,
-                    "Subsidy should halve every {} blocks", HALVING_INTERVAL);
+                    "Subsidy should halve every {} blocks (H from Orange Paper)", H);
             }
         }
     }

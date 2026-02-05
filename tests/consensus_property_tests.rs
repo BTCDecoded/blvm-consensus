@@ -6,6 +6,7 @@
 use blvm_consensus::constants::*;
 use blvm_consensus::crypto::OptimizedSha256;
 use blvm_consensus::economic;
+use blvm_consensus::orange_paper_constants::{C, H};
 use blvm_consensus::pow;
 use blvm_consensus::transaction;
 use blvm_consensus::types::*;
@@ -63,27 +64,25 @@ proptest! {
 // ============================================================================
 
 proptest! {
-    /// Invariant: Block subsidy halves every 210,000 blocks
+    /// Invariant: Block subsidy matches Orange Paper formula exactly
     ///
     /// Mathematical specification:
-    /// ∀ h ∈ ℕ: subsidy(h) = 50 * 10^8 * 2^(-⌊h/210000⌋) if ⌊h/210000⌋ < 64 else 0
+    /// ∀ h ∈ ℕ: subsidy(h) = 50 * C * 2^(-⌊h/H⌋) if ⌊h/H⌋ < 64 else 0
+    /// where C = 10^8 (satoshis per BTC) and H = 210,000 (halving interval)
+    ///
+    /// This test uses the Orange Paper formula helper to ensure exact match.
     #[test]
-    fn prop_block_subsidy_halving_schedule(
+    fn prop_block_subsidy_matches_orange_paper(
         height in 0u32..2100000u32 // Up to 10 halvings
     ) {
-        let subsidy = economic::get_block_subsidy(height as u64);
-        let halving_epoch = height / 210000;
+        use blvm_consensus::orange_paper_property_helpers::expected_getblocksubsidy_from_orange_paper;
+        
+        let actual = economic::get_block_subsidy(height as u64);
+        let expected = expected_getblocksubsidy_from_orange_paper(height as u64);
 
-        // Subsidy should be 50 BTC * 2^(-halving_epoch) satoshis
-        let expected_subsidy = if halving_epoch < 64 {
-            50_0000_0000u64 / (1u64 << halving_epoch)
-        } else {
-            0
-        };
-
-        prop_assert_eq!(subsidy as u64, expected_subsidy,
-            "Subsidy at height {} should be {} (halving epoch {})",
-            height, expected_subsidy, halving_epoch);
+        prop_assert_eq!(actual as i64, expected,
+            "Subsidy at height {} must match Orange Paper formula: actual={}, expected={}",
+            height, actual, expected);
     }
 
     /// Invariant: Total supply is monotonic and bounded
@@ -132,8 +131,9 @@ proptest! {
         prop_assert!(subsidy2 >= 0, "Subsidy must be non-negative");
 
         // Subsidy decreases across halving boundaries
-        let epoch1 = height1 / 210000;
-        let epoch2 = height2 / 210000;
+        // Using Orange Paper constant H (halving interval)
+        let epoch1 = height1 / (H as u32);
+        let epoch2 = height2 / (H as u32);
 
         if epoch1 < epoch2 && epoch2 < 64 {
             prop_assert!(subsidy1 >= subsidy2,
@@ -1518,20 +1518,19 @@ proptest! {
     /// Invariant: Halving interval boundary conditions
     ///
     /// Mathematical specification:
-    /// ∀ height ∈ {HALVING_INTERVAL - 1, HALVING_INTERVAL, HALVING_INTERVAL + 1}:
+    /// ∀ height ∈ {H - 1, H, H + 1} where H = 210,000 (Orange Paper halving interval):
     ///   subsidy(height) should follow halving schedule correctly
     #[test]
     fn prop_halving_interval_boundary(
         offset in -1i64..2i64
     ) {
-        use blvm_consensus::constants::HALVING_INTERVAL;
-
-        let height = ((HALVING_INTERVAL as i64).saturating_add(offset)) as u64;
+        // Using Orange Paper constant H (halving interval)
+        let height = ((H as i64).saturating_add(offset)) as u64;
         let subsidy = economic::get_block_subsidy(height);
 
         // At halving boundary, subsidy should halve
-        let halving_epoch = height / HALVING_INTERVAL;
-        let prev_halving_epoch = if height > 0 { (height - 1) / HALVING_INTERVAL } else { 0 };
+        let halving_epoch = height / H;
+        let prev_halving_epoch = if height > 0 { (height - 1) / H } else { 0 };
 
         if halving_epoch > prev_halving_epoch {
             // We crossed a halving boundary
