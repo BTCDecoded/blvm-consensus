@@ -317,15 +317,11 @@ fn connect_block_inner(
     // Check block weight (DoS prevention)
     // This must be done before expensive transaction validation
     // Flatten witnesses for calculate_block_weight (backward compatibility)
+    // OPTIMIZATION: Use flat_map + iter().cloned() instead of Vec::new() + extend(clone())
     use crate::segwit::calculate_block_weight;
     let flattened_witnesses: Vec<Witness> = witnesses.iter()
         .map(|tx_witnesses| {
-            // Flatten all input witnesses into one Witness per transaction
-            let mut flattened: Witness = Vec::new();
-            for witness_stack in tx_witnesses {
-                flattened.extend(witness_stack.clone());
-            }
-            flattened
+            tx_witnesses.iter().flat_map(|ws| ws.iter().cloned()).collect()
         })
         .collect();
     let block_weight = calculate_block_weight(block, &flattened_witnesses)?;
@@ -1219,13 +1215,10 @@ fn connect_block_inner(
             assert!(!witnesses.is_empty(), "SegWit block must have witnesses");
 
             // Flatten witnesses for compute_witness_merkle_root (backward compatibility)
+            // OPTIMIZATION: Use flat_map + iter().cloned() instead of Vec::new() + extend(clone())
             let flattened_witnesses: Vec<Witness> = witnesses.iter()
                 .map(|tx_witnesses| {
-                    let mut flattened: Witness = Vec::new();
-                    for witness_stack in tx_witnesses {
-                        flattened.extend(witness_stack.clone());
-                    }
-                    flattened
+                    tx_witnesses.iter().flat_map(|ws| ws.iter().cloned()).collect()
                 })
                 .collect();
             let witness_merkle_root = compute_witness_merkle_root(block, &flattened_witnesses)?;
@@ -1285,13 +1278,10 @@ fn connect_block_inner(
         );
 
         // Flatten witnesses for get_transaction_sigop_cost (backward compatibility)
+        // OPTIMIZATION: Use flat_map + iter().cloned() instead of Vec::new() + extend(clone())
         let tx_witnesses = witnesses.get(i);
         let flattened_tx_witness: Option<Witness> = tx_witnesses.map(|tx_wits| {
-            let mut flattened: Witness = Vec::new();
-            for witness_stack in tx_wits {
-                flattened.extend(witness_stack.clone());
-            }
-            flattened
+            tx_wits.iter().flat_map(|ws| ws.iter().cloned()).collect()
         });
         let tx_sigop_cost = get_transaction_sigop_cost(tx, &utxo_set, flattened_tx_witness.as_ref(), flags)?;
         // Invariant assertion: Transaction sigop cost must be reasonable
