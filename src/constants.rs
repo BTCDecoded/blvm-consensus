@@ -247,6 +247,40 @@ pub const SEGWIT_ACTIVATION_MAINNET: u64 = 481_824;
 /// Reference: BIP341, Bitcoin Core activation at block 709,632
 pub const TAPROOT_ACTIVATION_MAINNET: u64 = 709_632;
 
+/// CTV (BIP119) - Mainnet activation height
+///
+/// Starting at this block, OP_CHECKTEMPLATEVERIFY is active.
+/// Note: CTV is not yet activated on mainnet. Set to 0 to disable.
+/// Reference: BIP119 (proposed soft fork, not yet activated)
+pub const CTV_ACTIVATION_MAINNET: u64 = 0;
+
+/// CTV (BIP119) - Testnet activation height
+///
+/// Note: CTV is not yet activated on testnet. Set to 0 to disable.
+pub const CTV_ACTIVATION_TESTNET: u64 = 0;
+
+/// CTV (BIP119) - Regtest activation height
+///
+/// Always active on regtest (block 0) when feature is enabled.
+pub const CTV_ACTIVATION_REGTEST: u64 = 0;
+
+/// CSFS (BIP348) - Mainnet activation height
+///
+/// Starting at this block, OP_CHECKSIGFROMSTACK is active in Tapscript.
+/// Note: CSFS is not yet activated on mainnet. Set to 0 to disable.
+/// Reference: BIP348 (proposed soft fork, not yet activated)
+pub const CSFS_ACTIVATION_MAINNET: u64 = 0;
+
+/// CSFS (BIP348) - Testnet activation height
+///
+/// Note: CSFS is not yet activated on testnet. Set to 0 to disable.
+pub const CSFS_ACTIVATION_TESTNET: u64 = 0;
+
+/// CSFS (BIP348) - Regtest activation height
+///
+/// Always active on regtest (block 0) when feature is enabled.
+pub const CSFS_ACTIVATION_REGTEST: u64 = 0;
+
 // ============================================================================
 // GENESIS BLOCK CONSTANTS
 // ============================================================================
