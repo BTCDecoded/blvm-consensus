@@ -31,6 +31,7 @@ k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Note: sha2-asm doesn't support Windows, so we use target-specific dependencies below
 # sha2 is defined in target-specific sections only
 ripemd = "=0.1.3"
+sha1 = "=0.10.6"
 bitcoin_hashes = "=0.11.0"
 
 # Non-consensus-critical utilities - EXACT VERSIONS for supply chain security
@@ -116,6 +117,10 @@ runtime-invariants = []
 # CTV (BIP119 CheckTemplateVerify) - proposed soft fork
 # Enables OP_CHECKTEMPLATEVERIFY opcode support
 ctv = []
+
+# CSFS (BIP348 CHECKSIGFROMSTACK) - proposed soft fork
+# Enables OP_CHECKSIGFROMSTACK opcode support (Tapscript only)
+csfs = []
 
 
 [dependencies.lru]

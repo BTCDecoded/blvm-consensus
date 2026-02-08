@@ -47,7 +47,7 @@
 //!
 //! ## Opcode Behavior
 //!
-//! OP_CHECKTEMPLATEVERIFY (0xba):
+//! OP_CHECKTEMPLATEVERIFY - OP_NOP4 (BIP-119):
 //! - Consumes: [template_hash] (32 bytes from stack)
 //! - Produces: Nothing (fails if template doesn't match)
 //! - Requires: Full transaction context (tx, input_index)
@@ -69,6 +69,7 @@ use crate::error::{ConsensusError, Result};
 use crate::serialization::varint::encode_varint;
 use crate::types::*;
 use sha2::{Digest, Sha256};
+use blvm_spec_lock::spec_locked;
 
 /// Calculate transaction template hash for BIP119 CTV
 ///
@@ -221,7 +222,7 @@ pub fn validate_template_hash(
 /// Extract template hash from script
 ///
 /// For CTV scripts, the template hash is typically the last 32 bytes pushed
-/// before OP_CHECKTEMPLATEVERIFY (0xba).
+/// before OP_CHECKTEMPLATEVERIFY (0xb3).
 ///
 /// # Arguments
 ///
@@ -232,8 +233,9 @@ pub fn validate_template_hash(
 /// The template hash if found, `None` otherwise
 #[spec_locked("5.4.6")]
 pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
-    // Look for OP_CHECKTEMPLATEVERIFY (0xba)
-    if let Some(ctv_pos) = script.iter().rposition(|&b| b == 0xba) {
+    // Look for OP_CHECKTEMPLATEVERIFY - OP_NOP4
+    use crate::opcodes::OP_CHECKTEMPLATEVERIFY;
+    if let Some(ctv_pos) = script.iter().rposition(|&b| b == OP_CHECKTEMPLATEVERIFY) {
         // Find the last push operation before CTV
         // Template hash should be pushed as 32 bytes (0x20 push)
         if ctv_pos >= 33 && script[ctv_pos - 33] == 0x20 {
@@ -257,7 +259,8 @@ pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
 /// `true` if script contains OP_CHECKTEMPLATEVERIFY (0xba)
 #[spec_locked("5.4.6")]
 pub fn is_ctv_script(script: &[u8]) -> bool {
-    script.contains(&0xba) // OP_CHECKTEMPLATEVERIFY
+    use crate::opcodes::OP_CHECKTEMPLATEVERIFY;
+    script.contains(&OP_CHECKTEMPLATEVERIFY) // OP_CHECKTEMPLATEVERIFY (OP_NOP4)
 }
 
 
@@ -510,10 +513,10 @@ mod tests {
 
     #[test]
     fn test_is_ctv_script() {
-        // Script with CTV: push 32 bytes (0x20) + 32 bytes of hash + OP_CHECKTEMPLATEVERIFY (0xba)
+        // Script with CTV: push 32 bytes (0x20) + 32 bytes of hash + OP_CHECKTEMPLATEVERIFY (0xb3)
         let mut script_with_ctv = vec![0x20]; // OP_PUSHDATA1 with length 32
         script_with_ctv.extend_from_slice(&[0x00; 32]); // 32 bytes of hash
-        script_with_ctv.push(0xba); // OP_CHECKTEMPLATEVERIFY
+        script_with_ctv.push(0xb3); // OP_CHECKTEMPLATEVERIFY (OP_NOP4)
         assert!(is_ctv_script(&script_with_ctv));
 
         // Script without CTV

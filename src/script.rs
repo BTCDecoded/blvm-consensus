@@ -9,9 +9,11 @@
 
 use crate::constants::*;
 use crate::error::{ConsensusError, Result, ScriptErrorCode};
+use crate::opcodes::*;
 use crate::types::*;
 use ripemd::Ripemd160;
 use secp256k1::{ecdsa::Signature, Context, Message, PublicKey, Secp256k1, Verification};
+use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use blvm_spec_lock::spec_locked;
 
@@ -209,7 +211,7 @@ fn compute_script_cache_key(
 fn compute_hash_cache_key(input: &[u8], op_hash160: bool) -> [u8; 32] {
     // Use SHA256 of input + operation type as cache key
     let mut data = input.to_vec();
-    data.push(if op_hash160 { 0xa9 } else { 0xaa }); // OP_HASH160 or OP_HASH256
+    data.push(if op_hash160 { OP_HASH160 } else { OP_HASH256 }); // OP_HASH160 or OP_HASH256
     let hash = Sha256::digest(&data);
     let mut key = [0u8; 32];
     key.copy_from_slice(&hash);
@@ -294,6 +296,23 @@ fn eval_script_impl(
     eval_script_inner(script, stack, flags, sigversion)
 }
 
+/// CastToBool: Bitcoin Core's truthiness check for stack elements.
+/// Returns true if ANY byte is non-zero, except for "negative zero" (0x80 in last byte, rest zeros).
+/// This matches Bitcoin Core's `CastToBool(const valtype& vch)`.
+#[inline]
+fn cast_to_bool(v: &[u8]) -> bool {
+    for i in 0..v.len() {
+        if v[i] != 0 {
+            // Negative zero: all zeros except 0x80 in the last byte
+            if i == v.len() - 1 && v[i] == 0x80 {
+                return false;
+            }
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlBlock {
     If { executing: bool },
@@ -301,13 +320,11 @@ enum ControlBlock {
 }
 
 fn is_push_opcode(opcode: u8) -> bool {
-    // Canonical push opcodes: OP_0 (0x00), OP_PUSHDATA1-4, and small direct pushes.
-    match opcode {
-        0x00 => true,        // OP_0
-        0x01..=0x4b => true, // direct pushes
-        0x4c..=0x4e => true, // OP_PUSHDATA1-4
-        _ => false,
-    }
+    // Push opcodes: any opcode <= OP_16 (0x60) is considered a push opcode.
+    // This matches Bitcoin Core's IsPushOnly() and op count logic (opcode > OP_16 counts).
+    // Includes: OP_0 (0x00), direct pushes (0x01-0x4b), OP_PUSHDATA1-4 (0x4c-0x4e),
+    // OP_1NEGATE (0x4f), OP_RESERVED (0x50), OP_1-OP_16 (0x51-0x60).
+    opcode <= 0x60
 }
 
 // Minimal IF/NOTIF condition encoding (MINIMALIF)
@@ -317,7 +334,7 @@ fn is_minimal_if_condition(bytes: &[u8]) -> bool {
         1 => {
             let b = bytes[0];
             // minimal false/true encodings: 0, 1..16, or OP_1..OP_16
-            b == 0 || (1..=16).contains(&b) || (0x51..=0x60).contains(&b)
+            b == 0 || (1..=16).contains(&b) || (OP_1..=OP_16).contains(&b)
         }
         _ => false,
     }
@@ -333,6 +350,7 @@ fn eval_script_inner(
 
     let mut op_count = 0;
     let mut control_stack: Vec<ControlBlock> = Vec::new();
+    let mut altstack: Vec<ByteString> = Vec::new();
 
     for opcode in script {
         let opcode = *opcode;
@@ -357,20 +375,14 @@ fn eval_script_inner(
             );
         }
 
-        // Check stack size
-        if stack.len() > MAX_STACK_SIZE {
+        // Check combined stack + altstack size (matches Bitcoin Core)
+        if stack.len() + altstack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
         }
-        debug_assert!(
-            stack.len() <= MAX_STACK_SIZE,
-            "Stack size ({}) must not exceed MAX_STACK_SIZE ({})",
-            stack.len(),
-            MAX_STACK_SIZE
-        );
 
         match opcode {
             // OP_IF
-            0x63 => {
+            OP_IF => {
                 if in_false_branch {
                     control_stack.push(ControlBlock::If { executing: false });
                     continue;
@@ -383,7 +395,7 @@ fn eval_script_inner(
                     });
                 }
                 let condition_bytes = stack.pop().unwrap();
-                let condition = !condition_bytes.is_empty() && condition_bytes[0] != 0;
+                let condition = cast_to_bool(&condition_bytes);
 
                 // MINIMALIF (0x2000) for WitnessV0/Tapscript
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
@@ -402,7 +414,7 @@ fn eval_script_inner(
                 });
             }
             // OP_NOTIF
-            0x64 => {
+            OP_NOTIF => {
                 if in_false_branch {
                     control_stack.push(ControlBlock::NotIf { executing: false });
                     continue;
@@ -415,7 +427,7 @@ fn eval_script_inner(
                     });
                 }
                 let condition_bytes = stack.pop().unwrap();
-                let condition = !condition_bytes.is_empty() && condition_bytes[0] != 0;
+                let condition = cast_to_bool(&condition_bytes);
 
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
@@ -433,7 +445,7 @@ fn eval_script_inner(
                 });
             }
             // OP_ELSE
-            0x67 => {
+            OP_ELSE => {
                 if let Some(block) = control_stack.last_mut() {
                     match block {
                         ControlBlock::If { executing } | ControlBlock::NotIf { executing } => {
@@ -448,13 +460,39 @@ fn eval_script_inner(
                 }
             }
             // OP_ENDIF
-            0x68 => {
+            OP_ENDIF => {
                 if control_stack.pop().is_none() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::UnbalancedConditional,
                         message: "OP_ENDIF without matching IF/NOTIF".into(),
                     });
                 }
+            }
+            // OP_TOALTSTACK - move top stack item to altstack
+            OP_TOALTSTACK => {
+                if in_false_branch {
+                    continue;
+                }
+                if stack.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidStackOperation,
+                        message: "OP_TOALTSTACK: empty stack".into(),
+                    });
+                }
+                altstack.push(stack.pop().unwrap());
+            }
+            // OP_FROMALTSTACK - move top altstack item to stack
+            OP_FROMALTSTACK => {
+                if in_false_branch {
+                    continue;
+                }
+                if altstack.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidAltstackOperation,
+                        message: "OP_FROMALTSTACK: empty altstack".into(),
+                    });
+                }
+                stack.push(altstack.pop().unwrap());
             }
             _ => {
                 if in_false_branch {
@@ -466,9 +504,9 @@ fn eval_script_inner(
                 }
 
                 debug_assert!(
-                    stack.len() <= MAX_STACK_SIZE,
-                    "Stack size ({}) must not exceed MAX_STACK_SIZE ({}) after opcode execution",
-                    stack.len(),
+                    stack.len() + altstack.len() <= MAX_STACK_SIZE,
+                    "Combined stack size ({}) must not exceed MAX_STACK_SIZE ({}) after opcode execution",
+                    stack.len() + altstack.len(),
                     MAX_STACK_SIZE
                 );
             }
@@ -486,13 +524,8 @@ fn eval_script_inner(
     // Optimization: Use bounds-optimized access in production
     #[cfg(feature = "production")]
     {
-        use crate::optimizations::_optimized_access::get_proven_by_;
-        if let Some(first_item) = get_proven_by_(stack, 0) {
-            if let Some(first_byte) = get_proven_by_(first_item, 0) {
-                Ok(stack.len() == 1 && !first_item.is_empty() && *first_byte != 0)
-            } else {
-                Ok(false)
-            }
+        if stack.len() == 1 {
+            Ok(cast_to_bool(&stack[0]))
         } else {
             Ok(false)
         }
@@ -500,7 +533,7 @@ fn eval_script_inner(
 
     #[cfg(not(feature = "production"))]
     {
-        Ok(stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0)
+        Ok(stack.len() == 1 && cast_to_bool(&stack[0]))
     }
 }
 
@@ -564,7 +597,7 @@ pub fn verify_script(
                     }
                     false
                 } else {
-                    let res = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
+                    let res = stack.len() == 1 && cast_to_bool(&stack[0]);
                     if !is_caching_disabled() {
                         let mut cache = get_script_cache().write().unwrap();
                         cache.put(cache_key, res);
@@ -572,7 +605,7 @@ pub fn verify_script(
                     res
                 }
             } else {
-                let res = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
+                let res = stack.len() == 1 && cast_to_bool(&stack[0]);
                 if !is_caching_disabled() {
                     let mut cache = get_script_cache().write().unwrap();
                     cache.put(cache_key, res);
@@ -610,7 +643,7 @@ pub fn verify_script(
         }
 
         // Final validation
-        Ok(stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0)
+        Ok(stack.len() == 1 && cast_to_bool(&stack[0]))
     }
 }
 
@@ -632,6 +665,10 @@ pub fn verify_script_with_context(
     prevouts: &[TransactionOutput],
     network: crate::types::Network,
 ) -> Result<bool> {
+    // Convert prevouts to parallel slices for the optimized API
+    let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
+    let prevout_script_pubkeys: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    
     // Default to Base sigversion for this API (no witness version inspection here)
     let sigversion = SigVersion::Base;
     verify_script_with_context_full(
@@ -641,7 +678,8 @@ pub fn verify_script_with_context(
         flags,
         tx,
         input_index,
-        prevouts,
+        &prevout_values,
+        &prevout_script_pubkeys,
         None, // block_height
         None, // median_time_past
         network,
@@ -663,6 +701,10 @@ pub fn verify_script_with_context(
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
+/// VerifyScript with full context - optimized version using parallel slices
+/// 
+/// This version accepts prevout values and script_pubkeys as separate slices to avoid
+/// unnecessary cloning of script_pubkey data.
 pub fn verify_script_with_context_full(
     script_sig: &ByteString,
     script_pubkey: &ByteString,
@@ -670,7 +712,8 @@ pub fn verify_script_with_context_full(
     flags: u32,
     tx: &Transaction,
     input_index: usize,
-    prevouts: &[TransactionOutput],
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&ByteString],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     network: crate::types::Network,
@@ -684,9 +727,9 @@ pub fn verify_script_with_context_full(
         tx.inputs.len()
     );
     assert!(
-        prevouts.len() == tx.inputs.len(),
-        "Prevouts length {} must match input count {}",
-        prevouts.len(),
+        prevout_values.len() == tx.inputs.len() && prevout_script_pubkeys.len() == tx.inputs.len(),
+        "Prevout slices length {} must match input count {}",
+        prevout_values.len(),
         tx.inputs.len()
     );
     assert!(
@@ -702,12 +745,12 @@ pub fn verify_script_with_context_full(
 
     // libbitcoin-consensus check (multi-input verify_script): prevouts length must match vin size
     // Core: if (prevouts.size() != tx->vin.size()) return verify_result_tx_input_invalid;
-    if prevouts.len() != tx.inputs.len() {
+    if prevout_values.len() != tx.inputs.len() || prevout_script_pubkeys.len() != tx.inputs.len() {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::TxInputInvalid,
             message: format!(
-                "Prevouts length {} does not match input count {}",
-                prevouts.len(),
+                "Prevout slices length {} must match input count {}",
+                prevout_values.len(),
                 tx.inputs.len()
             )
             .into(),
@@ -719,8 +762,8 @@ pub fn verify_script_with_context_full(
     // This prevents value overflow in TransactionSignatureChecker
     // Note: Our value is already i64, so it can't exceed i64::MAX by definition
     // But we validate it's non-negative and within MAX_MONEY bounds for safety
-    if input_index < prevouts.len() {
-        let prevout_value = prevouts[input_index].value;
+    if input_index < prevout_values.len() {
+        let prevout_value = prevout_values[input_index];
         if prevout_value < 0 {
             return Err(ConsensusError::ScriptErrorWithCode {
                 code: ScriptErrorCode::ValueOverflow,
@@ -751,13 +794,13 @@ pub fn verify_script_with_context_full(
 
     // P2SH handling: If SCRIPT_VERIFY_P2SH flag is set and scriptPubkey is P2SH format,
     // we need to check scriptSig push-only BEFORE executing it
-    // P2SH scriptPubkey format: OP_HASH160 (0xa9) <20-byte-hash> OP_EQUAL (0x87)
+    // P2SH scriptPubkey format: OP_HASH160 <20-byte-hash> OP_EQUAL
     const SCRIPT_VERIFY_P2SH: u32 = 0x01;
     let is_p2sh = (flags & SCRIPT_VERIFY_P2SH) != 0
         && script_pubkey.len() == 23  // OP_HASH160 (1) + push 20 (1) + 20 bytes + OP_EQUAL (1) = 23
-        && script_pubkey[0] == 0xa9   // OP_HASH160
+        && script_pubkey[0] == OP_HASH160   // OP_HASH160
         && script_pubkey[1] == 0x14   // push 20 bytes
-        && script_pubkey[22] == 0x87; // OP_EQUAL
+        && script_pubkey[22] == OP_EQUAL; // OP_EQUAL
     
     // CRITICAL: For P2SH, scriptSig MUST only contain push operations (data pushes only)
     // This prevents script injection attacks. If scriptSig contains non-push opcodes, fail immediately.
@@ -773,7 +816,7 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
             // Advance past the push opcode and data
-            if opcode == 0x00 {
+            if opcode == OP_0 {
                 // OP_0 - push empty array, no data to skip
                 i += 1;
             } else if opcode <= 0x4b {
@@ -783,7 +826,7 @@ pub fn verify_script_with_context_full(
                     return Ok(false); // Invalid push length
                 }
                 i += 1 + len;
-            } else if opcode == 0x4c {
+            } else if opcode == OP_PUSHDATA1 {
                 // OP_PUSHDATA1
                 if i + 1 >= script_sig.len() {
                     return Ok(false);
@@ -793,7 +836,7 @@ pub fn verify_script_with_context_full(
                     return Ok(false);
                 }
                 i += 2 + len;
-            } else if opcode == 0x4d {
+            } else if opcode == OP_PUSHDATA2 {
                 // OP_PUSHDATA2
                 if i + 2 >= script_sig.len() {
                     return Ok(false);
@@ -803,7 +846,7 @@ pub fn verify_script_with_context_full(
                     return Ok(false);
                 }
                 i += 3 + len;
-            } else if opcode == 0x4e {
+            } else if opcode == OP_PUSHDATA4 {
                 // OP_PUSHDATA4
                 if i + 4 >= script_sig.len() {
                     return Ok(false);
@@ -818,6 +861,10 @@ pub fn verify_script_with_context_full(
                     return Ok(false);
                 }
                 i += 5 + len;
+            } else if opcode >= OP_1NEGATE && opcode <= OP_16 {
+                // OP_1NEGATE, OP_RESERVED, OP_1-OP_16
+                // These are single-byte push opcodes with no data payload
+                i += 1;
             } else {
                 // Should not reach here if is_push_opcode is correct, but fail anyway
                 return Ok(false);
@@ -837,21 +884,14 @@ pub fn verify_script_with_context_full(
         flags,
         tx,
         input_index,
-        prevouts,
+        prevout_values,
+        prevout_script_pubkeys,
         block_height,
         median_time_past,
         network,
         SigVersion::Base,
     )?;
     if !script_sig_result {
-        // DEBUG: Log why scriptSig execution failed
-        #[cfg(not(feature = "production"))]
-        eprintln!("DEBUG: scriptSig execution failed for input {}", input_index);
-        // Postcondition assertion: Result must be boolean
-        #[allow(clippy::eq_op)]
-        {
-            assert!(false == false || true == true, "Result must be boolean");
-        }
         return Ok(false);
     }
     // Invariant assertion: Stack size must be reasonable after scriptSig execution
@@ -875,7 +915,7 @@ pub fn verify_script_with_context_full(
     let is_taproot = redeem_script.is_none()  // Not P2SH
         && block_height.is_some() && block_height.unwrap() >= TAPROOT_ACTIVATION_MAINNET
         && script_pubkey.len() == 34
-        && script_pubkey[0] == 0x51  // OP_1 (witness version 1)
+        && script_pubkey[0] == OP_1  // OP_1 (witness version 1)
         && script_pubkey[1] == 0x20; // push 32 bytes
     
     // If Taproot, scriptSig must be empty
@@ -890,7 +930,7 @@ pub fn verify_script_with_context_full(
     let is_direct_witness_program = redeem_script.is_none()  // Not P2SH
         && !is_taproot  // Not Taproot
         && script_pubkey.len() >= 3
-        && script_pubkey[0] == 0x00  // OP_0 (witness version 0)
+        && script_pubkey[0] == OP_0  // OP_0 (witness version 0)
         && ((script_pubkey[1] == 0x14 && script_pubkey.len() == 22)  // P2WPKH: push 20 bytes, total 22
             || (script_pubkey[1] == 0x20 && script_pubkey.len() == 34)); // P2WSH: push 32 bytes, total 34
     
@@ -965,18 +1005,14 @@ pub fn verify_script_with_context_full(
         flags,
         tx,
         input_index,
-        prevouts,
+        prevout_values,
+        prevout_script_pubkeys,
         block_height,
         median_time_past,
         network,
         SigVersion::Base,
     )?;
     if !script_pubkey_result {
-        // Postcondition assertion: Result must be boolean
-        #[allow(clippy::eq_op)]
-        {
-            assert!(false == false || true == true, "Result must be boolean");
-        }
         return Ok(false);
     }
     
@@ -998,7 +1034,8 @@ pub fn verify_script_with_context_full(
             flags,
             tx,
             input_index,
-            prevouts,
+            prevout_values,
+            prevout_script_pubkeys,
             block_height,
             median_time_past,
             network,
@@ -1013,11 +1050,6 @@ pub fn verify_script_with_context_full(
     // After scriptPubkey execution, if successful, stack should have [sig1, sig2, ..., 1] 
     // where 1 is the OP_EQUAL result (true)
     if let Some(redeem) = redeem_script {
-        // Verify scriptPubkey execution succeeded (eval_script returns true only if final stack check passes)
-        // The final stack check requires exactly one non-zero value on top
-        // For P2SH scriptPubkey, this means OP_EQUAL returned 1 (hash matched)
-        // So stack should have [sig1, sig2, ..., 1] where 1 is the OP_EQUAL result
-        
         // Verify stack has at least one element (the OP_EQUAL result)
         if stack.is_empty() {
             return Ok(false); // scriptPubkey execution failed
@@ -1025,7 +1057,7 @@ pub fn verify_script_with_context_full(
         
         // Verify top element is non-zero (OP_EQUAL returned 1 = hash matched)
         let top = stack.last().unwrap();
-        if top.is_empty() || top[0] == 0 {
+        if !cast_to_bool(top) {
             return Ok(false); // Hash didn't match or scriptPubkey failed
         }
         
@@ -1037,7 +1069,7 @@ pub fn verify_script_with_context_full(
         // P2WPKH: [0x00, 0x14, <20 bytes>] = 22 bytes total
         // P2WSH: [0x00, 0x20, <32 bytes>] = 34 bytes total
         let is_witness_program = redeem.len() >= 3
-            && redeem[0] == 0x00  // OP_0 (witness version 0)
+            && redeem[0] == OP_0  // OP_0 (witness version 0)
             && ((redeem[1] == 0x14 && redeem.len() == 22)  // P2WPKH: push 20 bytes, total 22
                 || (redeem[1] == 0x20 && redeem.len() == 34)); // P2WSH: push 32 bytes, total 34
         
@@ -1100,7 +1132,8 @@ pub fn verify_script_with_context_full(
                         flags,
                         tx,
                         input_index,
-                        prevouts,
+                        prevout_values,
+                        prevout_script_pubkeys,
                         block_height,
                         median_time_past,
                         network,
@@ -1124,19 +1157,21 @@ pub fn verify_script_with_context_full(
             // Regular P2SH: execute the redeem script with the remaining stack (signatures pushed by scriptSig)
             // The redeem script will consume the signatures and should leave exactly one true value
             // CRITICAL FIX: Pass redeem script for P2SH sighash calculation
-            if !eval_script_with_context_full_inner(
+            let redeem_result = eval_script_with_context_full_inner(
                 &redeem,
                 &mut stack,
                 flags,
                 tx,
                 input_index,
-                prevouts,
+                prevout_values,
+                prevout_script_pubkeys,
                 block_height,
                 median_time_past,
                 network,
                 SigVersion::Base,
                 Some(&redeem), // Pass redeem script for sighash
-            )? {
+            )?;
+            if !redeem_result {
                 return Ok(false);
             }
         }
@@ -1164,15 +1199,19 @@ pub fn verify_script_with_context_full(
     }
 
     // Final validation
-    let final_result = stack.len() == 1 && !stack[0].is_empty() && stack[0][0] != 0;
-    if !final_result {
-        // DEBUG: Log why final validation failed
-        #[cfg(not(feature = "production"))]
-        eprintln!("DEBUG: Final validation failed - stack len: {}, empty: {}, first byte: {:?}", 
-                 stack.len(), 
-                 stack.get(0).map(|s| s.is_empty()).unwrap_or(true),
-                 stack.get(0).and_then(|s| s.get(0)).copied());
-    }
+    // SCRIPT_VERIFY_CLEANSTACK (0x100): requires exactly 1 element on the stack
+    // This is only a consensus rule for witness scripts (handled above in witness paths).
+    // For legacy scripts in block validation, Bitcoin Core only requires the top element
+    // to be truthy (non-empty and non-zero). CLEANSTACK for legacy is mempool policy only.
+    const SCRIPT_VERIFY_CLEANSTACK: u32 = 0x100;
+    
+    let final_result = if (flags & SCRIPT_VERIFY_CLEANSTACK) != 0 {
+        // CLEANSTACK: exactly one element, must be truthy
+        stack.len() == 1 && cast_to_bool(&stack[0])
+    } else {
+        // Legacy: stack non-empty, top element is truthy
+        !stack.is_empty() && cast_to_bool(stack.last().unwrap())
+    };
     Ok(final_result)
 }
 
@@ -1187,13 +1226,17 @@ fn eval_script_with_context(
     prevouts: &[TransactionOutput],
     network: crate::types::Network,
 ) -> Result<bool> {
+    // Convert prevouts to parallel slices for the optimized API
+    let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
+    let prevout_script_pubkeys: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
     eval_script_with_context_full(
         script,
         stack,
         flags,
         tx,
         input_index,
-        prevouts,
+        &prevout_values,
+        &prevout_script_pubkeys,
         None, // block_height
         None, // median_time_past
         network,
@@ -1209,13 +1252,14 @@ fn eval_script_with_context_full(
     flags: u32,
     tx: &Transaction,
     input_index: usize,
-    prevouts: &[TransactionOutput],
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&ByteString],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     network: crate::types::Network,
     sigversion: SigVersion,
 ) -> Result<bool> {
-    eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevouts, block_height, median_time_past, network, sigversion, None)
+    eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevout_values, prevout_script_pubkeys, block_height, median_time_past, network, sigversion, None)
 }
 
 /// Internal function with redeem script support for P2SH sighash
@@ -1225,7 +1269,8 @@ fn eval_script_with_context_full_inner(
     flags: u32,
     tx: &Transaction,
     input_index: usize,
-    prevouts: &[TransactionOutput],
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&ByteString],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     network: crate::types::Network,
@@ -1240,9 +1285,9 @@ fn eval_script_with_context_full_inner(
         tx.inputs.len()
     );
     assert!(
-        prevouts.len() == tx.inputs.len(),
-        "Prevouts length {} must match input count {}",
-        prevouts.len(),
+        prevout_values.len() == tx.inputs.len() && prevout_script_pubkeys.len() == tx.inputs.len(),
+        "Prevout slices length {} must match input count {}",
+        prevout_values.len(),
         tx.inputs.len()
     );
     assert!(
@@ -1269,6 +1314,13 @@ fn eval_script_with_context_full_inner(
     let mut control_stack: Vec<ControlBlock> = Vec::new();
     // Invariant assertion: Control stack must start empty
     assert!(control_stack.is_empty(), "Control stack must start empty");
+
+    let mut altstack: Vec<ByteString> = Vec::new();
+
+    // Track OP_CODESEPARATOR position for sighash calculation.
+    // Bitcoin Core's pbegincodehash: the script code used for sighash starts
+    // from after the last OP_CODESEPARATOR (or from the beginning if none).
+    let mut code_separator_pos: usize = 0;
 
     // Use index-based iteration to properly handle push opcodes
     let mut i = 0;
@@ -1298,25 +1350,13 @@ fn eval_script_with_context_full_inner(
             }
         }
 
-        // Check stack size
-        // Invariant assertion: Stack size must not exceed maximum
-        assert!(
-            stack.len() <= MAX_STACK_SIZE + 1,
-            "Stack size {} must not exceed MAX_STACK_SIZE + 1",
-            stack.len()
-        );
-        if stack.len() > MAX_STACK_SIZE {
+        // Check combined stack + altstack size (matches Bitcoin Core)
+        if stack.len() + altstack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
         }
-        debug_assert!(
-            stack.len() <= MAX_STACK_SIZE,
-            "Stack size ({}) must not exceed MAX_STACK_SIZE ({})",
-            stack.len(),
-            MAX_STACK_SIZE
-        );
 
-        // Handle push opcodes (0x01-0x4b: direct push, 0x4c-0x4e: OP_PUSHDATA1/2/4)
-        if opcode >= 0x01 && opcode <= 0x4e {
+        // Handle push opcodes (0x01-0x4b: direct push, OP_PUSHDATA1/2/4)
+        if opcode >= 0x01 && opcode <= OP_PUSHDATA4 {
             let (data, advance) = if opcode <= 0x4b {
                 // Direct push: opcode is the length (1-75 bytes)
                 let len = opcode as usize;
@@ -1324,7 +1364,7 @@ fn eval_script_with_context_full_inner(
                     return Ok(false); // Script truncated
                 }
                 (&script[i + 1..i + 1 + len], 1 + len)
-            } else if opcode == 0x4c {
+            } else if opcode == OP_PUSHDATA1 {
                 // OP_PUSHDATA1: next byte is length
                 if i + 1 >= script.len() {
                     return Ok(false);
@@ -1334,7 +1374,7 @@ fn eval_script_with_context_full_inner(
                     return Ok(false);
                 }
                 (&script[i + 2..i + 2 + len], 2 + len)
-            } else if opcode == 0x4d {
+            } else if opcode == OP_PUSHDATA2 {
                 // OP_PUSHDATA2: next 2 bytes (little-endian) are length
                 if i + 2 >= script.len() {
                     return Ok(false);
@@ -1366,41 +1406,46 @@ fn eval_script_with_context_full_inner(
 
         match opcode {
             // OP_0 - push empty array
-            0x00 => {
+            OP_0 => {
                 if !in_false_branch {
                     stack.push(vec![]);
                 }
             }
             
             // OP_1 to OP_16 - push numbers 1-16
-            0x51..=0x60 => {
+            OP_1_RANGE_START..=OP_1_RANGE_END => {
                 if !in_false_branch {
-                    let num = opcode - 0x50;
+                    let num = opcode - OP_N_BASE;
                     stack.push(vec![num]);
                 }
             }
             
             // OP_1NEGATE - push -1
-            0x4f => {
+            OP_1NEGATE => {
                 if !in_false_branch {
                     stack.push(vec![0x81]); // -1 in script number encoding
                 }
             }
             
-            // OP_NOP (0x61) - do nothing, execution continues
-            0x61 => {
+            // OP_NOP - do nothing, execution continues
+            OP_NOP => {
                 // No operation - this is valid and execution continues
             }
             
-            // OP_VER (0x62) - disabled opcode, always fails
-            0x62 => {
-                return Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::DisabledOpcode,
-                    message: "OP_VER is disabled".into(),
-                });
+            // OP_VER - causes failure only when executing
+            // In Bitcoin Core, OP_VER is inside the `if (fExec || ...)` check,
+            // so it only fails in executing branches. Non-executing branches skip it.
+            // This differs from truly disabled opcodes (OP_CAT, etc.) which always fail.
+            OP_VER => {
+                if !in_false_branch {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::DisabledOpcode,
+                        message: "OP_VER is disabled".into(),
+                    });
+                }
             }
             
-            0x63 => {
+            OP_IF => {
                 // OP_IF
                 if in_false_branch {
                     control_stack.push(ControlBlock::If { executing: false });
@@ -1415,7 +1460,7 @@ fn eval_script_with_context_full_inner(
                     });
                 }
                 let condition_bytes = stack.pop().unwrap();
-                let condition = !condition_bytes.is_empty() && condition_bytes[0] != 0;
+                let condition = cast_to_bool(&condition_bytes);
 
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
@@ -1432,10 +1477,11 @@ fn eval_script_with_context_full_inner(
                     executing: condition,
                 });
             }
-            0x64 => {
+            OP_NOTIF => {
                 // OP_NOTIF
                 if in_false_branch {
                     control_stack.push(ControlBlock::NotIf { executing: false });
+                    i += 1;
                     continue;
                 }
 
@@ -1446,7 +1492,7 @@ fn eval_script_with_context_full_inner(
                     });
                 }
                 let condition_bytes = stack.pop().unwrap();
-                let condition = !condition_bytes.is_empty() && condition_bytes[0] != 0;
+                let condition = cast_to_bool(&condition_bytes);
 
                 const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
                 if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
@@ -1463,7 +1509,7 @@ fn eval_script_with_context_full_inner(
                     executing: !condition,
                 });
             }
-            0x67 => {
+            OP_ELSE => {
                 // OP_ELSE
                 if let Some(block) = control_stack.last_mut() {
                     match block {
@@ -1478,7 +1524,7 @@ fn eval_script_with_context_full_inner(
                     });
                 }
             }
-            0x68 => {
+            OP_ENDIF => {
                 // OP_ENDIF
                 if control_stack.pop().is_none() {
                     return Err(ConsensusError::ScriptErrorWithCode {
@@ -1487,24 +1533,74 @@ fn eval_script_with_context_full_inner(
                     });
                 }
             }
+            // OP_TOALTSTACK - move top stack item to altstack
+            OP_TOALTSTACK => {
+                if in_false_branch {
+                    i += 1;
+                    continue;
+                }
+                if stack.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidStackOperation,
+                        message: "OP_TOALTSTACK: empty stack".into(),
+                    });
+                }
+                altstack.push(stack.pop().unwrap());
+            }
+            // OP_FROMALTSTACK - move top altstack item to stack
+            OP_FROMALTSTACK => {
+                if in_false_branch {
+                    i += 1;
+                    continue;
+                }
+                if altstack.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidAltstackOperation,
+                        message: "OP_FROMALTSTACK: empty altstack".into(),
+                    });
+                }
+                stack.push(altstack.pop().unwrap());
+            }
+            // OP_CODESEPARATOR - update sighash script code start position
+            OP_CODESEPARATOR => {
+                if in_false_branch {
+                    i += 1;
+                    continue;
+                }
+                // Mark the position AFTER this opcode as the start of the script code
+                // for subsequent OP_CHECKSIG/CHECKMULTISIG sighash calculations.
+                // This matches Bitcoin Core's pbegincodehash = pc behavior.
+                code_separator_pos = i + 1;
+            }
             _ => {
                 if in_false_branch {
                     i += 1;
                     continue;
                 }
 
+                // For signature opcodes, compute the effective script code for sighash:
+                // From the last OP_CODESEPARATOR position to the end of the script.
+                // This matches Bitcoin Core's CScript(pbegincodehash, pend).
+                // Only allocate for opcodes that actually use the script code.
+                let subscript_for_sighash = if matches!(opcode, OP_CHECKSIG | OP_CHECKSIGVERIFY | OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY) {
+                    Some(script[code_separator_pos..].to_vec())
+                } else {
+                    None
+                };
+                let effective_script_code = subscript_for_sighash.as_ref().or(redeem_script_for_sighash);
                 if !execute_opcode_with_context_full(
                     opcode,
                     stack,
                     flags,
                     tx,
                     input_index,
-                    prevouts,
+                    prevout_values,
+                    prevout_script_pubkeys,
                     block_height,
                     median_time_past,
                     network,
                     sigversion,
-                    redeem_script_for_sighash,
+                    effective_script_code,
                 )? {
                     return Ok(false);
                 }
@@ -1525,19 +1621,59 @@ fn eval_script_with_context_full_inner(
         });
     }
 
-    // Final stack check: at least one non-zero value on top
-    // Note: CLEANSTACK (BIP62) requires exactly one element, but early Bitcoin allowed multiple
-    // The SCRIPT_VERIFY_CLEANSTACK flag controls this behavior
-    // For now, we only require the top element to be non-zero (pre-CLEANSTACK behavior)
-    let result = if stack.is_empty() {
-        false
-    } else {
-        // Check if top element is non-zero (true)
-        !stack[stack.len() - 1].is_empty() && stack[stack.len() - 1][0] != 0
-    };
-    // Postcondition assertion: Result must be boolean
-    // Note: Result is boolean (tautology for formal verification)
+    // No final stack check here — matches Bitcoin Core's EvalScript behavior.
+    // Stack evaluation happens in verify_script_with_context_full (the VerifyScript equivalent)
+    // after BOTH scriptSig and scriptPubKey have been executed.
+    Ok(true)
+}
+
+/// Decode a CScriptNum from byte representation.
+/// Bitcoin's variable-length signed integer encoding (little-endian, sign bit in MSB of last byte).
+/// Matches Bitcoin Core's CScriptNum::set_vch().
+fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
+    if data.len() > max_num_size {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::InvalidStackOperation,
+            message: format!("Script number overflow: {} > {} bytes", data.len(), max_num_size).into(),
+        });
+    }
+    if data.is_empty() {
+        return Ok(0);
+    }
+    // Little-endian decode
+    let mut result: i64 = 0;
+    for (i, &byte) in data.iter().enumerate() {
+        result |= (byte as i64) << (8 * i);
+    }
+    // Check sign bit (MSB of last byte)
+    if data.last().unwrap() & 0x80 != 0 {
+        // Negative: clear sign bit and negate
+        result &= !(0x80i64 << (8 * (data.len() - 1)));
+        result = -result;
+    }
     Ok(result)
+}
+
+/// Encode an i64 as CScriptNum byte representation.
+/// Matches Bitcoin Core's CScriptNum::serialize().
+fn script_num_encode(value: i64) -> Vec<u8> {
+    if value == 0 {
+        return vec![];
+    }
+    let neg = value < 0;
+    let mut absvalue = if neg { (-(value as i128)) as u64 } else { value as u64 };
+    let mut result = Vec::new();
+    while absvalue > 0 {
+        result.push((absvalue & 0xff) as u8);
+        absvalue >>= 8;
+    }
+    // If MSB is set, add extra byte for sign
+    if result.last().unwrap() & 0x80 != 0 {
+        result.push(if neg { 0x80 } else { 0x00 });
+    } else if neg {
+        *result.last_mut().unwrap() |= 0x80;
+    }
+    result
 }
 
 /// Execute a single opcode (currently ignores sigversion; accepts it for future parity work)
@@ -1549,26 +1685,33 @@ fn execute_opcode(
 ) -> Result<bool> {
     match opcode {
         // OP_0 - push empty array
-        0x00 => {
+        OP_0 => {
             stack.push(vec![]);
             Ok(true)
         }
 
         // OP_1 to OP_16 - push numbers 1-16
-        0x51..=0x60 => {
-            let num = opcode - 0x50;
+        OP_1..=OP_16 => {
+            let num = opcode - OP_N_BASE;
             stack.push(vec![num]);
             Ok(true)
         }
 
-        // OP_NOP (0x61) - do nothing, execution continues
-        0x61 => Ok(true),
+        // OP_NOP - do nothing, execution continues
+        OP_NOP => Ok(true),
 
-        // OP_VER (0x62) - disabled opcode, always fails
-        0x62 => Ok(false),
+        // OP_VER - disabled opcode, always fails
+        OP_VER => Ok(false),
+
+        // OP_DEPTH - push stack size
+        OP_DEPTH => {
+            let depth = stack.len() as i64;
+            stack.push(script_num_encode(depth));
+            Ok(true)
+        }
 
         // OP_DUP - duplicate top stack item
-        0x76 => {
+        OP_DUP => {
             if let Some(item) = stack.last().cloned() {
                 stack.push(item);
                 Ok(true)
@@ -1577,8 +1720,41 @@ fn execute_opcode(
             }
         }
 
+        // OP_RIPEMD160 - RIPEMD160(x)
+        OP_RIPEMD160 => {
+            if let Some(item) = stack.pop() {
+                let hash = Ripemd160::digest(&item);
+                stack.push(hash.to_vec());
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        // OP_SHA1 - SHA1(x)
+        OP_SHA1 => {
+            if let Some(item) = stack.pop() {
+                let hash = Sha1::digest(&item);
+                stack.push(hash.to_vec());
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
+        // OP_SHA256 - SHA256(x)
+        OP_SHA256 => {
+            if let Some(item) = stack.pop() {
+                let hash = Sha256::digest(&item);
+                stack.push(hash.to_vec());
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+
         // OP_HASH160 - RIPEMD160(SHA256(x))
-        0xa9 => {
+        OP_HASH160 => {
             if let Some(item) = stack.pop() {
                 #[cfg(feature = "production")]
                 {
@@ -1626,7 +1802,7 @@ fn execute_opcode(
         }
 
         // OP_HASH256 - SHA256(SHA256(x))
-        0xaa => {
+        OP_HASH256 => {
             if let Some(item) = stack.pop() {
                 #[cfg(feature = "production")]
                 {
@@ -1674,7 +1850,7 @@ fn execute_opcode(
         }
 
         // OP_EQUAL - check if top two stack items are equal
-        0x87 => {
+        OP_EQUAL => {
             if stack.len() < 2 {
                 return Err(ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::InvalidStackOperation,
@@ -1689,7 +1865,7 @@ fn execute_opcode(
 
         // OP_EQUALVERIFY - verify top two stack items are equal
         // Bitcoin Core implementation: OP_EQUAL followed by pop if equal
-        0x88 => {
+        OP_EQUALVERIFY => {
             if stack.len() < 2 {
                 return Err(ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::InvalidStackOperation,
@@ -1714,7 +1890,7 @@ fn execute_opcode(
         }
 
         // OP_CHECKSIG - verify ECDSA signature
-        0xac => {
+        OP_CHECKSIG => {
             if stack.len() < 2 {
                 return Err(ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::InvalidStackOperation,
@@ -1773,7 +1949,7 @@ fn execute_opcode(
         }
 
         // OP_CHECKSIGVERIFY - verify ECDSA signature and fail if invalid
-        0xad => {
+        OP_CHECKSIGVERIFY => {
             if stack.len() < 2 {
                 return Ok(false);
             }
@@ -1829,39 +2005,39 @@ fn execute_opcode(
         }
 
         // OP_RETURN - always fail (unspendable output)
-        0x6a => Ok(false),
+        OP_RETURN => Ok(false),
 
         // OP_VERIFY - check if top stack item is non-zero
-        0x69 => {
+        OP_VERIFY => {
             if let Some(item) = stack.pop() {
-                Ok(!item.is_empty() && item[0] != 0)
+                Ok(cast_to_bool(&item))
             } else {
                 Ok(false)
             }
         }
 
-        // OP_CHECKLOCKTIMEVERIFY (BIP65) - 0xb1
+        // OP_CHECKLOCKTIMEVERIFY (BIP65)
         // Note: Requires transaction context for proper validation.
         // This basic implementation will fail - use verify_script_with_context for proper CLTV validation.
-        0xb1 => {
+        OP_CHECKLOCKTIMEVERIFY => {
             // CLTV requires transaction locktime and block context, so it always fails here
             // Proper implementation is in execute_opcode_with_context
             Ok(false)
         }
 
-        // OP_CHECKSEQUENCEVERIFY (BIP112) - 0xb2
+        // OP_CHECKSEQUENCEVERIFY (BIP112)
         // Note: Requires transaction context for proper validation.
         // This basic implementation will fail - use verify_script_with_context for proper CSV validation.
-        0xb2 => {
+        OP_CHECKSEQUENCEVERIFY => {
             // CSV requires transaction sequence and block context, so it always fails here
             // Proper implementation is in execute_opcode_with_context
             Ok(false)
         }
 
         // OP_IFDUP - duplicate top stack item if it's non-zero
-        0x73 => {
+        OP_IFDUP => {
             if let Some(item) = stack.last().cloned() {
-                if !item.is_empty() && item[0] != 0 {
+                if cast_to_bool(&item) {
                     stack.push(item);
                 }
                 Ok(true)
@@ -1870,15 +2046,9 @@ fn execute_opcode(
             }
         }
 
-        // OP_DEPTH - push stack size
-        0x74 => {
-            let depth = stack.len() as u8;
-            stack.push(vec![depth]);
-            Ok(true)
-        }
-
+        // OP_DEPTH - push stack size (duplicate handler removed, using single implementation)
         // OP_DROP - remove top stack item
-        0x75 => {
+        OP_DROP => {
             if stack.pop().is_some() {
                 Ok(true)
             } else {
@@ -1887,7 +2057,7 @@ fn execute_opcode(
         }
 
         // OP_NIP - remove second-to-top stack item
-        0x77 => {
+        OP_NIP => {
             if stack.len() >= 2 {
                 let top = stack.pop().unwrap();
                 stack.pop(); // Remove second-to-top
@@ -1899,7 +2069,7 @@ fn execute_opcode(
         }
 
         // OP_OVER - copy second-to-top stack item to top
-        0x78 => {
+        OP_OVER => {
             if stack.len() >= 2 {
                 let second = stack[stack.len() - 2].clone();
                 stack.push(second);
@@ -1910,45 +2080,43 @@ fn execute_opcode(
         }
 
         // OP_PICK - copy nth stack item to top
-        0x79 => {
+        OP_PICK => {
             if let Some(n_bytes) = stack.pop() {
-                if n_bytes.is_empty() {
+                // Use script_num_decode to properly handle CScriptNum encoding
+                // (empty [] = 0, [0x00] = 0, [0x01] = 1, etc.)
+                let n_val = script_num_decode(&n_bytes, 4)?;
+                if n_val < 0 || n_val as usize >= stack.len() {
                     return Ok(false);
                 }
-                let n = n_bytes[0] as usize;
-                if n < stack.len() {
-                    let item = stack[stack.len() - 1 - n].clone();
-                    stack.push(item);
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+                let n = n_val as usize;
+                let item = stack[stack.len() - 1 - n].clone();
+                stack.push(item);
+                Ok(true)
             } else {
                 Ok(false)
             }
         }
 
         // OP_ROLL - move nth stack item to top
-        0x7a => {
+        OP_ROLL => {
             if let Some(n_bytes) = stack.pop() {
-                if n_bytes.is_empty() {
+                // Use script_num_decode to properly handle CScriptNum encoding
+                // (empty [] = 0, which is a valid no-op roll)
+                let n_val = script_num_decode(&n_bytes, 4)?;
+                if n_val < 0 || n_val as usize >= stack.len() {
                     return Ok(false);
                 }
-                let n = n_bytes[0] as usize;
-                if n < stack.len() {
-                    let item = stack.remove(stack.len() - 1 - n);
-                    stack.push(item);
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+                let n = n_val as usize;
+                let item = stack.remove(stack.len() - 1 - n);
+                stack.push(item);
+                Ok(true)
             } else {
                 Ok(false)
             }
         }
 
         // OP_ROT - rotate top 3 stack items
-        0x7b => {
+        OP_ROT => {
             if stack.len() >= 3 {
                 let top = stack.pop().unwrap();
                 let second = stack.pop().unwrap();
@@ -1963,7 +2131,7 @@ fn execute_opcode(
         }
 
         // OP_SWAP - swap top 2 stack items
-        0x7c => {
+        OP_SWAP => {
             if stack.len() >= 2 {
                 let top = stack.pop().unwrap();
                 let second = stack.pop().unwrap();
@@ -1976,7 +2144,7 @@ fn execute_opcode(
         }
 
         // OP_TUCK - copy top stack item to before second-to-top
-        0x7d => {
+        OP_TUCK => {
             if stack.len() >= 2 {
                 let top = stack.pop().unwrap();
                 let second = stack.pop().unwrap();
@@ -1990,7 +2158,7 @@ fn execute_opcode(
         }
 
         // OP_2DROP - remove top 2 stack items
-        0x6d => {
+        OP_2DROP => {
             if stack.len() >= 2 {
                 stack.pop();
                 stack.pop();
@@ -2001,7 +2169,7 @@ fn execute_opcode(
         }
 
         // OP_2DUP - duplicate top 2 stack items
-        0x6e => {
+        OP_2DUP => {
             if stack.len() >= 2 {
                 let top = stack[stack.len() - 1].clone();
                 let second = stack[stack.len() - 2].clone();
@@ -2014,7 +2182,7 @@ fn execute_opcode(
         }
 
         // OP_3DUP - duplicate top 3 stack items
-        0x6f => {
+        OP_3DUP => {
             if stack.len() >= 3 {
                 let top = stack[stack.len() - 1].clone();
                 let second = stack[stack.len() - 2].clone();
@@ -2029,7 +2197,7 @@ fn execute_opcode(
         }
 
         // OP_2OVER - copy second pair of stack items to top
-        0x70 => {
+        OP_2OVER => {
             if stack.len() >= 4 {
                 let fourth = stack[stack.len() - 4].clone();
                 let third = stack[stack.len() - 3].clone();
@@ -2042,7 +2210,7 @@ fn execute_opcode(
         }
 
         // OP_2ROT - rotate second pair of stack items to top
-        0x71 => {
+        OP_2ROT => {
             if stack.len() >= 6 {
                 let sixth = stack.remove(stack.len() - 6);
                 let fifth = stack.remove(stack.len() - 5);
@@ -2055,7 +2223,7 @@ fn execute_opcode(
         }
 
         // OP_2SWAP - swap second pair of stack items
-        0x72 => {
+        OP_2SWAP => {
             if stack.len() >= 4 {
                 let top = stack.pop().unwrap();
                 let second = stack.pop().unwrap();
@@ -2072,15 +2240,246 @@ fn execute_opcode(
         }
 
         // OP_SIZE - push size of top stack item
-        0x82 => {
-            if let Some(item) = stack.last().cloned() {
-                let size = item.len() as u8;
-                stack.push(vec![size]);
+        // OP_SIZE - push the byte length of top stack item (does NOT pop)
+        OP_SIZE => {
+            if let Some(item) = stack.last() {
+                let size = item.len() as i64;
+                stack.push(script_num_encode(size));
                 Ok(true)
             } else {
                 Ok(false)
             }
         }
+
+        // --- Arithmetic opcodes ---
+        // All use CScriptNum encoding (max 4 bytes by default)
+
+        // OP_1ADD - increment top by 1
+        OP_1ADD => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(a + 1));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_1SUB - decrement top by 1
+        OP_1SUB => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(a - 1));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_2MUL - DISABLED
+        OP_2MUL => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_2MUL is disabled".into(),
+        }),
+        // OP_2DIV - DISABLED
+        OP_2DIV => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_2DIV is disabled".into(),
+        }),
+        // OP_NEGATE - negate top
+        OP_NEGATE => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(-a));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_ABS - absolute value
+        OP_ABS => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(a.abs()));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_NOT - logical NOT: 0 → 1, nonzero → 0
+        OP_NOT => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(if a == 0 { 1 } else { 0 }));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_0NOTEQUAL - 0 → 0, nonzero → 1
+        OP_0NOTEQUAL => {
+            if let Some(item) = stack.pop() {
+                let a = script_num_decode(&item, 4)?;
+                stack.push(script_num_encode(if a != 0 { 1 } else { 0 }));
+                Ok(true)
+            } else { Ok(false) }
+        }
+        // OP_ADD - pop a, pop b, push b+a
+        OP_ADD => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(b + a));
+            Ok(true)
+        }
+        // OP_SUB - pop a, pop b, push b-a
+        OP_SUB => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(b - a));
+            Ok(true)
+        }
+        // OP_MUL - DISABLED
+        OP_MUL => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_MUL is disabled".into(),
+        }),
+        // OP_DIV - DISABLED
+        OP_DIV => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_DIV is disabled".into(),
+        }),
+        // OP_MOD - DISABLED
+        OP_MOD => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_MOD is disabled".into(),
+        }),
+        // OP_LSHIFT - DISABLED
+        OP_LSHIFT => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_LSHIFT is disabled".into(),
+        }),
+        // OP_RSHIFT - DISABLED
+        OP_RSHIFT => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: "OP_RSHIFT is disabled".into(),
+        }),
+        // OP_BOOLAND - pop a, pop b, push (a != 0 && b != 0)
+        OP_BOOLAND => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if a != 0 && b != 0 { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_BOOLOR - pop a, pop b, push (a != 0 || b != 0)
+        OP_BOOLOR => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if a != 0 || b != 0 { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_NUMEQUAL - pop a, pop b, push (a == b)
+        OP_NUMEQUAL => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if a == b { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_NUMEQUALVERIFY - NUMEQUAL + VERIFY
+        OP_NUMEQUALVERIFY => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            if a == b { Ok(true) } else { Ok(false) }
+        }
+        // OP_NUMNOTEQUAL - pop a, pop b, push (a != b)
+        OP_NUMNOTEQUAL => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if a != b { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_LESSTHAN - pop a (top), pop b, push (b < a)
+        OP_LESSTHAN => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if b < a { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_GREATERTHAN - pop a (top), pop b, push (b > a)
+        OP_GREATERTHAN => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if b > a { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_LESSTHANOREQUAL - pop a (top), pop b, push (b <= a)
+        OP_LESSTHANOREQUAL => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if b <= a { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_GREATERTHANOREQUAL - pop a (top), pop b, push (b >= a)
+        OP_GREATERTHANOREQUAL => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if b >= a { 1 } else { 0 }));
+            Ok(true)
+        }
+        // OP_MIN - pop a, pop b, push min(b, a)
+        OP_MIN => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(std::cmp::min(b, a)));
+            Ok(true)
+        }
+        // OP_MAX - pop a, pop b, push max(b, a)
+        OP_MAX => {
+            if stack.len() < 2 { return Ok(false); }
+            let a = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let b = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(std::cmp::max(b, a)));
+            Ok(true)
+        }
+        // OP_WITHIN - pop max, pop min, pop x, push (min <= x < max)
+        OP_WITHIN => {
+            if stack.len() < 3 { return Ok(false); }
+            let max_val = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let min_val = script_num_decode(&stack.pop().unwrap(), 4)?;
+            let x = script_num_decode(&stack.pop().unwrap(), 4)?;
+            stack.push(script_num_encode(if x >= min_val && x < max_val { 1 } else { 0 }));
+            Ok(true)
+        }
+
+        // OP_CODESEPARATOR - marks position for sighash (no-op in execute_opcode)
+        OP_CODESEPARATOR => Ok(true),
+
+        // OP_NOP1 and OP_NOP5-OP_NOP10 - no-ops
+        // Note: OP_NOP4 (0xb3) is used for OP_CHECKTEMPLATEVERIFY (BIP119)
+        OP_NOP1 | OP_NOP5..=OP_NOP10 => Ok(true),
+        
+        // OP_CHECKTEMPLATEVERIFY - requires transaction context
+        OP_CHECKTEMPLATEVERIFY => {
+            #[cfg(not(feature = "ctv"))]
+            {
+                // Without feature flag, treat as NOP4
+                return Ok(true);
+            }
+
+            #[cfg(feature = "ctv")]
+            {
+                // CTV requires transaction context - cannot execute without it
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::TxInvalid,
+                    message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
+                });
+            }
+        },
+
+        // Disabled string opcodes - must return error per consensus
+        OP_DISABLED_STRING_RANGE_START..=OP_DISABLED_STRING_RANGE_END | OP_DISABLED_BITWISE_RANGE_START..=OP_DISABLED_BITWISE_RANGE_END => Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DisabledOpcode,
+            message: format!("Disabled opcode 0x{:02x}", opcode).into(),
+        }),
 
         // Unknown opcode
         _ => Ok(false),
@@ -2098,19 +2497,100 @@ fn execute_opcode_with_context(
     prevouts: &[TransactionOutput],
     network: crate::types::Network,
 ) -> Result<bool> {
+    // Convert prevouts to parallel slices for the optimized API
+    let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
+    let prevout_script_pubkeys: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
     execute_opcode_with_context_full(
         opcode,
         stack,
         flags,
         tx,
         input_index,
-        prevouts,
+        &prevout_values,
+        &prevout_script_pubkeys,
         None, // block_height
         None, // median_time_past
         network,
         SigVersion::Base,
         None, // redeem_script_for_sighash (not available in this context)
     )
+}
+
+/// Serialize data as a Bitcoin push operation: <push_opcode> <data>
+/// This creates the byte pattern that FindAndDelete searches for.
+/// Matches Bitcoin Core's `CScript() << data`.
+fn serialize_push_data(data: &[u8]) -> Vec<u8> {
+    let len = data.len();
+    let mut result = Vec::with_capacity(len + 5);
+    if len < 76 {
+        result.push(len as u8);
+    } else if len < 256 {
+        result.push(OP_PUSHDATA1);
+        result.push(len as u8);
+    } else if len < 65536 {
+        result.push(OP_PUSHDATA2);
+        result.push((len & 0xff) as u8);
+        result.push(((len >> 8) & 0xff) as u8);
+    } else {
+        result.push(OP_PUSHDATA4);
+        result.push((len & 0xff) as u8);
+        result.push(((len >> 8) & 0xff) as u8);
+        result.push(((len >> 16) & 0xff) as u8);
+        result.push(((len >> 24) & 0xff) as u8);
+    }
+    result.extend_from_slice(data);
+    result
+}
+
+/// FindAndDelete: remove all occurrences of `pattern` from `script` at opcode boundaries.
+/// Matches Bitcoin Core's `FindAndDelete(CScript&, const CScript&)`.
+///
+/// Walks through the script opcode by opcode. At each opcode start position,
+/// if the raw bytes match `pattern`, the pattern is skipped (deleted).
+/// Returns the cleaned script.
+fn find_and_delete(script: &[u8], pattern: &[u8]) -> Vec<u8> {
+    if pattern.is_empty() || script.len() < pattern.len() {
+        return script.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(script.len());
+    let mut i = 0;
+
+    while i < script.len() {
+        // Check if pattern matches at this opcode boundary
+        if i + pattern.len() <= script.len() && script[i..i + pattern.len()] == *pattern {
+            i += pattern.len();
+            continue; // Skip this occurrence, check again at new position
+        }
+
+        // No match — copy this opcode's bytes and advance past it
+        let opcode = script[i];
+        let advance = if opcode <= 0x4b {
+            // Direct push: 1 byte opcode + opcode bytes of data
+            1 + opcode as usize
+        } else if opcode == OP_PUSHDATA1 && i + 1 < script.len() {
+            // OP_PUSHDATA1: 2 + data_len
+            2 + script[i + 1] as usize
+        } else if opcode == OP_PUSHDATA2 && i + 2 < script.len() {
+            // OP_PUSHDATA2: 3 + data_len
+            3 + ((script[i + 1] as usize) | ((script[i + 2] as usize) << 8))
+        } else if opcode == OP_PUSHDATA4 && i + 4 < script.len() {
+            // OP_PUSHDATA4: 5 + data_len
+            5 + ((script[i + 1] as usize)
+                | ((script[i + 2] as usize) << 8)
+                | ((script[i + 3] as usize) << 16)
+                | ((script[i + 4] as usize) << 24))
+        } else {
+            // Regular opcode (1 byte)
+            1
+        };
+
+        let end = std::cmp::min(i + advance, script.len());
+        result.extend_from_slice(&script[i..end]);
+        i = end;
+    }
+
+    result
 }
 
 /// Execute a single opcode with full context including block height, median time-past, and network
@@ -2121,7 +2601,8 @@ fn execute_opcode_with_context_full(
     flags: u32,
     tx: &Transaction,
     input_index: usize,
-    prevouts: &[TransactionOutput],
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&ByteString],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     network: crate::types::Network,
@@ -2130,7 +2611,7 @@ fn execute_opcode_with_context_full(
 ) -> Result<bool> {
     match opcode {
         // OP_CHECKSIG - verify ECDSA signature
-        0xac => {
+        OP_CHECKSIG => {
             if stack.len() >= 2 {
                 let pubkey_bytes = stack.pop().unwrap();
                 let signature_bytes = stack.pop().unwrap();
@@ -2147,31 +2628,54 @@ fn execute_opcode_with_context_full(
                 // OPTIMIZATION: Cache length to avoid repeated computation
                 let sig_len = signature_bytes.len();
                 let sighash_byte = signature_bytes[sig_len - 1];
-                let der_sig = &signature_bytes[..sig_len - 1];
+                let _der_sig = &signature_bytes[..sig_len - 1];
 
-                // Parse sighash type (use All as fallback for invalid types in old blocks)
-                // OPTIMIZATION: Inline match to avoid Result allocation in hot path
-                use crate::transaction_hash::{calculate_transaction_sighash_with_script_code, SighashType};
-                let sighash_type = match sighash_byte {
-                    0x00 => SighashType::AllLegacy,
-                    0x01 => SighashType::All,
-                    0x02 => SighashType::None,
-                    0x03 => SighashType::Single,
-                    0x81 => SighashType::All | SighashType::AnyoneCanPay,
-                    0x82 => SighashType::None | SighashType::AnyoneCanPay,
-                    0x83 => SighashType::Single | SighashType::AnyoneCanPay,
-                    _ => SighashType::All, // Fallback for invalid types in old blocks
+                // Calculate sighash - use BIP143 for SegWit, legacy for others
+                // BIP143 OPTIMIZATION: For SegWit, hashPrevouts/hashSequence/hashOutputs
+                // are computed once per transaction, not once per input.
+                let sighash = if sigversion == SigVersion::WitnessV0 {
+                    // BIP143 sighash for SegWit v0 (P2WPKH, P2WSH)
+                    let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+                    
+                    // scriptCode for BIP143: the witnessScript or P2PKH equivalent
+                    let script_code = redeem_script_for_sighash
+                        .map(|s| s.as_slice())
+                        .unwrap_or_else(|| {
+                            prevout_script_pubkeys.get(input_index)
+                                .map(|p| p.as_slice())
+                                .unwrap_or(&[])
+                        });
+                    
+                    crate::transaction_hash::calculate_bip143_sighash(
+                        tx,
+                        input_index,
+                        script_code,
+                        amount,
+                        sighash_byte,
+                        None, // Could pass precomputed hashes for batch optimization
+                    )?
+                } else {
+                    // Legacy sighash for non-SegWit transactions
+                    use crate::transaction_hash::{calculate_transaction_sighash_with_script_code, SighashType};
+                    let sighash_type = SighashType::from_byte(sighash_byte);
+
+                    // FindAndDelete: Remove signature from scriptCode (Bitcoin Core consensus rule)
+                    // Only applies to legacy scripts, NOT SegWit (BIP143 omits FindAndDelete)
+                    let base_script = redeem_script_for_sighash
+                        .map(|s| s.as_slice())
+                        .unwrap_or_else(|| prevout_script_pubkeys.get(input_index).map(|p| p.as_slice()).unwrap_or(&[]));
+                    let pattern = serialize_push_data(&signature_bytes);
+                    let cleaned = find_and_delete(base_script, &pattern);
+
+                    calculate_transaction_sighash_with_script_code(
+                        tx, 
+                        input_index, 
+                        prevout_values,
+                        prevout_script_pubkeys,
+                        sighash_type,
+                        Some(&cleaned)
+                    )?
                 };
-
-                // Calculate transaction sighash using the actual sighash type from signature
-                // CRITICAL FIX: For P2SH, use redeem script instead of scriptPubKey for sighash
-                let sighash = calculate_transaction_sighash_with_script_code(
-                    tx, 
-                    input_index, 
-                    prevouts, 
-                    sighash_type,
-                    redeem_script_for_sighash.map(|s| s.as_slice())
-                )?;
 
                 // Verify signature with real transaction hash
                 // CRITICAL FIX: Pass full signature (with sighash byte) to verify_signature
@@ -2214,7 +2718,7 @@ fn execute_opcode_with_context_full(
         }
 
         // OP_CHECKSIGVERIFY - verify ECDSA signature and remove from stack
-        0xad => {
+        OP_CHECKSIGVERIFY => {
             if stack.len() >= 2 {
                 let pubkey_bytes = stack.pop().unwrap();
                 let signature_bytes = stack.pop().unwrap();
@@ -2229,31 +2733,52 @@ fn execute_opcode_with_context_full(
                 // OPTIMIZATION: Cache length to avoid repeated computation
                 let sig_len = signature_bytes.len();
                 let sighash_byte = signature_bytes[sig_len - 1];
-                let der_sig = &signature_bytes[..sig_len - 1];
+                let _der_sig = &signature_bytes[..sig_len - 1];
 
-                // Parse sighash type (use All as fallback for invalid types in old blocks)
-                // OPTIMIZATION: Inline match to avoid Result allocation in hot path
-                use crate::transaction_hash::{calculate_transaction_sighash_with_script_code, SighashType};
-                let sighash_type = match sighash_byte {
-                    0x00 => SighashType::AllLegacy,
-                    0x01 => SighashType::All,
-                    0x02 => SighashType::None,
-                    0x03 => SighashType::Single,
-                    0x81 => SighashType::All | SighashType::AnyoneCanPay,
-                    0x82 => SighashType::None | SighashType::AnyoneCanPay,
-                    0x83 => SighashType::Single | SighashType::AnyoneCanPay,
-                    _ => SighashType::All, // Fallback for invalid types in old blocks
+                // Calculate sighash - use BIP143 for SegWit, legacy for others
+                // BIP143 OPTIMIZATION: For SegWit, hashPrevouts/hashSequence/hashOutputs
+                // are computed once per transaction, not once per input.
+                let sighash = if sigversion == SigVersion::WitnessV0 {
+                    // BIP143 sighash for SegWit v0 (P2WPKH, P2WSH)
+                    let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+                    
+                    let script_code = redeem_script_for_sighash
+                        .map(|s| s.as_slice())
+                        .unwrap_or_else(|| {
+                            prevout_script_pubkeys.get(input_index)
+                                .map(|p| p.as_slice())
+                                .unwrap_or(&[])
+                        });
+                    
+                    crate::transaction_hash::calculate_bip143_sighash(
+                        tx,
+                        input_index,
+                        script_code,
+                        amount,
+                        sighash_byte,
+                        None,
+                    )?
+                } else {
+                    // Legacy sighash for non-SegWit transactions
+                    use crate::transaction_hash::{calculate_transaction_sighash_with_script_code, SighashType};
+                    let sighash_type = SighashType::from_byte(sighash_byte);
+
+                    // FindAndDelete: Remove signature from scriptCode (Bitcoin Core consensus rule)
+                    let base_script = redeem_script_for_sighash
+                        .map(|s| s.as_slice())
+                        .unwrap_or_else(|| prevout_script_pubkeys.get(input_index).map(|p| p.as_slice()).unwrap_or(&[]));
+                    let pattern = serialize_push_data(&signature_bytes);
+                    let cleaned = find_and_delete(base_script, &pattern);
+
+                    calculate_transaction_sighash_with_script_code(
+                        tx, 
+                        input_index, 
+                        prevout_values,
+                        prevout_script_pubkeys,
+                        sighash_type,
+                        Some(&cleaned)
+                    )?
                 };
-
-                // Calculate transaction sighash using the actual sighash type from signature
-                // CRITICAL FIX: For P2SH, use redeem script instead of scriptPubKey for sighash
-                let sighash = calculate_transaction_sighash_with_script_code(
-                    tx, 
-                    input_index, 
-                    prevouts, 
-                    sighash_type,
-                    redeem_script_for_sighash.map(|s| s.as_slice())
-                )?;
 
                 // Verify signature with real transaction hash
                 // CRITICAL FIX: Pass full signature (with sighash byte) to verify_signature
@@ -2298,13 +2823,18 @@ fn execute_opcode_with_context_full(
             }
         }
 
-        // OP_CHECKLOCKTIMEVERIFY (BIP65) - 0xb1
+        // OP_CHECKLOCKTIMEVERIFY (BIP65)
         // Validates that transaction locktime is >= top stack item
-        // Requires: block height and median time-past for full validation (BIP113)
-        // Note: Full BIP65 validation requires median time-past (BIP113) when locktime is time-based.
-        // This implementation validates locktime types match and transaction locktime >= required locktime.
-        0xb1 => {
-            use crate::locktime::{decode_locktime_value, get_locktime_type, locktime_types_match};
+        // Like Bitcoin Core: if SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY flag is not set, treat as NOP2
+        // CLTV does NOT pop the stack — it only reads the top element (NOP-type opcode)
+        OP_CHECKLOCKTIMEVERIFY => {
+            // If CLTV flag is not enabled, behave as NOP (Core: treat as NOP2)
+            const SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY: u32 = 0x200;
+            if (flags & SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
+                return Ok(true);
+            }
+
+            use crate::locktime::{decode_locktime_value, locktime_types_match};
 
             if stack.is_empty() {
                 return Err(ConsensusError::ScriptErrorWithCode {
@@ -2313,7 +2843,7 @@ fn execute_opcode_with_context_full(
                 });
             }
 
-            // Decode locktime value from stack using shared locktime logic
+            // Decode locktime value from stack using CScriptNum rules (max 5 bytes)
             let locktime_bytes = stack.last().unwrap();
             let locktime_value = match decode_locktime_value(locktime_bytes) {
                 Some(v) => v,
@@ -2325,55 +2855,34 @@ fn execute_opcode_with_context_full(
                 }
             };
 
-            // BIP65: Check if transaction locktime is set (must be non-zero)
-            if tx.lock_time == 0 {
-                return Ok(false);
-            }
-
             let tx_locktime = tx.lock_time as u32;
 
-            // BIP65: Types must match (both block height or both timestamp)
+            // Bitcoin Core CheckLockTime order:
+            // 1. Types must match (both block height or both timestamp)
             if !locktime_types_match(tx_locktime, locktime_value) {
                 return Ok(false);
             }
 
-            // BIP65: Transaction locktime must be >= required locktime
-            // For block heights: current block height must be >= tx_locktime
-            // For timestamps: median time-past must be >= tx_locktime (BIP113)
-            // NOTE: The height > tx.lockTime check (transaction validity) is done elsewhere, not in CLTV
-            let valid = match get_locktime_type(tx_locktime) {
-                crate::locktime::LocktimeType::BlockHeight => {
-                    // Block-height locktime: validate against current block height
-                    if let Some(height) = block_height {
-                        height >= tx_locktime as u64 && tx_locktime >= locktime_value
-                    } else {
-                        // No block height context: only check tx.lock_time >= required (basic check)
-                        tx_locktime >= locktime_value
-                    }
-                }
-                crate::locktime::LocktimeType::Timestamp => {
-                    // Timestamp locktime: validate against median time-past (BIP113)
-                    // NOTE: median_time_past should always be provided for timestamp CLTV per BIP113
-                    if let Some(median_time) = median_time_past {
-                        median_time >= tx_locktime as u64 && tx_locktime >= locktime_value
-                    } else {
-                        // No median time-past context: only check tx.lock_time >= required (basic check)
-                        // This is a fallback - in production, median_time_past should always be provided
-                        tx_locktime >= locktime_value
-                    }
-                }
-            };
-
-            // If valid, pop the locktime value (CLTV doesn't push anything on success)
-            if valid {
-                stack.pop();
-                Ok(true)
-            } else {
-                Ok(false)
+            // 2. Transaction locktime must be >= required locktime from script
+            if tx_locktime < locktime_value {
+                return Ok(false);
             }
+
+            // 3. Input sequence must NOT be SEQUENCE_FINAL (0xffffffff)
+            let input_seq = if input_index < tx.inputs.len() {
+                tx.inputs[input_index].sequence
+            } else {
+                0xffffffff
+            };
+            if input_seq == 0xffffffff {
+                return Ok(false);
+            }
+
+            // CLTV does NOT pop the stack (NOP-type opcode per Bitcoin Core)
+            Ok(true)
         }
 
-        // OP_CHECKSEQUENCEVERIFY (BIP112) - 0xb2
+        // OP_CHECKSEQUENCEVERIFY (BIP112)
         // Validates that transaction input sequence number meets relative locktime requirement.
         // Implements BIP68: Relative Lock-Time Using Consensus-Enforced Sequence Numbers.
         //
@@ -2381,7 +2890,7 @@ fn execute_opcode_with_context_full(
         // - If SCRIPT_VERIFY_CHECKSEQUENCEVERIFY flag is not set, behaves as a NOP (no-op)
         // - If sequence has the disable flag set (0x80000000), behaves as a NOP
         // - Does NOT remove the top stack item on success (non-consuming)
-        0xb2 => {
+        OP_CHECKSEQUENCEVERIFY => {
             use crate::locktime::{
                 decode_locktime_value, extract_sequence_locktime_value, extract_sequence_type_flag,
                 is_sequence_disabled,
@@ -2438,10 +2947,222 @@ fn execute_opcode_with_context_full(
             Ok(true)
         }
 
+        // OP_CHECKTEMPLATEVERIFY (BIP119) - OP_NOP4
+        // Verifies that the transaction matches a template hash.
+        // Implements BIP119: CHECKTEMPLATEVERIFY.
+        //
+        // Behavior must match Bitcoin Core:
+        // - If SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH flag is not set, behaves as NOP4
+        // - Requires exactly 32 bytes on stack (template hash)
+        // - Fails if template hash doesn't match transaction
+        OP_CHECKTEMPLATEVERIFY => {
+            #[cfg(not(feature = "ctv"))]
+            {
+                // Without feature flag, treat as NOP4 (or discourage if flag set)
+                const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
+                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::BadOpcode,
+                        message: "OP_CHECKTEMPLATEVERIFY requires --features ctv".into(),
+                    });
+                }
+                return Ok(true); // NOP4
+            }
+
+            #[cfg(feature = "ctv")]
+            {
+                use crate::constants::{CTV_ACTIVATION_MAINNET, CTV_ACTIVATION_TESTNET, CTV_ACTIVATION_REGTEST};
+
+                // Check activation
+                let ctv_activation = match network {
+                    crate::types::Network::Mainnet => CTV_ACTIVATION_MAINNET,
+                    crate::types::Network::Testnet => CTV_ACTIVATION_TESTNET,
+                    crate::types::Network::Regtest => CTV_ACTIVATION_REGTEST,
+                };
+                
+                let ctv_active = block_height.map(|h| h >= ctv_activation).unwrap_or(false);
+                if !ctv_active {
+                    // Before activation: treat as NOP4
+                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::BadOpcode,
+                            message: "OP_CHECKTEMPLATEVERIFY not yet activated".into(),
+                        });
+                    }
+                    return Ok(true); // NOP4
+                }
+
+                // Check if CTV flag is enabled
+                const SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH: u32 = 0x80000000;
+                if (flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH) == 0 {
+                    // Flag not set, treat as NOP4
+                    return Ok(true);
+                }
+
+                use crate::bip119::calculate_template_hash;
+
+                // CTV requires exactly 32 bytes (template hash) on stack
+                if stack.len() < 1 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidStackOperation,
+                        message: "OP_CHECKTEMPLATEVERIFY: insufficient stack items".into(),
+                    });
+                }
+
+                let template_hash_bytes = stack.pop().unwrap();
+
+                // Template hash must be exactly 32 bytes
+                if template_hash_bytes.len() != 32 {
+                    // Non-32-byte argument: NOP (per BIP-119)
+                    // But discourage if flag is set
+                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::InvalidStackOperation,
+                            message: "OP_CHECKTEMPLATEVERIFY: template hash must be 32 bytes".into(),
+                        });
+                    }
+                    return Ok(true); // NOP
+                }
+
+                // Calculate actual template hash for this transaction
+                let mut expected_hash = [0u8; 32];
+                expected_hash.copy_from_slice(&template_hash_bytes);
+
+                let actual_hash = calculate_template_hash(tx, input_index).map_err(|e| {
+                    ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::TxInvalid,
+                        message: format!("CTV hash calculation failed: {}", e).into(),
+                    }
+                })?;
+
+                // Constant-time comparison (use hash_eq from crypto module)
+                use crate::crypto::hash_compare::hash_eq;
+                let matches = hash_eq(&expected_hash, &actual_hash);
+
+                if !matches {
+                    return Ok(false); // Script fails if template doesn't match
+                }
+
+                // CTV succeeds - script continues (NOP-type opcode, doesn't push anything)
+                Ok(true)
+            }
+        }
+
+        // OP_CHECKSIGFROMSTACK (BIP348) - replaces OP_SUCCESS204
+        // Verifies a BIP 340 Schnorr signature against an arbitrary message.
+        // Implements BIP348: CHECKSIGFROMSTACK.
+        //
+        // Behavior must match Bitcoin Core PR #29270:
+        // - Only available in Tapscript (leaf version 0xc0)
+        // - Pops 3 items: pubkey (top), message (second), signature (third)
+        // - If signature is empty, pushes empty vector and continues
+        // - If signature is valid, pushes 0x01 (single byte)
+        // - If signature is invalid, script fails
+        OP_CHECKSIGFROMSTACK => {
+            #[cfg(not(feature = "csfs"))]
+            {
+                // Without feature flag, OP_SUCCESS204 behavior (succeeds)
+                // But discourage if flag is set
+                const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
+                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::BadOpcode,
+                        message: "OP_CHECKSIGFROMSTACK requires --features csfs".into(),
+                    });
+                }
+                return Ok(true); // OP_SUCCESS204 succeeds
+            }
+
+            #[cfg(feature = "csfs")]
+            {
+                use crate::constants::{CSFS_ACTIVATION_MAINNET, CSFS_ACTIVATION_TESTNET, CSFS_ACTIVATION_REGTEST};
+
+                // BIP-348: Only available in Tapscript (leaf version 0xc0)
+                if sigversion != SigVersion::Tapscript {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::BadOpcode,
+                        message: "OP_CHECKSIGFROMSTACK only available in Tapscript".into(),
+                    });
+                }
+
+                // Check activation
+                let csfs_activation = match network {
+                    crate::types::Network::Mainnet => CSFS_ACTIVATION_MAINNET,
+                    crate::types::Network::Testnet => CSFS_ACTIVATION_TESTNET,
+                    crate::types::Network::Regtest => CSFS_ACTIVATION_REGTEST,
+                };
+                
+                let csfs_active = block_height.map(|h| h >= csfs_activation).unwrap_or(false);
+                if !csfs_active {
+                    // Before activation: OP_SUCCESS204 behavior (succeeds)
+                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
+                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::BadOpcode,
+                            message: "OP_CHECKSIGFROMSTACK not yet activated".into(),
+                        });
+                    }
+                    return Ok(true); // OP_SUCCESS204 succeeds
+                }
+
+                use crate::bip348::verify_signature_from_stack;
+
+                // BIP-348: If fewer than 3 elements, script MUST fail
+                if stack.len() < 3 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::InvalidStackOperation,
+                        message: "OP_CHECKSIGFROMSTACK: insufficient stack items (need 3)".into(),
+                    });
+                }
+
+                // BIP-348: Pop in order: pubkey (top), message (second), signature (third)
+                let pubkey_bytes = stack.pop().unwrap();      // Top
+                let message_bytes = stack.pop().unwrap();      // Second
+                let signature_bytes = stack.pop().unwrap();    // Third
+
+                // BIP-348: If pubkey size is zero, script MUST fail
+                if pubkey_bytes.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::PubkeyType,
+                        message: "OP_CHECKSIGFROMSTACK: pubkey size is zero".into(),
+                    });
+                }
+
+                // BIP-348: If signature is empty, push empty vector and continue
+                if signature_bytes.is_empty() {
+                    stack.push(vec![]); // Empty vector, not 0
+                    return Ok(true);
+                }
+
+                // BIP-348: Verify signature (only for 32-byte pubkeys)
+                let is_valid = verify_signature_from_stack(
+                    &message_bytes,  // Message (NOT hashed by BIP 340 spec)
+                    &pubkey_bytes,   // Pubkey (32 bytes for BIP 340)
+                    &signature_bytes, // Signature (64-byte BIP 340 Schnorr)
+                ).unwrap_or(false);
+
+                if !is_valid {
+                    // BIP-348: Validation failure immediately terminates script execution
+                    return Ok(false);
+                }
+
+                // BIP-348: Count against sigops budget (BIP 342)
+                // Note: Sigops counting is handled at transaction level in get_transaction_sigop_cost()
+                // For Tapscript, sigops are counted differently (BIP 342)
+                // TODO: Verify Tapscript sigops counting implementation
+
+                // BIP-348: Push 0x01 (single byte) if valid
+                stack.push(vec![0x01]); // Single byte 0x01, not 1
+                Ok(true)
+            }
+        }
+
         // OP_CHECKMULTISIG - verify m-of-n multisig
         // Stack: [dummy] [sig1] [sig2] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]
         // BIP147: Dummy element must be empty (OP_0) after activation
-        0xae => {
+        OP_CHECKMULTISIG => {
             // OP_CHECKMULTISIG implementation
             // Stack layout: [dummy] [sig1] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]
             if stack.len() < 2 {
@@ -2449,11 +3170,9 @@ fn execute_opcode_with_context_full(
             }
 
             // Pop n (number of public keys) - this is the last element on stack
+            // Bitcoin Core uses CScriptNum which treats empty bytes [] as 0
             let n_bytes = stack.pop().unwrap();
-            if n_bytes.is_empty() {
-                return Ok(false);
-            }
-            let n = n_bytes[0] as usize;
+            let n = if n_bytes.is_empty() { 0 } else { n_bytes[0] as usize };
             if n > 20 || stack.len() < n + 1 {
                 return Ok(false);
             }
@@ -2465,11 +3184,9 @@ fn execute_opcode_with_context_full(
             }
 
             // Pop m (number of required signatures)
+            // Bitcoin Core uses CScriptNum which treats empty bytes [] as 0
             let m_bytes = stack.pop().unwrap();
-            if m_bytes.is_empty() {
-                return Ok(false);
-            }
-            let m = m_bytes[0] as usize;
+            let m = if m_bytes.is_empty() { 0 } else { m_bytes[0] as usize };
             if m > n || m > 20 || stack.len() < m + 1 {
                 return Ok(false);
             }
@@ -2522,9 +3239,30 @@ fn execute_opcode_with_context_full(
             }
 
             // Verify signatures against public keys
-            // We need to match signatures to public keys
-            // For simplicity, we'll verify signatures in order against public keys
+            // Bitcoin Core's CHECKMULTISIG algorithm: iterate pubkeys, try to match sigs in order
             let height = block_height.unwrap_or(0);
+
+            // FindAndDelete: Remove ALL signatures from scriptCode BEFORE any sighash computation
+            // This is a Bitcoin Core consensus rule for OP_CHECKMULTISIG (legacy only, not SegWit)
+            let cleaned_script_for_multisig: Vec<u8> = if sigversion == SigVersion::Base {
+                let base_script = redeem_script_for_sighash
+                    .map(|s| s.as_slice())
+                    .unwrap_or_else(|| prevout_script_pubkeys.get(input_index).map(|p| p.as_slice()).unwrap_or(&[]));
+                let mut cleaned = base_script.to_vec();
+                for sig in &signatures {
+                    if !sig.is_empty() {
+                        let pattern = serialize_push_data(sig);
+                        cleaned = find_and_delete(&cleaned, &pattern);
+                    }
+                }
+                cleaned
+            } else {
+                // For SegWit, no FindAndDelete needed
+                redeem_script_for_sighash
+                    .map(|s| s.to_vec())
+                    .unwrap_or_else(|| prevout_script_pubkeys.get(input_index).map(|p| p.to_vec()).unwrap_or_default())
+            };
+
             let mut sig_index = 0;
             let mut valid_sigs = 0;
 
@@ -2535,9 +3273,6 @@ fn execute_opcode_with_context_full(
 
                 let signature_bytes = &signatures[sig_index];
 
-                // CRITICAL FIX: Extract DER signature (strip sighash byte)
-                // Bitcoin signature format: <DER signature><sighash_type>
-                // verify_signature expects only the DER part, not the sighash byte
                 if signature_bytes.is_empty() {
                     // Empty signature - skip this pubkey
                     continue;
@@ -2546,20 +3281,20 @@ fn execute_opcode_with_context_full(
                 // OPTIMIZATION: Cache length to avoid repeated computation
                 let sig_len = signature_bytes.len();
                 let sighash_byte = signature_bytes[sig_len - 1];
-                let der_sig = &signature_bytes[..sig_len - 1];
+                let _der_sig = &signature_bytes[..sig_len - 1];
                 
                 // Parse sighash type from signature
                 use crate::transaction_hash::{calculate_transaction_sighash_with_script_code, SighashType};
-                let sighash_type = SighashType::from_byte(sighash_byte).unwrap_or(SighashType::All);
+                let sighash_type = SighashType::from_byte(sighash_byte);
 
-                // Calculate transaction sighash using the actual sighash type from signature
-                // CRITICAL FIX: For P2SH, use redeem script instead of scriptPubKey for sighash
+                // Calculate transaction sighash using the cleaned scriptCode (with FindAndDelete applied)
                 let sighash = calculate_transaction_sighash_with_script_code(
                     tx, 
                     input_index, 
-                    prevouts, 
-                    sighash_type, // Use actual sighash type from signature, not hardcoded All
-                    redeem_script_for_sighash.map(|s| s.as_slice())
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    sighash_type,
+                    Some(&cleaned_script_for_multisig)
                 )?;
 
                 // Verify signature (pass full signature WITH sighash byte)
@@ -2615,6 +3350,37 @@ fn execute_opcode_with_context_full(
             // Push result: 1 if valid_sigs >= m, 0 otherwise
             stack.push(vec![if valid_sigs >= m { 1 } else { 0 }]);
             Ok(true)
+        }
+
+        // OP_CHECKMULTISIGVERIFY - CHECKMULTISIG + VERIFY
+        OP_CHECKMULTISIGVERIFY => {
+            // Execute CHECKMULTISIG first
+            let result = execute_opcode_with_context_full(
+                OP_CHECKMULTISIG,
+                stack,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                median_time_past,
+                network,
+                sigversion,
+                redeem_script_for_sighash,
+            )?;
+            if !result {
+                return Ok(false);
+            }
+            // VERIFY: check top of stack is truthy, then pop it
+            if let Some(top) = stack.pop() {
+                if !cast_to_bool(&top) {
+                    return Ok(false);
+                }
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
 
         // For all other opcodes, delegate to the original execute_opcode (Base)
@@ -3144,7 +3910,7 @@ mod tests {
 
     #[test]
     fn test_eval_script_simple() {
-        let script = vec![0x51]; // OP_1
+        let script = vec![OP_1]; // OP_1
         let mut stack = Vec::new();
 
         assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap());
@@ -3181,7 +3947,7 @@ mod tests {
 
     #[test]
     fn test_op_0() {
-        let script = vec![0x00]; // OP_0
+        let script = vec![OP_0]; // OP_0
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // OP_0 pushes empty array, which is "false"
@@ -3216,7 +3982,7 @@ mod tests {
 
     #[test]
     fn test_op_dup_empty_stack() {
-        let script = vec![0x76]; // OP_DUP on empty stack
+        let script = vec![OP_DUP]; // OP_DUP on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3224,7 +3990,7 @@ mod tests {
 
     #[test]
     fn test_op_hash160() {
-        let script = vec![0x51, 0xa9]; // OP_1, OP_HASH160
+        let script = vec![OP_1, OP_HASH160]; // OP_1, OP_HASH160
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result);
@@ -3234,7 +4000,7 @@ mod tests {
 
     #[test]
     fn test_op_hash160_empty_stack() {
-        let script = vec![0xa9]; // OP_HASH160 on empty stack
+        let script = vec![OP_HASH160]; // OP_HASH160 on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3242,7 +4008,7 @@ mod tests {
 
     #[test]
     fn test_op_hash256() {
-        let script = vec![0x51, 0xaa]; // OP_1, OP_HASH256
+        let script = vec![OP_1, OP_HASH256]; // OP_1, OP_HASH256
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result);
@@ -3252,7 +4018,7 @@ mod tests {
 
     #[test]
     fn test_op_hash256_empty_stack() {
-        let script = vec![0xaa]; // OP_HASH256 on empty stack
+        let script = vec![OP_HASH256]; // OP_HASH256 on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3315,7 +4081,7 @@ mod tests {
 
     #[test]
     fn test_op_verify_empty_stack() {
-        let script = vec![0x69]; // OP_VERIFY on empty stack
+        let script = vec![OP_VERIFY]; // OP_VERIFY on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3352,7 +4118,7 @@ mod tests {
     fn test_op_checksig() {
         // Note: This test uses simplified inputs. Production code performs full signature verification.
         // The test verifies that OP_CHECKSIG executes without panicking, not that signatures are valid.
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // OP_CHECKSIG returns false for invalid signatures (expected in test)
@@ -3362,7 +4128,7 @@ mod tests {
 
     #[test]
     fn test_op_checksig_insufficient_stack() {
-        let script = vec![0x51, 0xac]; // OP_1, OP_CHECKSIG (need 2 items)
+        let script = vec![OP_1, OP_CHECKSIG]; // OP_1, OP_CHECKSIG (need 2 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
         assert!(
@@ -3380,7 +4146,7 @@ mod tests {
 
     #[test]
     fn test_unknown_opcode() {
-        let script = vec![0xff]; // Unknown opcode
+        let script = vec![0xff]; // Unknown opcode (0xff is not a defined opcode constant)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3427,7 +4193,7 @@ mod tests {
 
     #[test]
     fn test_final_stack_false() {
-        let script = vec![0x00]; // OP_0 (false on final stack)
+        let script = vec![OP_0]; // OP_0 (false on final stack)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3435,9 +4201,9 @@ mod tests {
 
     #[test]
     fn test_verify_script_with_witness() {
-        let script_sig = vec![0x51]; // OP_1
-        let script_pubkey = vec![0x51]; // OP_1
-        let witness = vec![0x51]; // OP_1
+        let script_sig = vec![OP_1]; // OP_1
+        let script_pubkey = vec![OP_1]; // OP_1
+        let witness = vec![OP_1]; // OP_1
         let flags = 0;
 
         let result = verify_script(&script_sig, &script_pubkey, Some(&witness), flags).unwrap();
@@ -3446,8 +4212,8 @@ mod tests {
 
     #[test]
     fn test_verify_script_failure() {
-        let script_sig = vec![0x51]; // OP_1
-        let script_pubkey = vec![0x52]; // OP_2
+        let script_sig = vec![OP_1]; // OP_1
+        let script_pubkey = vec![OP_2]; // OP_2
         let witness = None;
         let flags = 0;
 
@@ -3461,7 +4227,7 @@ mod tests {
 
     #[test]
     fn test_op_ifdup_true() {
-        let script = vec![0x51, 0x73]; // OP_1, OP_IFDUP
+        let script = vec![OP_1, OP_IFDUP]; // OP_1, OP_IFDUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
@@ -3472,7 +4238,7 @@ mod tests {
 
     #[test]
     fn test_op_ifdup_false() {
-        let script = vec![0x00, 0x73]; // OP_0, OP_IFDUP
+        let script = vec![OP_0, OP_IFDUP]; // OP_0, OP_IFDUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 1 item [0], which is false
@@ -3482,7 +4248,7 @@ mod tests {
 
     #[test]
     fn test_op_depth() {
-        let script = vec![0x51, 0x51, 0x74]; // OP_1, OP_1, OP_DEPTH
+        let script = vec![OP_1, OP_1, OP_DEPTH]; // OP_1, OP_1, OP_DEPTH
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 3 items, not exactly 1
@@ -3492,7 +4258,7 @@ mod tests {
 
     #[test]
     fn test_op_drop() {
-        let script = vec![0x51, 0x52, 0x75]; // OP_1, OP_2, OP_DROP
+        let script = vec![OP_1, OP_2, OP_DROP]; // OP_1, OP_2, OP_DROP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [1]
@@ -3502,7 +4268,7 @@ mod tests {
 
     #[test]
     fn test_op_drop_empty_stack() {
-        let script = vec![0x75]; // OP_DROP on empty stack
+        let script = vec![OP_DROP]; // OP_DROP on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3511,7 +4277,7 @@ mod tests {
 
     #[test]
     fn test_op_nip() {
-        let script = vec![0x51, 0x52, 0x77]; // OP_1, OP_2, OP_NIP
+        let script = vec![OP_1, OP_2, OP_NIP]; // OP_1, OP_2, OP_NIP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [2]
@@ -3521,7 +4287,7 @@ mod tests {
 
     #[test]
     fn test_op_nip_insufficient_stack() {
-        let script = vec![0x51, 0x77]; // OP_1, OP_NIP (only 1 item)
+        let script = vec![OP_1, OP_NIP]; // OP_1, OP_NIP (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3530,7 +4296,7 @@ mod tests {
 
     #[test]
     fn test_op_over() {
-        let script = vec![0x51, 0x52, 0x78]; // OP_1, OP_2, OP_OVER
+        let script = vec![OP_1, OP_2, OP_OVER]; // OP_1, OP_2, OP_OVER
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 3 items [1, 2, 1], not exactly 1
@@ -3542,7 +4308,7 @@ mod tests {
 
     #[test]
     fn test_op_over_insufficient_stack() {
-        let script = vec![0x51, 0x78]; // OP_1, OP_OVER (only 1 item)
+        let script = vec![OP_1, OP_OVER]; // OP_1, OP_OVER (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3551,7 +4317,7 @@ mod tests {
 
     #[test]
     fn test_op_pick() {
-        let script = vec![0x51, 0x52, 0x53, 0x51, 0x79]; // OP_1, OP_2, OP_3, OP_1, OP_PICK
+        let script = vec![OP_1, OP_2, OP_3, OP_1, OP_PICK]; // OP_1, OP_2, OP_3, OP_1, OP_PICK
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 4 items [1, 2, 3, 2], not exactly 1
@@ -3561,7 +4327,7 @@ mod tests {
 
     #[test]
     fn test_op_pick_empty_n() {
-        let script = vec![0x51, 0x00, 0x79]; // OP_1, OP_0, OP_PICK (n is empty)
+        let script = vec![OP_1, OP_0, OP_PICK]; // OP_1, OP_0, OP_PICK (n is empty)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3570,7 +4336,7 @@ mod tests {
 
     #[test]
     fn test_op_pick_invalid_index() {
-        let script = vec![0x51, 0x52, 0x79]; // OP_1, OP_2, OP_PICK (n=2, but only 1 item)
+        let script = vec![OP_1, OP_2, OP_PICK]; // OP_1, OP_2, OP_PICK (n=2, but only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3579,7 +4345,7 @@ mod tests {
 
     #[test]
     fn test_op_roll() {
-        let script = vec![0x51, 0x52, 0x53, 0x51, 0x7a]; // OP_1, OP_2, OP_3, OP_1, OP_ROLL
+        let script = vec![OP_1, OP_2, OP_3, OP_1, OP_ROLL]; // OP_1, OP_2, OP_3, OP_1, OP_ROLL
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 3 items [1, 3, 2], not exactly 1
@@ -3590,17 +4356,19 @@ mod tests {
     }
 
     #[test]
-    fn test_op_roll_empty_n() {
-        let script = vec![0x51, 0x00, 0x7a]; // OP_1, OP_0, OP_ROLL (n is empty)
+    fn test_op_roll_zero_n() {
+        // OP_0 pushes empty bytes (CScriptNum 0), OP_ROLL(0) is a valid no-op
+        let script = vec![OP_1, OP_0, OP_ROLL]; // OP_1, OP_0, OP_ROLL (n=0, no-op)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result);
+        assert!(result); // Stack has [1], which is truthy
         assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0], vec![1]);
     }
 
     #[test]
     fn test_op_roll_invalid_index() {
-        let script = vec![0x51, 0x52, 0x7a]; // OP_1, OP_2, OP_ROLL (n=2, but only 1 item)
+        let script = vec![OP_1, OP_2, OP_ROLL]; // OP_1, OP_2, OP_ROLL (n=2, but only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3609,7 +4377,7 @@ mod tests {
 
     #[test]
     fn test_op_rot() {
-        let script = vec![0x51, 0x52, 0x53, 0x7b]; // OP_1, OP_2, OP_3, OP_ROT
+        let script = vec![OP_1, OP_2, OP_3, OP_ROT]; // OP_1, OP_2, OP_3, OP_ROT
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 3 items [2, 3, 1], not exactly 1
@@ -3621,7 +4389,7 @@ mod tests {
 
     #[test]
     fn test_op_rot_insufficient_stack() {
-        let script = vec![0x51, 0x52, 0x7b]; // OP_1, OP_2, OP_ROT (only 2 items)
+        let script = vec![OP_1, OP_2, OP_ROT]; // OP_1, OP_2, OP_ROT (only 2 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3630,7 +4398,7 @@ mod tests {
 
     #[test]
     fn test_op_swap() {
-        let script = vec![0x51, 0x52, 0x7c]; // OP_1, OP_2, OP_SWAP
+        let script = vec![OP_1, OP_2, OP_SWAP]; // OP_1, OP_2, OP_SWAP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 2 items [2, 1], not exactly 1
@@ -3641,7 +4409,7 @@ mod tests {
 
     #[test]
     fn test_op_swap_insufficient_stack() {
-        let script = vec![0x51, 0x7c]; // OP_1, OP_SWAP (only 1 item)
+        let script = vec![OP_1, OP_SWAP]; // OP_1, OP_SWAP (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3650,7 +4418,7 @@ mod tests {
 
     #[test]
     fn test_op_tuck() {
-        let script = vec![0x51, 0x52, 0x7d]; // OP_1, OP_2, OP_TUCK
+        let script = vec![OP_1, OP_2, OP_TUCK]; // OP_1, OP_2, OP_TUCK
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 3 items [2, 1, 2], not exactly 1
@@ -3662,7 +4430,7 @@ mod tests {
 
     #[test]
     fn test_op_tuck_insufficient_stack() {
-        let script = vec![0x51, 0x7d]; // OP_1, OP_TUCK (only 1 item)
+        let script = vec![OP_1, OP_TUCK]; // OP_1, OP_TUCK (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3671,7 +4439,7 @@ mod tests {
 
     #[test]
     fn test_op_2drop() {
-        let script = vec![0x51, 0x52, 0x53, 0x6d]; // OP_1, OP_2, OP_3, OP_2DROP
+        let script = vec![OP_1, OP_2, OP_3, OP_2DROP]; // OP_1, OP_2, OP_3, OP_2DROP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [1]
@@ -3681,7 +4449,7 @@ mod tests {
 
     #[test]
     fn test_op_2drop_insufficient_stack() {
-        let script = vec![0x51, 0x6d]; // OP_1, OP_2DROP (only 1 item)
+        let script = vec![OP_1, OP_2DROP]; // OP_1, OP_2DROP (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3690,7 +4458,7 @@ mod tests {
 
     #[test]
     fn test_op_2dup() {
-        let script = vec![0x51, 0x52, 0x6e]; // OP_1, OP_2, OP_2DUP
+        let script = vec![OP_1, OP_2, OP_2DUP]; // OP_1, OP_2, OP_2DUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 4 items [1, 2, 1, 2], not exactly 1
@@ -3703,7 +4471,7 @@ mod tests {
 
     #[test]
     fn test_op_2dup_insufficient_stack() {
-        let script = vec![0x51, 0x6e]; // OP_1, OP_2DUP (only 1 item)
+        let script = vec![OP_1, OP_2DUP]; // OP_1, OP_2DUP (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3712,7 +4480,7 @@ mod tests {
 
     #[test]
     fn test_op_3dup() {
-        let script = vec![0x51, 0x52, 0x53, 0x6f]; // OP_1, OP_2, OP_3, OP_3DUP
+        let script = vec![OP_1, OP_2, OP_3, OP_3DUP]; // OP_1, OP_2, OP_3, OP_3DUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 6 items, not exactly 1
@@ -3727,7 +4495,7 @@ mod tests {
 
     #[test]
     fn test_op_3dup_insufficient_stack() {
-        let script = vec![0x51, 0x52, 0x6f]; // OP_1, OP_2, OP_3DUP (only 2 items)
+        let script = vec![OP_1, OP_2, OP_3DUP]; // OP_1, OP_2, OP_3DUP (only 2 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3736,7 +4504,7 @@ mod tests {
 
     #[test]
     fn test_op_2over() {
-        let script = vec![0x51, 0x52, 0x53, 0x54, 0x70]; // OP_1, OP_2, OP_3, OP_4, OP_2OVER
+        let script = vec![OP_1, OP_2, OP_3, OP_4, OP_2OVER]; // OP_1, OP_2, OP_3, OP_4, OP_2OVER
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 6 items, not exactly 1
@@ -3747,7 +4515,7 @@ mod tests {
 
     #[test]
     fn test_op_2over_insufficient_stack() {
-        let script = vec![0x51, 0x52, 0x53, 0x70]; // OP_1, OP_2, OP_3, OP_2OVER (only 3 items)
+        let script = vec![OP_1, OP_2, OP_3, OP_2OVER]; // OP_1, OP_2, OP_3, OP_2OVER (only 3 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3756,7 +4524,7 @@ mod tests {
 
     #[test]
     fn test_op_2rot() {
-        let script = vec![0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x71]; // 6 items, OP_2ROT
+        let script = vec![OP_1, OP_2, OP_3, OP_4, OP_5, OP_6, OP_2ROT]; // 6 items, OP_2ROT
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 6 items, not exactly 1
@@ -3767,7 +4535,7 @@ mod tests {
 
     #[test]
     fn test_op_2rot_insufficient_stack() {
-        let script = vec![0x51, 0x52, 0x53, 0x54, 0x71]; // OP_1, OP_2, OP_3, OP_4, OP_2ROT (only 4 items)
+        let script = vec![OP_1, OP_2, OP_3, OP_4, OP_2ROT]; // OP_1, OP_2, OP_3, OP_4, OP_2ROT (only 4 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3776,7 +4544,7 @@ mod tests {
 
     #[test]
     fn test_op_2swap() {
-        let script = vec![0x51, 0x52, 0x53, 0x54, 0x72]; // OP_1, OP_2, OP_3, OP_4, OP_2SWAP
+        let script = vec![OP_1, OP_2, OP_3, OP_4, OP_2SWAP]; // OP_1, OP_2, OP_3, OP_4, OP_2SWAP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 4 items, not exactly 1
@@ -3789,7 +4557,7 @@ mod tests {
 
     #[test]
     fn test_op_2swap_insufficient_stack() {
-        let script = vec![0x51, 0x52, 0x53, 0x72]; // OP_1, OP_2, OP_3, OP_2SWAP (only 3 items)
+        let script = vec![OP_1, OP_2, OP_3, OP_2SWAP]; // OP_1, OP_2, OP_3, OP_2SWAP (only 3 items)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3798,7 +4566,7 @@ mod tests {
 
     #[test]
     fn test_op_size() {
-        let script = vec![0x51, 0x82]; // OP_1, OP_SIZE
+        let script = vec![OP_1, OP_SIZE]; // OP_1, OP_SIZE
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
@@ -3809,7 +4577,7 @@ mod tests {
 
     #[test]
     fn test_op_size_empty_stack() {
-        let script = vec![0x82]; // OP_SIZE on empty stack
+        let script = vec![OP_SIZE]; // OP_SIZE on empty stack
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3818,7 +4586,7 @@ mod tests {
 
     #[test]
     fn test_op_return() {
-        let script = vec![0x51, 0x6a]; // OP_1, OP_RETURN
+        let script = vec![OP_1, OP_RETURN]; // OP_1, OP_RETURN
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // OP_RETURN always fails
@@ -3827,7 +4595,7 @@ mod tests {
 
     #[test]
     fn test_op_checksigverify() {
-        let script = vec![0x51, 0x52, 0xad]; // OP_1, OP_2, OP_CHECKSIGVERIFY
+        let script = vec![OP_1, OP_2, OP_CHECKSIGVERIFY]; // OP_1, OP_2, OP_CHECKSIGVERIFY
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Should fail due to invalid signature
@@ -3836,7 +4604,7 @@ mod tests {
 
     #[test]
     fn test_op_checksigverify_insufficient_stack() {
-        let script = vec![0x51, 0xad]; // OP_1, OP_CHECKSIGVERIFY (only 1 item)
+        let script = vec![OP_1, OP_CHECKSIGVERIFY]; // OP_1, OP_CHECKSIGVERIFY (only 1 item)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result);
@@ -3845,7 +4613,7 @@ mod tests {
 
     #[test]
     fn test_unknown_opcode_comprehensive() {
-        let script = vec![0x51, 0xff]; // OP_1, unknown opcode
+        let script = vec![OP_1, 0xff]; // OP_1, unknown opcode (0xff is not a defined opcode constant)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(!result); // Unknown opcode should fail
@@ -4016,29 +4784,29 @@ mod property_tests {
             if result.is_ok() && result.unwrap() {
                 // For opcodes that modify stack size, verify reasonable bounds
                 match opcode {
-                    0x00 | 0x51..=0x60 => {
+                    OP_0 | OP_1..=OP_16 => {
                         // Push opcodes - increase by 1
                         assert!(stack.len() == initial_len + 1);
                     },
-                    0x76 => {
+                    OP_DUP => {
                         // OP_DUP - increase by 1
                         if initial_len > 0 {
                             assert!(stack.len() == initial_len + 1);
                         }
                     },
-                    0x6f => {
+                    OP_3DUP => {
                         // OP_3DUP - increases by 3 if stack has >= 3 items
                         if initial_len >= 3 {
                             assert!(stack.len() == initial_len + 3);
                         }
                     },
-                    0x70 => {
+                    OP_2OVER => {
                         // OP_2OVER - increases by 2 if stack has >= 4 items
                         if initial_len >= 4 {
                             assert!(stack.len() == initial_len + 2);
                         }
                     },
-                    0x75 | 0x77 | 0x6d => {
+                    OP_DROP | OP_NIP | OP_2DROP => {
                         // These opcodes decrease stack size
                         assert!(stack.len() <= initial_len);
                     },
