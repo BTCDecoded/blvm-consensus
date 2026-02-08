@@ -43,6 +43,7 @@
 
 pub mod config;
 pub mod constants;
+pub mod opcodes;
 pub mod orange_paper_constants;
 pub mod orange_paper_property_helpers;
 pub mod script;
@@ -62,7 +63,16 @@ pub use script::{
 };
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use transaction_hash::clear_sighash_templates;
+// Re-export core types and constants for convenience
+pub use types::*;
+pub use constants::*;
+pub use error::ConsensusError;
+
 pub mod bip113;
+#[cfg(feature = "ctv")]
+pub mod bip119;
+#[cfg(feature = "csfs")]
+pub mod bip348;
 pub mod bip_validation;
 pub mod block;
 pub mod crypto;
@@ -304,8 +314,9 @@ impl ConsensusProof {
         current_chain: &[types::Block],
         current_utxo_set: types::UtxoSet,
         current_height: types::Natural,
+        network: types::Network,
     ) -> error::Result<reorganization::ReorganizationResult> {
-        reorganization::reorganize_chain(new_chain, current_chain, current_utxo_set, current_height)
+        reorganization::reorganize_chain(new_chain, current_chain, current_utxo_set, current_height, network)
     }
 
     /// Check if reorganization is beneficial
@@ -370,6 +381,7 @@ impl ConsensusProof {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Transaction;
     use crate::transaction::check_transaction;
     use crate::network::{ChainState, NetworkAddress, NetworkMessage, PeerState, VersionMessage};
 

@@ -4,6 +4,7 @@
 //! - Ordinals/Inscriptions detection
 //! - Dust output filtering
 //! - BRC-20 pattern detection
+//! - Adaptive witness size thresholds based on script type
 //!
 //! This filter enables 40-60% bandwidth savings by skipping spam transactions
 //! during ongoing sync while maintaining consensus correctness.
@@ -17,9 +18,13 @@
 //! non-spam inputs. The `process_filtered_block` function in `initial_sync.rs` implements
 //! this correctly by processing all transactions but only adding non-spam outputs.
 
+mod script_analyzer;
+
+use crate::opcodes::*;
 use crate::types::{ByteString, Transaction, OutPoint, UTXO, UtxoSet};
 use crate::witness::Witness;
 use serde::{Deserialize, Serialize};
+use script_analyzer::{ScriptType, TransactionType};
 
 /// Default dust threshold (546 satoshis = 0.00000546 BTC)
 pub const DEFAULT_DUST_THRESHOLD: i64 = 546;
@@ -34,6 +39,73 @@ pub const DEFAULT_MAX_WITNESS_SIZE: usize = 1000;
 /// Default maximum transaction size to value ratio
 /// Non-monetary transactions often have very large size relative to value transferred
 pub const DEFAULT_MAX_SIZE_VALUE_RATIO: f64 = 1000.0; // bytes per satoshi
+
+/// Spam filter preset configurations
+///
+/// Presets provide easy-to-use configurations for common use cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpamFilterPreset {
+    /// No spam filtering (all transactions pass)
+    Disabled,
+    /// Lenient filtering, minimal false positives
+    /// - Higher thresholds
+    /// - Only obvious spam patterns
+    Conservative,
+    /// Balanced filtering (default)
+    /// - Standard thresholds
+    /// - Comprehensive detection
+    Moderate,
+    /// Strong filtering, may have false positives
+    /// - Lower thresholds
+    /// - Aggressive detection
+    Aggressive,
+}
+
+impl SpamFilterPreset {
+    /// Convert preset to configuration
+    pub fn to_config(&self) -> SpamFilterConfig {
+        match self {
+            Self::Disabled => SpamFilterConfig {
+                filter_ordinals: false,
+                filter_dust: false,
+                filter_brc20: false,
+                filter_large_witness: false,
+                filter_low_fee_rate: false,
+                filter_high_size_value_ratio: false,
+                filter_many_small_outputs: false,
+                ..SpamFilterConfig::default()
+            },
+            Self::Conservative => SpamFilterConfig {
+                filter_ordinals: true,
+                filter_dust: true,
+                filter_brc20: true,
+                filter_large_witness: true,
+                filter_low_fee_rate: false,
+                filter_high_size_value_ratio: true,
+                filter_many_small_outputs: true,
+                max_witness_size: 2000,  // Higher threshold
+                max_size_value_ratio: 2000.0,  // Higher ratio
+                max_small_outputs: 20,  // More lenient
+                ..SpamFilterConfig::default()
+            },
+            Self::Moderate => SpamFilterConfig::default(),
+            Self::Aggressive => SpamFilterConfig {
+                filter_ordinals: true,
+                filter_dust: true,
+                filter_brc20: true,
+                filter_large_witness: true,
+                filter_low_fee_rate: true,  // Enable fee rate filtering
+                filter_high_size_value_ratio: true,
+                filter_many_small_outputs: true,
+                max_witness_size: 500,  // Lower threshold
+                max_size_value_ratio: 500.0,  // Lower ratio
+                max_small_outputs: 5,  // More strict
+                min_fee_rate: 2,  // Higher fee rate requirement
+                ..SpamFilterConfig::default()
+            },
+        }
+    }
+}
 
 /// Spam classification for a transaction
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +126,55 @@ pub enum SpamType {
     ManySmallOutputs,
     /// Not spam (valid transaction)
     NotSpam,
+}
+
+/// Adaptive witness size thresholds based on script type
+///
+/// These thresholds will be refined with real-world data collection.
+/// For now, they use conservative estimates based on typical transaction patterns.
+#[derive(Debug, Clone)]
+pub struct WitnessSizeThresholds {
+    /// Normal single-sig witness size (95th percentile)
+    pub normal_single_sig: usize,
+    /// Normal multi-sig witness size (95th percentile for 2-of-3)
+    pub normal_multi_sig: usize,
+    /// Normal P2WSH witness size (95th percentile)
+    pub normal_p2wsh: usize,
+    /// Suspicious threshold (current default)
+    pub suspicious_threshold: usize,
+    /// Definitely spam threshold (99.9th percentile)
+    pub definitely_spam: usize,
+}
+
+impl Default for WitnessSizeThresholds {
+    fn default() -> Self {
+        // These will be populated from real-world data collection
+        // For now, use conservative estimates
+        Self {
+            normal_single_sig: 200,
+            normal_multi_sig: 500,
+            normal_p2wsh: 800,
+            suspicious_threshold: 1000,
+            definitely_spam: 2000,
+        }
+    }
+}
+
+/// Witness element analysis result
+#[derive(Debug, Clone)]
+pub struct WitnessElementAnalysis {
+    /// Total witness size (including varint overhead)
+    pub total_size: usize,
+    /// Number of witness elements
+    pub element_count: usize,
+    /// Number of large elements (> 200 bytes)
+    pub large_elements: usize,
+    /// Number of medium elements (100-200 bytes)
+    pub medium_elements: usize,
+    /// Number of small elements (< 100 bytes)
+    pub small_elements: usize,
+    /// Whether pattern suggests data splitting (many medium elements)
+    pub suspicious_pattern: bool,
 }
 
 /// Spam filter configuration
@@ -80,11 +201,19 @@ pub struct SpamFilterConfig {
     /// Minimum fee rate threshold (satoshis per vbyte)
     pub min_fee_rate: u64,
     /// Maximum witness size before flagging (bytes)
+    /// Note: This is now adaptive based on script type when `use_adaptive_thresholds` is enabled
     pub max_witness_size: usize,
     /// Maximum size-to-value ratio (bytes per satoshi)
     pub max_size_value_ratio: f64,
     /// Maximum number of small outputs before flagging
     pub max_small_outputs: usize,
+    
+    // NEW: Adaptive thresholds
+    /// Use adaptive witness size thresholds based on script type
+    /// Default: true (enables data-driven thresholds)
+    pub use_adaptive_thresholds: bool,
+    /// Adaptive threshold configuration
+    pub adaptive_thresholds: WitnessSizeThresholds,
     
     // NEW: Taproot-specific options
     /// Filter Taproot-specific spam patterns (control blocks, annexes)
@@ -95,7 +224,7 @@ pub struct SpamFilterConfig {
     /// BIP-110 limits to 257 bytes (depth 7), we use 289 bytes (depth 8) for policy
     /// Default: 289 bytes (allows depth 8, more lenient than BIP-110)
     pub max_taproot_control_size: usize,
-    /// Reject Taproot annexes (last witness element starting with 0x50)
+    /// Reject Taproot annexes (last witness element starting with OP_RESERVED)
     /// Default: true
     pub reject_taproot_annexes: bool,
     
@@ -147,6 +276,10 @@ impl Default for SpamFilterConfig {
             max_size_value_ratio: DEFAULT_MAX_SIZE_VALUE_RATIO,
             max_small_outputs: 10, // Flag if more than 10 small outputs
             
+            // NEW: Adaptive thresholds
+            use_adaptive_thresholds: true, // Enable by default
+            adaptive_thresholds: WitnessSizeThresholds::default(),
+            
             // NEW defaults
             filter_taproot_spam: true,
             max_taproot_control_size: 289, // 33 + 32*8 (depth 8)
@@ -184,12 +317,27 @@ impl SpamFilter {
     pub fn new() -> Self {
         Self {
             config: SpamFilterConfig::default(),
+            #[cfg(feature = "production")]
+            script_type_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                lru::LruCache::new(std::num::NonZeroUsize::new(10_000).unwrap())
+            )),
         }
     }
 
     /// Create a new spam filter with custom configuration
     pub fn with_config(config: SpamFilterConfig) -> Self {
         Self { config }
+    }
+    
+    /// Create a new spam filter with a preset configuration
+    ///
+    /// Presets provide easy-to-use configurations for common use cases:
+    /// - `Disabled`: No spam filtering
+    /// - `Conservative`: Lenient filtering, minimal false positives
+    /// - `Moderate`: Balanced filtering (default)
+    /// - `Aggressive`: Strong filtering, may have false positives
+    pub fn with_preset(preset: SpamFilterPreset) -> Self {
+        Self::with_config(preset.to_config())
     }
 
     /// Check if a transaction is spam (without witness data)
@@ -227,8 +375,8 @@ impl SpamFilter {
             detected_types.push(SpamType::BRC20);
         }
 
-        // Check for large witness data
-        if self.config.filter_large_witness && self.detect_large_witness(witnesses) {
+        // Check for large witness data (now with adaptive thresholds)
+        if self.config.filter_large_witness && self.detect_large_witness(tx, witnesses) {
             detected_types.push(SpamType::LargeWitness);
         }
 
@@ -280,7 +428,6 @@ impl SpamFilter {
             Some(tx.clone()) // Include non-spam
         }
     }
-
     /// Detect Ordinals/Inscriptions in transaction
     ///
     /// Ordinals typically embed data in:
@@ -323,8 +470,15 @@ impl SpamFilter {
                 }
 
                 // Check for large witness stacks (common in Ordinals)
-                if self.has_large_witness_stack(witness) {
-                    return true;
+                // Use adaptive thresholds if enabled
+                if self.config.use_adaptive_thresholds {
+                    if self.has_large_witness_stack_adaptive(witness, tx, i) {
+                        return true;
+                    }
+                } else {
+                    if self.has_large_witness_stack(witness) {
+                        return true;
+                    }
                 }
 
                 // Check for data patterns in witness elements
@@ -339,18 +493,18 @@ impl SpamFilter {
 
     /// Check if output is Taproot (P2TR)
     ///
-    /// P2TR format: OP_1 (0x51) + 0x20 + 32-byte x-only pubkey = 34 bytes
+    /// P2TR format: OP_1 + PUSH_32_BYTES + 32-byte x-only pubkey = 34 bytes
     fn is_taproot_output(&self, script_pubkey: &ByteString) -> bool {
         // P2TR: OP_1 (0x51) + 0x20 + 32-byte x-only pubkey = 34 bytes
         script_pubkey.len() == 34 
-            && script_pubkey[0] == 0x51 
+            && script_pubkey[0] == crate::opcodes::OP_1 
             && script_pubkey[1] == 0x20
     }
 
     /// Detect Taproot-specific spam patterns
     ///
     /// Checks for:
-    /// - Taproot annexes (last witness element starting with 0x50)
+    /// - Taproot annexes (last witness element starting with OP_RESERVED)
     /// - Large control blocks (script path spends with deep trees)
     fn detect_taproot_spam(
         &self,
@@ -394,9 +548,88 @@ impl SpamFilter {
     }
 
     /// Check if witness stack is suspiciously large (suggests data embedding)
+    /// 
+    /// Uses adaptive thresholds based on script type if enabled.
     fn has_large_witness_stack(&self, witness: &Witness) -> bool {
         let total_size = self.calculate_witness_size(witness);
         total_size > self.config.max_witness_size
+    }
+
+    /// Check if witness stack is suspiciously large using adaptive thresholds
+    ///
+    /// This method uses script type detection to apply appropriate thresholds.
+    /// Falls back to fixed threshold if adaptive thresholds are disabled or script type cannot be determined.
+    fn has_large_witness_stack_adaptive(
+        &self,
+        witness: &Witness,
+        tx: &Transaction,
+        _input_index: usize,
+    ) -> bool {
+        let total_size = self.calculate_witness_size(witness);
+        
+        // If adaptive thresholds disabled, use fixed threshold
+        if !self.config.use_adaptive_thresholds {
+            return total_size > self.config.max_witness_size;
+        }
+
+        // Try to detect script type from the output being spent
+        // Note: This is simplified - full implementation would track which output is spent
+        // For now, check all outputs in the transaction
+        let mut detected_script_type: Option<ScriptType> = None;
+        
+        // Try to find the script type of the output being spent
+        // In a real implementation, we'd track prevout -> output mapping
+        for output in &tx.outputs {
+            let script_type = ScriptType::detect(&output.script_pubkey);
+            if script_type != ScriptType::Unknown {
+                detected_script_type = Some(script_type);
+                break; // Use first detected script type
+            }
+        }
+
+        // Get threshold based on script type
+        let threshold = if let Some(script_type) = detected_script_type {
+            script_type.recommended_threshold()
+        } else {
+            // Fallback to fixed threshold if script type unknown
+            self.config.max_witness_size
+        };
+
+        total_size > threshold
+    }
+
+    /// Analyze witness elements for suspicious patterns
+    ///
+    /// Detects data splitting patterns (many medium-sized elements).
+    fn analyze_witness_elements(&self, witness: &Witness) -> WitnessElementAnalysis {
+        let total_size = self.calculate_witness_size(witness);
+        let element_count = witness.len();
+        
+        let mut large_elements = 0;
+        let mut medium_elements = 0;
+        let mut small_elements = 0;
+        
+        for element in witness {
+            if element.len() > 200 {
+                large_elements += 1;
+            } else if element.len() >= 100 {
+                medium_elements += 1;
+            } else {
+                small_elements += 1;
+            }
+        }
+        
+        // Suspicious pattern: many medium elements (suggests data splitting)
+        let suspicious_pattern = medium_elements >= 10;
+        
+        WitnessElementAnalysis {
+            total_size,
+            element_count,
+            large_elements,
+            medium_elements,
+            small_elements,
+            suspicious_pattern,
+        }
     }
 
     /// Calculate accurate witness size including varint overhead
@@ -419,14 +652,14 @@ impl SpamFilter {
             // - 0xfd-0xffff: 0xfd prefix (1 byte) + 2 bytes data
             // - 0x10000-0xffffffff: 0xfe prefix (1 byte) + 4 bytes data
             // - > 0xffffffff: 0xff prefix (1 byte) + 8 bytes data
-            size += if element.len() < 0xfd {
+            size += if element.len() <= VARINT_1BYTE_MAX as usize {
                 1
             } else if element.len() <= 0xffff {
-                3 // 0xfd + 2 bytes
+                3 // VARINT_2BYTE_PREFIX + 2 bytes
             } else if element.len() <= 0xffffffff {
-                5 // 0xfe + 4 bytes
+                5 // VARINT_4BYTE_PREFIX + 4 bytes
             } else {
-                9 // 0xff + 8 bytes
+                9 // VARINT_8BYTE_PREFIX + 8 bytes
             };
             size += element.len();
         }
@@ -448,7 +681,7 @@ impl SpamFilter {
             if element.len() > 200 {
                 // Check if it looks like data (not a signature)
                 // Signatures typically start with 0x30 (DER) or are exactly 64 bytes (Schnorr)
-                if element.len() != 64 && (element.is_empty() || element[0] != 0x30) {
+                if element.len() != 64 && (element.is_empty() || element[0] != DER_SIGNATURE_PREFIX) {
                     // Likely data embedding
                     return true;
                 }
@@ -458,6 +691,12 @@ impl SpamFilter {
         // Check for multiple large elements (suggests data chunks)
         let large_elements = witness.iter().filter(|elem| elem.len() > 100).count();
         if large_elements >= 3 {
+            return true;
+        }
+
+        // Check for suspicious pattern (many medium elements - data splitting)
+        let analysis = self.analyze_witness_elements(witness);
+        if analysis.suspicious_pattern {
             return true;
         }
 
@@ -475,8 +714,8 @@ impl SpamFilter {
             return false;
         }
 
-        // Check for OP_RETURN (0x6a) - common in Ordinals
-        if script[0] == 0x6a {
+        // Check for OP_RETURN - common in Ordinals
+        if script[0] == OP_RETURN {
             // OP_RETURN followed by data suggests Ordinals
             if script.len() > 80 {
                 // Large data pushes are suspicious
@@ -498,18 +737,17 @@ impl SpamFilter {
 
     /// Check if script has envelope protocol pattern
     fn has_envelope_pattern(&self, script: &ByteString) -> bool {
-        // Envelope protocol: OP_FALSE (0x00) OP_IF (0x63) ... OP_ENDIF (0x68)
+        // Envelope protocol: OP_FALSE OP_IF ... OP_ENDIF
         if script.len() < 4 {
             return false;
         }
 
         // Check for OP_FALSE OP_IF pattern (common in inscriptions)
-        if script[0] == 0x00 && script[1] == 0x63 {
+        if script[0] == OP_0 && script[1] == OP_IF {
             if self.config.use_improved_envelope_detection {
                 // Improved: Verify OP_ENDIF exists later in script
                 // Envelope protocol: OP_FALSE OP_IF ... OP_ENDIF
-                // OP_ENDIF = 0x68
-                if script.iter().skip(2).any(|&b| b == 0x68) {
+                if script.iter().skip(2).any(|&b| b == OP_ENDIF) {
                     return true;
                 }
             } else {
@@ -541,11 +779,19 @@ impl SpamFilter {
     /// Detect transactions with large witness data
     ///
     /// Large witness stacks often indicate data embedding (Ordinals, inscriptions).
-    fn detect_large_witness(&self, witnesses: Option<&[Witness]>) -> bool {
+    /// Now uses adaptive thresholds based on script type.
+    fn detect_large_witness(&self, tx: &Transaction, witnesses: Option<&[Witness]>) -> bool {
         if let Some(witnesses) = witnesses {
-            for witness in witnesses {
-                if self.has_large_witness_stack(witness) {
-                    return true;
+            for (i, witness) in witnesses.iter().enumerate() {
+                // Use adaptive thresholds if enabled
+                if self.config.use_adaptive_thresholds {
+                    if self.has_large_witness_stack_adaptive(witness, tx, i) {
+                        return true;
+                    }
+                } else {
+                    if self.has_large_witness_stack(witness) {
+                        return true;
+                    }
                 }
             }
         }
@@ -612,7 +858,11 @@ impl SpamFilter {
         let fee = input_total.saturating_sub(output_total);
         
         // Fee rate in satoshis per vbyte
-        fee / tx_size as u64
+        if tx_size > 0 {
+            fee / tx_size as u64
+        } else {
+            0
+        }
     }
 
     /// Calculate fee rate using heuristics (fallback)
@@ -655,6 +905,8 @@ impl SpamFilter {
     /// Detect transactions with high size-to-value ratio
     ///
     /// Non-monetary transactions often have very large size relative to value transferred.
+    /// Now uses transaction type detection to adjust thresholds for legitimate transactions
+    /// (consolidations, CoinJoins) that legitimately have high ratios.
     fn detect_high_size_value_ratio(
         &self,
         tx: &Transaction,
@@ -670,7 +922,16 @@ impl SpamFilter {
         }
 
         let ratio = tx_size / total_output_value;
-        ratio > self.config.max_size_value_ratio
+        
+        // Use transaction type to adjust threshold
+        let threshold = if self.config.use_adaptive_thresholds {
+            let tx_type = TransactionType::detect(tx);
+            tx_type.recommended_size_value_ratio()
+        } else {
+            self.config.max_size_value_ratio
+        };
+        
+        ratio > threshold
     }
 
     /// Detect transactions with many small outputs
@@ -751,7 +1012,7 @@ impl SpamFilter {
         }
 
         // Check for OP_RETURN
-        if script[0] != 0x6a {
+        if script[0] != OP_RETURN {
             return false;
         }
 
@@ -778,14 +1039,32 @@ impl SpamFilter {
 
     /// Check for BRC-20 pattern using JSON validation
     fn has_brc20_pattern_json(&self, json_str: &str) -> bool {
+        // Remove whitespace for more robust matching
+        let cleaned: String = json_str.chars().filter(|c| !c.is_whitespace()).collect();
+        
         // Try to parse as JSON
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(json_str) {
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&cleaned) {
             // Check if it's a valid BRC-20 transaction
             if let Some(obj) = json_value.as_object() {
                 // Check for protocol field: "p": "brc-20"
                 if let Some(protocol) = obj.get("p") {
                     if protocol.as_str() == Some("brc-20") {
                         // Check for operation field: "op": "mint" | "transfer" | "deploy"
+                        if let Some(op) = obj.get("op") {
+                            if let Some(op_str) = op.as_str() {
+                                return matches!(op_str, "mint" | "transfer" | "deploy");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: try parsing original string (with whitespace)
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Some(obj) = json_value.as_object() {
+                if let Some(protocol) = obj.get("p") {
+                    if protocol.as_str() == Some("brc-20") {
                         if let Some(op) = obj.get("op") {
                             if let Some(op_str) = op.as_str() {
                                 return matches!(op_str, "mint" | "transfer" | "deploy");
@@ -971,6 +1250,45 @@ fn estimate_transaction_size(tx: &Transaction) -> u64 {
     total_size
 }
 
+/// Serializable adaptive thresholds
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WitnessSizeThresholdsSerializable {
+    #[serde(default = "default_normal_single_sig")]
+    pub normal_single_sig: usize,
+    #[serde(default = "default_normal_multi_sig")]
+    pub normal_multi_sig: usize,
+    #[serde(default = "default_normal_p2wsh")]
+    pub normal_p2wsh: usize,
+    #[serde(default = "default_suspicious_threshold")]
+    pub suspicious_threshold: usize,
+    #[serde(default = "default_definitely_spam")]
+    pub definitely_spam: usize,
+}
+
+impl From<WitnessSizeThresholdsSerializable> for WitnessSizeThresholds {
+    fn from(serializable: WitnessSizeThresholdsSerializable) -> Self {
+        WitnessSizeThresholds {
+            normal_single_sig: serializable.normal_single_sig,
+            normal_multi_sig: serializable.normal_multi_sig,
+            normal_p2wsh: serializable.normal_p2wsh,
+            suspicious_threshold: serializable.suspicious_threshold,
+            definitely_spam: serializable.definitely_spam,
+        }
+    }
+}
+
+impl From<WitnessSizeThresholds> for WitnessSizeThresholdsSerializable {
+    fn from(thresholds: WitnessSizeThresholds) -> Self {
+        WitnessSizeThresholdsSerializable {
+            normal_single_sig: thresholds.normal_single_sig,
+            normal_multi_sig: thresholds.normal_multi_sig,
+            normal_p2wsh: thresholds.normal_p2wsh,
+            suspicious_threshold: thresholds.suspicious_threshold,
+            definitely_spam: thresholds.definitely_spam,
+        }
+    }
+}
+
 /// Serializable spam filter configuration (for config files)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpamFilterConfigSerializable {
@@ -1000,6 +1318,12 @@ pub struct SpamFilterConfigSerializable {
     pub max_size_value_ratio: f64,
     #[serde(default = "default_max_small_outputs")]
     pub max_small_outputs: usize,
+    
+    // NEW: Adaptive thresholds
+    #[serde(default = "default_true")]
+    pub use_adaptive_thresholds: bool,
+    #[serde(default = "default_adaptive_thresholds")]
+    pub adaptive_thresholds: WitnessSizeThresholdsSerializable,
     
     // NEW: Taproot-specific options
     #[serde(default = "default_true")]
@@ -1074,6 +1398,36 @@ fn default_large_tx_threshold_bytes() -> usize {
     1000
 }
 
+fn default_normal_single_sig() -> usize {
+    200
+}
+
+fn default_normal_multi_sig() -> usize {
+    500
+}
+
+fn default_normal_p2wsh() -> usize {
+    800
+}
+
+fn default_suspicious_threshold() -> usize {
+    1000
+}
+
+fn default_definitely_spam() -> usize {
+    2000
+}
+
+fn default_adaptive_thresholds() -> WitnessSizeThresholdsSerializable {
+    WitnessSizeThresholdsSerializable {
+        normal_single_sig: 200,
+        normal_multi_sig: 500,
+        normal_p2wsh: 800,
+        suspicious_threshold: 1000,
+        definitely_spam: 2000,
+    }
+}
+
 impl From<SpamFilterConfigSerializable> for SpamFilterConfig {
     fn from(serializable: SpamFilterConfigSerializable) -> Self {
         SpamFilterConfig {
@@ -1090,6 +1444,9 @@ impl From<SpamFilterConfigSerializable> for SpamFilterConfig {
             max_witness_size: serializable.max_witness_size,
             max_size_value_ratio: serializable.max_size_value_ratio,
             max_small_outputs: serializable.max_small_outputs,
+            // NEW: Adaptive thresholds
+            use_adaptive_thresholds: serializable.use_adaptive_thresholds,
+            adaptive_thresholds: serializable.adaptive_thresholds.into(),
             // NEW fields
             filter_taproot_spam: serializable.filter_taproot_spam,
             max_taproot_control_size: serializable.max_taproot_control_size,
@@ -1121,6 +1478,9 @@ impl From<SpamFilterConfig> for SpamFilterConfigSerializable {
             max_witness_size: config.max_witness_size,
             max_size_value_ratio: config.max_size_value_ratio,
             max_small_outputs: config.max_small_outputs,
+            // NEW: Adaptive thresholds
+            use_adaptive_thresholds: config.use_adaptive_thresholds,
+            adaptive_thresholds: config.adaptive_thresholds.into(),
             // NEW fields
             filter_taproot_spam: config.filter_taproot_spam,
             max_taproot_control_size: config.max_taproot_control_size,
@@ -1135,3 +1495,4 @@ impl From<SpamFilterConfig> for SpamFilterConfigSerializable {
         }
     }
 }
+
