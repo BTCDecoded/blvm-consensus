@@ -310,6 +310,8 @@ pub struct SpamFilterResult {
 #[derive(Clone)]
 pub struct SpamFilter {
     config: SpamFilterConfig,
+    #[cfg(feature = "production")]
+    pub(crate) script_type_cache: std::sync::Arc<std::sync::RwLock<lru::LruCache<u64, bool>>>,
 }
 
 impl SpamFilter {

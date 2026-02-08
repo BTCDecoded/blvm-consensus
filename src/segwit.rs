@@ -1,6 +1,7 @@
 //! Segregated Witness (SegWit) functions from Orange Paper Section 11.1
 
 use crate::error::Result;
+use crate::opcodes::*;
 use crate::types::*;
 use crate::types::{ByteString, Hash, Natural};
 use crate::witness;
@@ -135,9 +136,9 @@ pub fn validate_witness_commitment(
 /// Extract witness commitment from script
 pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
     // Look for OP_RETURN followed by witness commitment
-    if script.len() >= 38 && script[0] == 0x6a {
+    if script.len() >= 38 && script[0] == OP_RETURN {
         // OP_RETURN
-        if script.len() >= 38 && script[1] == 0x24 {
+        if script.len() >= 38 && script[1] == 0x24 { // 0x24 = push 36 bytes (witness commitment)
             // 36 bytes
             let mut commitment = [0u8; 32];
             commitment.copy_from_slice(&script[2..34]);
@@ -221,7 +222,7 @@ mod tests {
     #[test]
     fn test_calculate_transaction_weight() {
         let tx = create_test_transaction();
-        let witness = vec![vec![0x51], vec![0x52]]; // OP_1, OP_2
+        let witness = vec![vec![OP_1], vec![OP_2]]; // OP_1, OP_2
 
         let weight = calculate_transaction_weight(&tx, Some(&witness)).unwrap();
         assert!(weight > 0);
@@ -240,7 +241,7 @@ mod tests {
         let block = create_test_block();
         let witnesses = vec![
             vec![],           // Coinbase witness (empty)
-            vec![vec![0x51]], // First transaction witness
+            vec![vec![OP_1]], // First transaction witness
         ];
 
         let root = compute_witness_merkle_root(&block, &witnesses).unwrap();
@@ -275,12 +276,12 @@ mod tests {
     fn test_is_segwit_transaction() {
         // SegWit transactions are detected by witness program outputs, not scriptSig
         // P2WPKH: OP_0 <20-byte-hash>
-        // The format in Bitcoin is: [0x00, 0x14, <20-byte-hash>]
-        // Where 0x00 is OP_0 (witness version), 0x14 is push 20 bytes, then 20 bytes of hash
+        // The format in Bitcoin is: [OP_0, PUSH_20_BYTES, <20-byte-hash>]
+        // Where OP_0 is OP_0 (witness version), PUSH_20_BYTES is push 20 bytes, then 20 bytes of hash
         let mut tx = create_test_transaction();
         // Create a P2WPKH output (OP_0 <20-byte-hash>)
         let p2wpkh_hash = [0x51; 20]; // 20-byte hash
-        let mut script_pubkey = vec![0x00, 0x14]; // OP_0, push 20 bytes
+        let mut script_pubkey = vec![OP_0, PUSH_20_BYTES]; // OP_0, push 20 bytes
         script_pubkey.extend_from_slice(&p2wpkh_hash);
         tx.outputs[0].script_pubkey = script_pubkey.into();
 
@@ -292,7 +293,7 @@ mod tests {
         let block = create_test_block();
         let witnesses = vec![
             vec![],           // Coinbase
-            vec![vec![0x51]], // First tx
+            vec![vec![OP_1]], // First tx
         ];
 
         let weight = calculate_block_weight(&block, &witnesses).unwrap();
@@ -304,7 +305,7 @@ mod tests {
         let block = create_test_block();
         let witnesses = vec![
             vec![],           // Coinbase
-            vec![vec![0x51]], // First tx
+            vec![vec![OP_1]], // First tx
         ];
 
         let is_valid = validate_segwit_block(&block, &witnesses, 4_000_000).unwrap();
@@ -316,7 +317,7 @@ mod tests {
         let block = create_test_block();
         let witnesses = vec![
             vec![],           // Coinbase
-            vec![vec![0x51]], // First tx
+            vec![vec![OP_1]], // First tx
         ];
 
         let is_valid = validate_segwit_block(&block, &witnesses, 1).unwrap(); // Very low weight limit
@@ -328,7 +329,7 @@ mod tests {
         let mut block = create_test_block();
         let witnesses = vec![
             vec![],           // Coinbase
-            vec![vec![0x51]], // First tx
+            vec![vec![OP_1]], // First tx
         ];
 
         // Create coinbase with invalid witness commitment
@@ -375,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_extract_witness_commitment_invalid_script() {
-        let script = vec![0x51]; // Not a witness commitment script
+        let script = vec![OP_1]; // Not a witness commitment script
 
         let extracted = extract_witness_commitment(&script);
         assert!(extracted.is_none());
@@ -383,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_extract_witness_commitment_wrong_opcode() {
-        let mut script = vec![0x52, 0x24]; // Wrong opcode, correct length
+        let mut script = vec![0x52, PUSH_36_BYTES]; // Wrong opcode, correct length
         script.extend_from_slice(&[1u8; 32]);
 
         let extracted = extract_witness_commitment(&script);
@@ -392,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_extract_witness_commitment_wrong_length() {
-        let mut script = vec![0x6a, 0x25]; // OP_RETURN, wrong length (37 bytes)
+        let mut script = vec![OP_RETURN, 0x25]; // OP_RETURN, wrong length (37 bytes)
         script.extend_from_slice(&[1u8; 32]);
 
         let extracted = extract_witness_commitment(&script);
@@ -401,13 +402,13 @@ mod tests {
 
     #[test]
     fn test_hash_witness() {
-        let witness = vec![vec![0x51], vec![0x52]];
+        let witness = vec![vec![OP_1], vec![OP_2]];
         let hash = hash_witness(&witness);
 
         assert_eq!(hash.len(), 32);
 
         // Different witness should produce different hash
-        let witness2 = vec![vec![0x53], vec![0x54]];
+        let witness2 = vec![vec![OP_3], vec![OP_4]];
         let hash2 = hash_witness(&witness2);
         assert_ne!(hash, hash2);
     }
@@ -455,7 +456,7 @@ mod tests {
     #[test]
     fn test_calculate_total_size_with_witness() {
         let tx = create_test_transaction();
-        let witness = vec![vec![0x51], vec![0x52]];
+        let witness = vec![vec![OP_1], vec![OP_2]];
 
         let total_size = calculate_total_size(&tx, Some(&witness));
         let base_size = calculate_base_size(&tx);
@@ -482,13 +483,13 @@ mod tests {
                     hash: [0; 32].into(),
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -518,10 +519,10 @@ mod tests {
     }
 
     fn create_witness_commitment_script(commitment: &Hash) -> ByteString {
-        let mut script = vec![0x6a, 0x24]; // OP_RETURN, 36 bytes
+        let mut script = vec![OP_RETURN, PUSH_36_BYTES]; // OP_RETURN, 36 bytes
         script.extend_from_slice(commitment);
         // Add 4 more bytes to make it 38 bytes total as expected by extract_witness_commitment
-        script.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        script.extend_from_slice(&[OP_0, OP_0, OP_0, OP_0]);
         script
     }
 }
@@ -764,7 +765,7 @@ mod property_tests {
                             hash: [0; 32],
                             index: i as u64,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     });
                 }
@@ -773,7 +774,7 @@ mod property_tests {
                 for _ in output_data {
                     outputs.push(TransactionOutput {
                         value: 1000,
-                        script_pubkey: vec![0x51],
+                        script_pubkey: vec![OP_1],
                     });
                 }
 

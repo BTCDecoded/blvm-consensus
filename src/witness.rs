@@ -4,6 +4,7 @@
 //! and witness data handling that are common to both SegWit and Taproot.
 
 use crate::error::Result;
+use crate::opcodes::*;
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
 
@@ -137,8 +138,8 @@ pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
     }
 
     match script[0] {
-        0x51 => Some(WitnessVersion::TaprootV1), // OP_1
-        0x00 => Some(WitnessVersion::SegWitV0),  // OP_0
+        OP_1 => Some(WitnessVersion::TaprootV1),
+        OP_0 => Some(WitnessVersion::SegWitV0),
         _ => None,
     }
 }
@@ -164,9 +165,9 @@ pub fn extract_witness_program(
     let push_opcode = script[1];
     let program_start = 2;
 
-    // For P2WPKH: push_opcode is 0x14 (push 20 bytes)
-    // For P2WSH: push_opcode is 0x20 (push 32 bytes)
-    // For P2TR: push_opcode is 0x20 (push 32 bytes)
+    // For P2WPKH: push_opcode is PUSH_20_BYTES (push 20 bytes)
+    // For P2WSH: push_opcode is PUSH_32_BYTES (push 32 bytes)
+    // For P2TR: push_opcode is PUSH_32_BYTES (push 32 bytes)
     // Return the program bytes (after the push opcode)
     if script.len() < program_start + (push_opcode as usize) {
         return None;
@@ -237,17 +238,17 @@ mod tests {
     fn test_validate_taproot_witness_structure_script_path() {
         // Script path: script + control block (33 bytes minimum)
         let witness = vec![
-            vec![0x51],    // Script
+            vec![OP_1],    // Script
             vec![0u8; 33], // Control block (internal key + leaf version + parity)
         ];
         assert!(validate_taproot_witness_structure(&witness, true).unwrap());
 
         // Invalid: control block too small
-        let invalid = vec![vec![0x51], vec![0u8; 32]];
+        let invalid = vec![vec![OP_1], vec![0u8; 32]];
         assert!(!validate_taproot_witness_structure(&invalid, true).unwrap());
 
         // Invalid: only one element
-        let invalid2 = vec![vec![0x51]];
+        let invalid2 = vec![vec![OP_1]];
         assert!(!validate_taproot_witness_structure(&invalid2, true).unwrap());
     }
 
@@ -269,39 +270,39 @@ mod tests {
 
     #[test]
     fn test_extract_witness_version() {
-        let segwit_script = vec![0x00, 0x14, 0x01, 0x02, 0x03]; // OP_0 <20-byte-program>
+        let segwit_script = vec![OP_0, PUSH_20_BYTES, 0x01, 0x02, 0x03]; // OP_0 <20-byte-program>
         assert_eq!(
             extract_witness_version(&segwit_script),
             Some(WitnessVersion::SegWitV0)
         );
 
-        let taproot_script = vec![0x51, 0x20]; // OP_1 <32-byte-program>
+        let taproot_script = vec![OP_1, PUSH_32_BYTES]; // OP_1 <32-byte-program>
         assert_eq!(
             extract_witness_version(&taproot_script),
             Some(WitnessVersion::TaprootV1)
         );
 
-        let non_witness_script = vec![0x76, 0xa9]; // OP_DUP OP_HASH160
+        let non_witness_script = vec![OP_DUP, OP_HASH160]; // OP_DUP OP_HASH160
         assert_eq!(extract_witness_version(&non_witness_script), None);
     }
 
     #[test]
     fn test_extract_witness_program() {
-        // P2WPKH format: [0x00, 0x14, <20-byte-hash>]
-        // Where 0x00 is OP_0 (witness version), 0x14 is push 20 bytes, then 20 bytes of hash
+        // P2WPKH format: [OP_0, PUSH_20_BYTES, <20-byte-hash>]
+        // Where OP_0 is OP_0 (witness version), PUSH_20_BYTES is push 20 bytes, then 20 bytes of hash
         // extract_witness_program should return just the program bytes (after push opcode)
-        // Note: 0x01 to 0x14 is 20 bytes (1, 2, 3, ..., 20)
+        // Note: 0x01 to PUSH_20_BYTES is 20 bytes (1, 2, 3, ..., 20)
         let segwit_script = vec![
-            0x00, 0x14, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
-            0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+            OP_0, PUSH_20_BYTES, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+            0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, PUSH_20_BYTES,
         ];
         let program = extract_witness_program(&segwit_script, WitnessVersion::SegWitV0);
-        // Should return the 20 bytes after the push opcode (0x14)
+        // Should return the 20 bytes after the push opcode (PUSH_20_BYTES)
         assert_eq!(
             program,
             Some(vec![
                 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-                0x0f, 0x10, 0x11, 0x12, 0x13, 0x14
+                0x0f, 0x10, 0x11, 0x12, 0x13, PUSH_20_BYTES
             ])
         );
     }
