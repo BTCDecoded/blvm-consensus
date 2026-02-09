@@ -6,6 +6,7 @@
 //! Reference: Bitcoin Core `tx_verify.cpp` and `script.cpp`
 
 use crate::error::Result;
+use crate::opcodes::*;
 use crate::segwit::Witness;
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
@@ -23,6 +24,9 @@ const WITNESS_SCALE_FACTOR: u64 = 4;
 /// Counts OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY.
 /// Matches Bitcoin Core's CScript::GetSigOpCount(bool fAccurate).
 ///
+/// Uses GetOp-style iteration: each call to the loop body reads one opcode and
+/// advances past any associated push data, exactly like Bitcoin Core's GetOp().
+///
 /// # Arguments
 /// * `script` - Script to count sigops in
 /// * `accurate` - If true, use OP_1-OP_16 before OP_CHECKMULTISIG to determine key count
@@ -38,19 +42,54 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
     while i < script.len() {
         let opcode = script[i];
 
-        // OP_CHECKSIG (0xac) and OP_CHECKSIGVERIFY (0xad) count as 1 sigop each
-        if opcode == 0xac || opcode == 0xad {
+        // Skip past push data (matches Bitcoin Core's GetOp)
+        if opcode > 0 && opcode < OP_PUSHDATA1 {
+            // Direct push: opcode IS the length (1-75 bytes)
+            let len = opcode as usize;
+            last_opcode = Some(opcode);
+            i += 1 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA1 {
+            // OP_PUSHDATA1: next byte is length
+            if i + 1 >= script.len() { break; }
+            let len = script[i + 1] as usize;
+            last_opcode = Some(opcode);
+            i += 2 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA2 {
+            // OP_PUSHDATA2: next 2 bytes (little-endian) are length
+            if i + 2 >= script.len() { break; }
+            let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
+            last_opcode = Some(opcode);
+            i += 3 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA4 {
+            // OP_PUSHDATA4: next 4 bytes (little-endian) are length
+            if i + 4 >= script.len() { break; }
+            let len = u32::from_le_bytes([
+                script[i + 1],
+                script[i + 2],
+                script[i + 3],
+                script[i + 4],
+            ]) as usize;
+            last_opcode = Some(opcode);
+            i += 5 + len;
+            continue;
+        }
+
+        // OP_CHECKSIG and OP_CHECKSIGVERIFY count as 1 sigop each
+        if opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY {
             count = count.saturating_add(1);
         }
-        // OP_CHECKMULTISIG (0xae) and OP_CHECKMULTISIGVERIFY (0xaf) count as multiple sigops
-        else if opcode == 0xae || opcode == 0xaf {
+        // OP_CHECKMULTISIG and OP_CHECKMULTISIGVERIFY count as multiple sigops
+        else if opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY {
             if accurate {
                 // If accurate mode and previous opcode is OP_1-OP_16, use that number
                 if let Some(prev_op) = last_opcode {
-                    if (0x51..=0x60).contains(&prev_op) {
+                    if (OP_1..=OP_16).contains(&prev_op) {
                         // OP_1 = 0x51, OP_16 = 0x60
                         // Decode: OP_N = N - 0x50
-                        let n = (prev_op - 0x50) as u32;
+                        let n = (prev_op - OP_1 + 1) as u32;
                         count = count.saturating_add(n);
                     } else {
                         count = count.saturating_add(MAX_PUBKEYS_PER_MULTISIG);
@@ -61,50 +100,6 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
             } else {
                 // Not accurate: assume maximum
                 count = count.saturating_add(MAX_PUBKEYS_PER_MULTISIG);
-            }
-        }
-
-        // Handle push operations
-        if opcode <= 0x4e {
-            // Push data opcodes
-            if opcode < 0x4c {
-                // OP_PUSHDATA1-OP_PUSHDATA4
-                if opcode == 0x4c {
-                    // OP_PUSHDATA1: next byte is length
-                    if i + 1 < script.len() {
-                        let len = script[i + 1] as usize;
-                        i += 2 + len;
-                        last_opcode = Some(opcode);
-                        continue;
-                    }
-                } else if opcode == 0x4d {
-                    // OP_PUSHDATA2: next 2 bytes (little-endian) are length
-                    if i + 2 < script.len() {
-                        let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
-                        i += 3 + len;
-                        last_opcode = Some(opcode);
-                        continue;
-                    }
-                } else if opcode == 0x4e {
-                    // OP_PUSHDATA4: next 4 bytes (little-endian) are length
-                    if i + 4 < script.len() {
-                        let len = u32::from_le_bytes([
-                            script[i + 1],
-                            script[i + 2],
-                            script[i + 3],
-                            script[i + 4],
-                        ]) as usize;
-                        i += 5 + len;
-                        last_opcode = Some(opcode);
-                        continue;
-                    }
-                } else {
-                    // Direct push: opcode is the length (1-75 bytes)
-                    let len = opcode as usize;
-                    i += 1 + len;
-                    last_opcode = Some(opcode);
-                    continue;
-                }
             }
         }
 
@@ -120,9 +115,9 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
 /// P2SH scripts have the format: OP_HASH160 (0xa9) <20-byte-hash> OP_EQUAL (0x87)
 fn is_pay_to_script_hash(script: &ByteString) -> bool {
     script.len() == 23
-        && script[0] == 0xa9  // OP_HASH160
+        && script[0] == OP_HASH160  // OP_HASH160
         && script[1] == 0x14  // Push 20 bytes
-        && script[22] == 0x87 // OP_EQUAL
+        && script[22] == OP_EQUAL // OP_EQUAL
 }
 
 /// Extract redeem script from P2SH scriptSig
@@ -136,27 +131,27 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
     while i < script_sig.len() {
         let opcode = script_sig[i];
 
-        if opcode <= 0x4e {
+        if opcode <= OP_PUSHDATA4 {
             // Push data opcode
-            let (len, advance) = if opcode < 0x4c {
+            let (len, advance) = if opcode < OP_PUSHDATA1 {
                 // Direct push: opcode is the length
                 let len = opcode as usize;
                 (len, 1)
-            } else if opcode == 0x4c {
+            } else if opcode == OP_PUSHDATA1 {
                 // OP_PUSHDATA1
                 if i + 1 >= script_sig.len() {
                     return None;
                 }
                 let len = script_sig[i + 1] as usize;
                 (len, 2)
-            } else if opcode == 0x4d {
+            } else if opcode == OP_PUSHDATA2 {
                 // OP_PUSHDATA2
                 if i + 2 >= script_sig.len() {
                     return None;
                 }
                 let len = u16::from_le_bytes([script_sig[i + 1], script_sig[i + 2]]) as usize;
                 (len, 3)
-            } else {
+            } else if opcode == OP_PUSHDATA4 {
                 // OP_PUSHDATA4
                 if i + 4 >= script_sig.len() {
                     return None;
@@ -168,6 +163,9 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
                     script_sig[i + 4],
                 ]) as usize;
                 (len, 5)
+            } else {
+                // Other push opcodes (OP_1NEGATE, OP_RESERVED, OP_1-OP_16)
+                (0, 1)
             };
 
             if i + advance + len > script_sig.len() {
@@ -176,9 +174,9 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
 
             last_data = Some(script_sig[i + advance..i + advance + len].to_vec());
             i += advance + len;
-        } else if (0x51..=0x60).contains(&opcode) {
+        } else if (OP_1..=OP_16).contains(&opcode) {
             // OP_1 to OP_16: push single byte
-            last_data = Some(vec![opcode - 0x50]); // Convert OP_N to value N
+            last_data = Some(vec![opcode - OP_N_BASE]); // Convert OP_N to value N
             i += 1;
         } else {
             // Other opcode: not a push, invalid for P2SH
@@ -293,8 +291,8 @@ fn count_witness_sigops(
         if let Some(utxo) = utxo_set.get(&input.prevout) {
             let script_pubkey = &utxo.script_pubkey;
 
-            // P2WPKH: OP_0 (0x00) <20-byte-hash>
-            if script_pubkey.len() == 22 && script_pubkey[0] == 0x00 && script_pubkey[1] == 0x14 {
+            // P2WPKH: OP_0 <20-byte-hash>
+            if script_pubkey.len() == 22 && script_pubkey[0] == OP_0 && script_pubkey[1] == 0x14 {
                 // P2WPKH has 1 sigop (the CHECKSIG in the witness script)
                 if let Some(witness) = witnesses.get(i) {
                     if !witness.is_empty() {
@@ -302,9 +300,9 @@ fn count_witness_sigops(
                     }
                 }
             }
-            // P2WSH: OP_0 (0x00) <32-byte-hash>
+            // P2WSH: OP_0 <32-byte-hash>
             else if script_pubkey.len() == 34
-                && script_pubkey[0] == 0x00
+                && script_pubkey[0] == OP_0
                 && script_pubkey[1] == 0x20
             {
                 // P2WSH: count sigops in witness script
@@ -380,21 +378,21 @@ mod tests {
     #[test]
     fn test_count_sigops_checksig() {
         // Script with OP_CHECKSIG
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         assert_eq!(count_sigops_in_script(&script, false), 1);
     }
 
     #[test]
     fn test_count_sigops_checksigverify() {
         // Script with OP_CHECKSIGVERIFY
-        let script = vec![0x51, 0x51, 0xad]; // OP_1, OP_1, OP_CHECKSIGVERIFY
+        let script = vec![OP_1, OP_1, OP_CHECKSIGVERIFY]; // OP_1, OP_1, OP_CHECKSIGVERIFY
         assert_eq!(count_sigops_in_script(&script, false), 1);
     }
 
     #[test]
     fn test_count_sigops_multisig() {
         // Script with OP_CHECKMULTISIG (defaults to 20)
-        let script = vec![0x51, 0x52, 0xae]; // OP_1, OP_2, OP_CHECKMULTISIG
+        let script = vec![OP_1, OP_2, OP_CHECKMULTISIG]; // OP_1, OP_2, OP_CHECKMULTISIG
         assert_eq!(count_sigops_in_script(&script, false), 20);
 
         // Accurate mode: use OP_2 value (2 sigops)
@@ -410,13 +408,13 @@ mod tests {
                     hash: [0; 32].into(),
                     index: 0,
                 },
-                script_sig: vec![0x51, 0xac], // OP_1, OP_CHECKSIG
+                script_sig: vec![OP_1, OP_CHECKSIG], // OP_1, OP_CHECKSIG
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51, 0xad].into(), // OP_1, OP_CHECKSIGVERIFY
+                script_pubkey: vec![OP_1, OP_CHECKSIGVERIFY].into(), // OP_1, OP_CHECKSIGVERIFY
             }]
             .into(),
             lock_time: 0,
@@ -428,18 +426,159 @@ mod tests {
     #[test]
     fn test_is_pay_to_script_hash() {
         // Valid P2SH script: OP_HASH160 <20 bytes> OP_EQUAL
-        let mut p2sh_script = vec![0xa9, 0x14]; // OP_HASH160, push 20
+        let mut p2sh_script = vec![OP_HASH160, 0x14]; // OP_HASH160, push 20
         p2sh_script.extend_from_slice(&[0u8; 20]);
-        p2sh_script.push(0x87); // OP_EQUAL
+        p2sh_script.push(OP_EQUAL); // OP_EQUAL
 
         assert!(is_pay_to_script_hash(&p2sh_script));
 
         // Invalid: wrong length
-        assert!(!is_pay_to_script_hash(&vec![0xa9, 0x14]));
+        assert!(!is_pay_to_script_hash(&vec![OP_HASH160, 0x14]));
 
         // Invalid: not P2SH format
-        let p2pkh = vec![0x76, 0xa9, 0x14]; // OP_DUP OP_HASH160
+        let p2pkh = vec![OP_DUP, OP_HASH160, 0x14]; // OP_DUP OP_HASH160
         assert!(!is_pay_to_script_hash(&p2pkh));
+    }
+
+    // ==========================================================================
+    // REGRESSION TESTS: Push data must not be counted as sigops (block 310357 fix)
+    // ==========================================================================
+    // These tests prevent regression of the bug where bytes inside push data
+    // (e.g., 0xAC = OP_CHECKSIG) were incorrectly counted as sigops.
+    // This caused valid blocks to be rejected with "sigop cost exceeds maximum".
+
+    #[test]
+    fn test_pushdata1_containing_checksig_byte_not_counted() {
+        // OP_PUSHDATA1 <len=3> <0xAC 0xAC 0xAC>
+        // The 0xAC bytes are push DATA, not OP_CHECKSIG opcodes.
+        // Sigop count must be 0.
+        let script = vec![OP_PUSHDATA1, 0x03, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG];
+        assert_eq!(
+            count_sigops_in_script(&script, false), 0,
+            "Push data containing 0xAC must NOT be counted as sigops"
+        );
+    }
+
+    #[test]
+    fn test_pushdata2_containing_checksig_byte_not_counted() {
+        // OP_PUSHDATA2 <len=4 as u16 LE> <0xAC 0xAD 0xAE 0xAF>
+        // These are push DATA bytes, not opcodes.
+        let script = vec![OP_PUSHDATA2, 0x04, 0x00, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY];
+        assert_eq!(
+            count_sigops_in_script(&script, false), 0,
+            "Push data containing sigop-like bytes must NOT be counted"
+        );
+    }
+
+    #[test]
+    fn test_pushdata4_containing_checksig_byte_not_counted() {
+        // OP_PUSHDATA4 <len=2 as u32 LE> <0xAC 0xAC>
+        let script = vec![OP_PUSHDATA4, 0x02, 0x00, 0x00, 0x00, OP_CHECKSIG, OP_CHECKSIG];
+        assert_eq!(
+            count_sigops_in_script(&script, false), 0,
+            "OP_PUSHDATA4 data containing 0xAC must NOT be counted"
+        );
+    }
+
+    #[test]
+    fn test_direct_push_containing_checksig_byte_not_counted() {
+        // Direct push: opcode 0x05 means "push next 5 bytes"
+        // Data contains OP_CHECKSIG byte which must NOT be counted.
+        let script = vec![0x05, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG];
+        assert_eq!(
+            count_sigops_in_script(&script, false), 0,
+            "Direct push data containing 0xAC must NOT be counted as sigops"
+        );
+    }
+
+    #[test]
+    fn test_push_data_then_real_checksig() {
+        // Direct push of 3 bytes (containing 0xAC), then a REAL OP_CHECKSIG
+        // Only the real OP_CHECKSIG (after push data) should count.
+        let script = vec![0x03, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG, OP_CHECKSIG]; // push 3, data, then OP_CHECKSIG
+        assert_eq!(
+            count_sigops_in_script(&script, false), 1,
+            "Only real OP_CHECKSIG after push data should count"
+        );
+    }
+
+    #[test]
+    fn test_pushdata1_then_real_multisig() {
+        // OP_PUSHDATA1 <len=2> <OP_CHECKSIG OP_CHECKSIG> then OP_2 OP_CHECKMULTISIG
+        // The OP_CHECKSIG bytes in push data don't count. Only the real OP_CHECKMULTISIG counts.
+        let script = vec![OP_PUSHDATA1, 0x02, OP_CHECKSIG, OP_CHECKSIG, OP_2, OP_CHECKMULTISIG];
+        // Inaccurate mode: multisig = 20
+        assert_eq!(
+            count_sigops_in_script(&script, false), 20,
+            "Only real OP_CHECKMULTISIG should count (inaccurate=20)"
+        );
+        // Accurate mode: OP_2 before OP_CHECKMULTISIG = 2
+        assert_eq!(
+            count_sigops_in_script(&script, true), 2,
+            "Accurate mode: OP_2 before OP_CHECKMULTISIG = 2 sigops"
+        );
+    }
+
+    #[test]
+    fn test_empty_script_zero_sigops() {
+        let script: Vec<u8> = vec![];
+        assert_eq!(count_sigops_in_script(&script, false), 0);
+        assert_eq!(count_sigops_in_script(&script, true), 0);
+    }
+
+    #[test]
+    fn test_truncated_pushdata1_does_not_panic() {
+        // OP_PUSHDATA1 at end of script (no length byte)
+        let script = vec![OP_PUSHDATA1];
+        assert_eq!(count_sigops_in_script(&script, false), 0);
+    }
+
+    #[test]
+    fn test_truncated_pushdata2_does_not_panic() {
+        // OP_PUSHDATA2 with only 1 of 2 length bytes
+        let script = vec![OP_PUSHDATA2, 0x01];
+        assert_eq!(count_sigops_in_script(&script, false), 0);
+    }
+
+    #[test]
+    fn test_truncated_pushdata4_does_not_panic() {
+        // OP_PUSHDATA4 with only 3 of 4 length bytes
+        let script = vec![OP_PUSHDATA4, 0x01, 0x00, 0x00];
+        assert_eq!(count_sigops_in_script(&script, false), 0);
+    }
+
+    #[test]
+    fn test_large_push_data_with_many_checksig_bytes() {
+        // Simulate a realistic script where push data contains many OP_CHECKSIG bytes
+        // This is the kind of script that caused the block 310357 failure.
+        // OP_PUSHDATA2 <len=100 as u16 LE> <100 bytes of OP_CHECKSIG>
+        let mut script = vec![OP_PUSHDATA2, 100, 0x00]; // OP_PUSHDATA2, length=100
+        script.extend_from_slice(&[OP_CHECKSIG; 100]); // 100 bytes of OP_CHECKSIG data
+        assert_eq!(
+            count_sigops_in_script(&script, false), 0,
+            "100 bytes of OP_CHECKSIG in push data must count as 0 sigops"
+        );
+    }
+
+    #[test]
+    fn test_multiple_sigop_opcodes() {
+        // OP_CHECKSIG OP_CHECKSIG OP_CHECKSIGVERIFY
+        let script = vec![0xac, 0xac, 0xad];
+        assert_eq!(count_sigops_in_script(&script, false), 3);
+    }
+
+    #[test]
+    fn test_multisig_accurate_op_16() {
+        // OP_16 (0x60) OP_CHECKMULTISIG
+        let script = vec![0x60, 0xae];
+        assert_eq!(count_sigops_in_script(&script, true), 16);
+    }
+
+    #[test]
+    fn test_multisig_accurate_op_1() {
+        // OP_1 (0x51) OP_CHECKMULTISIG
+        let script = vec![0x51, 0xae];
+        assert_eq!(count_sigops_in_script(&script, true), 1);
     }
 }
 

@@ -1,0 +1,30 @@
+feat(spam-filter): enhance spam detection with Taproot support and improved accuracy
+
+Implement comprehensive improvements to spam filtering. All improvements
+are policy-only, maintain backward compatibility, and are fully configurable.
+
+- Fix witness size calculation to include varint overhead (1-9 bytes per element)
+- Add Taproot-specific spam detection (annexes and large control blocks)
+- Improve envelope protocol detection with OP_ENDIF verification
+- Improve fee rate calculation with UTXO set support and heuristic fallback
+- Add total witness size check across all inputs (optional, disabled by default)
+- Improve BRC-20 detection with JSON validation and simple pattern fallback
+- Add 10 new configuration options to SpamFilterConfig with sensible defaults
+- Update SpamFilterConfigSerializable with all new fields
+- Update From implementations for bidirectional config conversion
+- Update filter_comparison.md documentation with all improvements
+- Add script_analyzer module with ScriptType and TransactionType detection
+- Implement adaptive witness size thresholds based on script type (P2WPKH, P2WSH, P2TR, MultiSig)
+- Add multi-element witness analysis to detect data splitting patterns
+- Add transaction type detection (consolidation, CoinJoin, payment channel) to reduce false positives
+- Add preset configuration system (Disabled, Conservative, Moderate, Aggressive)
+- Add WitnessElementAnalysis for comprehensive witness pattern detection
+- Add TransactionType::recommended_size_value_ratio() for context-aware thresholds
+- Refactor spam_filter.rs into spam_filter/mod.rs module structure
+- Add comprehensive tests for all new features (presets, transaction types, adaptive thresholds)
+
+This significantly improves spam detection accuracy, especially for Taproot-based
+Ordinals and inscriptions, while reducing false positives for legitimate transactions
+(consolidations, CoinJoins) through adaptive, context-aware thresholds. All changes
+maintain full backward compatibility and policy-only enforcement (no consensus changes).
+

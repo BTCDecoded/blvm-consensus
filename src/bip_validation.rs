@@ -148,6 +148,13 @@ fn extract_height_from_script_sig(script_sig: &[u8]) -> Result<Natural> {
 
     let first_byte = script_sig[0];
 
+    // Handle OP_0 (0x00) → height 0
+    // In Bitcoin, CScriptNum(0).serialize() produces an empty vector,
+    // and CScript() << empty_vec pushes OP_0 (0x00).
+    if first_byte == 0x00 {
+        return Ok(0);
+    }
+
     // Handle direct push (0x01-0x4b)
     if (1..=0x4b).contains(&first_byte) {
         let len = first_byte as usize;

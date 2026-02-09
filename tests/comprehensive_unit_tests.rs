@@ -19,13 +19,13 @@ fn test_check_transaction_valid() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -42,7 +42,7 @@ fn test_check_transaction_empty_inputs() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -61,7 +61,7 @@ fn test_check_transaction_too_many_inputs() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -71,7 +71,7 @@ fn test_check_transaction_too_many_inputs() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -98,7 +98,7 @@ fn test_check_transaction_too_many_outputs() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
@@ -119,13 +119,13 @@ fn test_check_transaction_negative_output() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: -1000, // Negative value
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -144,13 +144,13 @@ fn test_check_transaction_excessive_output() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1, // Exceeds max money
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -169,13 +169,13 @@ fn test_is_coinbase() {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -190,13 +190,13 @@ fn test_is_coinbase() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -327,13 +327,13 @@ fn test_calculate_fee() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 800,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -365,13 +365,13 @@ fn test_calculate_fee_negative() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 800,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -403,13 +403,13 @@ fn test_calculate_fee_zero() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -595,7 +595,7 @@ fn test_maximum_input_output_counts() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -605,7 +605,7 @@ fn test_maximum_input_output_counts() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -625,9 +625,10 @@ fn test_maximum_input_output_counts() {
         }
     }
 
-    // Test transaction with maximum number of outputs
+    // Test transaction with many outputs (capped to fit within MAX_TX_SIZE / MAX_BLOCK_WEIGHT)
+    let num_outputs = MAX_TX_SIZE / 12; // ~12 bytes per minimal output
     let mut outputs = Vec::new();
-    for _ in 0..MAX_OUTPUTS {
+    for _ in 0..num_outputs {
         outputs.push(TransactionOutput {
             value: 1000,
             script_pubkey: vec![0x51],
@@ -641,7 +642,7 @@ fn test_maximum_input_output_counts() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
@@ -663,13 +664,13 @@ fn test_monetary_boundaries() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -686,13 +687,13 @@ fn test_monetary_boundaries() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -804,13 +805,13 @@ fn test_sequence_number_boundaries() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: 0xffffffff, // Maximum sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -827,13 +828,13 @@ fn test_sequence_number_boundaries() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![blvm_consensus::opcodes::OP_1],
             sequence: SEQUENCE_RBF as u64, // RBF sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
         }]
         .into(),
         lock_time: 0,

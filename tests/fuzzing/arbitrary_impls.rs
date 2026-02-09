@@ -160,7 +160,7 @@ mod tests {
             // Should be able to generate arbitrary blocks
             let utxo_set = UtxoSet::new();
             let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-            let _result = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet);
+            let _result = connect_block(&block, &witnesses, utxo_set, 0, None, 0u64, crate::types::Network::Mainnet);
         });
     }
 }

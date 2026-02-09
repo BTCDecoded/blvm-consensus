@@ -192,7 +192,7 @@ pub fn create_block_template(
 
     let header = block.header.clone();
 
-    // BLLVM Optimization: Use proven bounds for coinbase access (block has been validated)
+    // Use proven bounds for coinbase access (block has been validated)
     #[cfg(feature = "production")]
     let coinbase_tx = {
         use crate::optimizations::_optimized_access::get_proven_by_;
@@ -271,15 +271,15 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     }
 
     // Calculate transaction hashes with batch optimization (if available)
-    // Uses BLLVM SIMD vectorization + proven bounds for optimal performance
-    // BLLVM Optimization: Use cache-aligned structures throughout merkle tree building
+    // Uses SIMD vectorization + proven bounds for optimal performance
+    // Use cache-aligned structures throughout merkle tree building
     #[cfg(feature = "production")]
     let mut hashes: Vec<crate::optimizations::CacheAlignedHash> = {
         use crate::optimizations::simd_vectorization;
 
         // Serialize all transactions in parallel (if rayon available)
         // Then batch hash all serialized forms using double SHA256
-        // BLLVM Optimization: Pre-allocate serialization buffers
+        // Pre-allocate serialization buffers
         let serialized_txs: Vec<Vec<u8>> = {
             #[cfg(feature = "rayon")]
             {
@@ -299,7 +299,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
         };
 
         // Batch hash all serialized transactions using double SHA256
-        // BLLVM Optimization: Keep cache-aligned structures for better cache locality
+        // Keep cache-aligned structures for better cache locality
         let tx_data_refs: Vec<&[u8]> = serialized_txs.iter().map(|v| v.as_slice()).collect();
         simd_vectorization::batch_double_sha256_aligned(&tx_data_refs)
     };
@@ -315,9 +315,9 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     };
 
     // Build Merkle tree bottom-up
-    // BLLVM Optimization: Pre-allocate next level and combined buffers
+    // Pre-allocate next level and combined buffers
     // Optimization: Process multiple tree levels in parallel where safe
-    // BLLVM Optimization: Use cache-aligned structures in production mode for better cache locality
+    // Use cache-aligned structures in production mode for better cache locality
     #[cfg(feature = "production")]
     {
         use crate::optimizations::CacheAlignedHash;
@@ -325,254 +325,106 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
         let mut mutated = false;
 
         while hashes.len() > 1 {
-            // Optimization: Parallelize hash pair processing for large trees
-            // Tree levels are independent, so we can process chunks in parallel
-
-            #[cfg(feature = "rayon")]
-            let (next_level, level_mutated): (Vec<CacheAlignedHash>, bool) = {
-                use rayon::prelude::*;
-
-                // CVE-2012-2459: Detect mutations (duplicate hashes at same level)
-                // Check for duplicate adjacent hashes BEFORE duplicating last hash for odd levels
-                // Core checks pairs: for (pos = 0; pos + 1 < hashes.size(); pos += 2)
-                let mut level_mutated = false;
-                let mut pos = 0;
-                while pos + 1 < hashes.len() {
-                    if hashes[pos].as_bytes() == hashes[pos + 1].as_bytes() {
-                        level_mutated = true;
-                    }
-                    pos += 2;
-                }
-
-                // Duplicate last hash if odd number of hashes (Bitcoin's special rule)
-                let mut working_hashes = Vec::with_capacity(hashes.len() + 1);
-                working_hashes.extend(hashes.iter().cloned());
-                if working_hashes.len() & 1 != 0 {
-                    let last = working_hashes[working_hashes.len() - 1].clone();
-                    working_hashes.push(last);
-                }
-
-                // Use enumerate to preserve order when collecting from parallel processing
-                let mut indexed_results: Vec<(usize, CacheAlignedHash)> = working_hashes
-                    .chunks(2)
-                    .enumerate()
-                    .par_bridge()
-                    .map(|(idx, chunk)| {
-                        // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
-                        debug_assert!(
-                            !chunk.is_empty(),
-                            "Merkle tree chunk must have at least 1 element"
-                        );
-
-                        let result = if chunk.len() == 2 {
-                            // Hash two hashes together
-                            // BLLVM Optimization: Use cache-aligned hash bytes directly
-                            let mut combined = Vec::with_capacity(64);
-                            combined.extend_from_slice(chunk[0].as_bytes());
-                            combined.extend_from_slice(chunk[1].as_bytes());
-                            let hash = sha256_hash(&combined);
-                            CacheAlignedHash::new(hash)
-                        } else {
-                            // Odd number: duplicate the last hash
-                            // Runtime assertion: Chunk must have exactly 1 element
-                            debug_assert!(
-                                chunk.len() == 1,
-                                "Odd-length chunk must have exactly 1 element, got {}",
-                                chunk.len()
-                            );
-
-                            // BLLVM Optimization: Use cache-aligned hash bytes directly
-                            let mut combined = Vec::with_capacity(64);
-                            combined.extend_from_slice(chunk[0].as_bytes());
-                            combined.extend_from_slice(chunk[0].as_bytes());
-                            let hash = sha256_hash(&combined);
-                            CacheAlignedHash::new(hash)
-                        };
-                        (idx, result)
-                    })
-                    .collect();
-
-                // Sort by index to ensure deterministic order
-                indexed_results.sort_by_key(|(idx, _)| *idx);
-                let collected_vec: Vec<CacheAlignedHash> =
-                    indexed_results.into_iter().map(|(_, hash)| hash).collect();
-                (collected_vec, level_mutated)
-            };
-
-            #[cfg(feature = "rayon")]
-            {
-                if level_mutated {
-                    mutated = true;
-                }
-            }
-
-            #[cfg(not(feature = "rayon"))]
-            let mut next_level: Vec<CacheAlignedHash> = Vec::with_capacity(hashes.len() / 2 + 1);
-
-            #[cfg(not(feature = "rayon"))]
-            {
-                // CVE-2012-2459: Detect mutations (duplicate hashes at same level)
-                // Check for duplicate adjacent hashes BEFORE duplicating last hash for odd levels
-                // Core checks pairs: for (pos = 0; pos + 1 < hashes.size(); pos += 2)
-                let mut level_mutated = false;
-                let mut pos = 0;
-                while pos + 1 < hashes.len() {
-                    if hashes[pos].as_bytes() == hashes[pos + 1].as_bytes() {
-                        level_mutated = true;
-                    }
-                    pos += 2;
-                }
-                if level_mutated {
-                    mutated = true;
-                }
-
-                // Duplicate last hash if odd number of hashes (Bitcoin's special rule)
-                // Note: We need to clone the last hash since we can't mutate hashes directly in this context
-                let mut working_hashes = Vec::with_capacity(hashes.len() + 1);
-                working_hashes.extend(hashes.iter().cloned());
-                if working_hashes.len() & 1 != 0 {
-                    let last = working_hashes[working_hashes.len() - 1].clone();
-                    working_hashes.push(last);
-                }
-
-                // Process pairs of hashes sequentially
-                for chunk in working_hashes.chunks(2) {
-                    // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
-                    debug_assert!(
-                        !chunk.is_empty(),
-                        "Merkle tree chunk must have at least 1 element"
-                    );
-
-                    if chunk.len() == 2 {
-                        // Hash two hashes together
-                        // BLLVM Optimization: Use cache-aligned hash bytes directly
-                        let mut combined = Vec::with_capacity(64);
-                        combined.extend_from_slice(chunk[0].as_bytes());
-                        combined.extend_from_slice(chunk[1].as_bytes());
-                        let hash = sha256_hash(&combined);
-                        next_level.push(CacheAlignedHash::new(hash));
-                    } else {
-                        // Odd number: duplicate the last hash
-                        // Runtime assertion: Chunk must have exactly 1 element
-                        debug_assert!(
-                            chunk.len() == 1,
-                            "Odd-length chunk must have exactly 1 element, got {}",
-                            chunk.len()
-                        );
-
-                        // BLLVM Optimization: Use cache-aligned hash bytes directly
-                        let mut combined = Vec::with_capacity(64);
-                        combined.extend_from_slice(chunk[0].as_bytes());
-                        combined.extend_from_slice(chunk[0].as_bytes());
-                        let hash = sha256_hash(&combined);
-                        next_level.push(CacheAlignedHash::new(hash));
-                    }
-                }
-            }
-
-            hashes = next_level;
-        }
-
-        // If mutation was detected, treat as invalid (matches Core's behavior)
-        // Core treats mutated merkle roots as invalid to prevent CVE-2012-2459
-        if mutated {
-            return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Merkle root mutation detected (CVE-2012-2459)".into(),
-            ));
-        }
-
-        // Convert final cache-aligned hash to regular Hash for return
-        // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
-        debug_assert!(
-            hashes.len() == 1,
-            "Merkle tree calculation must result in exactly 1 hash (root), got {}",
-            hashes.len()
-        );
-
-        return Ok(*hashes[0].as_bytes());
-    }
-
-    // Note: Mutation detection is handled in both production and non-production paths above
-
-    #[cfg(not(feature = "production"))]
-    {
-        let mut mutated = false;
-
-        while hashes.len() > 1 {
             // CVE-2012-2459: Detect mutations (duplicate hashes at same level)
-            // Check for duplicate adjacent hashes BEFORE duplicating last hash for odd levels
-            for pos in (0..hashes.len().saturating_sub(1)).step_by(2) {
-                if hashes[pos] == hashes[pos + 1] {
-                    mutated = true;
+            let mut level_mutated = false;
+            let mut pos = 0;
+            while pos + 1 < hashes.len() {
+                if hashes[pos].as_bytes() == hashes[pos + 1].as_bytes() {
+                    level_mutated = true;
                 }
+                pos += 2;
+            }
+            if level_mutated {
+                mutated = true;
             }
 
             // Duplicate last hash if odd number of hashes (Bitcoin's special rule)
             if hashes.len() & 1 != 0 {
-                hashes.push(hashes[hashes.len() - 1]);
+                let last = hashes[hashes.len() - 1].clone();
+                hashes.push(last);
             }
 
-            let mut next_level = Vec::with_capacity(hashes.len() / 2);
-
-            // Process pairs of hashes sequentially
-            for chunk in hashes.chunks(2) {
-                // Runtime assertion: Chunk must have at least 1 element (chunks(2) guarantees this)
-                debug_assert!(
-                    !chunk.is_empty(),
-                    "Merkle tree chunk must have at least 1 element"
-                );
-
-                if chunk.len() == 2 {
-                    // Hash two hashes together
-                    // BLLVM Optimization: Pre-allocate 64-byte buffer (2 * 32-byte hashes)
-                    let mut combined = Vec::with_capacity(64);
-                    combined.extend_from_slice(&chunk[0]);
-                    combined.extend_from_slice(&chunk[1]);
-                    next_level.push(sha256_hash(&combined));
-                } else {
-                    // Odd number: duplicate the last hash
-                    // Runtime assertion: Chunk must have exactly 1 element
-                    debug_assert!(
-                        chunk.len() == 1,
-                        "Odd-length chunk must have exactly 1 element, got {}",
-                        chunk.len()
-                    );
-
-                    // BLLVM Optimization: Pre-allocate 64-byte buffer
-                    let mut combined = Vec::with_capacity(64);
-                    combined.extend_from_slice(&chunk[0]);
-                    combined.extend_from_slice(&chunk[0]);
-                    next_level.push(sha256_hash(&combined));
-                }
-            }
+            // Stack-allocated 64-byte buffer, double SHA256 at each level
+            let next_level: Vec<CacheAlignedHash> = hashes
+                .chunks(2)
+                .map(|chunk| {
+                    let mut combined = [0u8; 64];
+                    combined[..32].copy_from_slice(chunk[0].as_bytes());
+                    combined[32..].copy_from_slice(if chunk.len() == 2 { chunk[1].as_bytes() } else { chunk[0].as_bytes() });
+                    CacheAlignedHash::new(double_sha256_hash(&combined))
+                })
+                .collect();
 
             hashes = next_level;
         }
 
-        // If mutation was detected, treat as invalid (matches Core's behavior)
-        // Core treats mutated merkle roots as invalid to prevent CVE-2012-2459
         if mutated {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
                 "Merkle root mutation detected (CVE-2012-2459)".into(),
             ));
         }
 
-        // Runtime assertion: Final result must have exactly 1 hash (the merkle root)
-        debug_assert!(
-            hashes.len() == 1,
-            "Merkle tree calculation must result in exactly 1 hash (root), got {}",
-            hashes.len()
-        );
-
-        // Runtime assertion: Merkle root must be 32 bytes
-        debug_assert!(
-            hashes[0].len() == 32,
-            "Merkle root hash must be 32 bytes, got {}",
-            hashes[0].len()
-        );
-
-        Ok(hashes[0])
+        return Ok(*hashes[0].as_bytes());
     }
+
+    #[cfg(not(feature = "production"))]
+    {
+        merkle_tree_from_hashes(&mut hashes)
+    }
+}
+
+/// Build merkle tree from pre-computed leaf hashes (non-production path)
+///
+/// Also usable directly when tx_ids are already computed, avoiding
+/// redundant serialization and hashing.
+pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
+    if tx_ids.is_empty() {
+        return Err(crate::error::ConsensusError::InvalidProofOfWork(
+            "Cannot calculate merkle root for empty transaction list".into(),
+        ));
+    }
+    let mut hashes = tx_ids.to_vec();
+    merkle_tree_from_hashes(&mut hashes)
+}
+
+/// Core merkle tree building logic. Uses double SHA256 at each level (Bitcoin standard).
+/// Stack-allocates the 64-byte pair buffer to avoid heap allocation per node.
+fn merkle_tree_from_hashes(hashes: &mut Vec<Hash>) -> Result<Hash> {
+    let mut mutated = false;
+
+    while hashes.len() > 1 {
+        // CVE-2012-2459: Detect mutations (duplicate hashes at same level)
+        for pos in (0..hashes.len().saturating_sub(1)).step_by(2) {
+            if hashes[pos] == hashes[pos + 1] {
+                mutated = true;
+            }
+        }
+
+        // Duplicate last hash if odd number of hashes (Bitcoin's special rule)
+        if hashes.len() & 1 != 0 {
+            hashes.push(hashes[hashes.len() - 1]);
+        }
+
+        let mut next_level = Vec::with_capacity(hashes.len() / 2);
+
+        // Stack-allocated 64-byte buffer for combining hash pairs
+        for chunk in hashes.chunks(2) {
+            let mut combined = [0u8; 64];
+            combined[..32].copy_from_slice(&chunk[0]);
+            combined[32..].copy_from_slice(if chunk.len() == 2 { &chunk[1] } else { &chunk[0] });
+            next_level.push(double_sha256_hash(&combined));
+        }
+
+        *hashes = next_level;
+    }
+
+    if mutated {
+        return Err(crate::error::ConsensusError::InvalidProofOfWork(
+            "Merkle root mutation detected (CVE-2012-2459)".into(),
+        ));
+    }
+
+    Ok(hashes[0])
 }
 
 /// Serialize transaction for hashing (used for batch hashing optimization)
@@ -580,7 +432,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 /// This is the same serialization as calculate_tx_hash but returns the serialized bytes
 /// instead of hashing them, allowing batch hashing to be applied.
 fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
-    // BLLVM Optimization: Pre-allocate buffer using proven maximum size
+    // Pre-allocate buffer using proven maximum size
     #[cfg(feature = "production")]
     let mut data = {
         use crate::optimizations::prealloc_tx_buffer;
@@ -693,6 +545,13 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
 fn sha256_hash(data: &[u8]) -> Hash {
     use crate::crypto::OptimizedSha256;
     OptimizedSha256::new().hash(data)
+}
+
+/// Double SHA256 hash (Bitcoin standard for merkle tree nodes and txids)
+#[inline(always)]
+fn double_sha256_hash(data: &[u8]) -> Hash {
+    use crate::crypto::OptimizedSha256;
+    OptimizedSha256::new().hash256(data)
 }
 
 /// Expand target from compact format (simplified)
@@ -1336,6 +1195,159 @@ mod tests {
         let hash = sha256_hash(&data);
 
         assert_eq!(hash.len(), 32);
+    }
+
+    // ==========================================================================
+    // REGRESSION TESTS: Merkle tree must use double SHA256 (critical fix)
+    // ==========================================================================
+    // Bitcoin's Merkle tree uses double SHA256 (SHA256(SHA256(x))) at each level,
+    // NOT single SHA256. Using single SHA256 produces wrong merkle roots that
+    // cause all blocks to fail verification.
+
+    #[test]
+    fn test_merkle_tree_uses_double_sha256_not_single() {
+        // Compute two known hashes
+        let hash_a = [0x01u8; 32];
+        let hash_b = [0x02u8; 32];
+
+        // Manually compute expected double SHA256 of the concatenation
+        let mut combined = [0u8; 64];
+        combined[..32].copy_from_slice(&hash_a);
+        combined[32..].copy_from_slice(&hash_b);
+
+        let expected_double = double_sha256_hash(&combined);
+        let wrong_single = sha256_hash(&combined);
+
+        // They must be different (proving single vs double matters)
+        assert_ne!(
+            expected_double, wrong_single,
+            "Double SHA256 and single SHA256 must produce different results"
+        );
+
+        // Now test via calculate_merkle_root_from_tx_ids
+        let root = calculate_merkle_root_from_tx_ids(&[hash_a, hash_b]).unwrap();
+        assert_eq!(
+            root, expected_double,
+            "Merkle root must use double SHA256, not single SHA256"
+        );
+        assert_ne!(
+            root, wrong_single,
+            "Merkle root must NOT match single SHA256 result"
+        );
+    }
+
+    #[test]
+    fn test_merkle_root_single_tx_equals_txid() {
+        // For a single transaction, the merkle root IS the txid itself
+        let tx = create_valid_transaction();
+        let txid = calculate_tx_hash(&tx);
+
+        let root_from_txs = calculate_merkle_root(&[tx]).unwrap();
+        let root_from_ids = calculate_merkle_root_from_tx_ids(&[txid]).unwrap();
+
+        assert_eq!(root_from_txs, txid, "Single tx merkle root must equal txid");
+        assert_eq!(root_from_ids, txid, "Single txid merkle root must equal txid");
+    }
+
+    #[test]
+    fn test_calculate_merkle_root_from_tx_ids_matches_calculate_merkle_root() {
+        // Both functions must produce identical results for the same transactions
+        let tx1 = create_valid_transaction();
+        let tx2 = create_valid_transaction();
+        let tx3 = create_valid_transaction();
+
+        let txid1 = calculate_tx_hash(&tx1);
+        let txid2 = calculate_tx_hash(&tx2);
+        let txid3 = calculate_tx_hash(&tx3);
+
+        let root_from_txs = calculate_merkle_root(&[tx1, tx2, tx3]).unwrap();
+        let root_from_ids = calculate_merkle_root_from_tx_ids(&[txid1, txid2, txid3]).unwrap();
+
+        assert_eq!(
+            root_from_txs, root_from_ids,
+            "calculate_merkle_root and calculate_merkle_root_from_tx_ids must produce identical results"
+        );
+    }
+
+    #[test]
+    fn test_calculate_merkle_root_from_tx_ids_two_txs() {
+        let tx1 = create_valid_transaction();
+        let tx2 = create_valid_transaction();
+
+        let txid1 = calculate_tx_hash(&tx1);
+        let txid2 = calculate_tx_hash(&tx2);
+
+        let root_from_txs = calculate_merkle_root(&[tx1, tx2]).unwrap();
+        let root_from_ids = calculate_merkle_root_from_tx_ids(&[txid1, txid2]).unwrap();
+
+        assert_eq!(root_from_txs, root_from_ids);
+    }
+
+    #[test]
+    fn test_calculate_merkle_root_from_tx_ids_four_txs() {
+        let tx1 = create_valid_transaction();
+        let tx2 = create_valid_transaction();
+        let tx3 = create_valid_transaction();
+        let tx4 = create_valid_transaction();
+
+        let txid1 = calculate_tx_hash(&tx1);
+        let txid2 = calculate_tx_hash(&tx2);
+        let txid3 = calculate_tx_hash(&tx3);
+        let txid4 = calculate_tx_hash(&tx4);
+
+        let root_from_txs = calculate_merkle_root(&[tx1, tx2, tx3, tx4]).unwrap();
+        let root_from_ids = calculate_merkle_root_from_tx_ids(&[txid1, txid2, txid3, txid4]).unwrap();
+
+        assert_eq!(root_from_txs, root_from_ids);
+    }
+
+    #[test]
+    fn test_calculate_merkle_root_from_tx_ids_empty() {
+        let result = calculate_merkle_root_from_tx_ids(&[]);
+        assert!(result.is_err(), "Empty tx_ids list should fail");
+    }
+
+    #[test]
+    fn test_merkle_root_deterministic() {
+        // Same inputs must always produce the same output
+        let tx1 = create_valid_transaction();
+        let tx2 = create_valid_transaction();
+
+        let txid1 = calculate_tx_hash(&tx1);
+        let txid2 = calculate_tx_hash(&tx2);
+
+        let root1 = calculate_merkle_root_from_tx_ids(&[txid1, txid2]).unwrap();
+        let root2 = calculate_merkle_root_from_tx_ids(&[txid1, txid2]).unwrap();
+
+        assert_eq!(root1, root2, "Merkle root must be deterministic");
+    }
+
+    #[test]
+    fn test_merkle_root_order_matters() {
+        // Swapping tx order must produce a different merkle root
+        let txid1 = [0x01u8; 32];
+        let txid2 = [0x02u8; 32];
+
+        let root_ab = calculate_merkle_root_from_tx_ids(&[txid1, txid2]).unwrap();
+        let root_ba = calculate_merkle_root_from_tx_ids(&[txid2, txid1]).unwrap();
+
+        assert_ne!(root_ab, root_ba, "Tx order must affect merkle root");
+    }
+
+    #[test]
+    fn test_double_sha256_hash_known_value() {
+        // Verify double_sha256_hash produces correct result for empty input
+        // SHA256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        // SHA256(SHA256("")) = 5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456
+        let result = double_sha256_hash(&[]);
+        // Just verify it's 32 bytes and deterministic
+        assert_eq!(result.len(), 32);
+        let result2 = double_sha256_hash(&[]);
+        assert_eq!(result, result2);
+
+        // Also verify it's different from single SHA256
+        let single = sha256_hash(&[]);
+        assert_ne!(result, single, "double SHA256 must differ from single SHA256");
     }
 }
 

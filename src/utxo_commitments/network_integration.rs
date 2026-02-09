@@ -1,7 +1,7 @@
 //! Network Integration Helpers for UTXO Commitments
 //!
 //! Provides helper functions and types for integrating UTXO commitments
-//! with the P2P network layer in reference-node.
+//! with the P2P network layer in blvm-node.
 
 #[cfg(feature = "utxo-commitments")]
 use blvm_spec_lock::spec_locked;
@@ -26,7 +26,7 @@ pub struct FilteredBlock {
 
 /// Network client interface for UTXO commitments
 ///
-/// In a full implementation, this would be implemented by the reference-node's
+/// In a full implementation, this would be implemented by the blvm-node's
 /// network manager to send/receive P2P messages.
 ///
 /// Note: This trait is designed for static dispatch. For dynamic dispatch,

@@ -160,13 +160,13 @@ fn script_string_to_bytes(script_str: &str) -> Vec<u8> {
     for token in script_str.split_whitespace() {
         // Handle opcodes
         match token {
-            "OP_1" | "1" => bytes.push(0x51),
-            "OP_2" | "2" => bytes.push(0x52),
-            "OP_DUP" | "DUP" => bytes.push(0x76),
-            "OP_EQUAL" | "EQUAL" => bytes.push(0x87),
-            "OP_EQUALVERIFY" | "EQUALVERIFY" => bytes.push(0x88),
-            "OP_HASH160" | "HASH160" => bytes.push(0xa9),
-            "OP_CHECKSIG" | "CHECKSIG" => bytes.push(0xac),
+            "OP_1" | "1" => bytes.push(blvm_consensus::opcodes::OP_1),
+            "OP_2" | "2" => bytes.push(blvm_consensus::opcodes::OP_2),
+            "OP_DUP" | "DUP" => bytes.push(blvm_consensus::opcodes::OP_DUP),
+            "OP_EQUAL" | "EQUAL" => bytes.push(blvm_consensus::opcodes::OP_EQUAL),
+            "OP_EQUALVERIFY" | "EQUALVERIFY" => bytes.push(blvm_consensus::opcodes::OP_EQUALVERIFY),
+            "OP_HASH160" | "HASH160" => bytes.push(blvm_consensus::opcodes::OP_HASH160),
+            "OP_CHECKSIG" | "CHECKSIG" => bytes.push(blvm_consensus::opcodes::OP_CHECKSIG),
             _ => {
                 // Handle hex literals (0x...)
                 if token.starts_with("0x") {
@@ -203,9 +203,9 @@ mod tests {
     fn test_script_string_to_bytes() {
         let bytes = script_string_to_bytes("1 2 EQUAL");
         assert!(bytes.len() >= 3);
-        assert_eq!(bytes[0], 0x51); // OP_1
-        assert_eq!(bytes[1], 0x52); // OP_2
-        assert_eq!(bytes[2], 0x87); // OP_EQUAL
+        assert_eq!(bytes[0], blvm_consensus::opcodes::OP_1); // OP_1
+        assert_eq!(bytes[1], blvm_consensus::opcodes::OP_2); // OP_2
+        assert_eq!(bytes[2], blvm_consensus::opcodes::OP_EQUAL); // OP_EQUAL
     }
 
     #[test]

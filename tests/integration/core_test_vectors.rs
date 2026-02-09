@@ -194,7 +194,7 @@ fn test_block_vectors_if_available() {
     
     // Test each vector
     for (block, witnesses, should_be_valid) in vectors.iter().take(5) { // Limit to first 5 for speed
-        let result = connect_block(block, witnesses, utxo_set.clone(), height, None, crate::types::Network::Mainnet);
+        let result = connect_block(block, witnesses, utxo_set.clone(), height, None, 0u64, crate::types::Network::Mainnet);
         
         match result {
             Ok((ValidationResult::Valid, new_utxo_set)) => {

@@ -231,8 +231,8 @@ fn test_coinbase_maturity_block_validation() {
     // Block should be rejected if coinbase spending is immature
     // (This depends on actual validation implementation)
     // Provide empty witnesses for each transaction (non-SegWit)
-    let witnesses: Vec<Witness> = vec![Vec::new(), Vec::new()];
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, Network::Mainnet);
+    let witnesses: Vec<Vec<Witness>> = vec![Vec::new(), Vec::new()];
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, Network::Mainnet);
 
     // Result may be invalid due to immature coinbase
     assert!(result.is_ok() || result.is_err());

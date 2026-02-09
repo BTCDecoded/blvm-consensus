@@ -32,7 +32,7 @@ fn test_genesis_block_validation() {
         if let Ok((block, witnesses)) = deserialize_block_with_witnesses(&bytes) {
             let utxo_set = UtxoSet::new();
             // connect_block expects &[Witness] where Witness is Vec<ByteString> (one per transaction)
-            let result = connect_block(&block, &witnesses, utxo_set, 0, None, Network::Mainnet);
+            let result = connect_block(&block, &witnesses, utxo_set, 0, None, 0u64, Network::Mainnet);
 
             // Genesis block should validate (or fail gracefully with missing context)
             assert!(result.is_ok());
@@ -74,6 +74,7 @@ fn test_segwit_activation_block() {
             utxo_set,
             segwit_activation_height,
             None,
+            0u64,
             Network::Mainnet,
         );
 
@@ -121,6 +122,7 @@ fn test_taproot_activation_block() {
             utxo_set,
             taproot_activation_height,
             None,
+            0u64,
             Network::Mainnet,
         );
 
@@ -327,7 +329,7 @@ fn test_real_world_transaction_patterns() {
 pub fn load_mainnet_block_from_disk(
     block_dir: &std::path::PathBuf,
     height: u64,
-) -> Result<(Block, Vec<Witness>), Box<dyn std::error::Error>> {
+) -> Result<(Block, Vec<Vec<Witness>>), Box<dyn std::error::Error>> {
     let bin_path = block_dir.join(format!("block_{height}.bin"));
     let hex_path = block_dir.join(format!("block_{height}.hex"));
 
@@ -370,6 +372,7 @@ pub fn validate_mainnet_block(
         prev_utxo_set,
         height,
         None,
+        0u64,
         Network::Mainnet,
     )
     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;

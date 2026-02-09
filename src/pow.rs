@@ -231,28 +231,20 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
         return Ok(Vec::new());
     }
 
-    // Serialize all headers in parallel
-    // BLLVM Optimization: Pre-allocate header serialization buffers (80 bytes each)
-    let header_bytes_vec: Vec<Vec<u8>> = {
+    // Serialize all headers (stack-allocated 80-byte arrays)
+    let header_bytes_vec: Vec<[u8; 80]> = {
         #[cfg(feature = "rayon")]
         {
             use rayon::prelude::*;
-            headers
-                .par_iter()
-                .map(|header| serialize_header(header)) // Uses Vec::with_capacity(80) internally
-                .collect()
+            headers.par_iter().map(|header| serialize_header(header)).collect()
         }
         #[cfg(not(feature = "rayon"))]
         {
-            headers
-                .iter()
-                .map(|header| serialize_header(header)) // Uses Vec::with_capacity(80) internally
-                .collect()
+            headers.iter().map(|header| serialize_header(header)).collect()
         }
     };
 
     // Batch hash all serialized headers using double SHA256
-    // BLLVM Optimization: Use cache-aligned structures for better performance
     let header_refs: Vec<&[u8]> = header_bytes_vec.iter().map(|v| v.as_slice()).collect();
     let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&header_refs);
     // Convert to regular hashes for compatibility
@@ -764,27 +756,16 @@ fn compress_target(target: &U256) -> Result<Natural> {
 }
 
 /// Serialize block header to bytes (simplified)
-fn serialize_header(header: &BlockHeader) -> Vec<u8> {
-    // BLLVM Optimization: Pre-allocate 80-byte buffer (block header is exactly 80 bytes)
-    let mut bytes = Vec::with_capacity(80);
+fn serialize_header(header: &BlockHeader) -> [u8; 80] {
+    // Stack-allocated: headers are always exactly 80 bytes, no heap allocation needed
+    let mut bytes = [0u8; 80];
 
-    // Version (4 bytes, little-endian)
-    bytes.extend_from_slice(&(header.version as u32).to_le_bytes());
-
-    // Previous block hash (32 bytes)
-    bytes.extend_from_slice(&header.prev_block_hash);
-
-    // Merkle root (32 bytes)
-    bytes.extend_from_slice(&header.merkle_root);
-
-    // Timestamp (4 bytes, little-endian)
-    bytes.extend_from_slice(&(header.timestamp as u32).to_le_bytes());
-
-    // Bits (4 bytes, little-endian)
-    bytes.extend_from_slice(&(header.bits as u32).to_le_bytes());
-
-    // Nonce (4 bytes, little-endian)
-    bytes.extend_from_slice(&(header.nonce as u32).to_le_bytes());
+    bytes[0..4].copy_from_slice(&(header.version as u32).to_le_bytes());
+    bytes[4..36].copy_from_slice(&header.prev_block_hash);
+    bytes[36..68].copy_from_slice(&header.merkle_root);
+    bytes[68..72].copy_from_slice(&(header.timestamp as u32).to_le_bytes());
+    bytes[72..76].copy_from_slice(&(header.bits as u32).to_le_bytes());
+    bytes[76..80].copy_from_slice(&(header.nonce as u32).to_le_bytes());
 
     bytes
 }
@@ -1359,6 +1340,121 @@ mod tests {
 
         let bytes = serialize_header(&header);
         assert_eq!(bytes.len(), 80); // 4 + 32 + 32 + 4 + 4 + 4 = 80 bytes
+    }
+
+    // ==========================================================================
+    // REGRESSION TESTS: serialize_header returns [u8; 80] (stack-allocated)
+    // ==========================================================================
+
+    #[test]
+    fn test_serialize_header_returns_fixed_80_bytes() {
+        // Verify the function returns exactly [u8; 80], not Vec<u8>
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 0,
+            bits: 0,
+            nonce: 0,
+        };
+        let bytes: [u8; 80] = serialize_header(&header);
+        assert_eq!(bytes.len(), 80);
+    }
+
+    #[test]
+    fn test_serialize_header_field_layout() {
+        // Verify each field is serialized in the correct position and byte order
+        let header = BlockHeader {
+            version: 0x01020304,
+            prev_block_hash: {
+                let mut h = [0u8; 32];
+                h[0] = 0xAA;
+                h[31] = 0xBB;
+                h
+            },
+            merkle_root: {
+                let mut h = [0u8; 32];
+                h[0] = 0xCC;
+                h[31] = 0xDD;
+                h
+            },
+            timestamp: 0x05060708,
+            bits: 0x090A0B0C,
+            nonce: 0x0D0E0F10,
+        };
+
+        let bytes = serialize_header(&header);
+
+        // Version: bytes [0..4], little-endian u32
+        assert_eq!(bytes[0], 0x04); // LE: least significant byte first
+        assert_eq!(bytes[1], 0x03);
+        assert_eq!(bytes[2], 0x02);
+        assert_eq!(bytes[3], 0x01);
+
+        // Prev block hash: bytes [4..36], raw bytes
+        assert_eq!(bytes[4], 0xAA);
+        assert_eq!(bytes[35], 0xBB);
+
+        // Merkle root: bytes [36..68], raw bytes
+        assert_eq!(bytes[36], 0xCC);
+        assert_eq!(bytes[67], 0xDD);
+
+        // Timestamp: bytes [68..72], little-endian u32
+        assert_eq!(bytes[68], 0x08);
+        assert_eq!(bytes[69], 0x07);
+        assert_eq!(bytes[70], 0x06);
+        assert_eq!(bytes[71], 0x05);
+
+        // Bits: bytes [72..76], little-endian u32
+        assert_eq!(bytes[72], 0x0C);
+        assert_eq!(bytes[73], 0x0B);
+        assert_eq!(bytes[74], 0x0A);
+        assert_eq!(bytes[75], 0x09);
+
+        // Nonce: bytes [76..80], little-endian u32
+        assert_eq!(bytes[76], 0x10);
+        assert_eq!(bytes[77], 0x0F);
+        assert_eq!(bytes[78], 0x0E);
+        assert_eq!(bytes[79], 0x0D);
+    }
+
+    #[test]
+    fn test_serialize_header_deterministic() {
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0xFF; 32],
+            merkle_root: [0xAA; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 2083236893,
+        };
+
+        let bytes1 = serialize_header(&header);
+        let bytes2 = serialize_header(&header);
+        assert_eq!(bytes1, bytes2, "Header serialization must be deterministic");
+    }
+
+    #[test]
+    fn test_serialize_header_different_headers_different_bytes() {
+        let header1 = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+
+        let mut header2 = header1.clone();
+        header2.nonce = 1;
+
+        let bytes1 = serialize_header(&header1);
+        let bytes2 = serialize_header(&header2);
+        assert_ne!(bytes1, bytes2, "Different nonces must produce different serializations");
+
+        // Specifically, only the nonce bytes (76-79) should differ
+        assert_eq!(bytes1[..76], bytes2[..76], "Non-nonce bytes should be identical");
+        assert_ne!(bytes1[76..], bytes2[76..], "Nonce bytes should differ");
     }
 
     #[test]

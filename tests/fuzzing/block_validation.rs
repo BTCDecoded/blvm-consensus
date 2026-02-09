@@ -89,7 +89,7 @@ fn fuzz_connect_block_structure() {
             
             let initial_utxo_set = UtxoSet::new();
             let witnesses: Vec<segwit::Witness> = minimal_block.transactions.iter().map(|_| Vec::new()).collect();
-            let result = connect_block(&minimal_block, &witnesses, initial_utxo_set, 0, None, crate::types::Network::Mainnet);
+            let result = connect_block(&minimal_block, &witnesses, initial_utxo_set, 0, None, 0u64, crate::types::Network::Mainnet);
             // Result should always be Ok, even if validation fails
             assert!(result.is_ok(), "connect_block should handle blocks without panicking");
         }

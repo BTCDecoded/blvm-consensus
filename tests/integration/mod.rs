@@ -21,8 +21,8 @@ mod core_test_vectors;
 // Differential testing integration (basic functionality, full implementation in blvm-bench)
 mod differential_tests;
 
-// Reference-Node RPC integration tests (uses our own RPC infrastructure)
-mod reference_node_rpc;
+// blvm-node RPC integration tests (uses our own RPC infrastructure)
+mod node_rpc;
 
 // Historical block replay (Phase 3.1)
 mod historical_replay;

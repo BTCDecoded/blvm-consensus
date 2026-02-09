@@ -76,7 +76,7 @@ mod tests {
         let (block, utxo_set) = create_multi_transaction_block(5);
         
         let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, new_utxo_set) = connect_block(&block, &witnesses, utxo_set, 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         
         // Should produce valid result
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
@@ -94,7 +94,7 @@ mod tests {
         // Basic performance sanity check
         let start = Instant::now();
         let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         let duration = start.elapsed();
         
         // Should complete successfully
@@ -139,7 +139,7 @@ mod tests {
         };
         
         let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = connect_block(&block, &witnesses, UtxoSet::new(), 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, _) = connect_block(&block, &witnesses, UtxoSet::new(), 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
                 "Coinbase validation must work correctly");
     }
@@ -150,7 +150,7 @@ mod tests {
         let (block, initial_utxo_set) = create_multi_transaction_block(3);
         
         let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, final_utxo_set) = connect_block(&block, &witnesses, initial_utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result, final_utxo_set) = connect_block(&block, &witnesses, initial_utxo_set, 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         
         // If valid, UTXO set should be updated
         if matches!(result, ValidationResult::Valid) {
@@ -160,7 +160,7 @@ mod tests {
         }
         
         // Multiple executions should produce consistent UTXO sets
-        let (_, final_utxo_set2) = connect_block(&block, &witnesses, initial_utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (_, final_utxo_set2) = connect_block(&block, &witnesses, initial_utxo_set, 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         if matches!(result, ValidationResult::Valid) {
             assert_eq!(final_utxo_set.len(), final_utxo_set2.len(),
                        "UTXO set updates must be deterministic");
@@ -173,8 +173,8 @@ mod tests {
         let (block, utxo_set) = create_multi_transaction_block(5);
         
         let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result1, _) = connect_block(&block, &witnesses, utxo_set.clone(), 0, None, crate::types::Network::Mainnet).unwrap();
-        let (result2, _) = connect_block(&block, &witnesses, utxo_set, 0, None, crate::types::Network::Mainnet).unwrap();
+        let (result1, _) = connect_block(&block, &witnesses, utxo_set.clone(), 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
+        let (result2, _) = connect_block(&block, &witnesses, utxo_set, 0, None, 0u64, crate::types::Network::Mainnet).unwrap();
         
         // Results must be identical
         assert_eq!(format!("{:?}", result1), format!("{:?}", result2),

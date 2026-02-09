@@ -23,7 +23,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 smallvec = { version = "1.11", optional = true, features = ["serde"] }
 
 # Consensus-critical cryptography - EXACT VERSIONS
-secp256k1 = "=0.28.2"
+# Using fork with batch Schnorr verification support
+# CI: Uses git dependency from secsovereign/rust-secp256k1
+# Local dev: Override with [patch.crates-io] section below
+secp256k1 = { git = "https://github.com/secsovereign/rust-secp256k1.git", branch = "batch-schnorr-verification" }
 # Pure Rust secp256k1 implementation (Phase 3.2 - migration in progress)
 k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Enable SIMD optimizations for hashing
@@ -32,6 +35,9 @@ k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
 # sha2 is defined in target-specific sections only
 ripemd = "=0.1.3"
 sha1 = "=0.10.6"
+# Consensus-critical: Exact version pinning for reproducibility
+# DO NOT CHANGE without security review - this ensures identical builds
+# and prevents supply chain attacks
 bitcoin_hashes = "=0.11.0"
 
 # Non-consensus-critical utilities - EXACT VERSIONS for supply chain security
@@ -194,3 +200,6 @@ codegen-units = 16  # Faster compilation
 
 [patch.crates-io]
 blvm-spec-lock = { path = "../blvm-spec-lock" }
+# Local development: Use local secp256k1 fork instead of git dependency
+# Uncomment the line below when developing locally:
+# secp256k1 = { path = "../secp256k1-fork" }

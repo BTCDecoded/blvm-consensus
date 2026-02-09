@@ -14,8 +14,10 @@ use blvm_spec_lock::spec_locked;
 /// Uses unified witness type from witness module for consistency with SegWit
 pub use crate::witness::Witness;
 
+use crate::opcodes::OP_1;
+
 /// Taproot output script: OP_1 <32-byte-hash>
-pub const TAPROOT_SCRIPT_PREFIX: u8 = 0x51; // OP_1
+pub const TAPROOT_SCRIPT_PREFIX: u8 = OP_1;
 
 /// Validate Taproot output script
 #[spec_locked("11.2")]
@@ -86,7 +88,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
     let full_pk = PublicKey::from_x_only_public_key(internal_pk, secp256k1::Parity::Even);
 
     // Compute tweaked public key: full_pk + tweak_scalar * G
-    let tweaked_pk = full_pk.add_exp_tweak(&secp, &tweak_scalar).map_err(|_| {
+    let tweaked_pk = full_pk.add_exp_tweak(&tweak_scalar).map_err(|_| {
         crate::error::ConsensusError::InvalidSignature(
             "Failed to compute tweaked public key".into(),
         )
@@ -189,7 +191,8 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
     input_index: usize,
-    prevouts: &[TransactionOutput],
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&crate::types::ByteString],
     sighash_type: u8,
 ) -> Result<Hash> {
     // Create SHA256 hasher for Taproot signature hash
@@ -236,18 +239,18 @@ pub fn compute_taproot_signature_hash(
     hasher.update((input_index as u32).to_le_bytes());
 
     // 9. Previous output value (8 bytes, little-endian)
-    if input_index < prevouts.len() {
-        hasher.update((prevouts[input_index].value as u64).to_le_bytes());
+    if input_index < prevout_values.len() {
+        hasher.update((prevout_values[input_index] as u64).to_le_bytes());
     } else {
         hasher.update([0u8; 8]);
     }
 
     // 10. Previous output script (varint + script)
-    if input_index < prevouts.len() {
+    if input_index < prevout_script_pubkeys.len() {
         hasher.update(encode_varint(
-            prevouts[input_index].script_pubkey.len() as u64
+            prevout_script_pubkeys[input_index].len() as u64
         ));
-        hasher.update(&prevouts[input_index].script_pubkey);
+        hasher.update(prevout_script_pubkeys[input_index].as_slice());
     } else {
         hasher.update([0]);
     }
@@ -766,8 +769,10 @@ mod property_tests {
             prevouts in prop::collection::vec(create_output_strategy(), 0..5),
             sighash_type in any::<u8>()
         ) {
-            let result1 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
-            let result2 = compute_taproot_signature_hash(&tx, input_index, &prevouts, sighash_type);
+            let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
+            let prevout_script_pubkeys: Vec<&crate::types::ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+            let result1 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
+            let result2 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
 
             assert_eq!(result1.is_ok(), result2.is_ok());
             if let (Ok(hash1), Ok(hash2)) = (&result1, &result2) {

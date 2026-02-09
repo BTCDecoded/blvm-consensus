@@ -144,7 +144,7 @@ fuzz_target!(|data: &[u8]| {
     let utxo_set = UtxoSet::new();
     let current_height = current_chain.len() as u64;
 
-    let _result = reorganize_chain(&new_chain, &current_chain, utxo_set, current_height);
+    let _result = reorganize_chain(&new_chain, &current_chain, utxo_set, current_height, blvm_consensus::types::Network::Mainnet);
 
     // Don't assert on result - just exercise the code path
     // Fuzzing goal is to find crashes, not verify correctness

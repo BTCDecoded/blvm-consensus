@@ -328,7 +328,13 @@ impl SpamFilter {
 
     /// Create a new spam filter with custom configuration
     pub fn with_config(config: SpamFilterConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            #[cfg(feature = "production")]
+            script_type_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                lru::LruCache::new(std::num::NonZeroUsize::new(10_000).unwrap())
+            )),
+        }
     }
     
     /// Create a new spam filter with a preset configuration

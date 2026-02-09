@@ -49,7 +49,7 @@ pub trait UtxoLookup {
     
     /// Check if empty.
     fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.is_empty()
     }
 }
 
@@ -88,6 +88,8 @@ pub struct UtxoOverlay<'a> {
     additions: HashMap<OutPoint, UTXO>,
     /// UTXOs marked as spent in this overlay
     deletions: std::collections::HashSet<OutPoint>,
+    /// OPTIMIZATION #3: Cached flag to skip deletions.contains() check when empty
+    has_deletions: bool,
 }
 
 impl<'a> UtxoOverlay<'a> {
@@ -101,6 +103,7 @@ impl<'a> UtxoOverlay<'a> {
             // Pre-allocate for typical block size (~3000 transactions)
             additions: HashMap::with_capacity(6000),
             deletions: std::collections::HashSet::with_capacity(6000),
+            has_deletions: false, // OPTIMIZATION #3: Start with no deletions
         }
     }
 
@@ -111,6 +114,7 @@ impl<'a> UtxoOverlay<'a> {
             base,
             additions: HashMap::with_capacity(additions_cap),
             deletions: std::collections::HashSet::with_capacity(deletions_cap),
+            has_deletions: false, // OPTIMIZATION #3: Start with no deletions
         }
     }
 
@@ -119,8 +123,9 @@ impl<'a> UtxoOverlay<'a> {
     /// First checks deletions, then additions, then base set.
     #[inline]
     pub fn get(&self, outpoint: &OutPoint) -> Option<&UTXO> {
-        // Check if deleted in this overlay
-        if self.deletions.contains(outpoint) {
+        // OPTIMIZATION #3: Skip deletions check if overlay has no deletions
+        // This avoids HashSet.contains() overhead for the common case
+        if self.has_deletions && self.deletions.contains(outpoint) {
             return None;
         }
         
@@ -136,7 +141,8 @@ impl<'a> UtxoOverlay<'a> {
     /// Check if a UTXO exists.
     #[inline]
     pub fn contains_key(&self, outpoint: &OutPoint) -> bool {
-        if self.deletions.contains(outpoint) {
+        // OPTIMIZATION #3: Skip deletions check if overlay has no deletions
+        if self.has_deletions && self.deletions.contains(outpoint) {
             return false;
         }
         self.additions.contains_key(outpoint) || self.base.contains_key(outpoint)
@@ -146,7 +152,12 @@ impl<'a> UtxoOverlay<'a> {
     #[inline]
     pub fn insert(&mut self, outpoint: OutPoint, utxo: UTXO) {
         // Remove from deletions if re-adding
-        self.deletions.remove(&outpoint);
+        if self.deletions.remove(&outpoint) {
+            // Update flag if deletions set becomes empty
+            if self.deletions.is_empty() {
+                self.has_deletions = false;
+            }
+        }
         self.additions.insert(outpoint, utxo);
     }
 
@@ -159,9 +170,12 @@ impl<'a> UtxoOverlay<'a> {
         }
         
         // Mark as deleted from base set
-        if let Some(utxo) = self.base.get(outpoint) {
+        // Clone the UTXO before mutating self to avoid borrow checker issues
+        let utxo = self.base.get(outpoint).cloned();
+        if let Some(utxo_clone) = utxo {
             self.deletions.insert(outpoint.clone());
-            return Some(utxo.clone());
+            self.has_deletions = true; // OPTIMIZATION #3: Update flag when first deletion is added
+            return Some(utxo_clone);
         }
         
         None
@@ -215,6 +229,18 @@ impl<'a> UtxoOverlay<'a> {
     #[inline]
     pub fn deletions(&self) -> &std::collections::HashSet<OutPoint> {
         &self.deletions
+    }
+
+    /// Consume the overlay and return its changes as owned data.
+    ///
+    /// This releases the borrow on the base UTXO set, allowing the caller
+    /// to apply the changes directly to the mutable utxo_set without
+    /// re-iterating all transactions.
+    ///
+    /// Returns (additions, deletions) — the net UTXO changes from this block.
+    #[inline]
+    pub fn into_changes(self) -> (HashMap<OutPoint, UTXO>, std::collections::HashSet<OutPoint>) {
+        (self.additions, self.deletions)
     }
 }
 
@@ -293,7 +319,7 @@ pub fn apply_transaction_to_overlay(
     use crate::reorganization::UndoEntry;
     use crate::transaction::is_coinbase;
     
-    let mut undo_entries = Vec::new();
+    let mut undo_entries = Vec::with_capacity(tx.inputs.len() + tx.outputs.len());
     
     // Remove spent inputs (except for coinbase)
     if !is_coinbase(tx) {
@@ -336,6 +362,46 @@ pub fn apply_transaction_to_overlay(
     undo_entries
 }
 
+/// Apply a transaction to the overlay WITHOUT building undo entries.
+///
+/// This is the fast path for IBD where undo logs are discarded.
+/// Avoids cloning outpoints and UTXOs for undo entries, saving
+/// significant allocation overhead (2 clones per input, 2 per output).
+#[inline]
+pub fn apply_transaction_to_overlay_no_undo(
+    overlay: &mut UtxoOverlay<'_>,
+    tx: &crate::types::Transaction,
+    tx_id: crate::types::Hash,
+    height: crate::types::Natural,
+) {
+    use crate::transaction::is_coinbase;
+    
+    // Remove spent inputs (except for coinbase)
+    if !is_coinbase(tx) {
+        for input in &tx.inputs {
+            overlay.remove(&input.prevout);
+        }
+    }
+    
+    // Add new outputs
+    let is_cb = is_coinbase(tx);
+    for (i, output) in tx.outputs.iter().enumerate() {
+        let outpoint = OutPoint {
+            hash: tx_id,
+            index: i as crate::types::Natural,
+        };
+        
+        let utxo = UTXO {
+            value: output.value,
+            script_pubkey: output.script_pubkey.clone(),
+            height,
+            is_coinbase: is_cb,
+        };
+        
+        overlay.insert(outpoint, utxo);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,7 +416,7 @@ mod tests {
     fn make_utxo(value: i64) -> UTXO {
         UTXO {
             value,
-            script_pubkey: vec![0x76, 0xa9], // P2PKH prefix
+            script_pubkey: std::sync::Arc::new(vec![crate::opcodes::OP_DUP, crate::opcodes::OP_HASH160]), // P2PKH prefix
             height: 1,
             is_coinbase: false,
         }

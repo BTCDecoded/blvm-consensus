@@ -65,7 +65,7 @@ fn test_connect_block_rejects_bip30_violation() {
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
     
     // connect_block MUST reject this block due to BIP30 violation
-    let result = connect_block(&block, &witnesses, utxo_set, 1, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, 1, None, 0u64, types::Network::Mainnet);
     
     match result {
         Ok((ValidationResult::Invalid(reason), _)) => {
@@ -129,7 +129,7 @@ fn test_connect_block_rejects_bip34_violation() {
     let utxo_set = UtxoSet::new();
     
     // connect_block MUST reject this block due to BIP34 violation
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     match result {
         Ok((ValidationResult::Invalid(reason), _)) => {
@@ -192,7 +192,7 @@ fn test_connect_block_allows_bip34_before_activation() {
     
     // connect_block should allow this block (BIP34 not active yet)
     // Note: Block may still be invalid for other reasons (PoW, etc.), but BIP34 shouldn't reject it
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     // If rejected, it should NOT be due to BIP34
     if let Ok((ValidationResult::Invalid(reason), _)) = result {
@@ -247,7 +247,7 @@ fn test_connect_block_rejects_bip90_violation() {
     let utxo_set = UtxoSet::new();
     
     // connect_block MUST reject this block due to BIP90 violation
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     match result {
         Ok((ValidationResult::Invalid(reason), _)) => {
@@ -310,7 +310,7 @@ fn test_connect_block_allows_bip90_valid_version() {
     
     // connect_block should allow this block (BIP90 satisfied)
     // Note: Block may still be invalid for other reasons (PoW, etc.), but BIP90 shouldn't reject it
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     // If rejected, it should NOT be due to BIP90
     if let Ok((ValidationResult::Invalid(reason), _)) = result {
@@ -375,7 +375,7 @@ fn test_connect_block_multiple_bip_violations() {
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
     
     // connect_block MUST reject this block
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     match result {
         Ok((ValidationResult::Invalid(reason), _)) => {
@@ -444,7 +444,7 @@ fn test_bip_check_order() {
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
     let utxo_set = UtxoSet::new();
     
-    let result = connect_block(&block, &witnesses, utxo_set, height, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, height, None, 0u64, types::Network::Mainnet);
     
     // BIP90 should be caught first (it's checked on header, before transaction checks)
     if let Ok((ValidationResult::Invalid(reason), _)) = result {

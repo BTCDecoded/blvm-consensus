@@ -10,7 +10,7 @@ use blvm_consensus::orange_paper_constants::{C, H};
 use blvm_consensus::pow;
 use blvm_consensus::transaction;
 use blvm_consensus::types::*;
-use blvm_consensus::Witness;
+use blvm_consensus::segwit::Witness;
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -935,8 +935,8 @@ proptest! {
 
         // Connect block1
         let utxo_set = UtxoSet::new();
-        let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
-        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
+        let witnesses1: Vec<Vec<Witness>> = block1.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
+        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, 0u64, Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set1, _undo_log1)) = result1 {
             // Calculate supply after block1
@@ -947,8 +947,8 @@ proptest! {
                 .unwrap_or(MAX_MONEY as i64);
 
             // Connect block2
-            let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
-            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, Network::Mainnet);
+            let witnesses2: Vec<Vec<Witness>> = block2.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
+            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, 0u64, Network::Mainnet);
 
             if let Ok((ValidationResult::Valid, utxo_set2, _undo_log2)) = result2 {
                 // Calculate supply after block2
@@ -1050,7 +1050,8 @@ proptest! {
             &new_chain,
             &current_chain,
             utxo_set,
-            current_chain_len as u64
+            current_chain_len as u64,
+            blvm_consensus::types::Network::Regtest,
         );
 
         if let Ok(reorg_result) = result {
@@ -1175,8 +1176,8 @@ proptest! {
 
         // Connect block1
         let utxo_set = UtxoSet::new();
-        let witnesses1: Vec<Witness> = block1.transactions.iter().map(|_| Vec::new()).collect();
-        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, Network::Mainnet);
+        let witnesses1: Vec<Vec<Witness>> = block1.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
+        let result1 = block::connect_block(&block1, &witnesses1, utxo_set, height1 as u64, None, 0u64, Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set1, _undo_log1)) = result1 {
             // Verify invariants after block1
@@ -1190,8 +1191,8 @@ proptest! {
             prop_assert!(supply1 <= MAX_MONEY as i64, "Supply after block1 must be <= MAX_MONEY: {} <= {}", supply1, MAX_MONEY);
 
             // Connect block2
-            let witnesses2: Vec<Witness> = block2.transactions.iter().map(|_| Vec::new()).collect();
-            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, Network::Mainnet);
+            let witnesses2: Vec<Vec<Witness>> = block2.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
+            let result2 = block::connect_block(&block2, &witnesses2, utxo_set1, height2 as u64, None, 0u64, Network::Mainnet);
 
             if let Ok((ValidationResult::Valid, utxo_set2, _undo_log2)) = result2 {
                 // Verify invariants after block2 (composition)
@@ -1251,8 +1252,8 @@ proptest! {
 
         // Connect block
         let utxo_set_before = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = block::connect_block(&block, &witnesses, utxo_set_before.clone(), height as u64, None, Network::Mainnet);
+        let witnesses: Vec<Vec<Witness>> = block.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
+        let result = block::connect_block(&block, &witnesses, utxo_set_before.clone(), height as u64, None, 0u64, Network::Mainnet);
 
         if let Ok((ValidationResult::Valid, utxo_set_after_connect, _undo_log)) = result {
             // Simulate disconnect via reorganization (disconnect and reconnect same block)
@@ -1264,7 +1265,8 @@ proptest! {
                 &new_chain,
                 &current_chain,
                 utxo_set_after_connect.clone(),
-                height as u64 + 1
+                height as u64 + 1,
+                blvm_consensus::types::Network::Regtest,
             );
 
             // After reorganizing to the same chain, state should be preserved

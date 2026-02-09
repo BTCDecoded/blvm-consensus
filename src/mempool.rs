@@ -961,11 +961,12 @@ mod tests {
     fn test_is_standard_tx_too_large() {
         let mut tx = create_valid_transaction();
         // Make transaction too large by adding many inputs
+        // MAX_INPUTS (100,000) * ~42 bytes/input >> MAX_TX_SIZE (1,000,000)
         for _ in 0..MAX_INPUTS {
             tx.inputs.push(create_dummy_input());
         }
-        // This should still be valid since we're at the limit, not over
-        assert!(is_standard_tx(&tx).unwrap());
+        // Transaction exceeds MAX_TX_SIZE so it should NOT be standard
+        assert!(!is_standard_tx(&tx).unwrap());
     }
 
     #[test]

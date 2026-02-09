@@ -323,7 +323,7 @@ fn benchmark_sighash_batching(c: &mut Criterion) {
         c.bench_function(&format!("batch_sighash_{}inputs", input_count), |b| {
             b.iter(|| {
                 black_box(
-                    batch_compute_sighashes(black_box(&tx), black_box(&prevouts), SighashType::All)
+                    batch_compute_sighashes(black_box(&tx), black_box(&prevouts), SighashType::ALL)
                         .unwrap(),
                 )
             })
@@ -356,8 +356,8 @@ fn benchmark_pow_batching(c: &mut Criterion) {
     }
 }
 
-// Note: SipHash benchmarking is in reference-node/benches/compact_blocks.rs
-// since siphasher is only used in reference-node
+// Note: SipHash benchmarking is in blvm-node/benches/compact_blocks.rs
+// since siphasher is only used in blvm-node
 
 #[cfg(feature = "production")]
 fn benchmark_batch_ecdsa_verification(c: &mut Criterion) {
@@ -480,7 +480,7 @@ fn benchmark_sighash_templates(c: &mut Criterion) {
                     black_box(&tx),
                     0,
                     black_box(&prevouts),
-                    SighashType::All,
+                    SighashType::ALL,
                 )
                 .unwrap(),
             )

@@ -71,7 +71,7 @@ pub use error::ConsensusError;
 pub mod bip113;
 #[cfg(feature = "ctv")]
 pub mod bip119;
-#[cfg(feature = "csfs")]
+#[cfg(any(feature = "csfs", feature = "production"))]
 pub mod bip348;
 pub mod bip_validation;
 pub mod block;

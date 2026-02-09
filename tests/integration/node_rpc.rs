@@ -1,9 +1,9 @@
-//! Reference-Node RPC Integration Tests
+//! blvm-node RPC Integration Tests
 //!
-//! Tests consensus-proof validation via reference-node's RPC interface.
+//! Tests consensus-proof validation via blvm-node's RPC interface.
 //! This provides integration testing of the full stack: RPC → node → consensus-proof.
 //!
-//! Requires: reference-node running with RPC enabled (or in-process test node)
+//! Requires: blvm-node running with RPC enabled (or in-process test node)
 
 use blvm_consensus::*;
 use blvm_consensus::serialization::transaction::serialize_transaction;
@@ -11,32 +11,32 @@ use blvm_consensus::serialization::block::serialize_block_header;
 use serde_json::json;
 use std::time::Duration;
 
-/// Reference-Node RPC client configuration
+/// blvm-node RPC client configuration
 #[derive(Debug, Clone)]
-pub struct ReferenceNodeRpcConfig {
+pub struct NodeRpcConfig {
     pub url: String,
     pub username: Option<String>,
     pub password: Option<String>,
 }
 
-impl Default for ReferenceNodeRpcConfig {
+impl Default for NodeRpcConfig {
     fn default() -> Self {
         Self {
-            url: std::env::var("REFERENCE_NODE_RPC_URL")
+            url: std::env::var("BLVM_NODE_RPC_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:18332".to_string()),
-            username: std::env::var("REFERENCE_NODE_RPC_USER").ok(),
-            password: std::env::var("REFERENCE_NODE_RPC_PASS").ok(),
+            username: std::env::var("BLVM_NODE_RPC_USER").ok(),
+            password: std::env::var("BLVM_NODE_RPC_PASS").ok(),
         }
     }
 }
 
-/// Reference-Node RPC client
-pub struct ReferenceNodeRpcClient {
-    config: ReferenceNodeRpcConfig,
+/// blvm-node RPC client
+pub struct NodeRpcClient {
+    config: NodeRpcConfig,
 }
 
-impl ReferenceNodeRpcClient {
-    pub fn new(config: ReferenceNodeRpcConfig) -> Result<Self, Box<dyn std::error::Error>> {
+impl NodeRpcClient {
+    pub fn new(config: NodeRpcConfig) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self { config })
     }
 
@@ -131,7 +131,7 @@ pub struct MempoolAcceptResult {
 /// Compare transaction validation via RPC with direct consensus-proof validation
 pub async fn compare_transaction_validation_via_rpc(
     tx: &Transaction,
-    config: &ReferenceNodeRpcConfig,
+    config: &NodeRpcConfig,
 ) -> Result<ComparisonResult, Box<dyn std::error::Error>> {
     // Validate transaction locally (direct consensus-proof)
     let local_result = check_transaction(tx)?;
@@ -140,8 +140,8 @@ pub async fn compare_transaction_validation_via_rpc(
     // Serialize transaction for RPC
     let tx_hex = hex::encode(&serialize_transaction(tx));
     
-    // Call reference-node RPC
-    let rpc_client = ReferenceNodeRpcClient::new(config.clone())?;
+    // Call blvm-node RPC
+    let rpc_client = NodeRpcClient::new(config.clone())?;
     let rpc_result = rpc_client.test_mempool_accept(&tx_hex).await;
     
     // Handle RPC call result
@@ -157,7 +157,7 @@ pub async fn compare_transaction_validation_via_rpc(
     let divergence = local_valid != rpc_valid;
     let divergence_reason = if divergence {
         Some(format!(
-            "Local (direct): {}, RPC (reference-node): {}",
+            "Local (direct): {}, RPC (blvm-node): {}",
             if local_valid { "valid" } else { "invalid" },
             if rpc_valid { "valid" } else { "invalid" }
         ))
@@ -187,15 +187,15 @@ mod tests {
     use super::*;
     
     #[tokio::test]
-    async fn test_reference_node_rpc_config_default() {
-        let config = ReferenceNodeRpcConfig::default();
+    async fn test_node_rpc_config_default() {
+        let config = NodeRpcConfig::default();
         assert_eq!(config.url, "http://127.0.0.1:18332");
     }
     
     #[tokio::test]
-    async fn test_reference_node_rpc_client_creation() {
-        let config = ReferenceNodeRpcConfig::default();
-        let client = ReferenceNodeRpcClient::new(config);
+    async fn test_node_rpc_client_creation() {
+        let config = NodeRpcConfig::default();
+        let client = NodeRpcClient::new(config);
         
         // Should create successfully (even if RPC not available)
         assert!(client.is_ok());
@@ -214,7 +214,7 @@ mod tests {
             lock_time: 0,
         };
         
-        let config = ReferenceNodeRpcConfig::default();
+        let config = NodeRpcConfig::default();
         
         // Test local validation
         let local_result = check_transaction(&tx);
@@ -261,5 +261,5 @@ mod tests {
 // 3. Add retry logic for RPC connection
 // 4. Add connection pooling for multiple tests
 // 5. Add test fixtures for common scenarios
-// 6. Integrate with reference-node's test helpers
+// 6. Integrate with blvm-node's test helpers
 

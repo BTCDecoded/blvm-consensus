@@ -45,7 +45,7 @@ fn smoke_test_bip30_enforced() {
     let utxo_set = UtxoSet::new();
     
     // This should not panic - if BIP checks cause issues, we'll catch them here
-    let _result = connect_block(&block, &witnesses, utxo_set, 227_836, None, types::Network::Mainnet);
+    let _result = connect_block(&block, &witnesses, utxo_set, 227_836, None, 0u64, types::Network::Mainnet);
     
     // Test passes if no panic occurs (verifies BIP checks are callable)
 }
@@ -84,7 +84,7 @@ fn smoke_test_bip34_enforced() {
     let utxo_set = UtxoSet::new();
     
     // At BIP34 activation height, this should be rejected
-    let result = connect_block(&block, &witnesses, utxo_set, 227_836, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, 227_836, None, 0u64, types::Network::Mainnet);
     
     // Should be invalid (BIP34 violation) or error
     match result {
@@ -134,7 +134,7 @@ fn smoke_test_bip90_enforced() {
     let utxo_set = UtxoSet::new();
     
     // At BIP34 activation height, version 1 should be rejected (BIP90)
-    let result = connect_block(&block, &witnesses, utxo_set, 227_836, None, types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, 227_836, None, 0u64, types::Network::Mainnet);
     
     // Should be invalid (BIP90 violation) or error
     match result {

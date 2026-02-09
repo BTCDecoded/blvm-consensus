@@ -1,6 +1,7 @@
 //! Tests for error paths and edge cases
 
 use blvm_consensus::network::*;
+use blvm_consensus::opcodes::*;
 use blvm_consensus::*;
 
 #[test]
@@ -73,8 +74,8 @@ fn test_script_execution_errors() {
     let consensus = ConsensusProof::new();
 
     // Test script with too many operations
-    let large_script = vec![0x51; MAX_SCRIPT_OPS + 1];
-    let result = consensus.verify_script(&large_script, &vec![0x51], None, 0);
+    let large_script = vec![OP_1; MAX_SCRIPT_OPS + 1];
+    let result = consensus.verify_script(&large_script, &vec![OP_1], None, 0);
     assert!(result.is_err()); // Exceeds op limit should error
 }
 
@@ -90,13 +91,13 @@ fn test_mempool_errors() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51; MAX_TX_SIZE],
+            script_sig: vec![OP_1; MAX_TX_SIZE],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -137,7 +138,7 @@ fn test_reorganization_errors() {
     let current_chain = vec![];
     let utxo_set = UtxoSet::new();
 
-    let result = consensus.reorganize_chain(&new_chain, &current_chain, utxo_set, 0);
+    let result = consensus.reorganize_chain(&new_chain, &current_chain, utxo_set, 0, blvm_consensus::types::Network::Regtest);
     assert!(result.is_err());
 }
 
@@ -209,7 +210,7 @@ fn test_taproot_errors() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(), // Not a valid Taproot script
+            script_pubkey: vec![OP_1].into(), // Not a valid Taproot script
         }]
         .into(),
         lock_time: 0,

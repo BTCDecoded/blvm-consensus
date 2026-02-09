@@ -684,6 +684,7 @@ pub fn verify_script_with_context(
         None, // median_time_past
         network,
         sigversion,
+        #[cfg(feature = "production")] None, // schnorr_collector
     )
 }
 
@@ -718,6 +719,7 @@ pub fn verify_script_with_context_full(
     median_time_past: Option<u64>,
     network: crate::types::Network,
     _sigversion: SigVersion,
+    #[cfg(feature = "production")] schnorr_collector: Option<&mut crate::bip348::SchnorrSignatureCollector>,
 ) -> Result<bool> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -890,6 +892,7 @@ pub fn verify_script_with_context_full(
         median_time_past,
         network,
         SigVersion::Base,
+        #[cfg(feature = "production")] schnorr_collector.as_deref_mut(),
     )?;
     if !script_sig_result {
         return Ok(false);
@@ -903,7 +906,7 @@ pub fn verify_script_with_context_full(
     
     // Save redeem script if P2SH (it's the last item on stack after scriptSig)
     let redeem_script: Option<ByteString> = if is_p2sh && !stack.is_empty() {
-        Some(stack.last().unwrap().clone())
+        Some(stack.last().expect("Stack is not empty").clone())
     } else {
         None
     };
@@ -946,7 +949,7 @@ pub fn verify_script_with_context_full(
                 }
                 
                 // Get witness script (last element)
-                let witness_script = witness_stack.last().unwrap();
+                let witness_script = witness_stack.last().expect("Witness stack is not empty");
                 
                 // Verify witness script hash matches program
                 let program_bytes = &script_pubkey[2..];
@@ -1011,6 +1014,7 @@ pub fn verify_script_with_context_full(
         median_time_past,
         network,
         SigVersion::Base,
+        #[cfg(feature = "production")] schnorr_collector.as_deref_mut(),
     )?;
     if !script_pubkey_result {
         return Ok(false);
@@ -1040,6 +1044,7 @@ pub fn verify_script_with_context_full(
             median_time_past,
             network,
             witness_sigversion,
+            #[cfg(feature = "production")] schnorr_collector.as_deref_mut(),
         )? {
             return Ok(false);
         }
@@ -1056,7 +1061,7 @@ pub fn verify_script_with_context_full(
         }
         
         // Verify top element is non-zero (OP_EQUAL returned 1 = hash matched)
-        let top = stack.last().unwrap();
+        let top = stack.last().expect("Stack is not empty");
         if !cast_to_bool(top) {
             return Ok(false); // Hash didn't match or scriptPubkey failed
         }
@@ -1101,7 +1106,7 @@ pub fn verify_script_with_context_full(
                     }
                     
                     // Get the witness script (last element) - it's a ByteString (Vec<u8>)
-                    let witness_script = witness_stack.last().unwrap();
+                    let witness_script = witness_stack.last().expect("Witness stack is not empty");
                     let witness_script_hash = Sha256::digest(witness_script.as_slice());
                     if witness_script_hash.as_slice() != program_bytes {
                         return Ok(false); // Witness script hash doesn't match program
@@ -1138,6 +1143,7 @@ pub fn verify_script_with_context_full(
                         median_time_past,
                         network,
                         witness_sigversion,
+                        #[cfg(feature = "production")] schnorr_collector.as_deref_mut(),
                     )? {
                         return Ok(false);
                     }
@@ -1170,6 +1176,7 @@ pub fn verify_script_with_context_full(
                 network,
                 SigVersion::Base,
                 Some(&redeem), // Pass redeem script for sighash
+                #[cfg(feature = "production")] None, // schnorr_collector
             )?;
             if !redeem_result {
                 return Ok(false);
@@ -1210,7 +1217,7 @@ pub fn verify_script_with_context_full(
         stack.len() == 1 && cast_to_bool(&stack[0])
     } else {
         // Legacy: stack non-empty, top element is truthy
-        !stack.is_empty() && cast_to_bool(stack.last().unwrap())
+        !stack.is_empty() && cast_to_bool(stack.last().expect("Stack is not empty"))
     };
     Ok(final_result)
 }
@@ -1241,6 +1248,7 @@ fn eval_script_with_context(
         None, // median_time_past
         network,
         SigVersion::Base,
+        #[cfg(feature = "production")] None, // No collector in this context
     )
 }
 
@@ -1258,8 +1266,9 @@ fn eval_script_with_context_full(
     median_time_past: Option<u64>,
     network: crate::types::Network,
     sigversion: SigVersion,
+    #[cfg(feature = "production")] schnorr_collector: Option<&mut crate::bip348::SchnorrSignatureCollector>,
 ) -> Result<bool> {
-    eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevout_values, prevout_script_pubkeys, block_height, median_time_past, network, sigversion, None)
+    eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevout_values, prevout_script_pubkeys, block_height, median_time_past, network, sigversion, None, #[cfg(feature = "production")] schnorr_collector)
 }
 
 /// Internal function with redeem script support for P2SH sighash
@@ -1276,6 +1285,7 @@ fn eval_script_with_context_full_inner(
     network: crate::types::Network,
     sigversion: SigVersion,
     redeem_script_for_sighash: Option<&ByteString>,
+    #[cfg(feature = "production")] schnorr_collector: Option<&mut crate::bip348::SchnorrSignatureCollector>,
 ) -> Result<bool> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -1326,8 +1336,6 @@ fn eval_script_with_context_full_inner(
     let mut i = 0;
     while i < script.len() {
         let opcode = script[i];
-
-        // Note: opcode is already u8, so it's always <= 0xff by type definition
 
         // Are we in a non-executing branch?
         let in_false_branch = control_stack.iter().any(|b| {
@@ -1601,6 +1609,7 @@ fn eval_script_with_context_full_inner(
                     network,
                     sigversion,
                     effective_script_code,
+                    #[cfg(feature = "production")] schnorr_collector.as_deref_mut(),
                 )? {
                     return Ok(false);
                 }
@@ -1646,7 +1655,7 @@ fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
         result |= (byte as i64) << (8 * i);
     }
     // Check sign bit (MSB of last byte)
-    if data.last().unwrap() & 0x80 != 0 {
+    if data.last().expect("Data is not empty") & 0x80 != 0 {
         // Negative: clear sign bit and negate
         result &= !(0x80i64 << (8 * (data.len() - 1)));
         result = -result;
@@ -1668,7 +1677,7 @@ fn script_num_encode(value: i64) -> Vec<u8> {
         absvalue >>= 8;
     }
     // If MSB is set, add extra byte for sign
-    if result.last().unwrap() & 0x80 != 0 {
+    if result.last().expect("Result is not empty (absvalue > 0)") & 0x80 != 0 {
         result.push(if neg { 0x80 } else { 0x00 });
     } else if neg {
         *result.last_mut().unwrap() |= 0x80;
@@ -2513,6 +2522,7 @@ fn execute_opcode_with_context(
         network,
         SigVersion::Base,
         None, // redeem_script_for_sighash (not available in this context)
+        #[cfg(feature = "production")] None, // No collector in this context
     )
 }
 
@@ -2608,6 +2618,7 @@ fn execute_opcode_with_context_full(
     network: crate::types::Network,
     sigversion: SigVersion,
     redeem_script_for_sighash: Option<&ByteString>,
+    #[cfg(feature = "production")] schnorr_collector: Option<&mut crate::bip348::SchnorrSignatureCollector>,
 ) -> Result<bool> {
     match opcode {
         // OP_CHECKSIG - verify ECDSA signature
@@ -2621,6 +2632,51 @@ fn execute_opcode_with_context_full(
                 if signature_bytes.is_empty() {
                     stack.push(vec![0]);
                     return Ok(true);
+                }
+
+                // Tapscript (BIP 342): Uses BIP 340 Schnorr signatures (64 bytes, not DER)
+                // and 32-byte x-only pubkeys. Signature format is just 64 bytes (no sighash byte).
+                if sigversion == SigVersion::Tapscript {
+                    // Tapscript: signature is 64-byte BIP 340 Schnorr, pubkey is 32-byte x-only
+                    if signature_bytes.len() == 64 && pubkey_bytes.len() == 32 {
+                        // Calculate BIP 341 Taproot sighash
+                        let sighash_byte = 0x00; // Default SIGHASH_ALL for Tapscript
+                        
+                        let sighash = crate::taproot::compute_taproot_signature_hash(
+                            tx,
+                            input_index,
+                            prevout_values,
+                            prevout_script_pubkeys,
+                            sighash_byte,
+                        )?;
+
+                        // OPTIMIZATION: Use collector for batch verification if available
+                        #[cfg(feature = "production")]
+                        let is_valid = {
+                            use crate::bip348::verify_tapscript_schnorr_signature;
+                            verify_tapscript_schnorr_signature(
+                                &sighash,
+                                &pubkey_bytes,
+                                &signature_bytes,
+                                schnorr_collector,
+                            ).unwrap_or(false)
+                        };
+
+                        #[cfg(not(feature = "production"))]
+                        let is_valid = {
+                            use crate::bip348::verify_tapscript_schnorr_signature;
+                            verify_tapscript_schnorr_signature(
+                                &sighash,
+                                &pubkey_bytes,
+                                &signature_bytes,
+                                None,
+                            ).unwrap_or(false)
+                        };
+
+                        stack.push(vec![if is_valid { 1 } else { 0 }]);
+                        return Ok(true);
+                    }
+                    // Fall through to ECDSA path for non-Tapscript signatures
                 }
 
                 // Extract sighash type from last byte of signature
@@ -2844,7 +2900,7 @@ fn execute_opcode_with_context_full(
             }
 
             // Decode locktime value from stack using CScriptNum rules (max 5 bytes)
-            let locktime_bytes = stack.last().unwrap();
+            let locktime_bytes = stack.last().expect("Stack is not empty");
             let locktime_value = match decode_locktime_value(locktime_bytes) {
                 Some(v) => v,
                 None => {
@@ -2908,7 +2964,7 @@ fn execute_opcode_with_context_full(
 
             // Decode sequence value from stack using shared locktime logic.
             // Like Core, we interpret the top stack element as a sequence value.
-            let sequence_bytes = stack.last().unwrap();
+            let sequence_bytes = stack.last().expect("Stack is not empty");
             let sequence_value = match decode_locktime_value(sequence_bytes) {
                 Some(v) => v,
                 None => return Ok(false), // Invalid encoding
@@ -3137,10 +3193,23 @@ fn execute_opcode_with_context_full(
                 }
 
                 // BIP-348: Verify signature (only for 32-byte pubkeys)
+                // OPTIMIZATION: Use collector for batch verification if available
+                #[cfg(feature = "production")]
+                let is_valid = {
+                    use crate::bip348::SchnorrSignatureCollector;
+                    verify_signature_from_stack(
+                        &message_bytes,  // Message (NOT hashed by BIP 340 spec)
+                        &pubkey_bytes,   // Pubkey (32 bytes for BIP 340)
+                        &signature_bytes, // Signature (64-byte BIP 340 Schnorr)
+                        schnorr_collector, // Pass collector for batch verification
+                    ).unwrap_or(false)
+                };
+                #[cfg(not(feature = "production"))]
                 let is_valid = verify_signature_from_stack(
                     &message_bytes,  // Message (NOT hashed by BIP 340 spec)
                     &pubkey_bytes,   // Pubkey (32 bytes for BIP 340)
                     &signature_bytes, // Signature (64-byte BIP 340 Schnorr)
+                    None, // No collector in non-production mode
                 ).unwrap_or(false);
 
                 if !is_valid {
@@ -3368,6 +3437,7 @@ fn execute_opcode_with_context_full(
                 network,
                 sigversion,
                 redeem_script_for_sighash,
+                #[cfg(feature = "production")] None, // schnorr_collector
             )?;
             if !result {
                 return Ok(false);
@@ -3699,7 +3769,7 @@ fn verify_signature<C: Context + Verification>(
     normalized_signature.normalize_s(); // Always normalize for secp256k1 verification
 
     // Verify signature
-    Ok(secp.verify_ecdsa(&message, &normalized_signature, &pubkey).is_ok())
+    Ok(secp.verify_ecdsa(message, &normalized_signature, &pubkey).is_ok())
 }
 
 /// Phase 6.1: Batch ECDSA signature verification

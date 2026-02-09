@@ -203,7 +203,7 @@ fn test_p2sh_redeem_script_sighash() {
         &tx,
         0,
         &prevouts,
-        SighashType::All,
+        SighashType::ALL,
         Some(&redeem_script),
     );
 
@@ -212,7 +212,7 @@ fn test_p2sh_redeem_script_sighash() {
         &tx,
         0,
         &prevouts,
-        SighashType::All,
+        SighashType::ALL,
         Some(&script_pubkey),
     );
 
@@ -337,7 +337,7 @@ fn test_bip30_deactivation() {
 /// **Bug Fixed:** Legacy sighash type 0x00 was being converted to 0x01 during
 /// preimage calculation.
 ///
-/// **Fix:** Added SighashType::AllLegacy = 0x00 and serialize as 0x00000000.
+/// **Fix:** Added SighashType::ALL_LEGACY (0x00) and serialize as 0x00000000.
 ///
 /// **Test:** Verify that 0x00 sighash type behaves like SIGHASH_ALL.
 #[test]
@@ -366,7 +366,7 @@ fn test_sighash_alllegacy() {
         &tx,
         0,
         &prevouts,
-        SighashType::AllLegacy,
+        SighashType::ALL_LEGACY,
         None,
     );
 
@@ -375,7 +375,7 @@ fn test_sighash_alllegacy() {
         &tx,
         0,
         &prevouts,
-        SighashType::All,
+        SighashType::ALL,
         None,
     );
 

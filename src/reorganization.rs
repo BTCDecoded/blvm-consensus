@@ -17,6 +17,7 @@ pub fn reorganize_chain(
     current_chain: &[Block],
     current_utxo_set: UtxoSet,
     current_height: Natural,
+    network: crate::types::Network,
 ) -> Result<ReorganizationResult> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -68,6 +69,7 @@ pub fn reorganize_chain(
         None::<fn(Natural) -> Option<Vec<BlockHeader>>>, // No header retrieval
         None::<fn(&Hash) -> Option<BlockUndoLog>>,  // No undo log retrieval
         None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No undo log storage
+        network,
     )
 }
 
@@ -105,6 +107,7 @@ pub fn reorganize_chain_with_witnesses(
     _get_headers_for_height: Option<impl Fn(Natural) -> Option<Vec<BlockHeader>>>,
     get_undo_log_for_block: Option<impl Fn(&Hash) -> Option<BlockUndoLog>>,
     store_undo_log_for_block: Option<impl Fn(&Hash, &BlockUndoLog) -> Result<()>>,
+    network: crate::types::Network,
 ) -> Result<ReorganizationResult> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -156,7 +159,7 @@ pub fn reorganize_chain_with_witnesses(
     // 2. Disconnect blocks from current chain back to common ancestor
     // We disconnect from (current_ancestor_index + 1) to the tip
     // Undo logs are retrieved from persistent storage via the callback.
-    // The node layer (bllvm-node) should provide a callback that uses BlockStore::get_undo_log()
+    // The node layer (blvm-node) should provide a callback that uses BlockStore::get_undo_log()
     // to retrieve undo logs from the database (redb/sled).
     let mut utxo_set = current_utxo_set;
     // Invariant assertion: UTXO set size must be reasonable
@@ -219,9 +222,12 @@ pub fn reorganize_chain_with_witnesses(
 
     // 3. Connect blocks from new chain from common ancestor forward
     // We connect from (common_ancestor_index + 1) to the tip of new chain
-    // Calculate the height at the common ancestor
-    let common_ancestor_height = current_height
-        .saturating_sub((current_chain.len() as Natural).saturating_sub(current_ancestor_index as Natural));
+    // Calculate the height at the common ancestor.
+    // current_chain[i] is at height: current_height - (current_chain.len() - 1 - i)
+    // So ancestor at current_ancestor_index is at:
+    //   current_height - (current_chain.len() - 1 - current_ancestor_index)
+    let blocks_after_ancestor = (current_chain.len() - 1 - current_ancestor_index) as Natural;
+    let common_ancestor_height = current_height.saturating_sub(blocks_after_ancestor);
     let mut new_height = common_ancestor_height;
     let mut connected_blocks = Vec::new();
     let mut connected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
@@ -268,7 +274,7 @@ pub fn reorganize_chain_with_witnesses(
             new_height,
             recent_headers,
             network_time,
-            crate::types::Network::Mainnet,
+            network,
         )?;
 
         if !matches!(validation_result, ValidationResult::Valid) {
@@ -494,7 +500,7 @@ fn find_common_ancestor(new_chain: &[Block], current_chain: &[Block]) -> Result<
 
     // If we've checked all blocks up to min_len and none match,
     // check if genesis blocks match (they should always be the same)
-    if new_chain.len() > 0 && current_chain.len() > 0 {
+    if !new_chain.is_empty() && !current_chain.is_empty() {
         let new_genesis_hash = calculate_block_hash(&new_chain[0].header);
         let current_genesis_hash = calculate_block_hash(&current_chain[0].header);
         if new_genesis_hash == current_genesis_hash {
@@ -600,8 +606,6 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
     if new_chain.len() == current_chain.len() {
         let new_work = calculate_chain_work(new_chain)?;
         let current_work = calculate_chain_work(current_chain)?;
-        // Note: Chain work is always non-negative (u128 type), assertion removed to avoid clippy warning
-        // The type system guarantees non-negativity
         let result = new_work > current_work;
         // Postcondition assertion: Result must be boolean
         // Note: Result is boolean (tautology for formal verification)
@@ -985,7 +989,7 @@ mod tests {
         let current_chain = vec![create_test_block()];
 
         let ancestor = find_common_ancestor(&new_chain, &current_chain).unwrap();
-        assert_eq!(ancestor.header.version, 1);
+        assert_eq!(ancestor.header.version, 4);
         assert_eq!(ancestor.new_chain_index, 0);
         assert_eq!(ancestor.current_chain_index, 0);
     }
@@ -1001,33 +1005,40 @@ mod tests {
 
     #[test]
     fn test_calculate_chain_work() {
-        let chain = vec![create_test_block()];
+        let mut block = create_test_block();
+        // Use a bits value with exponent <= 18 so the target fits in u128
+        block.header.bits = 0x0300ffff;
+        let chain = vec![block];
         let work = calculate_chain_work(&chain).unwrap();
         assert!(work > 0);
     }
 
     #[test]
     fn test_reorganize_chain() {
-        let new_chain = vec![create_test_block()];
-        let current_chain = vec![create_test_block()];
+        // Set up a fork: both chains share an ancestor block, then diverge.
+        // current_chain = [ancestor] (tip at height 1)
+        // new_chain = [ancestor, new_block] (longer chain, should win)
+        let ancestor = create_test_block_at_height(0);
+        let mut new_block = create_test_block_at_height(1);
+        new_block.header.nonce = 42; // Different block than ancestor
+        // Recalculate merkle root (nonce doesn't affect it, but prev_block_hash irrelevant for connect_block)
+
+        let new_chain = vec![ancestor.clone(), new_block];
+        let current_chain = vec![ancestor];
         let utxo_set = UtxoSet::new();
 
-        // The reorganization might fail due to simplified block validation
-        // This is expected behavior for the current implementation
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1);
-        // Either it succeeds or fails gracefully - both are acceptable
+        // current_height = 1 (tip of current_chain at height 1)
+        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1, crate::types::Network::Regtest);
         match result {
             Ok(reorg_result) => {
-                // new_height should be the height after connecting the new chain
-                // If we start at height 1 and connect 1 new block, new_height should be 2
+                // Ancestor is at height 1 (current_height - 0 blocks after it = 1)
+                // One new block connected at height 2
                 assert_eq!(reorg_result.new_height, 2);
                 assert_eq!(reorg_result.connected_blocks.len(), 1);
-                // Verify undo logs are stored for connected blocks
                 assert_eq!(reorg_result.connected_block_undo_logs.len(), 1);
             }
             Err(_) => {
-                // Expected failure due to simplified validation
-                // This is acceptable for the current implementation
+                // Acceptable: validation may fail for simplified test blocks
             }
         }
     }
@@ -1050,7 +1061,7 @@ mod tests {
         let current_chain = vec![current_block1, current_block2];
         let utxo_set = UtxoSet::new();
 
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 2);
+        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 2, crate::types::Network::Regtest);
         match result {
             Ok(reorg_result) => {
                 assert_eq!(reorg_result.connected_blocks.len(), 3);
@@ -1069,7 +1080,7 @@ mod tests {
         use crate::block::connect_block;
         use crate::segwit::Witness;
 
-        let block = create_test_block();
+        let block = create_test_block_at_height(1);
         let mut utxo_set = UtxoSet::new();
 
         // Add some UTXOs that will be spent
@@ -1079,7 +1090,7 @@ mod tests {
             index: 0,
         };
         let utxo = UTXO {
-            value: 5_000_000_000, // 5 BTC (matching coinbase subsidy at height 1)
+            value: 5_000_000_000,
             script_pubkey: vec![0x51],
             height: 1,
             is_coinbase: false,
@@ -1087,14 +1098,15 @@ mod tests {
         utxo_set.insert(outpoint.clone(), utxo.clone());
 
         // Connect block and get undo log
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let witnesses: Vec<Vec<Witness>> = block.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
         let (result, new_utxo_set, undo_log) = connect_block(
             &block,
             &witnesses,
             utxo_set.clone(),
             1,
             None,
-            crate::types::Network::Mainnet,
+            0u64,
+            crate::types::Network::Regtest,
         )
         .unwrap();
 
@@ -1139,10 +1151,10 @@ mod tests {
         use crate::block::connect_block;
         use crate::segwit::Witness;
 
-        // Create a block and connect it to get undo log
-        let block = create_test_block();
+        // Create a block at height 1 and connect it to get undo log
+        let block = create_test_block_at_height(1);
         let utxo_set = UtxoSet::new();
-        let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+        let witnesses: Vec<Vec<Witness>> = block.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
 
         let (result, connected_utxo_set, undo_log) = connect_block(
             &block,
@@ -1150,7 +1162,8 @@ mod tests {
             utxo_set.clone(),
             1,
             None,
-            crate::types::Network::Mainnet,
+            0u64,
+            crate::types::Network::Regtest,
         )
         .unwrap();
 
@@ -1169,11 +1182,14 @@ mod tests {
             |hash: &Hash| -> Option<BlockUndoLog> { undo_log_storage.get(hash).cloned() };
 
         // Reorganize with undo log callback
-        let new_chain = vec![create_test_block()];
+        // new_chain shares the same ancestor block, plus a new block at height 2
+        let mut new_block = create_test_block_at_height(2);
+        new_block.header.nonce = 42; // Differentiate from ancestor
+        let new_chain = vec![block.clone(), new_block];
         let current_chain = vec![block];
-        let empty_witnesses: Vec<Vec<Witness>> = new_chain
+        let empty_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
             .iter()
-            .map(|b| b.transactions.iter().map(|_| Vec::new()).collect())
+            .map(|b| b.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect())
             .collect();
 
         let reorg_result = reorganize_chain_with_witnesses(
@@ -1187,6 +1203,7 @@ mod tests {
             None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
             Some(get_undo_log),
             None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No storage in test
+            crate::types::Network::Regtest,
         );
 
         // Reorganization should succeed (or fail gracefully)
@@ -1207,7 +1224,7 @@ mod tests {
         let current_chain = vec![create_test_block()];
         let utxo_set = UtxoSet::new();
 
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1);
+        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 1, crate::types::Network::Regtest);
         assert!(result.is_err());
     }
 
@@ -1217,7 +1234,7 @@ mod tests {
         let current_chain = vec![];
         let utxo_set = UtxoSet::new();
 
-        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 0);
+        let result = reorganize_chain(&new_chain, &current_chain, utxo_set, 0, crate::types::Network::Regtest);
         assert!(result.is_err());
     }
 
@@ -1256,7 +1273,8 @@ mod tests {
     #[test]
     fn test_calculate_chain_work_multiple_blocks() {
         let mut chain = vec![create_test_block(), create_test_block()];
-        // Make second block have different difficulty
+        // Use bits values with exponent <= 18 so targets fit in u128
+        chain[0].header.bits = 0x0300ffff;
         chain[1].header.bits = 0x0200ffff;
 
         let work = calculate_chain_work(&chain).unwrap();
@@ -1300,12 +1318,40 @@ mod tests {
         assert_ne!(id1, id2);
     }
 
-    // Helper functions for tests
-    fn create_test_block() -> Block {
+    /// Encode a block height into a BIP34-compliant coinbase scriptSig prefix.
+    /// Follows Bitcoin's CScriptNum serialization:
+    /// - Height 0: OP_0 (0x00)
+    /// - Height 1+: push N bytes of little-endian height (with sign-bit padding)
+    fn encode_bip34_height(height: u64) -> Vec<u8> {
+        if height == 0 {
+            // CScriptNum(0) serializes to empty vec, CScript << empty = OP_0
+            return vec![0x00, 0xff]; // OP_0 + padding to meet 2-byte minimum
+        }
+        let mut height_bytes = Vec::new();
+        let mut n = height;
+        while n > 0 {
+            height_bytes.push((n & 0xff) as u8);
+            n >>= 8;
+        }
+        // If high bit is set, add 0x00 for positive sign
+        if height_bytes.last().map_or(false, |&b| b & 0x80 != 0) {
+            height_bytes.push(0x00);
+        }
+        let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
+        script_sig.push(height_bytes.len() as u8); // direct push length
+        script_sig.extend_from_slice(&height_bytes);
+        // Pad to at least 2 bytes (coinbase scriptSig minimum)
+        if script_sig.len() < 2 {
+            script_sig.push(0xff);
+        }
+        script_sig
+    }
+
+    /// Create a test block with BIP34-compliant coinbase encoding for the given height.
+    fn create_test_block_at_height(height: u64) -> Block {
         use crate::mining::calculate_merkle_root;
 
-        // Create a valid coinbase transaction
-        // Coinbase scriptSig must be 2-100 bytes (BIP34 requires height encoding after activation, but we're at height 1 which is before activation)
+        let script_sig = encode_bip34_height(height);
         let coinbase_tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
@@ -1313,32 +1359,36 @@ mod tests {
                     hash: [0; 32].into(),
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x00, 0x01], // 2 bytes (minimum valid coinbase scriptSig)
+                script_sig,
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
-                value: 5_000_000_000, // 5 BTC (subsidy at height 1, before halving)
+                value: 5_000_000_000,
                 script_pubkey: vec![0x51].into(),
             }]
             .into(),
             lock_time: 0,
         };
 
-        // Calculate actual merkle root from transactions
         let merkle_root =
             calculate_merkle_root(&[coinbase_tx.clone()]).expect("Failed to calculate merkle root");
 
         Block {
             header: BlockHeader {
-                version: 1,
+                version: 4,
                 prev_block_hash: [0; 32],
                 merkle_root,
                 timestamp: 1231006505,
-                bits: 0x0300ffff, // Use valid target (exponent = 3)
+                bits: 0x207fffff, // Regtest difficulty
                 nonce: 0,
             },
             transactions: vec![coinbase_tx].into_boxed_slice(),
         }
+    }
+
+    /// Create a test block at height 0 (backward-compatible default).
+    fn create_test_block() -> Block {
+        create_test_block_at_height(0)
     }
 }

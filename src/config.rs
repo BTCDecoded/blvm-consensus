@@ -554,11 +554,11 @@ pub struct ConsensusConfig {
 impl ConsensusConfig {
     /// Load configuration from environment variables
     ///
-    /// Environment variables follow the pattern: `BLLVM_CONSENSUS_<SECTION>_<KEY>`
+    /// Environment variables follow the pattern: `BLVM_CONSENSUS_<SECTION>_<KEY>`
     ///
     /// Examples:
-    /// - `BLLVM_CONSENSUS_BLOCK_VALIDATION_ASSUME_VALID_HEIGHT=700000`
-    /// - `BLLVM_CONSENSUS_NETWORK_LIMITS_MAX_HEADERS=2000`
+    /// - `BLVM_CONSENSUS_BLOCK_VALIDATION_ASSUME_VALID_HEIGHT=700000`
+    /// - `BLVM_CONSENSUS_NETWORK_LIMITS_MAX_HEADERS=2000`
     pub fn from_env() -> Self {
         let mut config = Self::default();
 
@@ -570,113 +570,113 @@ impl ConsensusConfig {
         }
 
         // Load from new environment variable format
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_ASSUME_VALID_HEIGHT") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_BLOCK_VALIDATION_ASSUME_VALID_HEIGHT") {
             if let Ok(height) = val.parse::<u64>() {
                 config.block_validation.assume_valid_height = height;
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MEDIAN_TIME_PAST_HEADERS")
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_BLOCK_VALIDATION_MEDIAN_TIME_PAST_HEADERS")
         {
             if let Ok(count) = val.parse::<usize>() {
                 config.block_validation.median_time_past_headers = count;
             }
         }
         if let Ok(val) =
-            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_ENABLE_PARALLEL_VALIDATION")
+            std::env::var("BLVM_CONSENSUS_BLOCK_VALIDATION_ENABLE_PARALLEL_VALIDATION")
         {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.block_validation.enable_parallel_validation = enabled;
             }
         }
         if let Ok(val) =
-            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_COINBASE_MATURITY_OVERRIDE")
+            std::env::var("BLVM_CONSENSUS_BLOCK_VALIDATION_COINBASE_MATURITY_OVERRIDE")
         {
             if let Ok(maturity) = val.parse::<u64>() {
                 config.block_validation.coinbase_maturity_override = maturity;
             }
         }
         if let Ok(val) =
-            std::env::var("BLLVM_CONSENSUS_BLOCK_VALIDATION_MAX_BLOCK_SIGOPS_COST_OVERRIDE")
+            std::env::var("BLVM_CONSENSUS_BLOCK_VALIDATION_MAX_BLOCK_SIGOPS_COST_OVERRIDE")
         {
             if let Ok(cost) = val.parse::<u64>() {
                 config.block_validation.max_block_sigops_cost_override = cost;
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_NETWORK_LIMITS_MAX_ADDR_ADDRESSES") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_NETWORK_LIMITS_MAX_ADDR_ADDRESSES") {
             if let Ok(limit) = val.parse::<usize>() {
                 config.network_limits.max_addr_addresses = limit;
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_NETWORK_LIMITS_MAX_INV_ITEMS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_NETWORK_LIMITS_MAX_INV_ITEMS") {
             if let Ok(limit) = val.parse::<usize>() {
                 config.network_limits.max_inv_items = limit;
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_NETWORK_LIMITS_MAX_HEADERS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_NETWORK_LIMITS_MAX_HEADERS") {
             if let Ok(limit) = val.parse::<usize>() {
                 config.network_limits.max_headers = limit;
             }
         }
 
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_NETWORK_LIMITS_MAX_USER_AGENT_LENGTH") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_NETWORK_LIMITS_MAX_USER_AGENT_LENGTH") {
             if let Ok(limit) = val.parse::<usize>() {
                 config.network_limits.max_user_agent_length = limit;
             }
         }
 
         // Load mempool configuration (Bitcoin Core parity)
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_MAX_MEMPOOL_MB") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_MAX_MEMPOOL_MB") {
             if let Ok(mb) = val.parse::<u64>() {
                 config.mempool.max_mempool_mb = mb;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_MAX_MEMPOOL_TXS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_MAX_MEMPOOL_TXS") {
             if let Ok(count) = val.parse::<usize>() {
                 config.mempool.max_mempool_txs = count;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_EXPIRY_HOURS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_EXPIRY_HOURS") {
             if let Ok(hours) = val.parse::<u64>() {
                 config.mempool.mempool_expiry_hours = hours;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_MIN_RELAY_FEE_RATE") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_MIN_RELAY_FEE_RATE") {
             if let Ok(rate) = val.parse::<u64>() {
                 config.mempool.min_relay_fee_rate = rate;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_MIN_TX_FEE") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_MIN_TX_FEE") {
             if let Ok(fee) = val.parse::<i64>() {
                 config.mempool.min_tx_fee = fee;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_MEMPOOL_RBF_FEE_INCREMENT") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_MEMPOOL_RBF_FEE_INCREMENT") {
             if let Ok(increment) = val.parse::<i64>() {
                 config.mempool.rbf_fee_increment = increment;
             }
         }
 
         // Load UTXO commitment configuration
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_MAX_SET_MB") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_UTXO_COMMITMENT_MAX_SET_MB") {
             if let Ok(mb) = val.parse::<u64>() {
                 config.utxo_commitment.max_utxo_commitment_set_mb = mb;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_MAX_UTXO_COUNT") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_UTXO_COMMITMENT_MAX_UTXO_COUNT") {
             if let Ok(count) = val.parse::<u64>() {
                 config.utxo_commitment.max_utxo_count = count;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_MAX_HISTORICAL") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_UTXO_COMMITMENT_MAX_HISTORICAL") {
             if let Ok(count) = val.parse::<usize>() {
                 config.utxo_commitment.max_historical_commitments = count;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_UTXO_COMMITMENT_ENABLE_INCREMENTAL_UPDATES")
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_UTXO_COMMITMENT_ENABLE_INCREMENTAL_UPDATES")
         {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.utxo_commitment.enable_incremental_updates = enabled;
@@ -684,117 +684,117 @@ impl ConsensusConfig {
         }
 
         // Load performance configuration
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_PERFORMANCE_SCRIPT_VERIFICATION_THREADS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_PERFORMANCE_SCRIPT_VERIFICATION_THREADS") {
             if let Ok(threads) = val.parse::<usize>() {
                 config.performance.script_verification_threads = threads;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_PERFORMANCE_PARALLEL_BATCH_SIZE") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_PERFORMANCE_PARALLEL_BATCH_SIZE") {
             if let Ok(size) = val.parse::<usize>() {
                 config.performance.parallel_batch_size = size;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_PERFORMANCE_ENABLE_SIMD") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_PERFORMANCE_ENABLE_SIMD") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.performance.enable_simd_optimizations = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_PERFORMANCE_ENABLE_CACHE_OPTIMIZATIONS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_PERFORMANCE_ENABLE_CACHE_OPTIMIZATIONS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.performance.enable_cache_optimizations = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_PERFORMANCE_ENABLE_BATCH_UTXO_LOOKUPS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_PERFORMANCE_ENABLE_BATCH_UTXO_LOOKUPS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.performance.enable_batch_utxo_lookups = enabled;
             }
         }
 
         // Load debug configuration
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_DEBUG_ENABLE_RUNTIME_ASSERTIONS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_DEBUG_ENABLE_RUNTIME_ASSERTIONS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.debug.enable_runtime_assertions = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_DEBUG_ENABLE_RUNTIME_INVARIANTS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_DEBUG_ENABLE_RUNTIME_INVARIANTS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.debug.enable_runtime_invariants = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_DEBUG_ENABLE_VERBOSE_LOGGING") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_DEBUG_ENABLE_VERBOSE_LOGGING") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.debug.enable_verbose_logging = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_DEBUG_ENABLE_PERFORMANCE_PROFILING") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_DEBUG_ENABLE_PERFORMANCE_PROFILING") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.debug.enable_performance_profiling = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_DEBUG_LOG_REJECTIONS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_DEBUG_LOG_REJECTIONS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.debug.log_rejections = enabled;
             }
         }
 
         // Load feature flags
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_EXPERIMENTAL_OPTIMIZATIONS")
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_EXPERIMENTAL_OPTIMIZATIONS")
         {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_experimental_optimizations = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_BOUNDS_CHECK_OPTIMIZATIONS")
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_BOUNDS_CHECK_OPTIMIZATIONS")
         {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_bounds_check_optimizations = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_REFERENCE_CHECKS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_REFERENCE_CHECKS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_reference_checks = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_AGGRESSIVE_CACHING") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_AGGRESSIVE_CACHING") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_aggressive_caching = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_BATCH_TX_ID_COMPUTATION") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_BATCH_TX_ID_COMPUTATION") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_batch_tx_id_computation = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_FEATURES_ENABLE_SIMD_HASH_OPERATIONS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_FEATURES_ENABLE_SIMD_HASH_OPERATIONS") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.features.enable_simd_hash_operations = enabled;
             }
         }
 
         // Load advanced configuration
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_ADVANCED_CUSTOM_CHECKPOINTS") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_ADVANCED_CUSTOM_CHECKPOINTS") {
             // Parse comma-separated list of heights
             config.advanced.custom_checkpoints = val
                 .split(',')
                 .filter_map(|s| s.trim().parse::<u64>().ok())
                 .collect();
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_ADVANCED_MAX_REORG_DEPTH") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_ADVANCED_MAX_REORG_DEPTH") {
             if let Ok(depth) = val.parse::<u64>() {
                 config.advanced.max_reorg_depth = depth;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_ADVANCED_STRICT_MODE") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_ADVANCED_STRICT_MODE") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.advanced.strict_mode = enabled;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_ADVANCED_MAX_BLOCK_SIZE_OVERRIDE") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_ADVANCED_MAX_BLOCK_SIZE_OVERRIDE") {
             if let Ok(size) = val.parse::<usize>() {
                 config.advanced.max_block_size_override = size;
             }
         }
-        if let Ok(val) = std::env::var("BLLVM_CONSENSUS_ADVANCED_ENABLE_RBF") {
+        if let Ok(val) = std::env::var("BLVM_CONSENSUS_ADVANCED_ENABLE_RBF") {
             if let Ok(enabled) = val.parse::<bool>() {
                 config.advanced.enable_rbf = enabled;
             }

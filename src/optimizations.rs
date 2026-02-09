@@ -1,4 +1,4 @@
-//! BLLVM Runtime Optimization Passes
+//! BLVM Runtime Optimization Passes
 //!
 //! Phase 4: Additional optimization passes for 10-30% performance gains
 //!
@@ -15,7 +15,7 @@ use crate::constants::*;
 /// Pre-computed constants for constant folding optimization
 ///
 /// These constants are computed at compile time to avoid runtime computation
-/// in hot paths. Reference: BLLVM Optimization Pass 2 - Constant Folding
+/// in hot paths. Reference: BLVM Optimization Pass 2 - Constant Folding
 #[cfg(feature = "production")]
 pub mod precomputed_constants {
     use super::*;
@@ -85,7 +85,7 @@ pub mod bounds_optimization {
 /// - Improves prefetching behavior
 /// - Better fits modern CPU cache architectures (64-byte cache lines)
 ///
-/// Reference: BLLVM Optimization Pass 3 - Memory Layout Optimization
+/// Reference: BLVM Optimization Pass 3 - Memory Layout Optimization
 /// Cache-aligned hash for optimized batch operations
 #[repr(align(32))]
 #[derive(Clone)]
@@ -109,7 +109,7 @@ impl CacheAlignedHash {
 /// for sequential memory accesses. Used before batch UTXO lookups and
 /// other sequential data structure traversals.
 ///
-/// Reference: BLLVM Optimization Pass 1.3 - Memory Prefetching
+/// Reference: BLVM Optimization Pass 1.3 - Memory Prefetching
 #[cfg(feature = "production")]
 pub mod prefetch {
     /// Prefetch data for read access
@@ -278,7 +278,7 @@ pub mod dead_code_elimination {
 /// Uses chunked processing for better cache locality and parallelizes across CPU cores
 /// when batch size is large enough (≥8 items).
 ///
-/// Reference: BLLVM Optimization Pass 5 - SIMD Vectorization
+/// Reference: BLVM Optimization Pass 5 - SIMD Vectorization
 #[cfg(feature = "production")]
 pub mod simd_vectorization {
     use ripemd::Ripemd160;
@@ -590,13 +590,13 @@ pub use precomputed_constants::*;
 /// These bounds are proven by formal verification and can be used
 /// for runtime optimizations without additional safety checks.
 ///
-/// Proven runtime bounds for BLLVM optimizations
+/// Proven runtime bounds for BLVM optimizations
 ///
 /// These bounds have been formally proven and are used for runtime optimizations.
 /// Unlike proof-time limits (in `_helpers::proof_limits`), these represent actual
 /// Bitcoin limits that have been proven to hold in all cases.
 ///
-/// Reference: BLLVM Optimization Pass
+/// Reference: BLVM Optimization Pass
 #[cfg(feature = "production")]
 pub mod proven_bounds {
     use crate::constants::{MAX_INPUTS, MAX_OUTPUTS};

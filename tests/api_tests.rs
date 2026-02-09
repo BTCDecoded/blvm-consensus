@@ -3,6 +3,7 @@
 use blvm_consensus::mempool::*;
 use blvm_consensus::mining::*;
 use blvm_consensus::network::*;
+use blvm_consensus::opcodes::*;
 use blvm_consensus::segwit::*;
 use blvm_consensus::*;
 
@@ -32,13 +33,13 @@ fn test_validate_transaction() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -53,7 +54,7 @@ fn test_validate_transaction() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -74,13 +75,13 @@ fn test_validate_tx_inputs() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -93,7 +94,7 @@ fn test_validate_tx_inputs() {
     };
     let utxo = UTXO {
         value: 2000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![OP_1],
         height: 100,
         is_coinbase: false,
     };
@@ -122,7 +123,7 @@ fn test_validate_block() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -144,8 +145,8 @@ fn test_validate_block() {
     };
 
     let utxo_set = UtxoSet::new();
-    let witnesses: Vec<blvm_consensus::segwit::Witness> =
-        block.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> =
+        block.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
     let time_context = None;
     let network = blvm_consensus::types::Network::Mainnet;
     let (result, new_utxo_set) = consensus
@@ -170,8 +171,8 @@ fn test_validate_block() {
 fn test_verify_script() {
     let consensus = ConsensusProof::new();
 
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     let result = consensus
         .verify_script(&script_sig, &script_pubkey, None, 0)
@@ -180,7 +181,7 @@ fn test_verify_script() {
     let _ = result;
 
     // Test with witness
-    let witness = Some(vec![0x52]); // OP_2
+    let witness = Some(vec![OP_2]); // OP_2
     let result = consensus
         .verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0)
         .unwrap();
@@ -229,7 +230,7 @@ fn test_get_block_subsidy() {
 
     // Using Orange Paper constants
     use blvm_consensus::orange_paper_constants::{C, H};
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     
     // Test genesis block
     let subsidy = consensus.get_block_subsidy(0);
@@ -318,13 +319,13 @@ fn test_accept_to_memory_pool() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -360,13 +361,13 @@ fn test_is_standard_tx() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -388,13 +389,13 @@ fn test_replacement_checks() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -407,13 +408,13 @@ fn test_replacement_checks() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -427,7 +428,7 @@ fn test_replacement_checks() {
     };
     let utxo = UTXO {
         value: 10000, // Enough to cover both outputs
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![OP_1],
         height: 100,
         is_coinbase: false,
     };
@@ -464,8 +465,8 @@ fn test_create_new_block() {
             0,
             &prev_header,
             &prev_headers,
-            &vec![0x51],
-            &vec![0x51],
+            &vec![OP_1],
+            &vec![OP_1],
         )
         .unwrap();
 
@@ -493,13 +494,13 @@ fn test_mine_block() {
                     hash: [0; 32].into(),
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -536,8 +537,8 @@ fn test_create_block_template() {
         0,
         &prev_header,
         &prev_headers,
-        &vec![0x51],
-        &vec![0x51],
+        &vec![OP_1],
+        &vec![OP_1],
     );
 
     // This might fail due to target expansion issues, which is expected
@@ -570,7 +571,7 @@ fn test_reorganize_chain() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -604,7 +605,7 @@ fn test_reorganize_chain() {
     }];
 
     let utxo_set = UtxoSet::new();
-    let result = consensus.reorganize_chain(&new_chain, &current_chain, utxo_set, 1);
+    let result = consensus.reorganize_chain(&new_chain, &current_chain, utxo_set, 1, blvm_consensus::types::Network::Regtest);
 
     // This might fail due to simplified validation, which is expected
     match result {
@@ -635,7 +636,7 @@ fn test_should_reorganize() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -729,7 +730,7 @@ fn test_calculate_transaction_weight() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -833,7 +834,7 @@ fn test_is_taproot_output() {
 
     let non_taproot_output = TransactionOutput {
         value: 1000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![OP_1],
     };
 
     let result = consensus.is_taproot_output(&non_taproot_output);

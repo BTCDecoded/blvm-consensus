@@ -293,7 +293,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
 
     // Block should be rejected due to double-spend
     let witnesses = vec![vec![], vec![], vec![]]; // Empty witnesses
-    let result = connect_block(&block, &witnesses, utxo_set, 1, None, Network::Mainnet);
+    let result = connect_block(&block, &witnesses, utxo_set, 1, None, 0u64, Network::Mainnet);
 
     // Block should be invalid due to double-spend
     if let Ok((validation_result, _, _undo_log)) = result {
@@ -340,6 +340,7 @@ fn test_pre_segwit_block_validation() {
         utxo_set,
         pre_segwit_height,
         None,
+        0u64,
         Network::Mainnet,
     );
 
@@ -379,6 +380,7 @@ fn test_post_segwit_block_validation() {
         utxo_set,
         post_segwit_height,
         None,
+        0u64,
         Network::Mainnet,
     );
 
@@ -418,6 +420,7 @@ fn test_post_taproot_block_validation() {
         utxo_set,
         post_taproot_height,
         None,
+        0u64,
         Network::Mainnet,
     );
 
@@ -455,7 +458,7 @@ fn test_historical_block_subsidy() {
     }
 
     // Verify halving schedule using Orange Paper constants
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     assert_eq!(get_block_subsidy(0), initial_subsidy); // 50 BTC
     assert_eq!(get_block_subsidy(H - 1), initial_subsidy); // 50 BTC
     assert_eq!(get_block_subsidy(H), initial_subsidy / 2); // 25 BTC

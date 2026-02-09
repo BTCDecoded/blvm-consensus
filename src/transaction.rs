@@ -158,7 +158,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 
     // 2. Check output values are valid and calculate total sum in one pass (Orange Paper Section 5.1, rules 2 & 3)
     // ∀o ∈ outs: 0 ≤ o.value ≤ M_max ∧ ∑_{o ∈ outs} o.value ≤ M_max
-    // BLLVM Optimization: Use proven bounds for output access in hot path
+    // Use proven bounds for output access in hot path
     let mut total_output_value = 0i64;
     // Invariant assertion: Total output value must start at zero
     assert!(
@@ -228,8 +228,6 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 
     // 2b. Check total output sum is in valid range (matches Bitcoin Core's MoneyRange check)
     // MoneyRange(n) = (n >= 0 && n <= MAX_MONEY)
-    // Note: total_output_value should always be >= 0 since we check each output >= 0
-    // and use checked_add, but we check explicitly to match Core's behavior exactly
     // Optimization: Use precomputed constant for comparison
     // Invariant assertion: Total output value must be non-negative
     assert!(
@@ -293,7 +291,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // Core: GetSerializeSize(TX_NO_WITNESS(tx)) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT
     // This checks: stripped_size * 4 > 4,000,000, i.e., stripped_size > 1,000,000
     // Note: Core's comment says "this doesn't take the witness into account, as that hasn't been checked for malleability"
-    // BLLVM: calculate_transaction_size returns stripped size (no witness), matching TX_NO_WITNESS
+    // calculate_transaction_size returns stripped size (no witness), matching TX_NO_WITNESS
     use crate::constants::MAX_BLOCK_WEIGHT;
     const WITNESS_SCALE_FACTOR: usize = 4;
     let tx_stripped_size = calculate_transaction_size(tx); // This is TX_NO_WITNESS size
@@ -324,17 +322,11 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
     // 8. Check coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
     // If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
     if is_coinbase(tx) {
-        // Bounds checking assertion: Coinbase must have at least one input
-        assert!(
+        debug_assert!(
             !tx.inputs.is_empty(),
             "Coinbase transaction must have at least one input"
         );
         let script_sig_len = tx.inputs[0].script_sig.len();
-        // Invariant assertion: Coinbase scriptSig length must be in valid range
-        assert!(
-            (2..=100).contains(&script_sig_len),
-            "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
-        );
         if !(2..=100).contains(&script_sig_len) {
             return Ok(ValidationResult::Invalid(format!(
                 "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
@@ -366,6 +358,16 @@ pub fn check_tx_inputs<U: UtxoLookup>(
     tx: &Transaction,
     utxo_set: &U,
     height: Natural,
+) -> Result<(ValidationResult, Integer)> {
+    check_tx_inputs_with_utxos(tx, utxo_set, height, None)
+}
+
+/// Optimized version that accepts pre-collected UTXOs to avoid redundant lookups
+pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
+    tx: &Transaction,
+    utxo_set: &U,
+    height: Natural,
+    pre_collected_utxos: Option<&[Option<&UTXO>]>,
 ) -> Result<(ValidationResult, Integer)> {
     // Precondition checks: Validate function inputs
     // Note: We check this condition and return Invalid rather than asserting,
@@ -400,7 +402,7 @@ pub fn check_tx_inputs<U: UtxoLookup>(
 
     // Check that non-coinbase inputs don't have null prevouts (Orange Paper Section 5.1, rule 6)
     // ∀i ∈ ins: ¬i.prevout.IsNull()
-    // BLLVM Optimization: Use proven bounds for input access in hot path
+    // Use proven bounds for input access in hot path
     #[cfg(feature = "production")]
     {
         use crate::optimizations::constant_folding::is_zero_hash;
@@ -445,7 +447,15 @@ pub fn check_tx_inputs<U: UtxoLookup>(
         }
     }
 
-    let input_utxos: Vec<(usize, Option<&UTXO>)> = {
+    // OPTIMIZATION: Use pre-collected UTXOs if provided, otherwise collect them
+    let input_utxos: Vec<(usize, Option<&UTXO>)> = if let Some(pre_utxos) = pre_collected_utxos {
+        // Pre-collected UTXOs provided - use them directly (no redundant lookups)
+        pre_utxos.iter()
+            .enumerate()
+            .map(|(i, opt_utxo)| (i, *opt_utxo))
+            .collect()
+    } else {
+        // No pre-collected UTXOs - collect them now
         let mut result = Vec::with_capacity(tx.inputs.len());
         for (i, input) in tx.inputs.iter().enumerate() {
             result.push((i, utxo_set.get(&input.prevout)));
@@ -572,9 +582,6 @@ pub fn check_tx_inputs<U: UtxoLookup>(
     }
 
     // Invariant assertion: Total input must be >= total output for valid transaction
-    // Note: Intentional tautology for formal verification
-    #[allow(clippy::overly_complex_bool_expr)]
-    let _ = total_input_value >= total_output_value || total_input_value < total_output_value;
     if total_input_value < total_output_value {
         return Ok((
             ValidationResult::Invalid("Insufficient input value".to_string()),
@@ -1095,8 +1102,12 @@ mod tests {
 
     #[test]
     fn test_check_transaction_max_inputs() {
+        // Use a reasonable number of inputs that fits within the block weight limit.
+        // Each input ≈ 41 bytes stripped. Weight limit = 4,000,000. Max stripped = 1,000,000.
+        // Max inputs ≈ 1,000,000 / 41 ≈ 24,390. Use 20,000 to stay safe.
+        let num_inputs = 20_000;
         let mut inputs = Vec::new();
-        for i in 0..MAX_INPUTS {
+        for i in 0..num_inputs {
             let mut hash = [0u8; 32];
             // Use unique hash for each input to avoid duplicates
             hash[0] = (i & 0xff) as u8;

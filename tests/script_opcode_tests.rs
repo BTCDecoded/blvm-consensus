@@ -1,11 +1,13 @@
 //! Tests for script opcode execution
 
 use blvm_consensus::script::*;
+use blvm_consensus::constants::{MAX_SCRIPT_OPS, MAX_STACK_SIZE};
+use blvm_consensus::opcodes::*;
 use blvm_consensus::*;
 
 #[test]
 fn test_eval_script_op_1() {
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // The result is a boolean indicating success/failure
@@ -15,7 +17,7 @@ fn test_eval_script_op_1() {
 
 #[test]
 fn test_eval_script_op_dup() {
-    let script = vec![0x51, 0x76]; // OP_1, OP_DUP
+    let script = vec![OP_1, OP_DUP]; // OP_1, OP_DUP
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -24,7 +26,7 @@ fn test_eval_script_op_dup() {
 
 #[test]
 fn test_eval_script_op_hash160() {
-    let script = vec![0x51, 0xa9]; // OP_1, OP_HASH160
+    let script = vec![OP_1, OP_HASH160]; // OP_1, OP_HASH160
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -33,7 +35,7 @@ fn test_eval_script_op_hash160() {
 
 #[test]
 fn test_eval_script_op_equal() {
-    let script = vec![0x51, 0x51, 0x87]; // OP_1, OP_1, OP_EQUAL
+    let script = vec![OP_1, OP_1, OP_EQUAL]; // OP_1, OP_1, OP_EQUAL
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -42,7 +44,7 @@ fn test_eval_script_op_equal() {
 
 #[test]
 fn test_eval_script_op_equal_false() {
-    let script = vec![0x51, 0x52, 0x87]; // OP_1, OP_2, OP_EQUAL
+    let script = vec![OP_1, OP_2, OP_EQUAL]; // OP_1, OP_2, OP_EQUAL
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -51,7 +53,7 @@ fn test_eval_script_op_equal_false() {
 
 #[test]
 fn test_eval_script_op_verify() {
-    let script = vec![0x51, 0x69]; // OP_1, OP_VERIFY
+    let script = vec![OP_1, OP_VERIFY]; // OP_1, OP_VERIFY
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -60,7 +62,7 @@ fn test_eval_script_op_verify() {
 
 #[test]
 fn test_eval_script_op_verify_false() {
-    let script = vec![0x00, 0x69]; // OP_0, OP_VERIFY
+    let script = vec![OP_0, OP_VERIFY]; // OP_0, OP_VERIFY
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -69,7 +71,7 @@ fn test_eval_script_op_verify_false() {
 
 #[test]
 fn test_eval_script_op_equalverify() {
-    let script = vec![0x51, 0x51, 0x88]; // OP_1, OP_1, OP_EQUALVERIFY
+    let script = vec![OP_1, OP_1, OP_EQUALVERIFY]; // OP_1, OP_1, OP_EQUALVERIFY
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -79,7 +81,7 @@ fn test_eval_script_op_equalverify() {
 #[test]
 fn test_eval_script_op_checksig() {
     // OP_CHECKSIG requires 2 stack items (signature and pubkey)
-    let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+    let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -98,7 +100,7 @@ fn test_eval_script_unknown_opcode() {
 
 #[test]
 fn test_eval_script_stack_underflow() {
-    let script = vec![0x76]; // OP_DUP on empty stack
+    let script = vec![OP_DUP]; // OP_DUP on empty stack
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
     // Just test it returns a boolean (result is either true or false)
@@ -107,7 +109,7 @@ fn test_eval_script_stack_underflow() {
 
 #[test]
 fn test_eval_script_operation_limit() {
-    let script = vec![0x51; MAX_SCRIPT_OPS + 1]; // Too many operations
+    let script = vec![OP_1; MAX_SCRIPT_OPS + 1]; // Too many operations
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
     assert!(result.is_err()); // Should fail due to operation limit
@@ -115,7 +117,7 @@ fn test_eval_script_operation_limit() {
 
 #[test]
 fn test_eval_script_stack_overflow() {
-    let script = vec![0x51; MAX_STACK_SIZE + 1]; // Too many stack elements
+    let script = vec![OP_1; MAX_STACK_SIZE + 1]; // Too many stack elements
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
     // This should return an error due to stack overflow
@@ -127,8 +129,8 @@ fn test_eval_script_stack_overflow() {
 
 #[test]
 fn test_verify_script_basic() {
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
     // Just test it returns a boolean (result is either true or false)
     let _ = result;
@@ -136,9 +138,9 @@ fn test_verify_script_basic() {
 
 #[test]
 fn test_verify_script_with_witness() {
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
-    let witness = Some(vec![0x52]); // OP_2
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
+    let witness = Some(vec![OP_2]); // OP_2
     let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
     // Just test it returns a boolean (result is either true or false)
     let _ = result;
@@ -155,8 +157,8 @@ fn test_verify_script_empty() {
 
 #[test]
 fn test_verify_script_large_scripts() {
-    let script_sig = vec![0x51; 1000];
-    let script_pubkey = vec![0x51; 1000];
+    let script_sig = vec![OP_1; 1000];
+    let script_pubkey = vec![OP_1; 1000];
     let result = verify_script(&script_sig, &script_pubkey, None, 0);
     assert!(result.is_err()); // Should fail due to operation limit
 }

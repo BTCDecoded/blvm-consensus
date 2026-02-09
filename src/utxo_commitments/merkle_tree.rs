@@ -192,8 +192,6 @@ impl UtxoMerkleTree {
         );
 
         // Runtime assertion: Supply and count must be non-negative
-        // Note: u64 is always >= 0, but we keep the assertion for documentation
-        // and to catch any potential type changes in the future
         debug_assert!(
             // total_supply is u64, so this check is always true - removed
             true,
@@ -537,7 +535,14 @@ impl UtxoMerkleTree {
 #[cfg(feature = "utxo-commitments")]
 impl Default for UtxoMerkleTree {
     fn default() -> Self {
-        Self::new().expect("Failed to create default UtxoMerkleTree")
+        // Default::default() should never panic, but new() can fail.
+        // If it fails, it's a critical system error (likely memory issue).
+        Self::new().unwrap_or_else(|e| {
+            panic!(
+                "Failed to create default UtxoMerkleTree: {:?}. This indicates a critical system error.",
+                e
+            )
+        })
     }
 }
 

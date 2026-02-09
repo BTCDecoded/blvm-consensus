@@ -47,7 +47,7 @@ fn test_connect_block_empty_transactions() {
     
     // Empty block should fail validation
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let result = block::connect_block(&block, &witnesses, utxo, height, None, crate::types::Network::Mainnet);
+    let result = block::connect_block(&block, &witnesses, utxo, height, None, 0u64, crate::types::Network::Mainnet);
     // May succeed or fail depending on implementation, just exercise the path
     let _ = result;
 }
@@ -60,7 +60,7 @@ fn test_connect_block_invalid_timestamp() {
     
     // Block with invalid timestamp should be handled
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let result = block::connect_block(&block, &witnesses, utxo, height, None, crate::types::Network::Mainnet);
+    let result = block::connect_block(&block, &witnesses, utxo, height, None, 0u64, crate::types::Network::Mainnet);
     let _ = result;
 }
 
@@ -72,7 +72,7 @@ fn test_connect_block_valid_coinbase() {
     
     // Valid coinbase block should be processed
     let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let result = block::connect_block(&block, &witnesses, utxo, height, None, crate::types::Network::Mainnet);
+    let result = block::connect_block(&block, &witnesses, utxo, height, None, 0u64, crate::types::Network::Mainnet);
     let _ = result;
 }
 

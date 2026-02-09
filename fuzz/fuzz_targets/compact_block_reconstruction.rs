@@ -1,6 +1,6 @@
 #![no_main]
-// Note: Compact block functions are in reference-node, so this is a placeholder
-// for when reference-node fuzzing infrastructure is set up
+// Note: Compact block functions are in blvm-node, so this is a placeholder
+// for when blvm-node fuzzing infrastructure is set up
 // For now, fuzz the consensus operations that compact blocks depend on
 
 use consensus_proof::block::connect_block;
@@ -10,7 +10,7 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     // Fuzz block operations that compact blocks depend on
     // Tests block validation, UTXO operations, and transaction handling
-    // Note: Full compact block fuzzing requires reference-node, see reference-node/fuzz/
+    // Note: Full compact block fuzzing requires blvm-node, see blvm-node/fuzz/
 
     if data.len() < 88 {
         return; // Need at least block header (88 bytes)
