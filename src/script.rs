@@ -17,6 +17,12 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use blvm_spec_lock::spec_locked;
 
+// LLVM-like optimizations (Phase 4)
+#[cfg(feature = "production")]
+use crate::optimizations::{
+    bounds_optimization, constant_folding, precomputed_constants, prefetch,
+};
+
 // Cold error construction helpers - these paths are rarely taken
 #[cold]
 #[allow(dead_code)]
@@ -299,7 +305,8 @@ fn eval_script_impl(
 /// CastToBool: Bitcoin Core's truthiness check for stack elements.
 /// Returns true if ANY byte is non-zero, except for "negative zero" (0x80 in last byte, rest zeros).
 /// This matches Bitcoin Core's `CastToBool(const valtype& vch)`.
-#[inline]
+#[cfg(feature = "production")]
+#[inline(always)]
 fn cast_to_bool(v: &[u8]) -> bool {
     for i in 0..v.len() {
         if v[i] != 0 {
@@ -319,6 +326,18 @@ enum ControlBlock {
     NotIf { executing: bool },
 }
 
+#[cfg(feature = "production")]
+#[inline(always)]
+fn is_push_opcode(opcode: u8) -> bool {
+    // Push opcodes: any opcode <= OP_16 (0x60) is considered a push opcode.
+    // This matches Bitcoin Core's IsPushOnly() and op count logic (opcode > OP_16 counts).
+    // Includes: OP_0 (0x00), direct pushes (0x01-0x4b), OP_PUSHDATA1-4 (0x4c-0x4e),
+    // OP_1NEGATE (0x4f), OP_RESERVED (0x50), OP_1-OP_16 (0x51-0x60).
+    opcode <= 0x60
+}
+
+#[cfg(not(feature = "production"))]
+#[inline]
 fn is_push_opcode(opcode: u8) -> bool {
     // Push opcodes: any opcode <= OP_16 (0x60) is considered a push opcode.
     // This matches Bitcoin Core's IsPushOnly() and op count logic (opcode > OP_16 counts).
@@ -356,6 +375,21 @@ fn eval_script_inner(
         let opcode = *opcode;
 
         // Check if we are in a non-executing branch
+        #[cfg(feature = "production")]
+        let in_false_branch = {
+            let mut in_false = false;
+            for block in &control_stack {
+                if !matches!(
+                    block,
+                    ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }
+                ) {
+                    in_false = true;
+                    break; // Early exit
+                }
+            }
+            in_false
+        };
+        #[cfg(not(feature = "production"))]
         let in_false_branch = control_stack.iter().any(|b| {
             !matches!(
                 b,
@@ -774,12 +808,25 @@ pub fn verify_script_with_context_full(
                 message: "Prevout value cannot be negative".into(),
             });
         }
-        use crate::constants::MAX_MONEY;
-        if prevout_value > MAX_MONEY {
-            return Err(ConsensusError::ScriptErrorWithCode {
-                code: ScriptErrorCode::ValueOverflow,
-                message: format!("Prevout value {prevout_value} exceeds MAX_MONEY").into(),
-            });
+        #[cfg(feature = "production")]
+        {
+            use precomputed_constants::MAX_MONEY_U64;
+            if (prevout_value as u64) > MAX_MONEY_U64 {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::ValueOverflow,
+                    message: format!("Prevout value {prevout_value} exceeds MAX_MONEY").into(),
+                });
+            }
+        }
+        #[cfg(not(feature = "production"))]
+        {
+            use crate::constants::MAX_MONEY;
+            if prevout_value > MAX_MONEY {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::ValueOverflow,
+                    message: format!("Prevout value {prevout_value} exceeds MAX_MONEY").into(),
+                });
+            }
         }
     }
 
@@ -1345,9 +1392,39 @@ fn eval_script_with_context_full_inner(
     // Use index-based iteration to properly handle push opcodes
     let mut i = 0;
     while i < script.len() {
-        let opcode = script[i];
+        #[cfg(feature = "production")]
+        {
+            // Prefetch next cache line(s) ahead for sequential script access
+            prefetch::prefetch_ahead(script, i, 64); // Prefetch 64 bytes ahead
+        }
+        // Use optimized bounds access after length check
+        let opcode = {
+            #[cfg(feature = "production")]
+            {
+                unsafe { *script.get_unchecked(i) }
+            }
+            #[cfg(not(feature = "production"))]
+            {
+                script[i]
+            }
+        };
 
         // Are we in a non-executing branch?
+        #[cfg(feature = "production")]
+        let in_false_branch = {
+            let mut in_false = false;
+            for block in &control_stack {
+                if !matches!(
+                    block,
+                    ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }
+                ) {
+                    in_false = true;
+                    break; // Early exit
+                }
+            }
+            in_false
+        };
+        #[cfg(not(feature = "production"))]
         let in_false_branch = control_stack.iter().any(|b| {
             !matches!(
                 b,
@@ -1651,7 +1728,65 @@ fn eval_script_with_context_full_inner(
 /// Bitcoin's variable-length signed integer encoding (little-endian, sign bit in MSB of last byte).
 /// Matches Bitcoin Core's CScriptNum::set_vch().
 #[spec_locked("5.4.5")]
-fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
+#[cfg(feature = "production")]
+#[inline(always)]
+pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
+    if data.len() > max_num_size {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::InvalidStackOperation,
+            message: format!("Script number overflow: {} > {} bytes", data.len(), max_num_size).into(),
+        });
+    }
+    if data.is_empty() {
+        return Ok(0);
+    }
+    
+    // Fast paths for common sizes (most script numbers are 1-2 bytes)
+    let len = data.len();
+    let result = match len {
+        1 => {
+            let byte = data[0];
+            if byte & 0x80 != 0 {
+                // Negative: clear sign bit and negate
+                -((byte & 0x7f) as i64)
+            } else {
+                byte as i64
+            }
+        }
+        2 => {
+            let byte0 = data[0] as i64;
+            let byte1 = data[1] as i64;
+            let value = byte0 | (byte1 << 8);
+            if byte1 & 0x80 != 0 {
+                // Negative: clear sign bit and negate
+                -(value & !(0x80i64 << 8))
+            } else {
+                value
+            }
+        }
+        _ => {
+            // General case for 3+ bytes
+            let mut result: i64 = 0;
+            for (i, &byte) in data.iter().enumerate() {
+                result |= (byte as i64) << (8 * i);
+            }
+            // Check sign bit (MSB of last byte) - safe because len > 0
+            let last_idx = len - 1;
+            if data[last_idx] & 0x80 != 0 {
+                // Negative: clear sign bit and negate
+                result &= !(0x80i64 << (8 * last_idx));
+                result = -result;
+            }
+            result
+        }
+    };
+    
+    Ok(result)
+}
+
+#[cfg(not(feature = "production"))]
+#[inline]
+pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
     if data.len() > max_num_size {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::InvalidStackOperation,
@@ -1677,7 +1812,35 @@ fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
 
 /// Encode an i64 as CScriptNum byte representation.
 /// Matches Bitcoin Core's CScriptNum::serialize().
-fn script_num_encode(value: i64) -> Vec<u8> {
+#[cfg(feature = "production")]
+pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
+    // Fast paths for common values
+    match value {
+        0 => return vec![],
+        1 => return vec![1],
+        -1 => return vec![0x81],
+        _ => {}
+    }
+    
+    let neg = value < 0;
+    let mut absvalue = if neg { (-(value as i128)) as u64 } else { value as u64 };
+    // Pre-allocate Vec: most script numbers are 1-4 bytes
+    let mut result = Vec::with_capacity(4);
+    while absvalue > 0 {
+        result.push((absvalue & 0xff) as u8);
+        absvalue >>= 8;
+    }
+    // If MSB is set, add extra byte for sign
+    if result.last().expect("Result is not empty (absvalue > 0)") & 0x80 != 0 {
+        result.push(if neg { 0x80 } else { 0x00 });
+    } else if neg {
+        *result.last_mut().unwrap() |= 0x80;
+    }
+    result
+}
+
+#[cfg(not(feature = "production"))]
+pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
     if value == 0 {
         return vec![];
     }
@@ -1698,6 +1861,8 @@ fn script_num_encode(value: i64) -> Vec<u8> {
 }
 
 /// Execute a single opcode (currently ignores sigversion; accepts it for future parity work)
+#[cfg(feature = "production")]
+#[inline(always)]
 fn execute_opcode(
     opcode: u8,
     stack: &mut Vec<ByteString>,
@@ -1745,7 +1910,17 @@ fn execute_opcode(
         OP_RIPEMD160 => {
             if let Some(item) = stack.pop() {
                 let hash = Ripemd160::digest(&item);
-                stack.push(hash.to_vec());
+                #[cfg(feature = "production")]
+                {
+                    // Pre-allocate Vec with known capacity (RIPEMD160 is 20 bytes)
+                    let mut hash_vec = Vec::with_capacity(20);
+                    hash_vec.extend_from_slice(&hash);
+                    stack.push(hash_vec);
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    stack.push(hash.to_vec());
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -1756,7 +1931,17 @@ fn execute_opcode(
         OP_SHA1 => {
             if let Some(item) = stack.pop() {
                 let hash = Sha1::digest(&item);
-                stack.push(hash.to_vec());
+                #[cfg(feature = "production")]
+                {
+                    // Pre-allocate Vec with known capacity (SHA1 is 20 bytes)
+                    let mut hash_vec = Vec::with_capacity(20);
+                    hash_vec.extend_from_slice(&hash);
+                    stack.push(hash_vec);
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    stack.push(hash.to_vec());
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -1767,7 +1952,17 @@ fn execute_opcode(
         OP_SHA256 => {
             if let Some(item) = stack.pop() {
                 let hash = Sha256::digest(&item);
-                stack.push(hash.to_vec());
+                #[cfg(feature = "production")]
+                {
+                    // Pre-allocate Vec with known capacity (SHA256 is 32 bytes)
+                    let mut hash_vec = Vec::with_capacity(32);
+                    hash_vec.extend_from_slice(&hash);
+                    stack.push(hash_vec);
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    stack.push(hash.to_vec());
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -2096,8 +2291,20 @@ fn execute_opcode(
         // OP_OVER - copy second-to-top stack item to top
         OP_OVER => {
             if stack.len() >= 2 {
-                let second = stack[stack.len() - 2].clone();
-                stack.push(second);
+                let len = stack.len();
+                #[cfg(feature = "production")]
+                {
+                    // Use proven bounds after length check
+                    unsafe {
+                        let second = stack.get_unchecked(len - 2);
+                        stack.push(second.clone());
+                    }
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    let second = stack[stack.len() - 2].clone();
+                    stack.push(second);
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -2114,8 +2321,20 @@ fn execute_opcode(
                     return Ok(false);
                 }
                 let n = n_val as usize;
-                let item = stack[stack.len() - 1 - n].clone();
-                stack.push(item);
+                let len = stack.len();
+                #[cfg(feature = "production")]
+                {
+                    // Use proven bounds after length check (n_val < stack.len() already checked)
+                    unsafe {
+                        let item = stack.get_unchecked(len - 1 - n);
+                        stack.push(item.clone());
+                    }
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    let item = stack[stack.len() - 1 - n].clone();
+                    stack.push(item);
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -2132,8 +2351,21 @@ fn execute_opcode(
                     return Ok(false);
                 }
                 let n = n_val as usize;
-                let item = stack.remove(stack.len() - 1 - n);
-                stack.push(item);
+                let len = stack.len();
+                #[cfg(feature = "production")]
+                {
+                    // Use proven bounds after length check (n_val < stack.len() already checked)
+                    unsafe {
+                        let idx = len - 1 - n;
+                        let item = stack.remove(idx);
+                        stack.push(item);
+                    }
+                }
+                #[cfg(not(feature = "production"))]
+                {
+                    let item = stack.remove(stack.len() - 1 - n);
+                    stack.push(item);
+                }
                 Ok(true)
             } else {
                 Ok(false)
@@ -2576,7 +2808,56 @@ fn serialize_push_data(data: &[u8]) -> Vec<u8> {
 /// if the raw bytes match `pattern`, the pattern is skipped (deleted).
 /// Returns the cleaned script.
 #[spec_locked("5.1.1")]
-fn find_and_delete(script: &[u8], pattern: &[u8]) -> Vec<u8> {
+#[cfg(feature = "production")]
+#[inline(always)]
+pub(crate) fn find_and_delete(script: &[u8], pattern: &[u8]) -> Vec<u8> {
+    if pattern.is_empty() || script.len() < pattern.len() {
+        return script.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(script.len());
+    let mut i = 0;
+
+    while i < script.len() {
+        // Check if pattern matches at this opcode boundary
+        if i + pattern.len() <= script.len() && script[i..i + pattern.len()] == *pattern {
+            i += pattern.len();
+            continue; // Skip this occurrence, check again at new position
+        }
+
+        // No match — copy this opcode's bytes and advance past it
+        let opcode = script[i];
+        let advance = if opcode <= 0x4b {
+            // Direct push: 1 byte opcode + opcode bytes of data
+            1 + opcode as usize
+        } else if opcode == OP_PUSHDATA1 && i + 1 < script.len() {
+            // OP_PUSHDATA1: 2 + data_len
+            2 + script[i + 1] as usize
+        } else if opcode == OP_PUSHDATA2 && i + 2 < script.len() {
+            // OP_PUSHDATA2: 3 + data_len
+            3 + ((script[i + 1] as usize) | ((script[i + 2] as usize) << 8))
+        } else if opcode == OP_PUSHDATA4 && i + 4 < script.len() {
+            // OP_PUSHDATA4: 5 + data_len
+            5 + ((script[i + 1] as usize)
+                | ((script[i + 2] as usize) << 8)
+                | ((script[i + 3] as usize) << 16)
+                | ((script[i + 4] as usize) << 24))
+        } else {
+            // Regular opcode (1 byte)
+            1
+        };
+
+        let end = std::cmp::min(i + advance, script.len());
+        result.extend_from_slice(&script[i..end]);
+        i = end;
+    }
+
+    result
+}
+
+#[cfg(not(feature = "production"))]
+#[inline]
+pub(crate) fn find_and_delete(script: &[u8], pattern: &[u8]) -> Vec<u8> {
     if pattern.is_empty() || script.len() < pattern.len() {
         return script.to_vec();
     }
@@ -3794,7 +4075,15 @@ fn verify_signature<C: Context + Verification>(
     let mut normalized_signature = signature;
     normalized_signature.normalize_s(); // Always normalize for secp256k1 verification
 
-    // Verify signature
+    // OPTIMIZATION: Collect signature for batch verification if collector is provided
+    #[cfg(feature = "production")]
+    if let Some(collector) = ecdsa_collector {
+        collector.collect(pubkey_bytes, signature_bytes, sighash, flags, height, network, sigversion);
+        // Return true here - actual verification will happen in batch
+        return Ok(true);
+    }
+
+    // Verify signature (fallback when no collector)
     Ok(secp.verify_ecdsa(message, &normalized_signature, &pubkey).is_ok())
 }
 

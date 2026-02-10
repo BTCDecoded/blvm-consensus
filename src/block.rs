@@ -548,7 +548,8 @@ fn connect_block_inner(
         // the initial UTXO set. We must validate sequentially so each transaction can see
         // outputs from previous transactions in the same block.
         // NOTE: We still use the cached UTXO lookups for performance, but validate sequentially
-        #[cfg(feature = "rayon")]
+        // rayon is included in production feature, so check for production
+        #[cfg(feature = "production")]
         {
             // CRITICAL FIX: Use sequential validation with incremental UTXO overlay
             // This allows transactions to spend outputs from earlier transactions in the same block
@@ -568,28 +569,66 @@ fn connect_block_inner(
             
             // OPTIMIZATION: Block-level signature collectors for maximum batching efficiency
             // Collect ALL signatures from ALL transactions, then verify in one large batch at the end
-            #[cfg(all(feature = "production", feature = "rayon"))]
+            // rayon is included in production feature, so just check production
+            #[cfg(feature = "production")]
             use std::sync::{Arc, Mutex};
-            #[cfg(all(feature = "production", feature = "rayon"))]
+            #[cfg(feature = "production")]
             let block_schnorr_collector = Arc::new(Mutex::new(crate::bip348::SchnorrSignatureCollector::new()));
-            #[cfg(all(feature = "production", feature = "rayon"))]
+            #[cfg(feature = "production")]
             let block_ecdsa_collector = Arc::new(Mutex::new(crate::script::EcdsaSignatureCollector::new()));
             
-            for (i, tx) in block.transactions.iter().enumerate() {
-                // Validate transaction structure (read-only)
-                let tx_valid = check_transaction(tx)?;
-                if let ValidationResult::Invalid(reason) = tx_valid {
-                    validation_results.push(Ok((
-                        ValidationResult::Invalid(format!("TX {i}: {reason}")),
-                        0,
-                        false,
-                    )));
-                    continue;
+            let validation_start = std::time::Instant::now();
+            let mut total_input_lookup_time = std::time::Duration::ZERO;
+            let mut total_script_time = std::time::Duration::ZERO;
+            let mut total_tx_structure_time = std::time::Duration::ZERO;
+            let mut total_overlay_apply_time = std::time::Duration::ZERO;
+            let mut total_check_tx_inputs_time = std::time::Duration::ZERO;
+            
+            
+            // PARALLELIZATION OPPORTUNITY #1: Parallel transaction structure validation
+            // This is read-only with no dependencies, so we can validate all transactions in parallel
+            let structure_start = std::time::Instant::now();
+            let tx_structure_results: Vec<(usize, Result<ValidationResult>)> = {
+                // ALWAYS use rayon in production - no sequential fallback
+                use rayon::prelude::*;
+                block.transactions
+                    .par_iter()
+                    .enumerate()
+                    .map(|(i, tx)| (i, check_transaction(tx)))
+                    .collect()
+            };
+            total_tx_structure_time += structure_start.elapsed();
+            
+            // Check structure validation results and build index of valid transactions
+            let mut valid_tx_indices = Vec::with_capacity(block.transactions.len());
+            for (i, result) in tx_structure_results {
+                match result {
+                    Ok(ValidationResult::Valid) => {
+                        valid_tx_indices.push(i);
+                    }
+                    Ok(ValidationResult::Invalid(reason)) => {
+                        validation_results.push(Ok((
+                            ValidationResult::Invalid(format!("TX {i}: {reason}")),
+                            0,
+                            false,
+                        )));
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
+            }
+            
+            // Process only valid transactions sequentially (for intra-block dependencies)
+            for i in valid_tx_indices {
+                let tx = &block.transactions[i];
+                let tx_start = std::time::Instant::now();
 
                 // Check transaction inputs and calculate fees
                 // CRITICAL: Use overlay which includes outputs from previous transactions in this block
                 // Collect input_utxos ONCE, reuse for fee/check_tx_inputs/prevouts (eliminates 3-4x redundant overlay.get() calls)
+                let input_lookup_start = std::time::Instant::now();
+                let check_inputs_start = std::time::Instant::now();
                 let (input_valid, fee, mut input_utxos) = if is_coinbase(tx) {
                     (ValidationResult::Valid, 0, Vec::new())
                 } else {
@@ -615,17 +654,54 @@ fn connect_block_inner(
                         }
                     }
 
-                    let total_output: i64 = tx
-                        .outputs
-                        .iter()
-                        .try_fold(0i64, |acc, output| {
-                            acc.checked_add(output.value).ok_or_else(|| {
-                                ConsensusError::TransactionValidation(
-                                    "Output value overflow".into(),
-                                )
-                            })
-                        })
-                        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
+                    // OPTIMIZATION: Parallel output value calculation for large transactions
+                    let total_output: i64 = {
+                        #[cfg(all(feature = "production", feature = "rayon"))]
+                        {
+                            if tx.outputs.len() > 100 {
+                                use rayon::prelude::*;
+                                tx.outputs
+                                    .par_iter()
+                                    .try_fold(|| 0i64, |acc, output| {
+                                        acc.checked_add(output.value).ok_or_else(|| {
+                                            ConsensusError::TransactionValidation(
+                                                "Output value overflow".into(),
+                                            )
+                                        })
+                                    })
+                                    .try_reduce(|| 0i64, |a, b| a.checked_add(b).ok_or_else(|| {
+                                        ConsensusError::TransactionValidation(
+                                            "Output value overflow".into(),
+                                        )
+                                    }))
+                                    .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?
+                            } else {
+                                tx.outputs
+                                    .iter()
+                                    .try_fold(0i64, |acc, output| {
+                                        acc.checked_add(output.value).ok_or_else(|| {
+                                            ConsensusError::TransactionValidation(
+                                                "Output value overflow".into(),
+                                            )
+                                        })
+                                    })
+                                    .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?
+                            }
+                        }
+                        #[cfg(not(all(feature = "production", feature = "rayon")))]
+                        {
+                            tx.outputs
+                                .iter()
+                                .try_fold(0i64, |acc, output| {
+                                    acc.checked_add(output.value).ok_or_else(|| {
+                                        ConsensusError::TransactionValidation(
+                                            "Output value overflow".into(),
+                                        )
+                                    })
+                                })
+                                .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?
+                        }
+                    };
 
                     let fee = total_input.checked_sub(total_output).ok_or_else(|| {
                         ConsensusError::TransactionValidation(
@@ -661,6 +737,7 @@ fn connect_block_inner(
                 // Phase 4.1: Skip signature verification if assume-valid
                 // CRITICAL: Use overlay (includes outputs from previous transactions in this block)
                 // Wrap in block to ensure input_utxos and its references go out of scope before mutating overlay
+                let script_start = std::time::Instant::now();
                 let script_valid = {
                     let script_valid_result = if is_coinbase(tx) || skip_signatures {
                         true
@@ -694,19 +771,50 @@ fn connect_block_inner(
                                 .map(|ctx| ctx.median_time_past)
                                 .filter(|&mtp| mtp > 0);
                             // Cache witness lookup once per transaction
-                            let tx_witnesses = witnesses.get(i);
+                            let tx_witnesses: Option<&Vec<Witness>> = witnesses.get(i);
                             // Check if transaction has witness data (optimization: just check presence, no flattening)
-                            let has_witness = tx_witnesses.map(|w| !w.is_empty()).unwrap_or(false);
+                            let has_witness = tx_witnesses.map(|w: &Vec<Witness>| !w.is_empty()).unwrap_or(false);
                             let flags = calculate_script_flags_for_block(tx, has_witness, height, network);
                             
-                            // OPTIMIZATION #8: Pre-extract all witness stacks to avoid repeated .get() calls in parallel loop
+                            // OPTIMIZATION #8: Pre-extract all witness stacks in parallel to avoid repeated .get() calls
                             // This eliminates the .and_then(|w| w.get(j)) overhead inside the parallel iteration
-                            let witness_stacks: Vec<Option<&Witness>> = if let Some(tx_wits) = tx_witnesses {
-                                (0..tx.inputs.len())
-                                    .map(|j| tx_wits.get(j))
-                                    .collect()
+                            let witness_stacks: Vec<Option<&Witness>> = {
+                                #[cfg(feature = "rayon")]
+                                {
+                                    if let Some(tx_wits) = tx_witnesses {
+                                        use rayon::prelude::*;
+                                        (0..tx.inputs.len())
+                                            .into_par_iter()
+                                            .map(|j| tx_wits.get(j))
+                                            .collect()
+                                    } else {
+                                        vec![None; tx.inputs.len()]
+                                    }
+                                }
+                                #[cfg(not(feature = "rayon"))]
+                                {
+                                    if let Some(tx_wits) = tx_witnesses {
+                                        (0..tx.inputs.len())
+                                            .map(|j| tx_wits.get(j))
+                                            .collect()
+                                    } else {
+                                        vec![None; tx.inputs.len()]
+                                    }
+                                }
+                            };
+                            
+                            // OPTIMIZATION: Precompute BIP143 hashes once per transaction for SegWit transactions
+                            // This avoids redundant computation of hashPrevouts, hashSequence, hashOutputs
+                            // for each signature in the transaction (significant speedup for multi-input SegWit txs)
+                            #[cfg(feature = "production")]
+                            let bip143_hashes = if has_witness {
+                                Some(crate::transaction_hash::Bip143PrecomputedHashes::compute(
+                                    tx,
+                                    &prevout_values_reusable,
+                                    &prevout_script_pubkeys_reusable,
+                                ))
                             } else {
-                                vec![None; tx.inputs.len()]
+                                None
                             };
                             
                             // OPTIMIZATION: Use block-level collectors for maximum batching efficiency
@@ -855,6 +963,7 @@ fn connect_block_inner(
                     // releasing all references to overlay before we mutate it
                     script_valid_result
                 };
+                total_script_time += script_start.elapsed();
 
                 // CRITICAL: Apply this transaction to overlay so next transaction can see its outputs
                 // OPTIMIZATION #2: Use apply_transaction_to_overlay_no_undo during validation
@@ -907,10 +1016,25 @@ fn connect_block_inner(
                     .checked_add(fee)
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
             }
+            // CRITICAL: Log profiling BEFORE batch verification (which might return early)
+            let validation_elapsed = validation_start.elapsed();
+            let total_inputs: usize = block.transactions.iter().filter(|tx| !is_coinbase(tx)).map(|tx| tx.inputs.len()).sum();
+            eprintln!("[PERF] Block {}: total={:?}, structure={:?}, input_lookup={:?}, check_inputs={:?}, script={:?}, overlay_apply={:?}, txs={}, inputs={}", 
+                height, 
+                validation_elapsed, 
+                total_tx_structure_time,
+                total_input_lookup_time, 
+                total_check_tx_inputs_time,
+                total_script_time,
+                total_overlay_apply_time,
+                block.transactions.len(),
+                total_inputs
+            );
             
             // OPTIMIZATION: Batch verify ALL signatures from ALL transactions in one large batch
             // This maximizes the efficiency of batch verification (2-3x speedup)
-            #[cfg(all(feature = "production", feature = "rayon"))]
+            // rayon is included in production, so just check production
+            #[cfg(feature = "production")]
             {
                 let batch_start = std::time::Instant::now();
                 let schnorr = block_schnorr_collector.lock().unwrap();
@@ -985,7 +1109,9 @@ fn connect_block_inner(
             // but final application happens on the real utxo_set.
         }
 
-        #[cfg(not(feature = "rayon"))]
+        // REMOVED: #[cfg(not(feature = "rayon"))] is always true since rayon is not a feature
+        // This was causing a duplicate code path. Production path above handles everything.
+        #[cfg(all(not(feature = "production"), not(feature = "rayon")))]
         {
             // Sequential fallback (no Rayon available)
             // CRITICAL FIX: Use overlay for intra-block spending support
@@ -1001,9 +1127,19 @@ fn connect_block_inner(
             // NOTE: prevout_script_pubkeys_reusable moved inside script verification block
             // to ensure it goes out of scope before mutating overlay (fixes borrow checker issue)
             
+            // PROFILING: Add timing for non-rayon path
+            let validation_start = std::time::Instant::now();
+            let mut total_tx_structure_time = std::time::Duration::ZERO;
+            let mut total_input_lookup_time = std::time::Duration::ZERO;
+            let mut total_script_time = std::time::Duration::ZERO;
+            let mut total_overlay_apply_time = std::time::Duration::ZERO;
+            
             for (i, tx) in block.transactions.iter().enumerate() {
+                let structure_start = std::time::Instant::now();
                 // Validate transaction structure
-                if !matches!(check_transaction(tx)?, ValidationResult::Valid) {
+                let tx_valid = check_transaction(tx)?;
+                total_tx_structure_time += structure_start.elapsed();
+                if !matches!(tx_valid, ValidationResult::Valid) {
                     return Ok((
                         ValidationResult::Invalid(format!("Invalid transaction at index {i}")),
                         utxo_set,
@@ -1014,6 +1150,7 @@ fn connect_block_inner(
                 // Check transaction inputs and calculate fees
                 // CRITICAL: Use overlay which includes outputs from earlier transactions in this block
                 // Collect input_utxos ONCE, reuse for fee/check_tx_inputs/prevouts (eliminates 3-4x redundant overlay.get() calls)
+                let input_lookup_start = std::time::Instant::now();
                 let (input_valid, fee, input_utxos) = if is_coinbase(tx) {
                     (ValidationResult::Valid, 0, Vec::new())
                 } else {
@@ -1126,6 +1263,7 @@ fn connect_block_inner(
                     }
 
                     // Cache witness lookup once per transaction
+                    let script_start = std::time::Instant::now();
                     let tx_witnesses = witnesses.get(i);
                     // Calculate flags once outside loop (optimization)
                     let has_witness = tx_witnesses.map(|w| !w.is_empty()).unwrap_or(false);
@@ -1205,19 +1343,37 @@ fn connect_block_inner(
                 // Use apply_transaction_to_overlay_no_undo during validation
                 // Undo entries are discarded and rebuilt in Phase 5, so no need to create them here
                 // Use pre-computed tx_id from batch computation
+                let overlay_apply_start = std::time::Instant::now();
                 let tx_id = tx_ids[i];
                 apply_transaction_to_overlay_no_undo(&mut overlay, tx, tx_id, height);
+                total_overlay_apply_time += overlay_apply_start.elapsed();
 
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees
                     .checked_add(fee)
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
             }
+            
+            let validation_elapsed = validation_start.elapsed();
+            // ALWAYS LOG PROFILING - REMOVE ALL CONDITIONS FOR DEBUGGING
+            eprintln!("[PERF] Block {}: total={:?}, structure={:?}, input_lookup={:?}, script={:?}, overlay_apply={:?}, txs={}, inputs={}", 
+                height, 
+                validation_elapsed, 
+                total_tx_structure_time,
+                total_input_lookup_time, 
+                total_script_time,
+                total_overlay_apply_time,
+                block.transactions.len(),
+                block.transactions.iter().filter(|tx| !is_coinbase(tx)).map(|tx| tx.inputs.len()).sum::<usize>()
+            );
+            eprintln!("[PERF_DEBUG] Profiling logged for block {}", height);
         }
     }
 
+    // Add profiling to non-production path too
     #[cfg(not(feature = "production"))]
     {
+        eprintln!("[DEBUG] NON-PRODUCTION PATH - Block {}", height);
         // Sequential validation (default, verification-safe)
         // CRITICAL FIX: Validate and apply transactions incrementally
         // Transactions in the same block CAN spend outputs from earlier transactions in that block
