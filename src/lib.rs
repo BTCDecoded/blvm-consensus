@@ -72,6 +72,10 @@ pub use error::ConsensusError;
 pub mod bip113;
 #[cfg(feature = "ctv")]
 pub mod bip119;
+#[cfg(all(feature = "production", feature = "rayon"))]
+pub mod checkqueue;
+#[cfg(all(feature = "production", feature = "rayon"))]
+pub(crate) mod script_exec_cache;
 #[cfg(any(feature = "csfs", feature = "production"))]
 pub mod bip348;
 pub mod bip_validation;
@@ -98,10 +102,15 @@ pub mod utxo_commitments;
 pub mod utxo_overlay;
 pub mod witness;
 
+#[cfg(any(test, feature = "property-tests"))]
+pub mod test_utils;
+
 pub mod error;
 
 #[cfg(feature = "profile")]
 pub mod profile_log;
+#[cfg(all(feature = "production", feature = "profile"))]
+pub mod script_profile;
 
 /// Consensus Proof - wrapper struct for consensus validation functions
 ///

@@ -435,11 +435,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000000000, // 10 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let tx = Transaction {
             version: 1,
@@ -475,11 +475,11 @@ mod tests {
         };
         let utxo1 = UTXO {
             value: 500000000, // 5 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint1, utxo1);
+        utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
 
         let outpoint2 = OutPoint {
             hash: [2; 32],
@@ -487,11 +487,11 @@ mod tests {
         };
         let utxo2 = UTXO {
             value: 300000000, // 3 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint2, utxo2);
+        utxo_set.insert(outpoint2, std::sync::Arc::new(utxo2));
 
         let tx = Transaction {
             version: 1,
@@ -521,7 +521,7 @@ mod tests {
                 },
                 TransactionOutput {
                     value: 150000000, // 1.5 BTC output
-                    script_pubkey: vec![],
+                    script_pubkey: vec![].into(),
                 },
             ]
             .into(),
@@ -572,11 +572,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 100000000, // 1 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let tx = Transaction {
             version: 1,

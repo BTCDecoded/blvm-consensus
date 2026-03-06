@@ -568,7 +568,7 @@ fn disconnect_block(
 
         // Restore previous UTXO (if it was spent by this block)
         if let Some(previous_utxo) = &entry.previous_utxo {
-            utxo_set.insert(entry.outpoint.clone(), previous_utxo.clone());
+            utxo_set.insert(entry.outpoint, std::sync::Arc::clone(previous_utxo));
         }
     }
 
@@ -729,6 +729,26 @@ fn calculate_block_hash(header: &BlockHeader) -> Hash {
 // TYPES
 // ============================================================================
 
+mod undo_entry_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::sync::Arc;
+    use crate::types::UTXO;
+
+    pub fn serialize<S>(opt: &Option<Arc<UTXO>>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        opt.as_ref().map(|a| a.as_ref()).serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<Arc<UTXO>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<UTXO>::deserialize(d).map(|opt| opt.map(Arc::new))
+    }
+}
+
 /// Undo log entry for a single UTXO change
 ///
 /// Records the state of a UTXO before and after a transaction is applied.
@@ -738,9 +758,11 @@ pub struct UndoEntry {
     /// The outpoint that was changed
     pub outpoint: OutPoint,
     /// The UTXO that existed before (None if it was created by this transaction)
-    pub previous_utxo: Option<UTXO>,
+    #[serde(with = "undo_entry_serde")]
+    pub previous_utxo: Option<std::sync::Arc<UTXO>>,
     /// The UTXO that exists after (None if it was spent by this transaction)
-    pub new_utxo: Option<UTXO>,
+    #[serde(with = "undo_entry_serde")]
+    pub new_utxo: Option<std::sync::Arc<UTXO>>,
 }
 
 /// Undo log for a single block
@@ -1091,11 +1113,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 5_000_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint.clone(), utxo.clone());
+        utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo.clone()));
 
         // Connect block and get undo log
         let witnesses: Vec<Vec<Witness>> = block.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
@@ -1251,11 +1273,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         // Create an empty undo log for testing (simplified)
         let empty_undo_log = BlockUndoLog::new();

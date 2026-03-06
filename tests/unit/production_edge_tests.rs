@@ -56,11 +56,11 @@ mod tests {
                 sequence: 0xffffffff,
             });
             
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 10000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 0,
-            });
+            }));
         }
         
         let tx = Transaction {

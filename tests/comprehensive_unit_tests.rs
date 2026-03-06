@@ -87,7 +87,7 @@ fn test_check_transaction_too_many_outputs() {
     for _ in 0..=MAX_OUTPUTS {
         outputs.push(TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         });
     }
 
@@ -346,11 +346,11 @@ fn test_calculate_fee() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 200);
@@ -384,11 +384,11 @@ fn test_calculate_fee_negative() {
     };
     let utxo = UTXO {
         value: 500, // Less than output
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let result = calculate_fee(&tx, &utxo_set);
     assert!(result.is_err());
@@ -422,11 +422,11 @@ fn test_calculate_fee_zero() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 0);
@@ -631,7 +631,7 @@ fn test_maximum_input_output_counts() {
     for _ in 0..num_outputs {
         outputs.push(TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         });
     }
 

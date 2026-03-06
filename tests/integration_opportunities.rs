@@ -115,18 +115,18 @@ fn test_script_transaction_integration() {
     // 1. Create transaction with specific script
     let mut tx = create_test_tx(1000, None, None, None);
     tx.inputs[0].script_sig = vec![0x51]; // OP_1
-    tx.outputs[0].script_pubkey = vec![0x51]; // OP_1
+    tx.outputs[0].script_pubkey = vec![0x51].into(); // OP_1
 
     // 2. Create UTXO with matching script
     let mut utxo_set = UtxoSet::default();
     let outpoint = tx.inputs[0].prevout.clone();
     let utxo = UTXO {
         value: 10000,
-        script_pubkey: vec![0x51], // OP_1
+        script_pubkey: vec![0x51].into(), // OP_1
         height: 0,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     // 3. Validate transaction inputs (should pass script validation)
     let (result, fee) = consensus.validate_tx_inputs(&tx, &utxo_set, 100).unwrap();
@@ -235,11 +235,11 @@ fn test_performance_integration() {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     }
 
     // 2. Create multiple transactions
@@ -350,7 +350,7 @@ fn create_valid_block() -> Block {
             }],
             outputs: tx_outputs![TransactionOutput {
                 value: 50 * blvm_consensus::orange_paper_constants::C as i64,  // Initial subsidy = 50 BTC
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
             }],
             lock_time: 0,
         }]

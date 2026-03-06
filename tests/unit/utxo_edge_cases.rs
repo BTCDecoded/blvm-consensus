@@ -24,12 +24,12 @@ proptest! {
             
             let utxo = UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8],
+                script_pubkey: vec![i as u8].into(),
                 height: 1,
             };
             
             // Insert UTXO
-            let was_new = utxo_set.insert(outpoint, utxo).is_none();
+            let was_new = utxo_set.insert(outpoint, std::sync::Arc::new(utxo)).is_none();
             if was_new {
                 inserted_count += 1;
             }
@@ -59,11 +59,11 @@ proptest! {
             };
             outpoints.push(outpoint.clone());
             
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 1,
-            });
+            }));
         }
         
         let initial_len = utxo_set.len();
@@ -88,7 +88,7 @@ proptest! {
     ) {
         let utxo = UTXO {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
         };
         
@@ -104,7 +104,7 @@ proptest! {
     ) {
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height,
         };
         
@@ -128,12 +128,12 @@ proptest! {
         
         let utxo = UTXO {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
         };
         
         // Insert UTXO
-        utxo_set.insert(outpoint.clone(), utxo.clone());
+        utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo.clone()));
         
         // Query should return correct UTXO
         let queried = utxo_set.get(&outpoint);
@@ -160,18 +160,18 @@ proptest! {
         };
         
         // Insert initial UTXO
-        utxo_set.insert(outpoint.clone(), UTXO {
+        utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
             value: initial_value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
-        });
+        }));
         
         // Replace with new value
-        utxo_set.insert(outpoint.clone(), UTXO {
+        utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
             value: new_value,
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![0x52].into(),
             height: 2,
-        });
+        }));
         
         // Query should return new value
         let queried = utxo_set.get(&outpoint);
@@ -200,11 +200,11 @@ proptest! {
             };
             inserted_outpoints.push(outpoint.clone());
             
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8],
+                script_pubkey: vec![i as u8].into(),
                 height: 1,
-            });
+            }));
         }
         
         // Iterate and verify all entries are present
@@ -238,11 +238,11 @@ proptest! {
             };
             outpoints.push(outpoint.clone());
             
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 1,
-            });
+            }));
         }
         
         // Remove some UTXOs

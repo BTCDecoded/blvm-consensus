@@ -734,12 +734,12 @@ mod tests {
                 hash: txid,
                 index: 0,
             },
-            UTXO {
+            std::sync::Arc::new(UTXO {
                 value: 50_0000_0000,
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
                 height: 0,
                 is_coinbase: false,
-            },
+            }),
         );
 
         // Create block with same coinbase (duplicate)

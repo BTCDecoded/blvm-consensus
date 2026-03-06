@@ -29,7 +29,7 @@ mod tests {
     fn create_test_utxo(value: i64, height: Natural) -> UTXO {
         UTXO {
             value,
-            script_pubkey: vec![0x76, 0xa9, 0x14], // P2PKH pattern
+            script_pubkey: vec![0x76, 0xa9, 0x14].into(), // P2PKH pattern
             height,
         }
     }
@@ -99,6 +99,7 @@ mod tests {
             min_peers: 2,
             consensus_threshold: 0.8,
             safety_margin: 6,
+            ..Default::default()
         };
         let initial_sync = InitialSync::new(config);
         
@@ -110,7 +111,7 @@ mod tests {
         };
         let non_spam_utxo = UTXO {
             value: 100000, // 0.001 BTC
-            script_pubkey: vec![0x76, 0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0xac], // P2PKH
+            script_pubkey: vec![0x76, 0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0xac].into(), // P2PKH
             height: 100,
         };
         utxo_tree.insert(non_spam_outpoint.clone(), non_spam_utxo.clone()).unwrap();
@@ -220,8 +221,11 @@ mod tests {
 
     #[test]
     fn test_peer_consensus_workflow() {
-        // Create peer consensus manager
-        let config = ConsensusConfig::default();
+        // Create peer consensus manager (shuffle_peers: false for deterministic test)
+        let config = ConsensusConfig {
+            shuffle_peers: false,
+            ..Default::default()
+        };
         let peer_consensus = PeerConsensus::new(config);
 
         // Create diverse peers
@@ -384,11 +388,11 @@ mod tests {
         let mut utxo_set = UtxoSet::default();
         let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
         let utxo1 = create_test_utxo(10000, 100);
-        utxo_set.insert(outpoint1.clone(), utxo1.clone());
+        utxo_set.insert(outpoint1.clone(), std::sync::Arc::new(utxo1.clone()));
 
         let outpoint2 = OutPoint { hash: [2; 32], index: 0 };
         let utxo2 = create_test_utxo(5000, 100);
-        utxo_set.insert(outpoint2.clone(), utxo2.clone());
+        utxo_set.insert(outpoint2.clone(), std::sync::Arc::new(utxo2.clone()));
 
         // Convert to UtxoMerkleTree
         let tree = UtxoMerkleTree::from_utxo_set(&utxo_set).unwrap();
@@ -422,13 +426,13 @@ mod tests {
         let mut new_utxo_set = UtxoSet::default();
         let outpoint3 = OutPoint { hash: [3; 32], index: 0 };
         let utxo3 = create_test_utxo(8000, 101);
-        new_utxo_set.insert(outpoint2.clone(), utxo2.clone()); // Kept
-        new_utxo_set.insert(outpoint3.clone(), utxo3.clone()); // Added
+        new_utxo_set.insert(outpoint2.clone(), std::sync::Arc::new(utxo2.clone())); // Kept
+        new_utxo_set.insert(outpoint3.clone(), std::sync::Arc::new(utxo3.clone())); // Added
 
         // Create old UtxoSet for comparison
         let mut old_utxo_set = UtxoSet::default();
-        old_utxo_set.insert(outpoint1.clone(), utxo1.clone());
-        old_utxo_set.insert(outpoint2.clone(), utxo2.clone());
+        old_utxo_set.insert(outpoint1.clone(), std::sync::Arc::new(utxo1.clone()));
+        old_utxo_set.insert(outpoint2.clone(), std::sync::Arc::new(utxo2.clone()));
 
         // Update tree incrementally
         let new_root = tree.update_from_utxo_set(&new_utxo_set, &old_utxo_set).unwrap();

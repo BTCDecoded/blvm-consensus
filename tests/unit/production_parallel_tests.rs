@@ -41,10 +41,10 @@ mod tests {
             let outpoint = OutPoint { hash: [i as u8; 32], index: 0 };
             let utxo = UTXO {
                 value: 10000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 0,
             };
-            utxo_set.insert(outpoint, utxo);
+            utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
         }
         
         utxo_set
@@ -233,10 +233,10 @@ mod tests {
         let outpoint = OutPoint { hash: [1; 32], index: 0 };
         let utxo = UTXO {
             value: 10000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
         
         let tx = Transaction {
             version: 1,

@@ -112,12 +112,12 @@ fn test_consensus_proof_utxo_validation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         prevout,
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
-        },
+        }),
     );
 
     let (result, fee) = consensus.validate_tx_inputs(&tx, &utxo_set, 1).unwrap();
@@ -155,12 +155,12 @@ fn test_consensus_proof_insufficient_funds() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         prevout,
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000, // Less than output
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
-        },
+        }),
     );
 
     let (result, _fee) = consensus.validate_tx_inputs(&tx, &utxo_set, 1).unwrap();

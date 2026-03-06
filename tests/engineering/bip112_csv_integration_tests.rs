@@ -17,11 +17,11 @@ fn test_csv_sequence_validation_passes() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![0x51].into(), // OP_1
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -43,11 +43,11 @@ fn test_csv_sequence_disabled_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -68,11 +68,11 @@ fn test_csv_type_mismatch_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -93,11 +93,11 @@ fn test_csv_insufficient_locktime_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -117,11 +117,11 @@ fn test_csv_exact_locktime_passes() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -142,11 +142,11 @@ fn test_csv_block_based_locktime() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -167,11 +167,11 @@ fn test_csv_time_based_locktime() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -201,11 +201,11 @@ fn test_csv_empty_stack_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -238,11 +238,11 @@ fn test_csv_invalid_encoding_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -263,11 +263,11 @@ fn test_csv_max_relative_locktime() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -289,11 +289,11 @@ fn test_csv_bip68_encoding() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -335,19 +335,19 @@ fn test_csv_multiple_inputs_context() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     utxo_set.insert(
         OutPoint { hash: [2; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     // Validate first input (with CSV)
@@ -398,11 +398,11 @@ fn test_csv_in_script_pubkey() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51], // Previous output script
+            script_pubkey: vec![0x51].into(), // Previous output script
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -423,11 +423,11 @@ fn test_csv_zero_locktime() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);

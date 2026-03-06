@@ -34,11 +34,11 @@ mod tests {
         // Create regular transactions
         for i in 1..=num_txs {
             let outpoint = OutPoint { hash: [i as u8; 32], index: 0 };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 10000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 0,
-            });
+            }));
             
             transactions.push(Transaction {
                 version: 1,

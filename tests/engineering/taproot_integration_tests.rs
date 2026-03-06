@@ -272,11 +272,11 @@ fn test_taproot_key_path_spending() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
             script_pubkey: p2tr_script,
             height: 0,
-        },
+        }),
     );
     
     // Key path spending: verify Taproot output is valid

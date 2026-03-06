@@ -140,11 +140,11 @@ proptest! {
         for i in 0..5 {
             utxo_set.insert(
                 OutPoint { hash: [i as u8; 32], index: 0 },
-                UTXO {
+                std::sync::Arc::new(UTXO {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![0x51].into(),
                     height: initial_height,
-                }
+                })
             );
         }
         

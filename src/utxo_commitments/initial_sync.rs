@@ -396,7 +396,7 @@ impl InitialSync {
 
                     let utxo = UTXO {
                         value: output.value,
-                        script_pubkey: output.script_pubkey.clone(),
+                        script_pubkey: output.script_pubkey.as_slice().into(),
                         height: block_height,
                         is_coinbase: is_coinbase(tx),
                     };
@@ -527,7 +527,7 @@ pub fn update_commitments_after_block(
 
                 let utxo = crate::types::UTXO {
                     value: output.value,
-                    script_pubkey: output.script_pubkey.clone(),
+                    script_pubkey: output.script_pubkey.as_slice().into(),
                     height: block_height,
                     is_coinbase: is_coinbase(tx),
                 };

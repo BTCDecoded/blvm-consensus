@@ -12,15 +12,59 @@ use crate::orange_paper_constants::*;
 #[cfg(test)]
 use proptest::prelude::*;
 
-/// Expected result from Orange Paper formula
-/// 
+/// Expected result from Orange Paper formula (legacy u64 signature — deprecated)
+///
 /// Source: Orange Paper Section 11.4
 /// Formula: VerifyConsensusCommitment(uc, hs) validates consensus against headers
-/// 
+///
+/// **Note:** This formula requires (UtxoCommitment, header_chain). Use
+/// `expected_verifyconsensuscommitment_from_orange_paper_impl` for property tests.
+#[cfg(not(feature = "utxo-commitments"))]
 pub fn expected_verifyconsensuscommitment_from_orange_paper(_params: u64) -> i64 {
-    // TODO: Implement formula translation for VerifyConsensusCommitment
-    // This formula requires manual implementation
-    unimplemented!("Formula translation not yet implemented for VerifyConsensusCommitment")
+    panic!(
+        "VerifyConsensusCommitment requires (UtxoCommitment, headers). \
+         Use expected_verifyconsensuscommitment_from_orange_paper_impl(commitment, headers) with utxo-commitments feature."
+    )
+}
+
+/// Expected result from Orange Paper formula (legacy u64 signature — deprecated)
+#[cfg(feature = "utxo-commitments")]
+pub fn expected_verifyconsensuscommitment_from_orange_paper(_params: u64) -> i64 {
+    panic!(
+        "VerifyConsensusCommitment requires (UtxoCommitment, headers). \
+         Use expected_verifyconsensuscommitment_from_orange_paper_impl(commitment, headers)."
+    )
+}
+
+/// Expected result from Orange Paper formula §11.4 (proper signature)
+///
+/// VerifyConsensusCommitment(uc, hs) = valid iff VerifyPoW(uc.block_hash, hs) ∧ VerifySupply(uc.total_supply, uc.block_height)
+///
+/// Returns `1` for valid, `0` for invalid.
+#[cfg(feature = "utxo-commitments")]
+pub fn expected_verifyconsensuscommitment_from_orange_paper_impl(
+    commitment: &crate::utxo_commitments::UtxoCommitment,
+    headers: &[crate::types::BlockHeader],
+) -> i64 {
+    use crate::utxo_commitments::verification::{verify_commitment_block_hash, verify_header_chain, verify_supply};
+
+    if headers.is_empty() {
+        return 0;
+    }
+    if let Err(_) = verify_header_chain(headers) {
+        return 0;
+    }
+    if let Err(_) = verify_supply(commitment) {
+        return 0;
+    }
+    let height = commitment.block_height as usize;
+    if height >= headers.len() {
+        return 0;
+    }
+    if let Err(_) = verify_commitment_block_hash(commitment, &headers[height]) {
+        return 0;
+    }
+    1
 }
 
 /// Expected result from Orange Paper formula

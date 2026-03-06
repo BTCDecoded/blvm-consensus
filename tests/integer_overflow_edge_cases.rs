@@ -121,11 +121,11 @@ fn test_input_sum_overflow() {
         };
         let utxo = UTXO {
             value: large_value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     }
 
     // Create transaction spending all these UTXOs

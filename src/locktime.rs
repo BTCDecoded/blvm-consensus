@@ -49,7 +49,7 @@ pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
 /// # Returns
 /// Decoded u32 value, or None if invalid encoding
 #[spec_locked("5.4.7")]
-pub fn decode_locktime_value(bytes: &ByteString) -> Option<u32> {
+pub fn decode_locktime_value(bytes: &[u8]) -> Option<u32> {
     if bytes.len() > 5 {
         return None; // Invalid encoding (too large)
     }

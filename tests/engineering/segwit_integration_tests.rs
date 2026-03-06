@@ -40,11 +40,11 @@ fn test_segwit_witness_validation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51], // P2WPKH scriptPubkey
+            script_pubkey: vec![0x51].into(), // P2WPKH scriptPubkey
             height: 0,
-        },
+        }),
     );
     
     // Validate with witness
@@ -73,6 +73,7 @@ fn test_segwit_witness_validation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -243,11 +244,11 @@ fn test_segwit_p2wpkh_validation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: script_pubkey.clone(),
+            script_pubkey: script_pubkey.clone().into(),
             height: 0,
-        },
+        }),
     );
     
     // Validate P2WPKH with witness
@@ -276,6 +277,7 @@ fn test_segwit_p2wpkh_validation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -312,11 +314,11 @@ fn test_segwit_p2wsh_validation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: script_pubkey.clone(),
+            script_pubkey: script_pubkey.clone().into(),
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -343,6 +345,7 @@ fn test_segwit_p2wsh_validation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     assert!(result.is_ok());

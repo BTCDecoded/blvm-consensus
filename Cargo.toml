@@ -20,7 +20,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-smallvec = { version = "1.11", optional = true, features = ["serde"] }
+smallvec = { version = "1.11", optional = true, features = ["serde", "const_generics"] }
 
 # Consensus-critical cryptography - EXACT VERSIONS
 # Using fork with batch Schnorr verification support
@@ -29,12 +29,13 @@ smallvec = { version = "1.11", optional = true, features = ["serde"] }
 # Use local fork (patched below) - batch verification not on GitHub yet
 # secp256k1 = { git = "https://github.com/secsovereign/rust-secp256k1.git", branch = "batch-schnorr-verification" }
 secp256k1 = { path = "../secp256k1-fork", default-features = true }
-# Pure Rust secp256k1 implementation (Phase 3.2 - migration in progress)
+# Pure Rust secp256k1 implementation (migration in progress)
 k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
 # Enable SIMD optimizations for hashing
 # The "asm" feature enables optimized assembly implementations
 # Note: sha2-asm doesn't support Windows, so we use target-specific dependencies below
 # sha2 is defined in target-specific sections only
+digest = "0.10"  # Digest trait for Ripemd160::digest, Sha1::digest
 ripemd = "=0.1.3"
 sha1 = "=0.10.6"
 # Consensus-critical: Exact version pinning for reproducibility
@@ -53,6 +54,10 @@ bincode = "=1.3.3"
 hex = "=0.4.3"
 # Fast hash map for UTXO lookups (2-3x faster than std HashMap for fixed-size keys)
 rustc-hash = { version = "2.0", optional = true }
+# SipHash for sig cache keys (Bitcoin Core uses SipHash; ~10x faster than SHA-256 for 133-byte input)
+siphasher = { version = "0.3", optional = true }
+# raw_entry API for allocation-free sighash cache lookup (std HashMap raw_entry requires 1.81+)
+hashbrown = { version = "0.14", optional = true }
 
 # Spec-lock for mathematical verification
 # LOCAL: Uses path (blvm-spec-lock in monorepo)
@@ -67,7 +72,7 @@ blvm-spec-lock = { path = "../blvm-spec-lock", default-features = false }
 proptest = "=1.5.0"
 # Fuzzing framework for better test coverage ergonomics
 bolero = "0.11"
-# HTTP client for differential fuzzing (Phase 2.2)
+# HTTP client for differential fuzzing
 reqwest = { version = "0.11", features = ["json"], default-features = false }
 # Async runtime for differential fuzzing tests
 tokio = { version = "1.35", features = ["rt", "macros"] }
@@ -93,7 +98,7 @@ local-spec-lock = []
 
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
-production = ["lru", "rayon", "smallvec", "rustc-hash", "crossbeam-queue"]
+production = ["lru", "rayon", "smallvec", "rustc-hash", "hashbrown", "crossbeam-queue", "siphasher"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
 rayon = ["dep:rayon"]
@@ -104,7 +109,11 @@ benchmarking = []
 
 # UTXO commitments module
 # Enables UTXO set commitments and peer consensus sync
-utxo-commitments = ["sparse-merkle-tree"]
+utxo-commitments = ["sparse-merkle-tree", "dep:rand"]
+
+# Property test strategies (transaction_with_witness_strategy, etc.) for spec-lock generated tests
+# Required for integration tests in tests/spec_property_tests.rs
+property-tests = []
 
 # Note: spec-lock feature removed - constants and #[spec_locked] attributes are always available
 # Property tests can use constants directly without any feature flag
@@ -148,6 +157,10 @@ optional = true
 version = "0.6"
 optional = true
 
+[dependencies.rand]
+version = "=0.8.5"
+optional = true
+
 # Target-specific dependency configuration
 # sha2-asm doesn't support Windows targets, so disable asm feature for Windows
 # Define sha2 per-target to avoid sha2-asm on Windows
@@ -165,8 +178,8 @@ sha2 = { version = "=0.10.9" }
 # Aggressive optimizations for production builds
 # Reference: Orange Paper Section 13.1 - Performance Considerations
 opt-level = 3
-lto = "fat"
-codegen-units = 1
+lto = false        # off: fastest iteration; use thin/fat for production/CI
+codegen-units = 256  # max parallelism
 strip = true
 panic = "abort"  # Smaller binaries, no unwinding overhead
 
@@ -185,6 +198,14 @@ opt-level = 3
 # 
 # Note: PGO works with stable Rust 1.70+ (LLVM 15+)
 # Expected performance gain: 1.10-1.15x improvement
+
+# Fast release: opt-level 2 for iteration (~2-3x faster compile)
+[profile.release-fast]
+inherits = "release"
+opt-level = 2
+
+[profile.release-fast.package."*"]
+opt-level = 2
 
 # Benchmark profile (faster iteration during development)
 [profile.bench]

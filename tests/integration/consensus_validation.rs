@@ -70,10 +70,10 @@ fn test_consensus_proof_utxo_validation() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: 2000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let (result, _total_value) = consensus.validate_tx_inputs(&tx, &utxo_set, 100).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
@@ -101,10 +101,10 @@ fn test_consensus_proof_insufficient_funds() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: 1000, // Less than needed
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let (result, _total_value) = consensus.validate_tx_inputs(&tx, &utxo_set, 100).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));

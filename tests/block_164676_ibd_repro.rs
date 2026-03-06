@@ -10,10 +10,11 @@
 //! Set BLVM_IBD_FAILURE_DUMP_DIR to point at the dump root if not using default.
 
 use blvm_consensus::block::connect_block_ibd;
-use blvm_consensus::types::{Block, Network, UtxoSet};
+use blvm_consensus::types::{Block, Network, UTXO, UtxoSet};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::ValidationResult;
 use std::path::Path;
+use std::sync::Arc;
 
 const DEFAULT_DUMP_DIR: &str = "/tmp/blvm_ibd_failure";
 /// Backup in repo so it survives cleanup; used when BLVM_IBD_FAILURE_DUMP_DIR is not set.
@@ -39,7 +40,10 @@ fn load_dump(dir: &Path) -> Result<(Block, Vec<Vec<Witness>>, UtxoSet), Box<dyn 
 
     let block: Block = bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(&block_path)?))?;
     let witnesses: Vec<Vec<Witness>> = bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(&witnesses_path)?))?;
-    let utxo_set: UtxoSet = bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(&utxo_path)?))?;
+    // Dump format: HashMap<OutPoint, UTXO> (no Arc). UtxoSet uses Arc<UTXO>.
+    let raw: std::collections::HashMap<_, UTXO> =
+        bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(&utxo_path)?))?;
+    let utxo_set: UtxoSet = raw.into_iter().map(|(k, v)| (k, Arc::new(v))).collect();
 
     Ok((block, witnesses, utxo_set))
 }
@@ -62,7 +66,7 @@ fn block_164676_connect_block_ibd_repro() {
             .map(|tx| (0..tx.inputs.len()).map(|_| Vec::new()).collect())
             .collect();
     }
-    let (result, _new_utxo_set, _tx_ids) = connect_block_ibd(
+    let (result, _new_utxo_set, _tx_ids, _utxo_delta) = connect_block_ibd(
         &block,
         &witnesses,
         utxo_set,
@@ -70,6 +74,9 @@ fn block_164676_connect_block_ibd_repro() {
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
+        None,
+        None,
+        Some(std::sync::Arc::new(block.clone())),
         None,
     ).expect("connect_block_ibd");
 

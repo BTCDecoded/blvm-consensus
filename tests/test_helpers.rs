@@ -60,7 +60,7 @@ pub fn create_test_tx(
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: prevout_hash.unwrap_or([1; 32].into()),
-                index: prevout_index.unwrap_or(0),
+                index: prevout_index.unwrap_or(0) as u32,
             },
             script_sig: vec![0x51], // OP_1
             sequence: sequence.unwrap_or(0xffffffff),
@@ -119,12 +119,12 @@ pub fn create_test_utxo(value: i64) -> (UtxoSet, OutPoint) {
     };
     set.insert(
         op.clone(),
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 1,
             is_coinbase: false,
-        },
+        }),
     );
     (set, op)
 }

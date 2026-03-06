@@ -184,14 +184,14 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Hash the UTXO set (simplified - using serialization)
@@ -232,14 +232,14 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Size should match number inserted (all unique)
@@ -409,7 +409,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -420,7 +420,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -734,14 +734,14 @@ proptest! {
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32],
-                        index: i as u64,
+                        index: i as u32,
                     },
                     script_sig: vec![i as u8; 20],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             });
@@ -817,19 +817,19 @@ proptest! {
             
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
             
             inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![],
                 sequence: 0xffffffff,
@@ -844,7 +844,7 @@ proptest! {
             total_output_value += value;
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -887,7 +887,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -898,7 +898,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -931,7 +931,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -942,7 +942,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -981,14 +981,14 @@ proptest! {
             
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Calculate expected value using Orange Paper formula
@@ -1367,14 +1367,14 @@ proptest! {
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32],
-                        index: i as u64,
+                        index: i as u32,
                     },
                     script_sig: vec![i as u8; 20],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             });
@@ -1408,14 +1408,14 @@ proptest! {
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32],
-                        index: i as u64,
+                        index: i as u32,
                     },
                     script_sig: vec![i as u8; 20],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             });
@@ -1538,19 +1538,19 @@ proptest! {
             
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
             
             inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![],
                 sequence: 0xffffffff,
@@ -1565,7 +1565,7 @@ proptest! {
             total_output_value += value;
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -1609,19 +1609,19 @@ proptest! {
             
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
             
             inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![],
                 sequence: 0xffffffff,
@@ -1634,7 +1634,7 @@ proptest! {
             let value = 500000 * (i as i64 + 1);
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -1678,7 +1678,7 @@ proptest! {
             
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
     }
@@ -1743,7 +1743,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -1754,7 +1754,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -1792,7 +1792,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -1803,7 +1803,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -1888,11 +1888,10 @@ proptest! {
         script.push(0x88u8); // OP_EQUALVERIFY
         script.push(0xacu8); // OP_CHECKSIG
         
-        // Create a stack
-        let mut stack1 = Vec::new();
-        for i in 0..stack_size {
-            stack1.push(vec![i as u8; 20]);
-        }
+        // Create a stack (StackElement = SmallVec in production)
+        let mut stack1: Vec<script::StackElement> = (0..stack_size)
+            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+            .collect();
         
         let mut stack2 = stack1.clone();
         
@@ -1970,7 +1969,7 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
             
             // Each outpoint should be unique
@@ -1982,13 +1981,13 @@ proptest! {
             
             utxo_set.insert(OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
-            }, UTXO {
+                index: i as u32,
+            }, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Verify all UTXOs are unique in the set
@@ -2016,14 +2015,14 @@ proptest! {
             
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Total UTXO value should equal sum of individual values
@@ -2049,19 +2048,19 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
             let utxo = UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
             };
             
             let outpoint_clone1 = outpoint;
             let outpoint_clone2 = outpoint_clone1.clone();
-            utxo_set1.insert(outpoint_clone1, utxo.clone());
-            utxo_set2.insert(outpoint_clone2, utxo);
+            utxo_set1.insert(outpoint_clone1, std::sync::Arc::new(utxo.clone()));
+            utxo_set2.insert(outpoint_clone2, std::sync::Arc::new(utxo));
         }
         
         // Both sets should be identical
@@ -2099,14 +2098,14 @@ proptest! {
         for i in 0..initial_size {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         let initial_len = utxo_set.len();
@@ -2115,14 +2114,14 @@ proptest! {
         for i in 0..num_insertions {
             let outpoint = OutPoint {
                 hash: [(initial_size + i) as u8; 32],
-                index: (initial_size + i) as u64,
+                index: (initial_size + i) as u32,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000 * ((initial_size + i) as i64 + 1),
-                script_pubkey: vec![(initial_size + i) as u8; 20],
+                script_pubkey: vec![(initial_size + i) as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         // Set size should increase by number of unique insertions
@@ -2147,18 +2146,18 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
             outpoints.push(outpoint);
             utxo_set.insert(OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
-            }, UTXO {
+                index: i as u32,
+            }, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
         }
         
         let initial_len = utxo_set.len();
@@ -2190,11 +2189,11 @@ proptest! {
         for i in 0..num_utxos {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
             let utxo = UTXO {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
             };
@@ -2202,7 +2201,7 @@ proptest! {
             let outpoint_clone1 = outpoint;
             let outpoint_clone2 = outpoint_clone1.clone();
             expected_utxos.insert(outpoint_clone1, utxo.value);
-            utxo_set.insert(outpoint_clone2, utxo);
+            utxo_set.insert(outpoint_clone2, std::sync::Arc::new(utxo));
         }
         
         // Verify lookups
@@ -2237,10 +2236,9 @@ proptest! {
         use blvm_consensus::script;
         
         let empty_script = vec![];
-        let mut stack = Vec::new();
-        for i in 0..stack_size {
-            stack.push(vec![i as u8; 20]);
-        }
+        let mut stack: Vec<script::StackElement> = (0..stack_size)
+            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+            .collect();
         
         // Empty script should either succeed or fail gracefully
         let result = script::eval_script(&empty_script, &mut stack, 0, script::SigVersion::Base);
@@ -2267,7 +2265,7 @@ proptest! {
         // Create script at boundary
         let script = vec![0x51u8; script_len.min(L_SCRIPT as usize)]; // OP_1 repeated
         
-        let mut stack = vec![vec![1u8; 20]];
+        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
         
         // Script should execute or fail gracefully if too long
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2293,10 +2291,9 @@ proptest! {
         use blvm_consensus::script;
         
         // Create stack at boundary
-        let mut stack = Vec::new();
-        for i in 0..stack_size.min(L_STACK as usize) {
-            stack.push(vec![i as u8; 20]);
-        }
+        let mut stack: Vec<script::StackElement> = (0..stack_size.min(L_STACK as usize))
+            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+            .collect();
         
         // Simple script that doesn't modify stack much
         let script = vec![0x51u8]; // OP_1
@@ -2330,7 +2327,7 @@ proptest! {
             script.push(0x76u8); // OP_DUP
         }
         
-        let mut stack = vec![vec![1u8; 20]];
+        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
         
         // Script should execute or fail gracefully if op count too high
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2370,7 +2367,7 @@ proptest! {
         }
         script.extend(vec![0u8; actual_size]);
         
-        let mut stack = Vec::new();
+        let mut stack: Vec<script::StackElement> = Vec::new();
         
         // Script should execute or fail gracefully if element too large
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2401,7 +2398,7 @@ proptest! {
             script.push(0x51u8); // OP_1 (push operation, doesn't count toward op limit)
         }
         
-        let mut stack = Vec::new();
+        let mut stack: Vec<script::StackElement> = Vec::new();
         
         // Script should terminate (either succeed or fail, but not hang)
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2426,7 +2423,7 @@ proptest! {
         
         // Create script with single opcode
         let script = vec![opcode];
-        let mut stack = vec![vec![1u8; 20]];
+        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
         
         // Script should either execute or fail with appropriate error
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2451,9 +2448,9 @@ proptest! {
         
         // Create script that operates on stack
         let script = vec![0x76u8, 0x76u8]; // OP_DUP, OP_DUP
-        let mut stack = Vec::new();
+        let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..initial_stack_size {
-            stack.push(vec![i as u8; 20]);
+            stack.push(script::to_stack_element(&vec![i as u8; 20]));
         }
         
         let initial_len = stack.len();
@@ -2485,9 +2482,9 @@ proptest! {
         
         // Create simple script
         let script = vec![0x51u8]; // OP_1
-        let mut stack = Vec::new();
+        let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..stack_size {
-            stack.push(vec![i as u8; 20]);
+            stack.push(script::to_stack_element(&vec![i as u8; 20]));
         }
         
         // Script should handle boundary conditions gracefully
@@ -2512,11 +2509,11 @@ proptest! {
         
         // Create script that processes input
         let script = vec![0x76u8]; // OP_DUP
-        let mut stack = Vec::new();
+        let mut stack: Vec<script::StackElement> = Vec::new();
         
         // Add input of varying sizes
         if input_size > 0 {
-            stack.push(vec![0u8; input_size.min(L_ELEMENT as usize)]);
+            stack.push(script::to_stack_element(&vec![0u8; input_size.min(L_ELEMENT as usize)]));
         }
         
         // Script should handle edge case inputs
@@ -2594,7 +2591,7 @@ proptest! {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![i as u8; 20],
                 sequence: 0xffffffff,
@@ -2605,7 +2602,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
             });
         }
         
@@ -2782,7 +2779,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             };
@@ -2854,12 +2851,12 @@ proptest! {
                 hash: [i as u8; 32],
                 index: 0,
             };
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20],
+                script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
-            });
+            }));
             
             // Create transaction with decreasing output (increasing fee)
             let tx = Transaction {
@@ -2874,7 +2871,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 500000 * (i as i64 + 1), // Decreasing output = increasing fee
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             };
@@ -3202,7 +3199,7 @@ proptest! {
                 inputs: vec![].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20],
+                    script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
             });

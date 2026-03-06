@@ -35,11 +35,11 @@ fn test_bip65_cltv_compliance_basic() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -65,6 +65,7 @@ fn test_bip65_cltv_compliance_basic() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -98,11 +99,11 @@ fn test_bip112_csv_compliance_basic() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -128,6 +129,7 @@ fn test_bip112_csv_compliance_basic() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -186,11 +188,11 @@ fn test_bip65_cltv_type_mismatch_rejection() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -216,6 +218,7 @@ fn test_bip65_cltv_type_mismatch_rejection() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -248,11 +251,11 @@ fn test_bip112_csv_disabled_sequence_rejection() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -278,6 +281,7 @@ fn test_bip112_csv_disabled_sequence_rejection() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());

@@ -213,12 +213,12 @@ fn test_cve_2018_17144_double_spend_in_block() {
     };
     utxo_set.insert(
         prevout.clone(),
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
-        },
+        }),
     );
 
     // Create first transaction spending the UTXO

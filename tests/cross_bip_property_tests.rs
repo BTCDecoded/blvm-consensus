@@ -164,11 +164,11 @@ proptest! {
     #[test]
     fn prop_bip125_bip152_coordination(
         tx1_inputs in prop::collection::vec(
-            (any::<[u8; 32]>(), any::<u64>()),
+            (any::<[u8; 32]>(), any::<u32>()),
             1..3
         ),
         tx2_inputs in prop::collection::vec(
-            (any::<[u8; 32]>(), any::<u64>()),
+            (any::<[u8; 32]>(), any::<u32>()),
             1..3
         ),
     ) {

@@ -23,11 +23,11 @@ fn test_coinbase_immature_rejected() {
     };
     let coinbase_utxo = UTXO {
         value: 50_000_000_000, // 50 BTC
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 0,
         is_coinbase: true, // This is a coinbase output
     };
-    utxo_set.insert(coinbase_outpoint.clone(), coinbase_utxo);
+    utxo_set.insert(coinbase_outpoint.clone(), std::sync::Arc::new(coinbase_utxo));
 
     // Try to spend it at height 99 (one block before maturity)
     let tx = Transaction {
@@ -67,11 +67,11 @@ fn test_coinbase_mature_accepted() {
     };
     let coinbase_utxo = UTXO {
         value: 50_000_000_000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 0,
         is_coinbase: true,
     };
-    utxo_set.insert(coinbase_outpoint.clone(), coinbase_utxo);
+    utxo_set.insert(coinbase_outpoint.clone(), std::sync::Arc::new(coinbase_utxo));
 
     // Spend it at height 100 (exactly at maturity)
     let tx = Transaction {
@@ -111,11 +111,11 @@ fn test_coinbase_after_maturity_accepted() {
     };
     let coinbase_utxo = UTXO {
         value: 50_000_000_000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 0,
         is_coinbase: true,
     };
-    utxo_set.insert(coinbase_outpoint.clone(), coinbase_utxo);
+    utxo_set.insert(coinbase_outpoint.clone(), std::sync::Arc::new(coinbase_utxo));
 
     // Spend it at height 200 (well after maturity)
     let tx = Transaction {
@@ -155,11 +155,11 @@ fn test_non_coinbase_no_maturity_requirement() {
     };
     let utxo = UTXO {
         value: 50_000_000_000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 0,
         is_coinbase: false, // Not a coinbase output
     };
-    utxo_set.insert(outpoint.clone(), utxo);
+    utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo));
 
     // Try to spend it immediately at height 0
     let tx = Transaction {
@@ -199,11 +199,11 @@ fn test_coinbase_maturity_different_heights() {
     };
     let coinbase_utxo = UTXO {
         value: 50_000_000_000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 50, // Created at height 50
         is_coinbase: true,
     };
-    utxo_set.insert(coinbase_outpoint.clone(), coinbase_utxo);
+    utxo_set.insert(coinbase_outpoint.clone(), std::sync::Arc::new(coinbase_utxo));
 
     // Try to spend it at height 149 (one block before maturity: 50 + 100 - 1)
     let tx = Transaction {

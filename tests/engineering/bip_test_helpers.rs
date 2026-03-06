@@ -157,6 +157,8 @@ pub fn validate_with_context(
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
     )
 }
 

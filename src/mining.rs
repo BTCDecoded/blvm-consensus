@@ -453,7 +453,7 @@ fn serialize_tx_for_hash(tx: &Transaction) -> Vec<u8> {
         // Previous output hash (32 bytes)
         data.extend_from_slice(&input.prevout.hash);
         // Previous output index (4 bytes, little-endian)
-        data.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+        data.extend_from_slice(&input.prevout.index.to_le_bytes());
         // Script length (varint)
         data.extend_from_slice(&encode_varint(input.script_sig.len() as u64));
         // Script
@@ -596,11 +596,11 @@ mod tests {
         let utxo = UTXO {
             value: 10000,
             // Empty script_pubkey - script_sig (OP_1) will push 1, final stack [1] passes
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let mempool_txs = vec![create_valid_transaction()];
         let height = 100;
@@ -721,11 +721,11 @@ mod tests {
         let utxo = UTXO {
             value: 10000,
             // Empty script_pubkey - script_sig (OP_1) will push 1, final stack [1] passes
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let mempool_txs = vec![create_valid_transaction()];
         let height = 100;
@@ -983,11 +983,11 @@ mod tests {
         let utxo = UTXO {
             value: 10000,
             // Empty script_pubkey - script_sig (OP_1) will push 1, final stack [1] passes
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let mempool_txs = vec![create_valid_transaction()];
         let height = 100;
@@ -1063,7 +1063,7 @@ mod tests {
             outputs: vec![TransactionOutput {
                 value: 1000 + counter as i64, // Make each transaction unique
                 // Empty script_pubkey - script_sig already pushed 1, so final stack is [1].into()
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
             }]
             .into(),
             lock_time: 0,

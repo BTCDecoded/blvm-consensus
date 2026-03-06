@@ -22,7 +22,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![0x51].into(), // OP_1
             height: 0,
         };
         
@@ -43,7 +43,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
         };
         
@@ -65,7 +65,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
         };
         
@@ -92,7 +92,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 5000000000, // 50 BTC (genesis subsidy)
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
         };
         
@@ -152,7 +152,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
         };
         
@@ -192,6 +192,74 @@ mod tests {
         
         assert!(commitment.verify_count(5));
         assert!(!commitment.verify_count(10));
+    }
+
+    #[test]
+    fn test_verifyconsensuscommitment_orange_paper_genesis() {
+        use blvm_consensus::constants::{GENESIS_BLOCK_HASH, GENESIS_BLOCK_MERKLE_ROOT, GENESIS_BLOCK_NONCE, GENESIS_BLOCK_TIMESTAMP};
+        use blvm_consensus::orange_paper_property_helpers::expected_verifyconsensuscommitment_from_orange_paper_impl;
+        use blvm_consensus::types::BlockHeader;
+
+        // Genesis block header (valid PoW)
+        let genesis_header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: GENESIS_BLOCK_MERKLE_ROOT,
+            timestamp: GENESIS_BLOCK_TIMESTAMP as u64,
+            bits: 0x1d00ffff,
+            nonce: GENESIS_BLOCK_NONCE,
+        };
+
+        // Valid commitment: genesis hash, correct supply at height 0
+        let valid_commitment = UtxoCommitment::new(
+            [0; 32],           // merkle_root (not checked in VerifyConsensusCommitment formula)
+            5000000000,        // 50 BTC = expected supply at height 0
+            1,
+            0,                 // block_height
+            GENESIS_BLOCK_HASH,
+        );
+
+        let result = expected_verifyconsensuscommitment_from_orange_paper_impl(
+            &valid_commitment,
+            &[genesis_header.clone()],
+        );
+        assert_eq!(result, 1, "Valid genesis commitment should return 1");
+    }
+
+    #[test]
+    fn test_verifyconsensuscommitment_orange_paper_invalid_cases() {
+        use blvm_consensus::orange_paper_property_helpers::expected_verifyconsensuscommitment_from_orange_paper_impl;
+        use blvm_consensus::types::BlockHeader;
+
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+
+        // Empty headers -> 0
+        let commitment = UtxoCommitment::new([0; 32], 5000000000, 1, 0, [0; 32]);
+        assert_eq!(
+            expected_verifyconsensuscommitment_from_orange_paper_impl(&commitment, &[]),
+            0
+        );
+
+        // Wrong supply -> 0
+        let bad_supply = UtxoCommitment::new([0; 32], 999, 1, 0, [0; 32]);
+        assert_eq!(
+            expected_verifyconsensuscommitment_from_orange_paper_impl(&bad_supply, &[header.clone()]),
+            0
+        );
+
+        // Height out of bounds -> 0
+        let height_oob = UtxoCommitment::new([0; 32], 5000000000, 1, 5, [0; 32]);
+        assert_eq!(
+            expected_verifyconsensuscommitment_from_orange_paper_impl(&height_oob, &[header]),
+            0
+        );
     }
 
     #[test]
@@ -236,13 +304,13 @@ mod tests {
         };
         let utxo_a = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![0x51].into(), // OP_1
             height: 0,
             is_coinbase: false,
         };
         let utxo_b = UTXO {
             value: 2000, // Different value
-            script_pubkey: vec![0x52], // OP_2
+            script_pubkey: vec![0x52].into(), // OP_2
             height: 0,
             is_coinbase: false,
         };
@@ -276,7 +344,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
         };
@@ -288,7 +356,7 @@ mod tests {
         // Insert different UTXO into tree B and generate commitment B
         let utxo_b = UTXO {
             value: 2000, // Different value
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![0x52].into(),
             height: 0,
             is_coinbase: false,
         };
@@ -318,7 +386,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 5000000000, // 50 BTC
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: true, // Coinbase UTXO
         };
@@ -350,13 +418,13 @@ mod tests {
         };
         let utxo1 = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
         };
         let utxo2 = UTXO {
             value: 2000,
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![0x52].into(),
             height: 0,
             is_coinbase: false,
         };

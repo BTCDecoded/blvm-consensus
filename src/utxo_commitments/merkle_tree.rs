@@ -456,25 +456,19 @@ impl UtxoMerkleTree {
         // Find removed UTXOs (in old but not in new)
         for (outpoint, old_utxo) in old_utxo_set {
             if !new_utxo_set.contains_key(outpoint) {
-                // UTXO was removed, remove from tree
-                self.remove(outpoint, old_utxo)?;
+                self.remove(outpoint, old_utxo.as_ref())?;
             }
         }
 
         // Find added/modified UTXOs
         for (outpoint, new_utxo) in new_utxo_set {
             match old_utxo_set.get(outpoint) {
-                Some(old_utxo) if old_utxo == new_utxo => {
-                    // Unchanged, skip
-                }
+                Some(old_utxo) if old_utxo == new_utxo => {}
                 _ => {
-                    // New or modified, update
                     if let Some(old_utxo) = old_utxo_set.get(outpoint) {
-                        // Modified - remove old first
-                        self.remove(outpoint, old_utxo)?;
+                        self.remove(outpoint, old_utxo.as_ref())?;
                     }
-                    // Insert new (or add if it's new)
-                    self.insert(outpoint.clone(), new_utxo.clone())?;
+                    self.insert(outpoint.clone(), (**new_utxo).clone())?;
                 }
             }
         }
@@ -595,7 +589,7 @@ impl UtxoMerkleTree {
         bytes.extend_from_slice(&utxo.height.to_be_bytes());
         bytes.push(if utxo.is_coinbase { 1 } else { 0 });
         bytes.push(utxo.script_pubkey.len() as u8);
-        bytes.extend_from_slice(&utxo.script_pubkey);
+        bytes.extend_from_slice(utxo.script_pubkey.as_ref());
         Ok(bytes)
     }
 
@@ -634,7 +628,7 @@ impl UtxoMerkleTree {
             ));
         }
 
-        let script_pubkey = data[offset..offset + script_len].to_vec();
+        let script_pubkey = crate::types::SharedByteString::from(&data[offset..offset + script_len]);
 
         Ok(UTXO {
             value,

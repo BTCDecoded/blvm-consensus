@@ -1,6 +1,6 @@
 //! BLVM Runtime Optimization Passes
 //!
-//! Phase 4: Additional optimization passes for 10-30% performance gains
+//! Additional optimization passes for 10-30% performance gains
 //!
 //! This module provides runtime optimization passes:
 //! - Constant folding (pre-computed constants)
@@ -282,10 +282,11 @@ pub mod dead_code_elimination {
 #[cfg(feature = "production")]
 pub mod simd_vectorization {
     use crate::crypto::OptimizedSha256;
+    use digest::Digest;
     use ripemd::Ripemd160;
-    use sha2::{Digest, Sha256};
 
-    /// Minimum batch size for parallelization (overhead not worth it for smaller batches)
+    /// Minimum batch size for parallelization (overhead not worth it for smaller batches).
+    /// batch_sha256 uses OptimizedSha256 (SHA-NI when available) for consistency with batch_double_sha256_aligned.
     const PARALLEL_THRESHOLD: usize = 8;
 
     /// Chunk size for cache-friendly processing. Hardware-derived via ibd_tuning.
@@ -316,29 +317,22 @@ pub mod simd_vectorization {
             return Vec::new();
         }
 
-        // Small batches: sequential processing (overhead not worth it)
-        // Use sha2 crate which already has asm optimizations
+        // Small batches: sequential processing. Use OptimizedSha256 (SHA-NI when available).
         if inputs.len() < 4 {
+            let hasher = OptimizedSha256::new();
             return inputs
                 .iter()
-                .map(|input| {
-                    let hash = Sha256::digest(input);
-                    let mut result = [0u8; 32];
-                    result.copy_from_slice(&hash);
-                    result
-                })
+                .map(|input| hasher.hash(input).into())
                 .collect();
         }
 
         // Medium batches: chunked sequential processing
         if inputs.len() < PARALLEL_THRESHOLD {
+            let hasher = OptimizedSha256::new();
             let mut results = Vec::with_capacity(inputs.len());
             for chunk in inputs.chunks(chunk_size()) {
                 for input in chunk {
-                    let hash = Sha256::digest(input);
-                    let mut result = [0u8; 32];
-                    result.copy_from_slice(&hash);
-                    results.push(result);
+                    results.push(hasher.hash(input).into());
                 }
             }
             return results;
@@ -355,22 +349,16 @@ pub mod simd_vectorization {
             }
         }
 
-        // Fallback: Multi-core parallelization using Rayon
-        // Rayon is enabled via the 'production' feature
-        // This leverages multiple CPU cores for parallel hashing
+        // Fallback: Multi-core parallelization using Rayon. Each worker gets OptimizedSha256.
         use rayon::prelude::*;
 
         inputs
             .par_chunks(chunk_size())
             .map(|chunk| {
+                let hasher = OptimizedSha256::new();
                 chunk
                     .iter()
-                    .map(|input| {
-                        let hash = Sha256::digest(input);
-                        let mut result = [0u8; 32];
-                        result.copy_from_slice(&hash);
-                        result
-                    })
+                    .map(|input| hasher.hash(input).into())
                     .collect::<Vec<_>>()
             })
             .flatten()
@@ -521,13 +509,14 @@ pub mod simd_vectorization {
             return Vec::new();
         }
 
-        // Small batches: sequential processing
+        // Small batches: sequential processing. Use OptimizedSha256 (SHA-NI) for SHA256 part.
         if inputs.len() < 4 {
+            let hasher = OptimizedSha256::new();
             return inputs
                 .iter()
                 .map(|input| {
-                    let sha256_hash = Sha256::digest(input);
-                    let ripemd160_hash = Ripemd160::digest(sha256_hash);
+                    let sha256_hash: [u8; 32] = hasher.hash(input).into();
+                    let ripemd160_hash = Ripemd160::digest(&sha256_hash);
                     let mut result = [0u8; 20];
                     result.copy_from_slice(&ripemd160_hash);
                     result
@@ -537,11 +526,12 @@ pub mod simd_vectorization {
 
         // Medium batches: chunked sequential processing
         if inputs.len() < PARALLEL_THRESHOLD {
+            let hasher = OptimizedSha256::new();
             let mut results = Vec::with_capacity(inputs.len());
             for chunk in inputs.chunks(chunk_size()) {
                 for input in chunk {
-                    let sha256_hash = Sha256::digest(input);
-                    let ripemd160_hash = Ripemd160::digest(sha256_hash);
+                    let sha256_hash: [u8; 32] = hasher.hash(input).into();
+                    let ripemd160_hash = Ripemd160::digest(&sha256_hash);
                     let mut result = [0u8; 20];
                     result.copy_from_slice(&ripemd160_hash);
                     results.push(result);
@@ -550,18 +540,18 @@ pub mod simd_vectorization {
             return results;
         }
 
-        // Large batches: parallelized processing
-        // Rayon is enabled via the 'production' feature
+        // Large batches: parallelized processing. Each worker gets OptimizedSha256.
         use rayon::prelude::*;
 
         inputs
             .par_chunks(chunk_size())
             .map(|chunk| {
+                let hasher = OptimizedSha256::new();
                 chunk
                     .iter()
                     .map(|input| {
-                        let sha256_hash = Sha256::digest(input);
-                        let ripemd160_hash = Ripemd160::digest(sha256_hash);
+                        let sha256_hash: [u8; 32] = hasher.hash(input).into();
+                        let ripemd160_hash = Ripemd160::digest(&sha256_hash);
                         let mut result = [0u8; 20];
                         result.copy_from_slice(&ripemd160_hash);
                         result

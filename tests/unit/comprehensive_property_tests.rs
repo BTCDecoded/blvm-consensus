@@ -132,7 +132,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_outpoint_index_range(
-        index in 0u64..1000000u64
+        index in 0u32..1000000u32
     ) {
         let outpoint = OutPoint {
             hash: [0; 32],
@@ -152,7 +152,7 @@ proptest! {
     ) {
         let output = TransactionOutput {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         };
         
         prop_assert!(output.value >= 0);
@@ -178,7 +178,7 @@ proptest! {
     #[test]
     fn prop_transaction_input_prevout(
         hash_bytes in prop::array::uniform32(0u8..=255u8),
-        index in 0u64..1000u64
+        index in 0u32..1000u32
     ) {
         let input = TransactionInput {
             prevout: OutPoint {
@@ -333,7 +333,7 @@ proptest! {
             }].into(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8],
+                script_pubkey: vec![i as u8].into(),
             }).collect(),
             lock_time: 0,
         };

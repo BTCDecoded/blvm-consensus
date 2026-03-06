@@ -908,23 +908,26 @@ pub fn reset_assume_valid_height() {
     set_assume_valid_height(u64::MAX);
 }
 
-/// CCheckQueue-style validation: BLVM_SCRIPT_CHECK_QUEUE=1 to enable. Cached at first use.
-#[cfg(all(feature = "production", feature = "rayon"))]
-pub fn use_script_check_queue() -> bool {
+/// Use overlay delta for UTXO merge instead of sync_block_to_batch.
+/// Set BLVM_USE_OVERLAY_DELTA=1 to enable. When enabled, connect_block_ibd returns UtxoDelta
+/// for the node to apply to pending_writes without re-walking the block.
+pub fn use_overlay_delta() -> bool {
     use std::sync::OnceLock;
     static CACHED: OnceLock<bool> = OnceLock::new();
     *CACHED.get_or_init(|| {
-        std::env::var("BLVM_SCRIPT_CHECK_QUEUE")
+        std::env::var("BLVM_USE_OVERLAY_DELTA")
             .map(|v| v == "1" || v == "true")
             .unwrap_or(false)
     })
 }
 
-/// Initialize Rayon thread pool for script verification using `script_verification_threads`.
+/// Initialize Rayon thread pool for script verification.
 ///
-/// Call this at node startup before any block validation. When
-/// `script_verification_threads` > 0, sets the global Rayon pool size.
-/// When 0, Rayon uses its default (num_cpus). Only takes effect once per process.
+/// Call this at node startup before any block validation.
+/// - When `script_verification_threads` > 0: use that value explicitly.
+/// - When 0: let Rayon use its default (respects RAYON_NUM_THREADS env; typically num_cpus).
+///   IBD scripts set RAYON_NUM_THREADS=nproc-1 for par-1 workers.
+/// Only takes effect once per process.
 #[cfg(all(feature = "production", feature = "rayon"))]
 pub fn init_rayon_for_script_verification() {
     use std::sync::Once;
@@ -943,5 +946,6 @@ pub fn init_rayon_for_script_verification() {
                 );
             }
         }
+        // n==0: Rayon uses default pool (reads RAYON_NUM_THREADS if set)
     });
 }

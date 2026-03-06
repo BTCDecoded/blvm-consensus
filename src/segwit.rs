@@ -816,7 +816,7 @@ mod property_tests {
                     inputs.push(TransactionInput {
                         prevout: OutPoint {
                             hash: [0; 32],
-                            index: i as u64,
+                            index: i as u32,
                         },
                         script_sig: vec![OP_1],
                         sequence: 0xffffffff,

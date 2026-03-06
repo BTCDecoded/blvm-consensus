@@ -151,7 +151,7 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
         // Previous output hash (32 bytes)
         preimage.extend_from_slice(&input.prevout.hash);
         // Previous output index (4 bytes, little-endian)
-        preimage.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+        preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
         // Sequence (4 bytes, little-endian)
         preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
         // Note: scriptSig is NOT included in template (key difference from sighash)

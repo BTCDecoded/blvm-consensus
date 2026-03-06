@@ -20,12 +20,12 @@ fn create_test_utxo_set() -> UtxoSet {
             hash: [1; 32].into(),
             index: 0,
         },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 100_000_000, // 1 BTC
             script_pubkey: vec![0x51].into(),
             height: 100,
             is_coinbase: false,
-        },
+        }),
     );
 
     utxo_set.insert(
@@ -33,12 +33,12 @@ fn create_test_utxo_set() -> UtxoSet {
             hash: [2; 32].into(),
             index: 0,
         },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 50_000_000, // 0.5 BTC
             script_pubkey: vec![0x52].into(),
             height: 101,
             is_coinbase: false,
-        },
+        }),
     );
 
     utxo_set
@@ -264,12 +264,12 @@ fn test_fee_maximum_money() {
             hash: [1; 32].into(),
             index: 0,
         },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: MAX_MONEY,
             script_pubkey: vec![0x51].into(),
             height: 100,
             is_coinbase: false,
-        },
+        }),
     );
 
     let tx = Transaction {
@@ -319,12 +319,12 @@ fn test_fee_overflow_protection() {
                 hash: [i as u8; 32].into(),
                 index: 0,
             },
-            UTXO {
+            std::sync::Arc::new(UTXO {
                 value: large_value, // Large but valid values that test overflow protection
                 script_pubkey: vec![0x51].into(),
                 height: 100,
                 is_coinbase: false,
-            },
+            }),
         );
     }
 

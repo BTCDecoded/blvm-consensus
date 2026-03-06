@@ -68,7 +68,7 @@ fn create_test_transactions(count: usize) -> Vec<Transaction> {
     (0..count).map(|i| {
         let mut tx = create_test_transaction();
         // Make each transaction unique
-        tx.inputs[0].prevout.index = i as u64;
+        tx.inputs[0].prevout.index = i as u32;
         tx
     }).collect()
 }

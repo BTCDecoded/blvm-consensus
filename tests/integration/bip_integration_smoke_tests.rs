@@ -205,6 +205,7 @@ fn smoke_test_bip66_enforced() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     // Test passes if no panic occurs (verifies BIP66 checks are callable)
@@ -271,6 +272,7 @@ fn smoke_test_bip147_enforced() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     // Test passes if no panic occurs (verifies BIP147 checks are callable)

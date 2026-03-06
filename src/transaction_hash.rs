@@ -3,12 +3,12 @@
 //! Implements Bitcoin's transaction sighash algorithm for ECDSA signature verification.
 //! This is critical for proper signature validation in script execution.
 //!
-//! Performance optimizations (Phase 6.2):
+//! Performance optimizations:
 //! - Precomputed sighash templates for common transaction patterns
 
+use crate::crypto::OptimizedSha256;
 use crate::error::Result;
 use crate::types::*;
-use sha2::{Digest, Sha256};
 use blvm_spec_lock::spec_locked;
 
 // OPTIMIZATION: Inline varint encoding helper to avoid Vec allocations in hot path
@@ -29,9 +29,92 @@ fn write_varint_to_vec(vec: &mut Vec<u8>, value: u64) {
 }
 
 #[cfg(feature = "production")]
-use std::collections::HashMap;
+use std::cell::RefCell;
 #[cfg(feature = "production")]
-use std::sync::OnceLock;
+use std::hash::{Hash as StdHash, Hasher};
+#[cfg(feature = "production")]
+use lru::LruCache;
+#[cfg(feature = "production")]
+use rustc_hash::{FxBuildHasher, FxHasher};
+#[cfg(feature = "production")]
+use hashbrown::HashMap as HashBrownMap;
+#[cfg(feature = "production")]
+use smallvec::SmallVec;
+
+/// Per-block sighash cache: (prevout, code_hash, sighash_byte) -> hash. Core-style.
+/// Uses hash of scriptCode instead of owned Vec to avoid allocation on insert.
+#[cfg(feature = "production")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SighashCacheKey {
+    prevout: crate::types::OutPoint,
+    code_hash: u64,
+    sighash_byte: u8,
+}
+
+#[cfg(feature = "production")]
+impl std::hash::Hash for SighashCacheKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.code_hash);
+    }
+}
+
+#[cfg(feature = "production")]
+pub type SighashMidstateCache =
+    std::sync::Arc<std::sync::Mutex<HashBrownMap<SighashCacheKey, [u8; 32], FxBuildHasher>>>;
+
+/// Thread-local midstate cache: (prevout, code_hash, sighash_byte) -> hash. Avoids Mutex contention
+/// across script-check workers. Used when block passes None (CCheckQueue/rayon path).
+#[cfg(feature = "production")]
+thread_local! {
+    static SIGHASH_MIDSTATE_CACHE: RefCell<HashBrownMap<SighashCacheKey, [u8; 32], FxBuildHasher>> =
+        RefCell::new(HashBrownMap::with_hasher(FxBuildHasher::default()));
+}
+
+#[cfg(feature = "production")]
+fn insert_midstate_cache(
+    sighash_cache: Option<&SighashMidstateCache>,
+    prevout: crate::types::OutPoint,
+    code: &[u8],
+    sighash_byte: u8,
+    hash: [u8; 32],
+) {
+    let key_hash = sighash_cache_hash(&prevout, code, sighash_byte);
+    let key = SighashCacheKey { prevout, code_hash: key_hash, sighash_byte };
+    if let Some(c) = sighash_cache {
+        let _ = c.lock().map(|mut g| g.insert(key, hash));
+    } else {
+        SIGHASH_MIDSTATE_CACHE.with(|cell| {
+            cell.borrow_mut().insert(key, hash);
+        });
+    }
+}
+
+/// Hash (prevout, code, sighash_byte) with FxHasher for cache bucket lookup.
+#[cfg(feature = "production")]
+#[inline]
+fn sighash_cache_hash(prevout: &crate::types::OutPoint, code: &[u8], sighash_byte: u8) -> u64 {
+    let mut hasher = FxHasher::default();
+    prevout.hash(&mut hasher);
+    code.hash(&mut hasher);
+    sighash_byte.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Sighash cache: first_hash (SHA256 of preimage) -> final hash (double-SHA256).
+/// Thread-local to avoid Mutex contention across script-check workers.
+/// Saves one SHA256 per cache hit. LRU evicts oldest entries when capacity reached.
+/// Capacity: 256k default (BLVM_SIGHASH_CACHE_SIZE); 65k min. IBD: larger helps reorg/assumeutxo.
+#[cfg(feature = "production")]
+thread_local! {
+    static SIGHASH_CACHE: RefCell<LruCache<[u8; 32], [u8; 32]>> = RefCell::new({
+        let cap = std::env::var("BLVM_SIGHASH_CACHE_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(262_144)
+            .clamp(65_536, 2_097_152);
+        LruCache::new(std::num::NonZeroUsize::new(cap).unwrap())
+    });
+}
 
 /// Thread-local buffer for sighash preimage (avoids ~3-6k Vec allocs/block in non-template path)
 #[cfg(feature = "production")]
@@ -45,6 +128,41 @@ thread_local! {
 thread_local! {
     static BIP143_SERIALIZE_BUF: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::with_capacity(131_072)); // 128KB, covers max tx
 }
+
+/// Thread-local buffer for BIP143 per-input sighash preimage (avoids alloc per input in batch)
+#[cfg(feature = "production")]
+thread_local! {
+    static BIP143_PREIMAGE_BUF: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::with_capacity(1024));
+}
+
+/// Thread-local buffer for SIGHASH_SINGLE per-output serialization (8+var+script < 256 bytes)
+#[cfg(feature = "production")]
+thread_local! {
+    static BIP143_SINGLE_OUTPUT_BUF: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::with_capacity(256));
+}
+
+/// Thread-local reusable preimage buffers for batch_compute_legacy_sighashes.
+/// Avoids N Vec allocs per block.
+#[cfg(feature = "production")]
+thread_local! {
+    static LEGACY_BATCH_PREIMAGES: std::cell::RefCell<Vec<Vec<u8>>> = std::cell::RefCell::new(Vec::new());
+}
+
+/// Thread-local buffers for calculate_transaction_sighash_single_input (avoids 2 Vec allocs per input).
+#[cfg(feature = "production")]
+thread_local! {
+    static SIGHASH_SINGLE_PREVOUT_VALUES: RefCell<Vec<i64>> = RefCell::new(Vec::new());
+}
+
+/// Thread-local buffer for script_code in calculate_transaction_sighash_single_input.
+/// Copy script_for_signing here so we can build prevout_script_pubkeys without heap alloc.
+#[cfg(feature = "production")]
+thread_local! {
+    static SIGHASH_SCRIPT_CODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(256));
+}
+
+/// Empty slice for prevout_script_pubkeys (non-signing inputs use empty script).
+const EMPTY_SCRIPT: &[u8] = &[];
 
 /// SIGHASH types for transaction signature verification
 /// 
@@ -106,68 +224,57 @@ impl SighashType {
 }
 
 
-/// Phase 6.2: Transaction structure pattern for template matching
+/// Common sighash patterns (documentation; cache applies to all).
 #[cfg(feature = "production")]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct SighashPattern {
-    version: u64,
-    input_count: usize,
-    output_count: usize,
-    lock_time: u64,
-    sighash_type: SighashType,
-}
-
-/// Phase 6.2: Precomputed sighash template cache
-///
-/// Caches common sighash preimage patterns to avoid redundant computation.
-/// Only caches for standard transaction patterns (single input, single output, etc.)
-#[cfg(feature = "production")]
-static SIGHASH_TEMPLATES: OnceLock<HashMap<SighashPattern, Vec<u8>>> = OnceLock::new();
-
-/// Phase 6.2: Check if transaction matches a common pattern suitable for templating
-#[cfg(feature = "production")]
+#[allow(dead_code)]
 #[inline]
-fn matches_template_pattern(
+fn is_cacheable_sighash_pattern(
     tx: &Transaction,
     input_index: usize,
     sighash_type: SighashType,
 ) -> bool {
-    // Only cache simple patterns to avoid complexity
-    // Pattern: Single input, single output, standard P2PKH structure
-    tx.inputs.len() == 1
-        && tx.outputs.len() == 1
-        && input_index == 0
-        && sighash_type == SighashType::ALL
-        && tx.version == 1
-        && tx.lock_time == 0
+    if sighash_type.is_anyonecanpay() {
+        return false;
+    }
+    // SIGHASH_ALL: 1-in-1-out, 1-in-2-out, 2-in-1-out, 2-in-2-out, 1-in-N, N-in-1 (N<=4)
+    let base = sighash_type.base_type();
+    if base == 0x01 || base == 0x00 {
+        let ni = tx.inputs.len();
+        let no = tx.outputs.len();
+        (ni == 1 && no >= 1 && no <= 4)
+            || (ni >= 1 && ni <= 4 && no == 1)
+            || (ni == 2 && no == 2)
+            || (ni == 1 && no == 1)
+    } else if base == 0x02 {
+        // SIGHASH_NONE: no outputs
+        tx.inputs.len() >= 1 && tx.inputs.len() <= 4
+    } else if base == 0x03 {
+        // SIGHASH_SINGLE: output at input index
+        input_index < tx.outputs.len() && tx.inputs.len() <= 4
+    } else {
+        false
+    }
 }
 
-/// Phase 6.2: Get or create sighash template for common patterns
+/// Compute sighash with cache. First hash (of preimage) is cache key.
+/// On hit: return cached double-SHA256. On miss: compute, cache, return.
+/// Uses OptimizedSha256 (SHA-NI when available) for ~10× faster hashing vs generic sha2.
+/// Thread-local cache avoids Mutex contention across script-check workers.
 #[cfg(feature = "production")]
-fn get_sighash_template(
-    tx: &Transaction,
-    input_index: usize,
-    _prevout_values: &[i64],
-    _prevout_script_pubkeys: &[&crate::types::ByteString],
-    sighash_type: SighashType,
-) -> Option<Vec<u8>> {
-    if !matches_template_pattern(tx, input_index, sighash_type) {
-        return None;
-    }
-
-    let pattern = SighashPattern {
-        version: tx.version,
-        input_count: tx.inputs.len(),
-        output_count: tx.outputs.len(),
-        lock_time: tx.lock_time,
-        sighash_type,
-    };
-
-    let templates = SIGHASH_TEMPLATES.get_or_init(|| HashMap::new());
-
-    // For now, return None (templates would need to be pre-populated)
-    // Future: Pre-compute templates for standard patterns at startup
-    templates.get(&pattern).cloned()
+fn sighash_with_cache(preimage: &[u8]) -> Hash {
+    let hasher = OptimizedSha256::new();
+    let first_hash: [u8; 32] = hasher.hash(preimage).into();
+    SIGHASH_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if let Some(cached) = cache.get(&first_hash) {
+            return *cached;
+        }
+        let second_hash = hasher.hash(&first_hash);
+        let mut result = [0u8; 32];
+        result.copy_from_slice(&second_hash);
+        cache.put(first_hash, result);
+        result
+    })
 }
 
 /// Calculate transaction sighash for signature verification
@@ -175,7 +282,7 @@ fn get_sighash_template(
 /// This implements the Bitcoin transaction hash algorithm used for ECDSA signatures.
 /// The sighash determines which parts of the transaction are signed.
 ///
-/// Performance optimization (Phase 6.2): Checks for precomputed templates
+/// Checks for precomputed templates
 /// before computing sighash from scratch.
 ///
 /// # Arguments
@@ -196,7 +303,7 @@ pub fn calculate_transaction_sighash(
 ) -> Result<Hash> {
     // Convert prevouts to parallel slices for the optimized API
     let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let prevout_script_pubkeys: Vec<&crate::types::ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let prevout_script_pubkeys: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
     // Validate prevouts match inputs
     if prevout_values.len() != tx.inputs.len() || prevout_script_pubkeys.len() != tx.inputs.len() {
         return Err(crate::error::ConsensusError::InvalidPrevoutsCount(
@@ -204,22 +311,84 @@ pub fn calculate_transaction_sighash(
             tx.inputs.len(),
         ));
     }
-    calculate_transaction_sighash_with_script_code(tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type, None)
+    calculate_transaction_sighash_with_script_code(tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type, None, #[cfg(feature = "production")] None)
+}
+
+/// Calculate sighash for a single input without requiring full prevout arrays.
+/// Takes only (script_for_signing, prevout_value) for the current input. Non-signing inputs
+/// use empty script internally. Eliminates need for workers to build full refs per tx.
+/// script_for_signing is the script that goes into the preimage (scriptPubKey or redeem script).
+#[spec_locked("5.1")]
+pub fn calculate_transaction_sighash_single_input(
+    tx: &Transaction,
+    input_index: usize,
+    script_for_signing: &[u8],
+    prevout_value: i64,
+    sighash_type: SighashType,
+    #[cfg(feature = "production")] sighash_cache: Option<&SighashMidstateCache>,
+) -> Result<Hash> {
+    if input_index >= tx.inputs.len() {
+        return Err(crate::error::ConsensusError::InvalidInputIndex(input_index));
+    }
+    #[cfg(feature = "production")]
+    return SIGHASH_SCRIPT_CODE_BUF.with(|buf_cell| {
+        let mut buf = buf_cell.borrow_mut();
+        buf.clear();
+        buf.extend_from_slice(script_for_signing);
+        let slice = buf.as_slice();
+        let mut refs = SmallVec::<[&[u8]; 8]>::new();
+        for i in 0..tx.inputs.len() {
+            refs.push(if i == input_index { slice } else { EMPTY_SCRIPT });
+        }
+        SIGHASH_SINGLE_PREVOUT_VALUES.with(|cell| {
+            let mut v = cell.borrow_mut();
+            v.clear();
+            v.resize(tx.inputs.len(), 0);
+            v[input_index] = prevout_value;
+            calculate_transaction_sighash_with_script_code(
+                tx,
+                input_index,
+                &v,
+                refs.as_slice(),
+                sighash_type,
+                None,
+                sighash_cache,
+            )
+        })
+    });
+    #[cfg(not(feature = "production"))]
+    {
+        let mut prevout_values = vec![0i64; tx.inputs.len()];
+        prevout_values[input_index] = prevout_value;
+        calculate_transaction_sighash_with_script_code(
+            tx,
+            input_index,
+            &prevout_values,
+            &prevout_script_pubkeys,
+            sighash_type,
+            None,
+        )
+    }
 }
 
 /// Calculate transaction sighash with optional script code override
 /// 
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
+/// When sighash_cache is provided (CCheckQueue path), caches (scriptCode, sighash_byte) -> hash for multisig reuse.
 #[spec_locked("5.1")]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
     input_index: usize,
     prevout_values: &[i64],
-    prevout_script_pubkeys: &[&crate::types::ByteString],
+    prevout_script_pubkeys: &[&[u8]],
     sighash_type: SighashType,
     script_code: Option<&[u8]>,
+    #[cfg(feature = "production")] sighash_cache: Option<&SighashMidstateCache>,
 ) -> Result<Hash> {
+    #[cfg(all(feature = "production", feature = "profile"))]
+    let _t0 = std::time::Instant::now();
+
     // Validate input index
     if input_index >= tx.inputs.len() {
         return Err(crate::error::ConsensusError::InvalidInputIndex(input_index));
@@ -249,15 +418,122 @@ pub fn calculate_transaction_sighash_with_script_code(
         return Ok(result);
     }
 
-    // Phase 6.2: Check for template cache (only for SIGHASH_ALL patterns)
+    // Core-style midstate cache: (prevout, scriptCode, sighash_byte) -> hash. Key must include prevout.
+    // When sighash_cache is None, use thread-local (avoids Mutex contention across workers).
     #[cfg(feature = "production")]
-    if sighash_type.is_all() && !anyone_can_pay {
-        if let Some(template) = get_sighash_template(tx, input_index, prevout_values, prevout_script_pubkeys, sighash_type) {
-            let first_hash = Sha256::digest(&template);
-            let second_hash = Sha256::digest(first_hash);
-            let mut result = [0u8; 32];
-            result.copy_from_slice(&second_hash);
-            return Ok(result);
+    {
+        let prevout = &tx.inputs[input_index].prevout;
+        let code = script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]);
+        let sighash_byte_u8 = sighash_byte as u8;
+        let hash = sighash_cache_hash(prevout, code, sighash_byte_u8);
+        let cached = if let Some(cache) = sighash_cache {
+            cache.lock().ok().and_then(|guard| {
+                (*guard)
+                    .raw_entry()
+                    .from_hash(hash, |k: &SighashCacheKey| {
+                        k.prevout == *prevout && k.code_hash == hash && k.sighash_byte == sighash_byte_u8
+                    })
+                    .map(|(_, v)| *v)
+            })
+        } else {
+            SIGHASH_MIDSTATE_CACHE.with(|cell| {
+                let map = cell.borrow();
+                map.raw_entry()
+                    .from_hash(hash, |k: &SighashCacheKey| {
+                        k.prevout == *prevout && k.code_hash == hash && k.sighash_byte == sighash_byte_u8
+                    })
+                    .map(|(_, v)| *v)
+            })
+        };
+        if let Some(cached) = cached {
+            return Ok(cached);
+        }
+    }
+
+    // Fast path: 1-in-1-out SIGHASH_ALL (common P2PKH pattern). Avoids loop overhead and branches.
+    #[cfg(feature = "production")]
+    if tx.inputs.len() == 1
+        && input_index == 0
+        && !anyone_can_pay
+        && !hash_none
+        && !hash_single
+    {
+        let base_type = sighash_byte & 0x1f;
+        if base_type == 0x01 || base_type == 0x00 {
+            let n_out = tx.outputs.len();
+            if n_out == 1 {
+                if let Ok(h) = build_preimage_1in1out_sighash_all(
+                    tx,
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    script_code,
+                    sighash_byte,
+                ) {
+                    #[cfg(all(feature = "production", feature = "profile"))]
+                    crate::script_profile::add_sighash_ns(_t0.elapsed().as_nanos() as u64);
+                    #[cfg(feature = "production")]
+                    insert_midstate_cache(sighash_cache, tx.inputs[0].prevout, script_code.unwrap_or(prevout_script_pubkeys[0]), sighash_byte as u8, h);
+                    return Ok(h);
+                }
+            } else if (2..=16).contains(&n_out) {
+                // 1-in-N-out SIGHASH_ALL (spend + change). Common P2PKH pattern. N=2..16 covers most.
+                if let Ok(h) = build_preimage_1in_nout_sighash_all(
+                    tx,
+                    prevout_script_pubkeys,
+                    script_code,
+                    sighash_byte,
+                ) {
+                    #[cfg(all(feature = "production", feature = "profile"))]
+                    crate::script_profile::add_sighash_ns(_t0.elapsed().as_nanos() as u64);
+                    #[cfg(feature = "production")]
+                    insert_midstate_cache(sighash_cache, tx.inputs[0].prevout, script_code.unwrap_or(prevout_script_pubkeys[0]), sighash_byte as u8, h);
+                    return Ok(h);
+                }
+            }
+        }
+    }
+
+    // Fast path: 2-in-1-out and 2-in-2-out SIGHASH_ALL (common batched/swap patterns).
+    #[cfg(feature = "production")]
+    if tx.inputs.len() == 2
+        && input_index < 2
+        && !anyone_can_pay
+        && !hash_none
+        && !hash_single
+    {
+        let base_type = sighash_byte & 0x1f;
+        if base_type == 0x01 || base_type == 0x00 {
+            let n_out = tx.outputs.len();
+            if n_out == 1 {
+                if let Ok(h) = build_preimage_2in1out_sighash_all(
+                    tx,
+                    input_index,
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    script_code,
+                    sighash_byte,
+                ) {
+                    #[cfg(all(feature = "production", feature = "profile"))]
+                    crate::script_profile::add_sighash_ns(_t0.elapsed().as_nanos() as u64);
+                    #[cfg(feature = "production")]
+                    insert_midstate_cache(sighash_cache, tx.inputs[input_index].prevout, script_code.unwrap_or(prevout_script_pubkeys[input_index]), sighash_byte as u8, h);
+                    return Ok(h);
+                }
+            } else if n_out == 2 {
+                if let Ok(h) = build_preimage_2in2out_sighash_all(
+                    tx,
+                    input_index,
+                    prevout_script_pubkeys,
+                    script_code,
+                    sighash_byte,
+                ) {
+                    #[cfg(all(feature = "production", feature = "profile"))]
+                    crate::script_profile::add_sighash_ns(_t0.elapsed().as_nanos() as u64);
+                    #[cfg(feature = "production")]
+                    insert_midstate_cache(sighash_cache, tx.inputs[input_index].prevout, script_code.unwrap_or(prevout_script_pubkeys[input_index]), sighash_byte as u8, h);
+                    return Ok(h);
+                }
+            }
         }
     }
 
@@ -281,6 +557,205 @@ pub fn calculate_transaction_sighash_with_script_code(
         build_preimage_and_hash(tx, input_index, prevout_values, prevout_script_pubkeys, script_code, sighash_byte, anyone_can_pay, hash_none, hash_single, &mut preimage)
     };
 
+    #[cfg(all(feature = "production", feature = "profile"))]
+    crate::script_profile::add_sighash_ns(_t0.elapsed().as_nanos() as u64);
+
+    #[cfg(feature = "production")]
+    if let Ok(ref h) = result {
+        insert_midstate_cache(sighash_cache, tx.inputs[input_index].prevout, script_code.unwrap_or(prevout_script_pubkeys[input_index]), sighash_byte as u8, *h);
+    }
+    result
+}
+
+/// Fast path for 1-in-1-out SIGHASH_ALL (common P2PKH). Unrolled serialization, no loop overhead.
+#[cfg(feature = "production")]
+#[inline]
+fn build_preimage_1in1out_sighash_all(
+    tx: &crate::types::Transaction,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: Option<&[u8]>,
+    sighash_byte: u32,
+) -> Result<Hash> {
+    let input = &tx.inputs[0];
+    let output = &tx.outputs[0];
+    let code = script_code.unwrap_or(prevout_script_pubkeys[0]);
+
+    let capacity = 4 + 2 + 36 + 2 + code.len() + 4 + 2 + 8 + 2 + output.script_pubkey.len() + 4 + 4;
+    let (result, _) = SIGHASH_PREIMAGE_BUF.with(|buf_cell| {
+        let mut preimage = buf_cell.borrow_mut();
+        preimage.clear();
+        if preimage.capacity() < capacity {
+            preimage.reserve(capacity);
+        }
+        preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
+        preimage.push(1); // n_inputs
+        preimage.extend_from_slice(&input.prevout.hash);
+        preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
+        write_varint_to_vec(&mut *preimage, code.len() as u64);
+        preimage.extend_from_slice(code);
+        preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+        preimage.push(1); // n_outputs
+        preimage.extend_from_slice(&output.value.to_le_bytes());
+        write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+        preimage.extend_from_slice(&output.script_pubkey);
+        preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+        preimage.extend_from_slice(&sighash_byte.to_le_bytes());
+        let r = sighash_with_cache(&preimage);
+        (Ok(r), ())
+    });
+    result
+}
+
+/// Fast path for 1-in-N-out SIGHASH_ALL (N=2..16, spend+change). Same structure as 1-in-1-out, small output loop.
+#[cfg(feature = "production")]
+#[inline]
+fn build_preimage_1in_nout_sighash_all(
+    tx: &crate::types::Transaction,
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: Option<&[u8]>,
+    sighash_byte: u32,
+) -> Result<Hash> {
+    let input = &tx.inputs[0];
+    let code = script_code.unwrap_or(prevout_script_pubkeys[0]);
+    let mut capacity = 4 + 2 + 36 + 2 + code.len() + 4 + 2; // version, n_in, input, n_out
+    for out in &tx.outputs {
+        capacity += 8 + 2 + out.script_pubkey.len();
+    }
+    capacity += 4 + 4; // lock_time, sighash_type
+
+    let (result, _) = SIGHASH_PREIMAGE_BUF.with(|buf_cell| {
+        let mut preimage = buf_cell.borrow_mut();
+        preimage.clear();
+        if preimage.capacity() < capacity {
+            preimage.reserve(capacity);
+        }
+        preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
+        preimage.push(1); // n_inputs
+        preimage.extend_from_slice(&input.prevout.hash);
+        preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
+        write_varint_to_vec(&mut *preimage, code.len() as u64);
+        preimage.extend_from_slice(code);
+        preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+        write_varint_to_vec(&mut *preimage, tx.outputs.len() as u64);
+        for output in &tx.outputs {
+            preimage.extend_from_slice(&output.value.to_le_bytes());
+            write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+            preimage.extend_from_slice(&output.script_pubkey);
+        }
+        preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+        preimage.extend_from_slice(&sighash_byte.to_le_bytes());
+        let r = sighash_with_cache(&preimage);
+        (Ok(r), ())
+    });
+    result
+}
+
+/// Fast path for 2-in-1-out SIGHASH_ALL (consolidation, batched). Unrolled, no loop.
+/// Non-signing inputs MUST use empty script (0x00) per consensus.
+#[cfg(feature = "production")]
+#[inline]
+fn build_preimage_2in1out_sighash_all(
+    tx: &crate::types::Transaction,
+    input_index: usize,
+    _prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: Option<&[u8]>,
+    sighash_byte: u32,
+) -> Result<Hash> {
+    let output = &tx.outputs[0];
+    let code_len = script_code
+        .map(|s| s.len())
+        .unwrap_or_else(|| prevout_script_pubkeys[input_index].len());
+    let capacity = 4 + 2 + 36 + 2 + code_len + 4 + 36 + 2 + 4 + 8 + 2 + output.script_pubkey.len() + 4 + 4;
+
+    let (result, _) = SIGHASH_PREIMAGE_BUF.with(|buf_cell| {
+        let mut preimage = buf_cell.borrow_mut();
+        preimage.clear();
+        if preimage.capacity() < capacity {
+            preimage.reserve(capacity);
+        }
+        preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
+        preimage.push(2);
+        for i in 0..2 {
+            let inp = &tx.inputs[i];
+            let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
+                let c = script_code.unwrap_or(prevout_script_pubkeys[i]);
+                (c.len(), c)
+            } else {
+                (0, &[][..]) // Non-signing input: empty script per consensus
+            };
+            preimage.extend_from_slice(&inp.prevout.hash);
+            preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
+            write_varint_to_vec(&mut *preimage, script_len as u64);
+            preimage.extend_from_slice(script_slice);
+            preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
+        }
+        preimage.push(1);
+        preimage.extend_from_slice(&output.value.to_le_bytes());
+        write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+        preimage.extend_from_slice(&output.script_pubkey);
+        preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+        preimage.extend_from_slice(&sighash_byte.to_le_bytes());
+        let r = sighash_with_cache(&preimage);
+        (Ok(r), ())
+    });
+    result
+}
+
+/// Fast path for 2-in-2-out SIGHASH_ALL (swap, batched). Unrolled, no loop.
+/// Non-signing inputs MUST use empty script (0x00) per consensus.
+#[cfg(feature = "production")]
+#[inline]
+fn build_preimage_2in2out_sighash_all(
+    tx: &crate::types::Transaction,
+    input_index: usize,
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: Option<&[u8]>,
+    sighash_byte: u32,
+) -> Result<Hash> {
+    let code_len = script_code
+        .map(|s| s.len())
+        .unwrap_or_else(|| prevout_script_pubkeys[input_index].len());
+    let mut capacity = 4 + 2 + 36 + 2 + code_len + 4 + 36 + 2 + 4;
+    for out in &tx.outputs {
+        capacity += 8 + 2 + out.script_pubkey.len();
+    }
+    capacity += 4 + 4;
+
+    let (result, _) = SIGHASH_PREIMAGE_BUF.with(|buf_cell| {
+        let mut preimage = buf_cell.borrow_mut();
+        preimage.clear();
+        if preimage.capacity() < capacity {
+            preimage.reserve(capacity);
+        }
+        preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
+        preimage.push(2);
+        for i in 0..2 {
+            let inp = &tx.inputs[i];
+            let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
+                let c = script_code.unwrap_or(prevout_script_pubkeys[i]);
+                (c.len(), c)
+            } else {
+                (0, &[][..]) // Non-signing input: empty script per consensus
+            };
+            preimage.extend_from_slice(&inp.prevout.hash);
+            preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
+            write_varint_to_vec(&mut *preimage, script_len as u64);
+            preimage.extend_from_slice(script_slice);
+            preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
+        }
+        write_varint_to_vec(&mut *preimage, 2);
+        for output in &tx.outputs {
+            preimage.extend_from_slice(&output.value.to_le_bytes());
+            write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+            preimage.extend_from_slice(&output.script_pubkey);
+        }
+        preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+        preimage.extend_from_slice(&sighash_byte.to_le_bytes());
+        let r = sighash_with_cache(&preimage);
+        (Ok(r), ())
+    });
     result
 }
 
@@ -289,7 +764,7 @@ fn build_preimage_and_hash(
     tx: &crate::types::Transaction,
     input_index: usize,
     prevout_values: &[i64],
-    prevout_script_pubkeys: &[&crate::types::ByteString],
+    prevout_script_pubkeys: &[&[u8]],
     script_code: Option<&[u8]>,
     sighash_byte: u32,
     anyone_can_pay: bool,
@@ -312,13 +787,13 @@ fn build_preimage_and_hash(
 
         // Prevout (always serialized)
         preimage.extend_from_slice(&input.prevout.hash);
-        preimage.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+        preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
 
         // Script: signing input gets script_code/scriptPubKey, others get empty
         if actual_i == input_index {
             let code = match script_code {
                 Some(s) => s,
-                None => prevout_script_pubkeys[actual_i].as_slice(),
+                None => prevout_script_pubkeys[actual_i],
             };
             write_varint_to_vec(preimage, code.len() as u64);
             preimage.extend_from_slice(code);
@@ -364,11 +839,18 @@ fn build_preimage_and_hash(
     // 7. SIGHASH type (4 bytes LE) - use the raw sighash byte value
     preimage.extend_from_slice(&sighash_byte.to_le_bytes());
 
-    // Double SHA256
-    let first_hash = Sha256::digest(&preimage);
-    let second_hash = Sha256::digest(first_hash);
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&second_hash);
+    // Double SHA256; in production use cache (first_hash as key) to save one SHA256 on hit
+    #[cfg(feature = "production")]
+    let result = sighash_with_cache(preimage);
+    #[cfg(not(feature = "production"))]
+    let result = {
+        let hasher = OptimizedSha256::new();
+        let first_hash = hasher.hash(&preimage);
+        let second_hash = hasher.hash(&first_hash);
+        let mut r = [0u8; 32];
+        r.copy_from_slice(&second_hash);
+        r
+    };
     (Ok(result), ())
 }
 
@@ -401,7 +883,7 @@ pub fn batch_compute_sighashes(
 
     // Convert prevouts to parallel slices for the optimized API
     let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let prevout_script_pubkeys: Vec<&crate::types::ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let prevout_script_pubkeys: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
 
     #[cfg(feature = "production")]
     {
@@ -461,7 +943,7 @@ fn serialize_sighash_preimage(
     tx: &Transaction,
     input_index: usize,
     _prevout_values: &[i64],
-    _prevout_script_pubkeys: &[&crate::types::ByteString],
+    _prevout_script_pubkeys: &[&[u8]],
     sighash_type: SighashType,
 ) -> Vec<u8> {
     let mut preimage = Vec::new();
@@ -474,15 +956,21 @@ fn serialize_sighash_preimage(
     write_varint_to_vec(&mut preimage, tx.inputs.len() as u64);
 
     // 3. Inputs (depending on sighash type)
+    // FIX: For signing input use script_code (scriptPubKey), not script_sig. Legacy sighash signs scriptPubKey.
     let anyone_can_pay = sighash_type.is_anyonecanpay();
     for (i, input) in tx.inputs.iter().enumerate() {
         if anyone_can_pay || i == input_index {
             // Include this input
             preimage.extend_from_slice(&input.prevout.hash);
-            preimage.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
-            // OPTIMIZATION: Write varint directly to avoid Vec allocation
-            write_varint_to_vec(&mut preimage, input.script_sig.len() as u64);
-            preimage.extend_from_slice(&input.script_sig);
+            preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
+            // Signing input: use scriptPubKey (script_code). Non-signing: empty.
+            let script_code: &[u8] = if i == input_index {
+                _prevout_script_pubkeys.get(input_index).copied().unwrap_or(&[])
+            } else {
+                &[]
+            };
+            write_varint_to_vec(&mut preimage, script_code.len() as u64);
+            preimage.extend_from_slice(script_code);
             preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
         } else {
             // Skip this input (use dummy values)
@@ -533,30 +1021,108 @@ fn serialize_sighash_preimage(
     preimage
 }
 
-/// Encode integer as Bitcoin varint
-/// Clear sighash templates cache
-///
-/// Useful for benchmarking to ensure consistent results without cache state
-/// pollution between runs.
-///
-/// # Example
-///
-/// ```rust
-/// use blvm_consensus::transaction_hash::clear_sighash_templates;
-///
-/// // Clear cache before benchmark run
-/// clear_sighash_templates();
-/// ```
+/// Build legacy sighash preimage into a reusable buffer (zero alloc).
+#[cfg(feature = "production")]
+fn build_legacy_sighash_preimage_into(
+    preimage: &mut Vec<u8>,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: &[u8],
+    sighash_byte: u32,
+) {
+    let anyone_can_pay = (sighash_byte & 0x80) != 0;
+    let hash_none = (sighash_byte & 0x1f) == 0x02;
+    let hash_single = (sighash_byte & 0x1f) == 0x03;
+    let n_inputs = if anyone_can_pay { 1 } else { tx.inputs.len() };
+    let n_outputs = if hash_none {
+        0
+    } else if hash_single {
+        input_index + 1
+    } else {
+        tx.outputs.len()
+    };
+    preimage.clear();
+    preimage.reserve(512);
+    preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
+    write_varint_to_vec(preimage, n_inputs as u64);
+    for i in 0..n_inputs {
+        let actual_i = if anyone_can_pay { input_index } else { i };
+        let input = &tx.inputs[actual_i];
+        preimage.extend_from_slice(&input.prevout.hash);
+        preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
+        if actual_i == input_index {
+            write_varint_to_vec(preimage, script_code.len() as u64);
+            preimage.extend_from_slice(script_code);
+        } else {
+            preimage.push(0);
+        }
+        if actual_i != input_index && (hash_single || hash_none) {
+            preimage.extend_from_slice(&0u32.to_le_bytes());
+        } else {
+            preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+        }
+    }
+    write_varint_to_vec(preimage, n_outputs as u64);
+    for i in 0..n_outputs {
+        if hash_single && i != input_index {
+            preimage.extend_from_slice(&(-1i64).to_le_bytes());
+            preimage.push(0);
+        } else {
+            let output = &tx.outputs[i];
+            preimage.extend_from_slice(&output.value.to_le_bytes());
+            write_varint_to_vec(preimage, output.script_pubkey.len() as u64);
+            preimage.extend_from_slice(&output.script_pubkey);
+        }
+    }
+    preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+    preimage.extend_from_slice(&sighash_byte.to_le_bytes());
+}
+
+/// Batch compute legacy sighashes for specified inputs.
+/// Roadmap #12: Precompute before script execution for P2PKH-heavy blocks (100k band).
+/// Each spec is (input_index, sighash_byte, script_code). Returns hashes in spec order.
+/// Uses thread-local reusable buffers; no per-spec Vec allocs.
+#[cfg(feature = "production")]
+pub fn batch_compute_legacy_sighashes(
+    tx: &Transaction,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    specs: &[(usize, u8, &[u8])],
+) -> Result<Vec<[u8; 32]>> {
+    if prevout_values.len() != tx.inputs.len() || prevout_script_pubkeys.len() != tx.inputs.len() {
+        return Err(crate::error::ConsensusError::InvalidPrevoutsCount(
+            prevout_values.len(),
+            tx.inputs.len(),
+        ));
+    }
+    LEGACY_BATCH_PREIMAGES.with(|cell| {
+        let mut storage = cell.borrow_mut();
+        storage.resize_with(specs.len(), || Vec::with_capacity(512));
+        for (i, &(input_index, sighash_byte, script_code)) in specs.iter().enumerate() {
+            build_legacy_sighash_preimage_into(
+                &mut storage[i],
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                script_code,
+                sighash_byte as u32,
+            );
+        }
+        let preimage_refs: Vec<&[u8]> = storage.iter().map(|v| v.as_slice()).collect();
+        Ok(crate::optimizations::simd_vectorization::batch_double_sha256(&preimage_refs))
+    })
+}
+
+/// Clear sighash cache. Useful for benchmarking to ensure consistent results.
+/// Clears the thread-local SIGHASH_CACHE on the current thread.
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub fn clear_sighash_templates() {
-    // SIGHASH_TEMPLATES is a OnceLock<HashMap>, not wrapped in RwLock
-    // OnceLock doesn't allow mutation after initialization, so we can't clear it directly.
-    // This cache is currently not populated (see get_sighash_template which returns None),
-    // so clearing is a no-op, but we provide the function for API consistency and future use
-    // when templates are actually populated.
-    // Note: If templates need to be clearable, SIGHASH_TEMPLATES should be changed to
-    // RwLock<HashMap> similar to SCRIPT_CACHE and HASH_CACHE.
-    let _ = SIGHASH_TEMPLATES.get();
+    SIGHASH_CACHE.with(|cell| {
+        cell.borrow_mut().clear();
+    });
 }
 
 fn encode_varint(value: u64) -> Vec<u8> {
@@ -589,7 +1155,7 @@ fn encode_varint(value: u64) -> Vec<u8> {
 
 /// Precomputed hash components for BIP143 sighash.
 /// These are computed once per transaction and reused for all inputs.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Bip143PrecomputedHashes {
     /// SHA256(SHA256(all input prevouts)) - 0 if ANYONECANPAY
     pub hash_prevouts: [u8; 32],
@@ -604,7 +1170,7 @@ impl Bip143PrecomputedHashes {
     /// This is the expensive part - compute once, reuse for all inputs.
     /// Production: uses thread-local buffer to avoid 3 Vec allocs per SegWit tx.
     #[inline]
-    pub fn compute(tx: &Transaction, _prevout_values: &[i64], _prevout_script_pubkeys: &[&crate::types::ByteString]) -> Self {
+    pub fn compute(tx: &Transaction, _prevout_values: &[i64], _prevout_script_pubkeys: &[&[u8]]) -> Self {
         #[cfg(feature = "production")]
         {
             let hash_prevouts = BIP143_SERIALIZE_BUF.with(|cell| {
@@ -613,7 +1179,7 @@ impl Bip143PrecomputedHashes {
                 data.reserve(tx.inputs.len() * 36);
                 for input in tx.inputs.iter() {
                     data.extend_from_slice(&input.prevout.hash);
-                    data.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+                    data.extend_from_slice(&input.prevout.index.to_le_bytes());
                 }
                 double_sha256(&data)
             });
@@ -655,7 +1221,7 @@ impl Bip143PrecomputedHashes {
                 let mut data = Vec::with_capacity(tx.inputs.len() * 36);
                 for input in tx.inputs.iter() {
                     data.extend_from_slice(&input.prevout.hash);
-                    data.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+                    data.extend_from_slice(&input.prevout.index.to_le_bytes());
                 }
                 double_sha256(&data)
             };
@@ -687,14 +1253,11 @@ impl Bip143PrecomputedHashes {
     }
 }
 
-/// Double SHA256 helper
+/// Double SHA256 helper. Uses OptimizedSha256 (SHA-NI when available).
 #[inline(always)]
 fn double_sha256(data: &[u8]) -> [u8; 32] {
-    let first = Sha256::digest(data);
-    let second = Sha256::digest(&first);
-    let mut result = [0u8; 32];
-    result.copy_from_slice(&second);
-    result
+    let hasher = OptimizedSha256::new();
+    hasher.hash256(data)
 }
 
 /// Calculate BIP143 sighash for SegWit transactions.
@@ -744,8 +1307,37 @@ pub fn calculate_bip143_sighash(
 
     // Build sighash preimage according to BIP143
     // Estimated size: 4+32+32+36+var+8+4+32+4+4 = ~160 bytes + script_code
-    let mut preimage = Vec::with_capacity(160 + script_code.len());
+    #[cfg(feature = "production")]
+    let preimage_result = BIP143_PREIMAGE_BUF.with(|buf_cell| {
+        let mut preimage = buf_cell.borrow_mut();
+        preimage.clear();
+        let cap = 160 + script_code.len();
+        if preimage.capacity() < cap {
+            preimage.reserve(cap);
+        }
+        build_bip143_preimage(tx, input_index, script_code, amount, sighash_type, anyone_can_pay, is_none, is_single, hashes, &mut preimage)
+    });
+    #[cfg(not(feature = "production"))]
+    let preimage_result = {
+        let mut preimage = Vec::with_capacity(160 + script_code.len());
+        build_bip143_preimage(tx, input_index, script_code, amount, sighash_type, anyone_can_pay, is_none, is_single, hashes, &mut preimage)
+    };
+    preimage_result
+}
 
+#[inline]
+fn build_bip143_preimage(
+    tx: &Transaction,
+    input_index: usize,
+    script_code: &[u8],
+    amount: i64,
+    sighash_type: u8,
+    anyone_can_pay: bool,
+    is_none: bool,
+    is_single: bool,
+    hashes: &Bip143PrecomputedHashes,
+    preimage: &mut Vec<u8>,
+) -> Result<Hash> {
     // 1. nVersion (4 bytes LE)
     preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
 
@@ -766,10 +1358,10 @@ pub fn calculate_bip143_sighash(
     // 4. outpoint (36 bytes: 32 hash + 4 index)
     let input = &tx.inputs[input_index];
     preimage.extend_from_slice(&input.prevout.hash);
-    preimage.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+    preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
 
     // 5. scriptCode (varint + script)
-    write_varint_to_vec(&mut preimage, script_code.len() as u64);
+    write_varint_to_vec(preimage, script_code.len() as u64);
     preimage.extend_from_slice(script_code);
 
     // 6. amount (8 bytes LE) - value of the UTXO being spent
@@ -783,13 +1375,30 @@ pub fn calculate_bip143_sighash(
         preimage.extend_from_slice(&[0u8; 32]);
     } else if is_single {
         if input_index < tx.outputs.len() {
-            // Hash only the output at same index
+            // Hash only the output at same index (reuse buffer to avoid per-input alloc)
             let output = &tx.outputs[input_index];
-            let mut output_data = Vec::with_capacity(34);
-            output_data.extend_from_slice(&output.value.to_le_bytes());
-            write_varint_to_vec(&mut output_data, output.script_pubkey.len() as u64);
-            output_data.extend_from_slice(&output.script_pubkey);
-            preimage.extend_from_slice(&double_sha256(&output_data));
+            #[cfg(feature = "production")]
+            let hash_outputs = BIP143_SINGLE_OUTPUT_BUF.with(|buf_cell| {
+                let mut output_data = buf_cell.borrow_mut();
+                output_data.clear();
+                let cap = 8 + 9 + output.script_pubkey.len(); // value + varint + script
+                if output_data.capacity() < cap {
+                    output_data.reserve(cap);
+                }
+                output_data.extend_from_slice(&output.value.to_le_bytes());
+                write_varint_to_vec(&mut *output_data, output.script_pubkey.len() as u64);
+                output_data.extend_from_slice(&output.script_pubkey);
+                double_sha256(&output_data)
+            });
+            #[cfg(not(feature = "production"))]
+            let hash_outputs = {
+                let mut output_data = Vec::with_capacity(8 + 9 + output.script_pubkey.len());
+                output_data.extend_from_slice(&output.value.to_le_bytes());
+                write_varint_to_vec(&mut output_data, output.script_pubkey.len() as u64);
+                output_data.extend_from_slice(&output.script_pubkey);
+                double_sha256(&output_data)
+            };
+            preimage.extend_from_slice(&hash_outputs);
         } else {
             // SIGHASH_SINGLE with no corresponding output
             preimage.extend_from_slice(&[0u8; 32]);
@@ -815,7 +1424,7 @@ pub fn calculate_bip143_sighash(
 pub fn batch_compute_bip143_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],
-    prevout_script_pubkeys: &[&crate::types::ByteString],
+    prevout_script_pubkeys: &[&[u8]],
     script_codes: &[&[u8]],
     sighash_type: u8,
 ) -> Result<Vec<Hash>> {
@@ -1008,7 +1617,7 @@ mod tests {
 
         // Test with precomputed hashes (should match)
         let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-        let prevout_script_pubkeys: Vec<&crate::types::ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+        let prevout_script_pubkeys: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
         let precomputed = Bip143PrecomputedHashes::compute(&tx, &prevout_values, &prevout_script_pubkeys);
         let sighash0_precomputed = calculate_bip143_sighash(
             &tx, 0, &script_code, prevout_values[0], 0x01, Some(&precomputed)
@@ -1056,6 +1665,54 @@ mod tests {
 
         // Should be different (ANYONECANPAY zeroes hashPrevouts and hashSequence)
         assert_ne!(sighash_all, sighash_anyonecanpay);
+    }
+
+    /// Regression: 2-input legacy sighash must use EMPTY script for non-signing input.
+    /// Per consensus, only the signing input's scriptCode is included; others get 0x00.
+    /// Bug: build_preimage_2in1out/2in2out used full scriptPubKey for non-signing input → wrong sighash → IBD failure.
+    #[test]
+    fn test_2input_legacy_sighash_non_signing_empty_script() {
+        // 2-in-1-out tx: when signing input 0, input 1's script must be empty in preimage
+        let script_a = vec![0x21, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xac]; // P2PK 35 bytes
+        let script_b = vec![0x21, 0x03, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0xac]; // Different P2PK
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![
+                TransactionInput {
+                    prevout: OutPoint { hash: [1u8; 32].into(), index: 0 },
+                    script_sig: vec![].into(),
+                    sequence: 0xffffffff,
+                },
+                TransactionInput {
+                    prevout: OutPoint { hash: [2u8; 32].into(), index: 1 },
+                    script_sig: vec![].into(),
+                    sequence: 0xffffffff,
+                },
+            ].into(),
+            outputs: vec![TransactionOutput {
+                value: 5000000000,
+                script_pubkey: vec![0x76, 0xa9, 0x14].into(),
+            }].into(),
+            lock_time: 0,
+        };
+        let pv: Vec<i64> = vec![10_000_000_000, 8_000_000_000];
+        let psp_ab: Vec<&[u8]> = vec![script_a.as_slice(), script_b.as_slice()];
+        let psp_aa: Vec<&[u8]> = vec![script_a.as_slice(), script_a.as_slice()];
+
+        // Signing input 0: input 1's script must be empty. So (script_a, script_b) and (script_a, script_a)
+        // must produce the SAME sighash for input 0 — because input 1 is empty in preimage.
+        let sighash_ab = calculate_transaction_sighash_with_script_code(
+            &tx, 0, &pv, &psp_ab, SighashType::ALL, None, #[cfg(feature = "production")] None,
+        ).unwrap();
+        let sighash_aa = calculate_transaction_sighash_with_script_code(
+            &tx, 0, &pv, &psp_aa, SighashType::ALL, None, #[cfg(feature = "production")] None,
+        ).unwrap();
+        assert_eq!(sighash_ab, sighash_aa,
+            "2-input legacy: signing input 0 — input 1 script must be empty; changing input 1 scriptPubKey must not change sighash");
     }
 }
 

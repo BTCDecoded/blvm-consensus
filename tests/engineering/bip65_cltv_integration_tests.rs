@@ -18,11 +18,11 @@ fn test_cltv_block_height_validation_passes() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![0x51].into(), // OP_1
             height: 0,
-        },
+        }),
     );
     
     // Validate at block height >= required locktime
@@ -45,11 +45,11 @@ fn test_cltv_block_height_type_mismatch_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -70,11 +70,11 @@ fn test_cltv_timestamp_type_mismatch_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -95,11 +95,11 @@ fn test_cltv_zero_locktime_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -120,11 +120,11 @@ fn test_cltv_insufficient_locktime_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -144,11 +144,11 @@ fn test_cltv_exact_locktime_passes() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -169,11 +169,11 @@ fn test_cltv_timestamp_validation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     // For timestamp validation, we'd need median time-past >= tx_locktime
@@ -195,11 +195,11 @@ fn test_cltv_boundary_block_height() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -219,11 +219,11 @@ fn test_cltv_boundary_timestamp() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -252,11 +252,11 @@ fn test_cltv_empty_stack_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -289,11 +289,11 @@ fn test_cltv_invalid_encoding_fails() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -314,11 +314,11 @@ fn test_cltv_max_u32_value() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);
@@ -360,19 +360,19 @@ fn test_cltv_multiple_inputs_context() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     utxo_set.insert(
         OutPoint { hash: [2; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     // Validate first input (with CLTV)
@@ -422,11 +422,11 @@ fn test_cltv_in_script_pubkey() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51], // Previous output script
+            script_pubkey: vec![0x51].into(), // Previous output script
             height: 0,
-        },
+        }),
     );
     
     let result = validate_with_context(&tx, &utxo_set, 0, 0);

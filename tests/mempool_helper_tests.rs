@@ -158,11 +158,11 @@ fn test_mempool_fee_calculation() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let fee = economic::calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 200);

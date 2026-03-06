@@ -705,12 +705,12 @@ proptest! {
                     hash: [i as u8; 32],
                     index: 0,
                 };
-                utxo_set.insert(outpoint.clone(), UTXO {
+                utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
                     value: 10000,
-                    script_pubkey: vec![0; 20],
+                    script_pubkey: vec![0; 20].into(),
                     height: 0,
                     is_coinbase: false,
-                });
+                }));
                 TransactionInput {
                     prevout: outpoint,
                     script_sig: vec![0; 10],
@@ -722,7 +722,7 @@ proptest! {
             inputs: inputs.into(),
             outputs: (0..num_outputs).map(|_| TransactionOutput {
                 value: 5000,
-                script_pubkey: vec![0; 20],
+                script_pubkey: vec![0; 20].into(),
             }).collect(),
             lock_time: 0,
         };
@@ -768,12 +768,12 @@ proptest! {
                     hash: [i as u8; 32],
                     index: 0,
                 };
-                utxo_set.insert(outpoint.clone(), UTXO {
+                utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
                     value,
-                    script_pubkey: vec![0; 20],
+                    script_pubkey: vec![0; 20].into(),
                     height: 0,
                     is_coinbase: false,
-                });
+                }));
                 inputs.push(TransactionInput {
                     prevout: outpoint,
                     script_sig: vec![0; 10],
@@ -1741,7 +1741,7 @@ proptest! {
             inputs: (0..input_count).map(|i| TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
@@ -1931,7 +1931,7 @@ proptest! {
             inputs: (0..input_count).map(|i| TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
@@ -1984,16 +1984,16 @@ proptest! {
         for i in 0..input_count {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
-                index: i as u64,
+                index: i as u32,
             };
             // Use large but safe values
             let value = (MAX_MONEY / (input_count.max(1) as i64)).min(MAX_MONEY);
-            utxo_set.insert(outpoint, UTXO {
+            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
                 height: 0,
                 is_coinbase: false,
-            });
+            }));
         }
 
         let tx = Transaction {
@@ -2001,14 +2001,14 @@ proptest! {
             inputs: (0..input_count).map(|i| TransactionInput {
                 prevout: OutPoint {
                     hash: [i as u8; 32],
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1), // Small outputs
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![0x51].into(),
             }).collect(),
             lock_time: 0,
         };

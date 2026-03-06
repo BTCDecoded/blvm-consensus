@@ -66,32 +66,101 @@ fn hardware_profile() -> &'static IbdHardwareProfile {
     HARDWARE_PROFILE.get_or_init(detect_hardware)
 }
 
-/// secp256k1-fork allocates scratch and uses Pippenger when n_sigs >= this.
-/// ECMULT_PIPPENGER_THRESHOLD in secp256k1 ecmult_impl.h is 88.
-/// Only chunk when each chunk has >= this many sigs, so we stay on Pippenger/Strauss.
-pub const PIPPENGER_SCRATCH_THRESHOLD: usize = 128;
-
-/// Minimum sigs per chunk when parallelizing. Chunks smaller than this use ecmult_multi_simple_var (slow).
-/// secp256k1: n>=64 gets Strauss, n>=88 gets Pippenger. We require >=88 so every chunk uses Pippenger.
+/// libsecp256k1 thresholds: n<64 uses ecmult_multi_simple_var (slow), n>=64 Strauss, n>=88 Pippenger.
+/// Chunks of 64-128 use Strauss; chunks of 89+ use Pippenger.
+pub const STRAUSS_MIN: usize = 64;
 pub const PIPPENGER_MIN_CHUNK: usize = 88;
 
-/// Chunk threshold: parallelize when sig count exceeds this.
-/// Higher = less chunking, more single Pippenger batches. Lower = more parallel chunks.
-/// 128: blocks with 129+ sigs use parallel batch path; config override can change.
-/// Config/env BLVM_CONSENSUS_PERFORMANCE_IBD_CHUNK_THRESHOLD overrides.
+/// Chunk threshold: single batch when n <= this. Above = split for parallelism.
+/// Precedence: config_override > env > hardware-derived > 128.
+/// Hardware-derived: many-core (16+) → 96 (more parallelism); few-core → 128.
 pub fn chunk_threshold_config_or_hardware(config_override: Option<usize>) -> usize {
-    config_override.unwrap_or(128)
+    config_override
+        .or_else(|| {
+            std::env::var("BLVM_CONSENSUS_PERFORMANCE_IBD_CHUNK_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .filter(|&n: &usize| n > 0 && n <= 1024)
+        })
+        .unwrap_or_else(|| {
+            let p = hardware_profile();
+            if p.is_many_core {
+                96 // more parallelism for ECDSA split
+            } else {
+                128
+            }
+        })
 }
 
-/// Min chunk size for parallel batches. Larger chunks = better libsecp256k1 ecmult efficiency.
-/// Hardware-derived from L3 cache when known; otherwise 96. Config overrides when Some.
+/// Min chunk size when splitting for parallelism. 128+ uses Pippenger (2-3× faster).
+/// Precedence: config_override > env > hardware-derived > 128.
+/// Hardware-derived: many-core → 64 (Strauss threshold); few-core → 128.
 pub fn min_chunk_size_config_or_hardware(config_override: Option<usize>) -> usize {
-    config_override.unwrap_or_else(|| {
-        let p = hardware_profile();
-        let from_l3 = p.l3_cache_kb.map(|kb| (kb / 32) as usize);
-        let derived = from_l3.unwrap_or(96);
-        derived.clamp(64, 128)
-    })
+    config_override
+        .or_else(|| {
+            std::env::var("BLVM_CONSENSUS_PERFORMANCE_IBD_MIN_CHUNK_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .filter(|&n: &usize| n > 0 && n <= 512)
+        })
+        .unwrap_or_else(|| {
+            let p = hardware_profile();
+            if p.is_many_core {
+                64 // Strauss threshold; more chunks for parallelism
+            } else {
+                128
+            }
+        })
+}
+
+/// Compute ECDSA batch chunk ranges for parallel verification.
+/// Single source of truth for verify_soa_batch and SegQueue verify_batch.
+/// Returns vec![(0, n)] when n <= chunk_threshold (single batch).
+#[cfg(feature = "production")]
+pub fn compute_ecdsa_batch_chunk_ranges(
+    n: usize,
+    chunk_threshold: usize,
+    min_chunk: usize,
+    num_threads: usize,
+) -> Vec<(usize, usize)> {
+    if n <= chunk_threshold {
+        return vec![(0, n)];
+    }
+    let min_chunk_pippenger = if n >= 256 { 128usize.max(min_chunk) } else { 64usize.max(min_chunk) };
+    let max_chunks = n / min_chunk_pippenger;
+    let target_chunks = if n > 1024 {
+        (4 * num_threads).min(max_chunks)
+    } else if n > 512 {
+        (2 * num_threads).min(max_chunks)
+    } else {
+        num_threads.min(max_chunks)
+    };
+    let num_chunks = target_chunks.max(1);
+    compute_chunk_ranges(n, num_chunks, min_chunk_pippenger)
+}
+
+/// Compute optimal chunk ranges for parallel batch verification.
+/// Splits n sigs into num_chunks such that each chunk has >= min_chunk sigs.
+/// min_chunk >= 1; smaller chunks use ecmult_multi_simple_var (n<64) but parallelism often wins.
+pub fn compute_chunk_ranges(n: usize, num_chunks: usize, min_chunk: usize) -> Vec<(usize, usize)> {
+    debug_assert!(num_chunks >= 1 && min_chunk >= 1);
+    if num_chunks == 1 {
+        return vec![(0, n)];
+    }
+    // Balanced split: base_size = n / num_chunks, first (n % num_chunks) chunks get +1
+    let base_size = n / num_chunks;
+    let remainder = n % num_chunks;
+    let mut ranges = Vec::with_capacity(num_chunks);
+    let mut start = 0;
+    for i in 0..num_chunks {
+        let chunk_len = base_size + if i < remainder { 1 } else { 0 };
+        if chunk_len > 0 {
+            ranges.push((start, start + chunk_len));
+            start += chunk_len;
+        }
+    }
+    debug_assert_eq!(start, n);
+    ranges
 }
 
 /// Chunk size for batch hash operations (SHA256, HASH160). Cache-friendly, fits in L1.

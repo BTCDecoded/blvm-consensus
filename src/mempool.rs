@@ -123,7 +123,7 @@ pub fn accept_to_memory_pool(
             let input_utxos: Vec<(usize, Option<&UTXO>)> = {
                 let mut result = Vec::with_capacity(tx.inputs.len());
                 for (i, input) in tx.inputs.iter().enumerate() {
-                    result.push((i, utxo_set.get(&input.prevout)));
+                    result.push((i, utxo_set.get(&input.prevout).map(|a| a.as_ref())));
                 }
                 result
             };
@@ -1015,11 +1015,11 @@ mod tests {
         };
         let new_utxo = UTXO {
             value: 10000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(new_outpoint, new_utxo);
+        utxo_set.insert(new_outpoint, std::sync::Arc::new(new_utxo));
 
         let mempool = Mempool::new();
 
@@ -1409,7 +1409,7 @@ mod tests {
     fn create_dummy_output() -> TransactionOutput {
         TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51], // OP_1 for valid script
+            script_pubkey: vec![0x51].into(), // OP_1 for valid script
         }
     }
 
@@ -1421,11 +1421,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 10000,
-            script_pubkey: vec![0x51], // OP_1 for valid script
+            script_pubkey: vec![0x51].into(), // OP_1 for valid script
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
         utxo_set
     }
 

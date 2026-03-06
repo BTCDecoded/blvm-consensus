@@ -77,7 +77,7 @@ fn serialize_transaction_append(result: &mut Vec<u8>, tx: &Transaction) {
         result.extend_from_slice(&input.prevout.hash);
 
         // Previous output index (4 bytes, little-endian) - Bitcoin uses u32 in wire format
-        result.extend_from_slice(&(input.prevout.index as u32).to_le_bytes());
+        result.extend_from_slice(&input.prevout.index.to_le_bytes());
 
         // Script length (VarInt)
         result.extend_from_slice(&encode_varint(input.script_sig.len() as u64));
@@ -132,6 +132,49 @@ fn serialize_transaction_inner(tx: &Transaction) -> Vec<u8> {
     let mut result = Vec::new();
 
     serialize_transaction_append(&mut result, tx);
+    result
+}
+
+/// Serialize a transaction in SegWit wire format (version + 0x00 0x01 + inputs + outputs + witness + locktime).
+///
+/// Used by BIP152 cmpctblock prefilled txs and blocktxn, which use TX_WITH_WITNESS per Bitcoin Core.
+/// `witnesses` must have one `Witness` (stack) per input; empty stacks are valid.
+#[spec_locked("8.2.2")]
+pub fn serialize_transaction_with_witness(
+    tx: &Transaction,
+    witnesses: &[crate::witness::Witness],
+) -> Vec<u8> {
+    assert_eq!(
+        witnesses.len(),
+        tx.inputs.len(),
+        "witness count must match input count"
+    );
+    let mut result = Vec::new();
+    result.extend_from_slice(&(tx.version as i32).to_le_bytes());
+    result.push(0x00);
+    result.push(0x01);
+    result.extend_from_slice(&encode_varint(tx.inputs.len() as u64));
+    for input in &tx.inputs {
+        result.extend_from_slice(&input.prevout.hash);
+        result.extend_from_slice(&input.prevout.index.to_le_bytes());
+        result.extend_from_slice(&encode_varint(input.script_sig.len() as u64));
+        result.extend_from_slice(&input.script_sig);
+        result.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    }
+    result.extend_from_slice(&encode_varint(tx.outputs.len() as u64));
+    for output in &tx.outputs {
+        result.extend_from_slice(&(output.value as u64).to_le_bytes());
+        result.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        result.extend_from_slice(&output.script_pubkey);
+    }
+    for witness in witnesses {
+        result.extend_from_slice(&encode_varint(witness.len() as u64));
+        for element in witness {
+            result.extend_from_slice(&encode_varint(element.len() as u64));
+            result.extend_from_slice(element);
+        }
+    }
+    result.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
     result
 }
 
@@ -197,15 +240,11 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
                 TransactionParseError::InsufficientBytes.to_string(),
             )));
         }
-        let index = u64::from_le_bytes([
+        let index = u32::from_le_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],
             data[offset + 3],
-            0,
-            0,
-            0,
-            0,
         ]);
         offset += 4;
 
@@ -342,7 +381,7 @@ pub fn deserialize_transaction(data: &[u8]) -> Result<Transaction> {
 /// Deserialize a transaction from Bitcoin wire format, returning transaction, witness, and bytes consumed
 /// 
 /// This is used by block deserialization to track how many bytes each transaction uses.
-#[spec_locked("3.2")]
+#[spec_locked("8.2.2")]
 pub fn deserialize_transaction_with_witness(data: &[u8]) -> Result<(Transaction, Vec<crate::witness::Witness>, usize)> {
     let mut offset = 0;
 
@@ -403,12 +442,11 @@ pub fn deserialize_transaction_with_witness(data: &[u8]) -> Result<(Transaction,
                 TransactionParseError::InsufficientBytes.to_string(),
             )));
         }
-        let index = u64::from_le_bytes([
+        let index = u32::from_le_bytes([
             data[offset],
             data[offset + 1],
             data[offset + 2],
             data[offset + 3],
-            0, 0, 0, 0,
         ]);
         offset += 4;
 

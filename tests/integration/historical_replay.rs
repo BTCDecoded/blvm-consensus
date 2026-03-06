@@ -191,7 +191,7 @@ pub fn calculate_utxo_set_hash(utxo_set: &UtxoSet) -> [u8; 32] {
     
     // Hash each UTXO entry
     for (outpoint, utxo) in entries {
-        // Hash outpoint (32-byte hash + 8-byte index)
+        // Hash outpoint (32-byte hash + 4-byte index)
         hasher.update(&outpoint.hash);
         hasher.update(&outpoint.index.to_le_bytes());
         
@@ -287,10 +287,10 @@ mod tests {
         let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
         let utxo1 = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
         };
-        utxo_set.insert(outpoint1, utxo1);
+        utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
         
         // Hash should be deterministic
         let hash1 = calculate_utxo_set_hash(&utxo_set);

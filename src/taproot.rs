@@ -192,7 +192,7 @@ pub fn compute_taproot_signature_hash(
     tx: &Transaction,
     input_index: usize,
     prevout_values: &[i64],
-    prevout_script_pubkeys: &[&crate::types::ByteString],
+    prevout_script_pubkeys: &[&[u8]],
     sighash_type: u8,
 ) -> Result<Hash> {
     // Create SHA256 hasher for Taproot signature hash
@@ -209,7 +209,7 @@ pub fn compute_taproot_signature_hash(
         // Previous output hash (32 bytes)
         hasher.update(input.prevout.hash);
         // Previous output index (4 bytes, little-endian)
-        hasher.update((input.prevout.index as u32).to_le_bytes());
+        hasher.update(input.prevout.index.to_le_bytes());
         // Script length (varint) - empty for Taproot
         hasher.update([0]);
         // Sequence (4 bytes, little-endian)
@@ -250,7 +250,7 @@ pub fn compute_taproot_signature_hash(
         hasher.update(encode_varint(
             prevout_script_pubkeys[input_index].len() as u64
         ));
-        hasher.update(prevout_script_pubkeys[input_index].as_slice());
+        hasher.update(prevout_script_pubkeys[input_index]);
     } else {
         hasher.update([0]);
     }
@@ -414,7 +414,7 @@ mod tests {
             script_pubkey: create_taproot_script(&[1u8; 32]),
         }];
         let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-        let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+        let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
         let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01).unwrap();
         assert_eq!(sig_hash.len(), 32);
     }
@@ -445,7 +445,7 @@ mod tests {
             script_pubkey: create_taproot_script(&[1u8; 32]),
         }];
         let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-        let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+        let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
         // Use invalid input index (out of bounds)
         let sig_hash = compute_taproot_signature_hash(&tx, 1, &pv, &psp, 0x01).unwrap();
         assert_eq!(sig_hash.len(), 32);
@@ -474,7 +474,7 @@ mod tests {
 
         let prevouts: Vec<TransactionOutput> = vec![];
         let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-        let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+        let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
         let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01).unwrap();
         assert_eq!(sig_hash.len(), 32);
     }
@@ -773,7 +773,7 @@ mod property_tests {
             sighash_type in any::<u8>()
         ) {
             let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-            let prevout_script_pubkeys: Vec<&crate::types::ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+            let prevout_script_pubkeys: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
             let result1 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
             let result2 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
 
@@ -945,7 +945,7 @@ mod property_tests {
                     inputs.push(TransactionInput {
                         prevout: OutPoint {
                             hash: [0; 32],
-                            index: i as u64,
+                            index: i as u32,
                         },
                         script_sig: vec![],
                         sequence: 0xffffffff,

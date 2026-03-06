@@ -240,11 +240,14 @@ pub fn deserialize_block_with_witnesses(data: &[u8]) -> Result<(Block, Vec<Vec<W
 /// - For each transaction:
 ///   - Transaction (non-witness serialization)
 /// - If `include_witness` and any witness data present:
-///   - Witness data for each transaction
+///   - Witness data for each transaction (one Vec<Witness> per tx, one Witness per input)
+///
+/// `witnesses`: One `Vec<Witness>` per transaction; each inner Vec has one Witness (stack) per input.
+/// Matches the return type of `deserialize_block_with_witnesses`.
 #[spec_locked("3.2")]
 pub fn serialize_block_with_witnesses(
     block: &Block,
-    witnesses: &[Witness],
+    witnesses: &[Vec<Witness>],
     include_witness: bool,
 ) -> Vec<u8> {
     let mut result = Vec::new();
@@ -256,7 +259,10 @@ pub fn serialize_block_with_witnesses(
     let tx_count = block.transactions.len() as u64;
     result.extend_from_slice(&encode_varint(tx_count));
 
-    let has_witness = include_witness && witnesses.iter().any(|w| !w.is_empty());
+    let has_witness = include_witness
+        && witnesses
+            .iter()
+            .any(|tx_witnesses| tx_witnesses.iter().any(|w| !w.is_empty()));
 
     // SegWit marker and flag (0x00 0x01) if including witness data
     if has_witness {
@@ -271,16 +277,19 @@ pub fn serialize_block_with_witnesses(
     }
 
     // Serialize witness data if requested
+    // For each tx: serialize each input's witness stack (one Witness per input)
     if has_witness {
-        for witness in witnesses.iter().take(block.transactions.len()) {
-            // Witness stack count (VarInt)
-            result.extend_from_slice(&encode_varint(witness.len() as u64));
+        for tx_witnesses in witnesses.iter().take(block.transactions.len()) {
+            for witness in tx_witnesses {
+                // Witness stack count (VarInt)
+                result.extend_from_slice(&encode_varint(witness.len() as u64));
 
-            for element in witness {
-                // Element length (VarInt)
-                result.extend_from_slice(&encode_varint(element.len() as u64));
-                // Element bytes
-                result.extend_from_slice(element);
+                for element in witness {
+                    // Element length (VarInt)
+                    result.extend_from_slice(&encode_varint(element.len() as u64));
+                    // Element bytes
+                    result.extend_from_slice(element);
+                }
             }
         }
     }
@@ -300,18 +309,7 @@ pub fn validate_block_serialized_size(
     include_witness: bool,
     provided_size: usize,
 ) -> bool {
-    // Flatten Vec<Vec<Witness>> to Vec<Witness> for serialize_block_with_witnesses
-    // TODO: Update serialize_block_with_witnesses to accept Vec<Vec<Witness>>
-    let flattened: Vec<Witness> = witnesses.iter()
-        .map(|input_witnesses| {
-            let mut flattened: Witness = Vec::new();
-            for witness_stack in input_witnesses {
-                flattened.extend(witness_stack.clone());
-            }
-            flattened
-        })
-        .collect();
-    let serialized = serialize_block_with_witnesses(block, &flattened, include_witness);
+    let serialized = serialize_block_with_witnesses(block, witnesses, include_witness);
     serialized.len() == provided_size
 }
 

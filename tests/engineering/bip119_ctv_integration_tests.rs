@@ -109,7 +109,7 @@ fn test_template_hash_multiple_outputs() {
             },
             TransactionOutput {
                 value: 2000,
-                script_pubkey: vec![0x52],
+                script_pubkey: vec![0x52].into(),
             },
         ].into(),
         lock_time: 0,
@@ -302,6 +302,7 @@ fn test_ctv_opcode_valid_template() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // CTV should pass with correct template hash
@@ -357,6 +358,7 @@ fn test_ctv_opcode_invalid_template() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // CTV should fail with wrong template hash
@@ -411,6 +413,7 @@ fn test_ctv_opcode_wrong_hash_size() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // CTV should fail with wrong hash size
@@ -460,6 +463,7 @@ fn test_ctv_opcode_empty_stack() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // CTV should fail with empty stack
@@ -500,17 +504,17 @@ fn test_ctv_transaction_validation_passes() {
     script_pubkey.push(0xba); // OP_CHECKTEMPLATEVERIFY
 
     // Update output with CTV script
-    tx.outputs[0].script_pubkey = script_pubkey.clone();
+    tx.outputs[0].script_pubkey = script_pubkey.clone().into();
 
     // Create UTXO with CTV script
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [0x01; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000,
-            script_pubkey: script_pubkey,
+            script_pubkey: script_pubkey.into(),
             height: 0,
-        },
+        }),
     );
 
     // Verify script
@@ -534,6 +538,7 @@ fn test_ctv_transaction_validation_passes() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // Should pass: template hash matches
@@ -608,6 +613,7 @@ fn test_ctv_transaction_validation_fails_wrong_structure() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // Should fail: template hash doesn't match tx2's structure
@@ -696,7 +702,7 @@ fn test_template_hash_large_transaction() {
 
         outputs.push(TransactionOutput {
             value: 1000 * (i + 1) as i64,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         });
     }
 
@@ -736,7 +742,7 @@ fn test_ctv_vault_contract() {
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000000, // Full vault amount
-            script_pubkey: withdrawal_address.clone(),
+            script_pubkey: withdrawal_address.clone().into(),
         }].into(),
         lock_time: 0,
     };
@@ -771,6 +777,7 @@ fn test_ctv_vault_contract() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     assert!(result.is_ok() && result.unwrap(), "Vault withdrawal should pass with correct template");
@@ -783,7 +790,7 @@ fn test_ctv_payment_channel() {
     
     let channel_output = TransactionOutput {
         value: 500000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
     };
 
     let tx = Transaction {
@@ -828,6 +835,7 @@ fn test_ctv_payment_channel() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     assert!(result.is_ok() && result.unwrap(), "Payment channel closure should pass with correct template");
@@ -855,11 +863,11 @@ fn test_ctv_transaction_batching() {
             },
             TransactionOutput {
                 value: 200000,
-                script_pubkey: vec![0x52], // Payment 2
+                script_pubkey: vec![0x52].into(), // Payment 2
             },
             TransactionOutput {
                 value: 300000,
-                script_pubkey: vec![0x53], // Payment 3
+                script_pubkey: vec![0x53].into(), // Payment 3
             },
         ].into(),
         lock_time: 0,
@@ -893,6 +901,7 @@ fn test_ctv_transaction_batching() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     assert!(result.is_ok() && result.unwrap(), "Transaction batching should pass with correct template");
@@ -1151,7 +1160,7 @@ fn test_ctv_with_cltv_combined() {
 
     let prevouts = vec![TransactionOutput {
         value: 1000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
     }];
 
     // Note: This test verifies scripts can be combined, but full validation
@@ -1272,6 +1281,7 @@ fn test_ctv_multiple_ctv_in_script() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // Should fail because second CTV has no hash on stack

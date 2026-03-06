@@ -1,6 +1,6 @@
 //! Transaction validation functions from Orange Paper Section 5.1
 //!
-//! Performance optimizations (Phase 6.3):
+//! Performance optimizations:
 //! - Early-exit fast-path checks for obviously invalid transactions
 
 use crate::constants::*;
@@ -21,7 +21,7 @@ fn make_fee_calculation_underflow_error() -> ConsensusError {
     ConsensusError::TransactionValidation("Fee calculation underflow".into())
 }
 
-/// Phase 6.3: Fast-path early-exit checks for transaction validation
+/// Fast-path early-exit checks for transaction validation
 ///
 /// Performs quick checks before expensive validation operations.
 /// Returns Some(ValidationResult) if fast-path can determine validity, None if full validation needed.
@@ -111,7 +111,7 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 /// 7. ∀i,j ∈ ins: i ≠ j ⟹ i.prevout ≠ j.prevout (no duplicate inputs)
 /// 8. If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
 ///
-/// Performance optimization (Phase 6.3): Uses fast-path checks before full validation.
+/// Uses fast-path checks before full validation.
 #[spec_locked("5.1")]
 #[track_caller] // Better error messages showing caller location
 #[cfg_attr(feature = "production", inline(always))]
@@ -135,7 +135,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
         )));
     }
 
-    // Phase 6.3: Fast-path early exit for obviously invalid transactions
+    // Fast-path early exit for obviously invalid transactions
     #[cfg(feature = "production")]
     if let Some(result) = check_transaction_fast_path(tx) {
         return Ok(result);
@@ -607,6 +607,96 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
     Ok((ValidationResult::Valid, fee))
 }
 
+/// Hot-path: validate inputs using pre-copied UTXO data (value, is_coinbase, height).
+/// Avoids holding overlay refs; enables buffer reuse in block validation.
+pub fn check_tx_inputs_with_owned_data(
+    tx: &Transaction,
+    height: Natural,
+    utxo_data: &[Option<(i64, bool, u64)>],
+) -> Result<(ValidationResult, Integer)> {
+    if tx.inputs.is_empty() && !is_coinbase(tx) {
+        return Ok((
+            ValidationResult::Invalid(
+                "Transaction must have inputs unless it's a coinbase".to_string(),
+            ),
+            0,
+        ));
+    }
+    if is_coinbase(tx) {
+        return Ok((ValidationResult::Valid, 0));
+    }
+    if utxo_data.len() != tx.inputs.len() {
+        return Ok((
+            ValidationResult::Invalid("UTXO data length mismatch".to_string()),
+            0,
+        ));
+    }
+    let mut total_input_value = 0i64;
+    for (i, opt) in utxo_data.iter().enumerate() {
+        if let Some((value, is_coinbase, utxo_height)) = opt {
+            if *value < 0 || *value > MAX_MONEY {
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "UTXO value {} out of bounds at input {}",
+                        value, i
+                    )),
+                    0,
+                ));
+            }
+            if *is_coinbase {
+                use crate::constants::COINBASE_MATURITY;
+                let required_height = utxo_height.saturating_add(COINBASE_MATURITY);
+                if height < required_height {
+                    return Ok((
+                        ValidationResult::Invalid(format!(
+                            "Premature spend of coinbase output at input {}",
+                            i
+                        )),
+                        0,
+                    ));
+                }
+            }
+            total_input_value = total_input_value.checked_add(*value).ok_or_else(|| {
+                ConsensusError::TransactionValidation(
+                    format!("Input value overflow at input {i}").into(),
+                )
+            })?;
+        } else {
+            return Ok((
+                ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
+                0,
+            ));
+        }
+    }
+    let total_output_value: i64 = tx
+        .outputs
+        .iter()
+        .try_fold(0i64, |acc, output| {
+            acc.checked_add(output.value).ok_or_else(|| {
+                ConsensusError::TransactionValidation("Output value overflow".into())
+            })
+        })
+        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
+    if total_output_value > MAX_MONEY {
+        return Ok((
+            ValidationResult::Invalid(format!(
+                "Total output value {total_output_value} exceeds maximum"
+            )),
+            0,
+        ));
+    }
+    if total_input_value < total_output_value {
+        return Ok((
+            ValidationResult::Invalid("Insufficient input value".to_string()),
+            0,
+        ));
+    }
+    let fee = total_input_value
+        .checked_sub(total_output_value)
+        .ok_or_else(make_fee_calculation_underflow_error)?;
+    Ok((ValidationResult::Valid, fee))
+}
+
 /// Check if transaction is coinbase
 ///
 /// Hot-path function called frequently during validation.
@@ -713,7 +803,7 @@ mod property_tests {
                     inputs: inputs
                         .into_iter()
                         .map(|(hash, index, script_sig, sequence)| TransactionInput {
-                            prevout: OutPoint { hash, index },
+                            prevout: OutPoint { hash, index: index as u32 },
                             script_sig,
                             sequence,
                         })
@@ -778,7 +868,7 @@ mod property_tests {
         #[test]
         fn prop_check_tx_inputs_coinbase(
             tx in any::<Transaction>(),
-            utxo_set in prop::collection::vec((any::<OutPoint>(), any::<UTXO>()), 0..50).prop_map(|v| v.into_iter().collect::<UtxoSet>()),
+            utxo_set in prop::collection::vec((any::<OutPoint>(), any::<UTXO>()), 0..50).prop_map(|v| v.into_iter().map(|(op, u)| (op, std::sync::Arc::new(u))).collect::<UtxoSet>()),
             height in 0u64..1000u64
         ) {
             // Bound for tractability
@@ -812,7 +902,7 @@ mod property_tests {
             if is_cb {
                 prop_assert_eq!(tx.inputs.len(), 1, "Coinbase must have exactly one input");
                 prop_assert_eq!(tx.inputs[0].prevout.hash, [0u8; 32], "Coinbase input must have zero hash");
-                prop_assert_eq!(tx.inputs[0].prevout.index, 0xffffffffu64, "Coinbase input must have max index");
+                prop_assert_eq!(tx.inputs[0].prevout.index, 0xffffffffu32, "Coinbase input must have max index");
             }
         }
     }
@@ -865,7 +955,7 @@ mod property_tests {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value,
-                    script_pubkey: vec![].into(),
+                    script_pubkey: vec![],
                 }].into(),
                 lock_time: 0,
             };
@@ -1116,7 +1206,7 @@ mod tests {
             inputs.push(TransactionInput {
                 prevout: OutPoint {
                     hash,
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![],
                 sequence: 0xffffffff,
@@ -1143,7 +1233,7 @@ mod tests {
         for _ in 0..=MAX_OUTPUTS {
             outputs.push(TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
             });
         }
 
@@ -1174,7 +1264,7 @@ mod tests {
         for _ in 0..MAX_OUTPUTS {
             outputs.push(TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
             });
         }
 
@@ -1246,11 +1336,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 1000000000, // 10 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let tx = Transaction {
             version: 1,
@@ -1265,7 +1355,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 900000000, // 9 BTC output
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -1294,7 +1384,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 100000000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -1317,11 +1407,11 @@ mod tests {
         };
         let utxo = UTXO {
             value: 100000000, // 1 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint, utxo);
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
         let tx = Transaction {
             version: 1,
@@ -1336,7 +1426,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 200000000, // 2 BTC output (more than input)
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -1359,11 +1449,11 @@ mod tests {
         };
         let utxo1 = UTXO {
             value: 500000000, // 5 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint1, utxo1);
+        utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
 
         let outpoint2 = OutPoint {
             hash: [2; 32],
@@ -1371,11 +1461,11 @@ mod tests {
         };
         let utxo2 = UTXO {
             value: 300000000, // 3 BTC
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint2, utxo2);
+        utxo_set.insert(outpoint2, std::sync::Arc::new(utxo2));
 
         let tx = Transaction {
             version: 1,

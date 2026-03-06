@@ -1,4 +1,4 @@
-//! k256-based signature verification (Phase 3.2)
+//! k256-based signature verification
 //!
 //! Pure Rust implementation using k256 crate instead of secp256k1 FFI.
 //! This module provides the same interface as the existing verify_signature

@@ -42,11 +42,11 @@ fn test_connect_block_rejects_bip30_violation() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: txid, index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 50_000_000_000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
-        },
+        }),
     );
     
     // Create block with same coinbase (duplicate - violates BIP30)
@@ -353,11 +353,11 @@ fn test_connect_block_multiple_bip_violations() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: txid, index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 50_000_000_000,
-            script_pubkey: vec![],
+            script_pubkey: vec![].into(),
             height: 0,
-        },
+        }),
     );
     
     let block = Block {
@@ -527,6 +527,7 @@ fn test_script_verification_rejects_bip66_violation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     // Should fail due to invalid signature/DER
@@ -615,6 +616,7 @@ fn test_script_verification_rejects_bip147_violation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     // Should fail due to BIP147 violation (non-empty dummy)
@@ -701,6 +703,7 @@ fn test_script_verification_allows_bip147_before_activation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     // Before activation, BIP147 shouldn't reject non-empty dummy

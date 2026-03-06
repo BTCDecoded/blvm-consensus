@@ -114,7 +114,7 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
 /// Check if a script is P2SH (Pay-to-Script-Hash)
 ///
 /// P2SH scripts have the format: OP_HASH160 (0xa9) <20-byte-hash> OP_EQUAL (0x87)
-fn is_pay_to_script_hash(script: &ByteString) -> bool {
+fn is_pay_to_script_hash(script: &[u8]) -> bool {
     script.len() == 23
         && script[0] == OP_HASH160  // OP_HASH160
         && script[1] == 0x14  // Push 20 bytes
@@ -241,7 +241,7 @@ pub fn get_p2sh_sigop_count<U: UtxoLookup>(tx: &Transaction, utxo_lookup: &U) ->
         // Get the UTXO (scriptPubKey) for this input
         if let Some(utxo) = utxo_lookup.get(&input.prevout) {
             // Check if this is a P2SH output
-            if is_pay_to_script_hash(&utxo.script_pubkey) {
+            if is_pay_to_script_hash(utxo.script_pubkey.as_ref()) {
                 // Extract redeem script from scriptSig
                 if let Some(redeem_script) = extract_redeem_script_from_scriptsig(&input.script_sig)
                 {

@@ -178,6 +178,8 @@ fuzz_target!(|data: &[u8]| {
                     None,
                     None,
                     None, // precomputed_bip143
+                    #[cfg(feature = "production")] None,
+                    #[cfg(feature = "production")] None,
                 );
             }
         }
@@ -227,6 +229,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None, // precomputed_bip143
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
         );
     }
 
@@ -275,6 +279,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None, // precomputed_bip143
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
         );
     }
 
@@ -323,6 +329,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None, // precomputed_bip143
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
         );
     }
 });

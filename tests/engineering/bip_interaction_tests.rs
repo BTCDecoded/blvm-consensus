@@ -36,11 +36,11 @@ fn test_segwit_with_cltv() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x00, 0x14], // P2WPKH
+            script_pubkey: vec![0x00, 0x14].into(), // P2WPKH
             height: 0,
-        },
+        }),
     );
     
     // Validate SegWit transaction with CLTV
@@ -68,6 +68,7 @@ fn test_segwit_with_cltv() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     assert!(result.is_ok());
@@ -101,11 +102,11 @@ fn test_segwit_with_csv() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x00, 0x14], // P2WPKH
+            script_pubkey: vec![0x00, 0x14].into(), // P2WPKH
             height: 0,
-        },
+        }),
     );
     
     let input = &tx.inputs[0];
@@ -132,6 +133,7 @@ fn test_segwit_with_csv() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
 
     // CSV validation: input sequence (5 blocks) >= required (4 blocks)
@@ -177,11 +179,11 @@ fn test_taproot_with_csv() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
             script_pubkey: p2tr_script,
             height: 0,
-        },
+        }),
     );
     
     // Validate Taproot transaction
@@ -210,6 +212,7 @@ fn test_taproot_with_csv() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -347,6 +350,7 @@ fn test_segwit_taproot_cltv_combined() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     
     assert!(result.is_ok());
@@ -390,11 +394,11 @@ fn test_cltv_csv_combined() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        UTXO {
+        std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
             height: 0,
-        },
+        }),
     );
     
     let pv = vec![1000000i64];
@@ -419,6 +423,7 @@ fn test_cltv_csv_combined() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     assert!(result_cltv.is_ok());
 
@@ -440,6 +445,7 @@ fn test_cltv_csv_combined() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
     );
     // CSV: input sequence (5 blocks) >= required (4 blocks)
     assert!(result_csv.is_ok());

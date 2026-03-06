@@ -81,6 +81,12 @@ pub struct ConsensusConfigSerializable {
     pub consensus_threshold: f64,
     pub max_peers_per_asn: usize,
     pub safety_margin: u64,
+    #[serde(default = "default_shuffle_peers")]
+    pub shuffle_peers: bool,
+}
+
+fn default_shuffle_peers() -> bool {
+    true
 }
 
 #[cfg(feature = "utxo-commitments")]
@@ -92,6 +98,7 @@ impl From<ConsensusConfigSerializable> for ConsensusConfig {
             consensus_threshold: serializable.consensus_threshold,
             max_peers_per_asn: serializable.max_peers_per_asn,
             safety_margin: serializable.safety_margin,
+            shuffle_peers: serializable.shuffle_peers,
         }
     }
 }
@@ -105,6 +112,7 @@ impl From<ConsensusConfig> for ConsensusConfigSerializable {
             consensus_threshold: config.consensus_threshold,
             max_peers_per_asn: config.max_peers_per_asn,
             safety_margin: config.safety_margin,
+            shuffle_peers: config.shuffle_peers,
         }
     }
 }
@@ -123,6 +131,7 @@ impl Default for UtxoCommitmentsConfig {
                 consensus_threshold: 0.8,
                 max_peers_per_asn: 2,
                 safety_margin: 2016,
+                shuffle_peers: true,
             },
             spam_filter: crate::spam_filter::SpamFilterConfigSerializable::default(),
             storage: StorageConfig::default(),

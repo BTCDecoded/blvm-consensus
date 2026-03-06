@@ -67,7 +67,7 @@ fn test_p2sh_scriptsig_push_only_validation() {
 
     // CRITICAL: This should fail due to push-only validation
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
     let result = verify_script_with_context_full(
         &invalid_script_sig,
         &script_pubkey,
@@ -85,6 +85,9 @@ fn test_p2sh_scriptsig_push_only_validation() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
     );
 
     // Must reject non-push opcode in P2SH scriptSig
@@ -147,7 +150,7 @@ fn test_taproot_empty_scriptsig_requirement() {
 
     // CRITICAL: This should fail - Taproot requires empty scriptSig
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
     let result = verify_script_with_context_full(
         &tx.inputs[0].script_sig,
         &script_pubkey,
@@ -165,6 +168,9 @@ fn test_taproot_empty_scriptsig_requirement() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
     );
 
     // Must reject non-empty scriptSig for Taproot
@@ -195,7 +201,7 @@ fn test_p2sh_redeem_script_sighash() {
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         }].into(),
         lock_time: 0,
     };
@@ -206,7 +212,7 @@ fn test_p2sh_redeem_script_sighash() {
     
     let prevouts = vec![TransactionOutput {
         value: 1000000,
-        script_pubkey: script_pubkey_vec.clone(),
+        script_pubkey: script_pubkey_vec.clone().into(),
     }];
 
     let redeem_script = vec![0x51, 0x52]; // Redeem script (different from scriptPubkey)
@@ -215,14 +221,16 @@ fn test_p2sh_redeem_script_sighash() {
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
     let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
 
+    let psp_refs: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
     // Calculate sighash with redeem script (correct for P2SH)
     let sighash_with_redeem = calculate_transaction_sighash_with_script_code(
         &tx,
         0,
         &pv,
-        &psp,
+        &psp_refs,
         SighashType::ALL,
         Some(&redeem_script),
+        #[cfg(feature = "production")] None,
     );
 
     // Calculate sighash with scriptPubkey (incorrect for P2SH - should be different)
@@ -230,9 +238,10 @@ fn test_p2sh_redeem_script_sighash() {
         &tx,
         0,
         &pv,
-        &psp,
+        &psp_refs,
         SighashType::ALL,
         Some(&script_pubkey),
+        #[cfg(feature = "production")] None,
     );
 
     // CRITICAL: Sighash with redeem script should be different from scriptPubkey
@@ -370,27 +379,28 @@ fn test_sighash_alllegacy() {
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![0x51].into(),
         }].into(),
         lock_time: 0,
     };
 
     let prevouts = vec![TransactionOutput {
         value: 1000000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
     }];
 
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let psp_refs: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
 
     // Calculate sighash with AllLegacy (0x00)
     let sighash_alllegacy = calculate_transaction_sighash_with_script_code(
         &tx,
         0,
         &pv,
-        &psp,
+        &psp_refs,
         SighashType::ALL_LEGACY,
         None,
+        #[cfg(feature = "production")] None,
     );
 
     // Calculate sighash with All (0x01)
@@ -398,9 +408,10 @@ fn test_sighash_alllegacy() {
         &tx,
         0,
         &pv,
-        &psp,
+        &psp_refs,
         SighashType::ALL,
         None,
+        #[cfg(feature = "production")] None,
     );
 
     // CRITICAL: AllLegacy (0x00) should produce same sighash as All (0x01)
@@ -469,7 +480,7 @@ fn test_script_flags_per_transaction() {
     // Verify that Taproot transaction with empty scriptSig is accepted
     // (This indirectly tests that Taproot flag is set correctly)
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let psp: Vec<&ByteString> = prevouts.iter().map(|p| &p.script_pubkey).collect();
+    let psp: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
     let result = verify_script_with_context_full(
         &tx_with_taproot.inputs[0].script_sig,
         &script_pubkey_taproot,
@@ -487,6 +498,9 @@ fn test_script_flags_per_transaction() {
         None,
         None,
         None, // precomputed_bip143
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
     );
 
     // Should not fail due to empty scriptSig (Taproot allows empty scriptSig)

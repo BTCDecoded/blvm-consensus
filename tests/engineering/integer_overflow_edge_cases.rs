@@ -20,18 +20,18 @@ fn test_input_value_overflow() {
     let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
     let utxo1 = UTXO {
         value: large_value,
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint1, utxo1);
+    utxo_set.insert(outpoint1.clone(), std::sync::Arc::new(utxo1));
     
     let outpoint2 = OutPoint { hash: [2; 32], index: 0 };
     let utxo2 = UTXO {
         value: large_value, // Adding this will overflow
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint2, utxo2);
+    utxo_set.insert(outpoint2.clone(), std::sync::Arc::new(utxo2));
     
     let tx = Transaction {
         version: 1,
@@ -74,10 +74,10 @@ fn test_output_value_overflow() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: 1000000000,
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     // Create transaction with outputs that will overflow when summed
     let large_value = i64::MAX / 2 + 1;
@@ -95,7 +95,7 @@ fn test_output_value_overflow() {
             },
             TransactionOutput {
                 value: large_value, // Adding this will overflow
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
             },
         ].into(),
         lock_time: 0,
@@ -121,10 +121,10 @@ fn test_output_exceeds_max_money() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: MAX_MONEY + 1, // Exceeds max money
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let tx = Transaction {
         version: 1,
@@ -165,10 +165,10 @@ fn test_fee_calculation_no_overflow() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: input_value,
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let tx = Transaction {
         version: 1,
@@ -254,10 +254,10 @@ fn test_total_fees_overflow() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: MAX_MONEY / 2,
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let tx = Transaction {
         version: 1,
@@ -287,10 +287,10 @@ fn test_max_valid_values() {
     let outpoint = OutPoint { hash: [1; 32], index: 0 };
     let utxo = UTXO {
         value: MAX_MONEY,
-        script_pubkey: vec![],
+        script_pubkey: vec![].into(),
         height: 0,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
     
     let tx = Transaction {
         version: 1,

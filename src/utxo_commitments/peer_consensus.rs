@@ -82,6 +82,9 @@ pub struct ConsensusConfig {
     pub max_peers_per_asn: usize,
     /// Block safety margin (blocks back from tip)
     pub safety_margin: Natural,
+    /// Shuffle peers before diversity selection (eclipse resistance). Default: true.
+    /// Set to false for deterministic tests or formal verification.
+    pub shuffle_peers: bool,
 }
 
 impl Default for ConsensusConfig {
@@ -92,6 +95,7 @@ impl Default for ConsensusConfig {
             consensus_threshold: 0.8, // 80% agreement required
             max_peers_per_asn: 2,
             safety_margin: 2016, // ~2 weeks of blocks
+            shuffle_peers: true,
         }
     }
 }
@@ -116,12 +120,20 @@ impl PeerConsensus {
     /// - Bitcoin implementations
     #[spec_locked("13.4")]
     pub fn discover_diverse_peers(&self, all_peers: Vec<PeerInfo>) -> Vec<PeerInfo> {
+        use rand::seq::SliceRandom;
+
+        // Shuffle to prevent predictable peer selection (eclipse resistance)
+        let mut peers = all_peers;
+        if self.config.shuffle_peers {
+            peers.shuffle(&mut rand::thread_rng());
+        }
+
         let mut diverse_peers = Vec::new();
         let mut seen_asn: HashMap<u32, usize> = HashMap::new();
         let mut seen_subnets: HashSet<u32> = HashSet::new();
         let _seen_countries: HashSet<String> = HashSet::new();
 
-        for peer in all_peers {
+        for peer in peers {
             // Check ASN limit
             if let Some(asn) = peer.asn {
                 let asn_count = seen_asn.entry(asn).or_insert(0);

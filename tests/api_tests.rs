@@ -94,11 +94,11 @@ fn test_validate_tx_inputs() {
     };
     let utxo = UTXO {
         value: 2000,
-        script_pubkey: vec![OP_1],
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let (result, total_value) = consensus.validate_tx_inputs(&tx, &utxo_set, 100).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
@@ -428,11 +428,11 @@ fn test_replacement_checks() {
     };
     let utxo = UTXO {
         value: 10000, // Enough to cover both outputs
-        script_pubkey: vec![OP_1],
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
-    utxo_set.insert(outpoint, utxo);
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let mempool = Mempool::new();
     let result = consensus
@@ -825,7 +825,8 @@ fn test_is_taproot_output() {
             0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ],
+        ]
+        .into(),
     };
 
     let result = consensus.is_taproot_output(&taproot_output);
@@ -834,7 +835,7 @@ fn test_is_taproot_output() {
 
     let non_taproot_output = TransactionOutput {
         value: 1000,
-        script_pubkey: vec![OP_1],
+        script_pubkey: vec![OP_1].into(),
     };
 
     let result = consensus.is_taproot_output(&non_taproot_output);

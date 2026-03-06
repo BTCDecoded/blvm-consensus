@@ -56,6 +56,74 @@ pub type Hash = [u8; 32];
 /// Byte string type
 pub type ByteString = Vec<u8>;
 
+/// Shareable script_pubkey for UTXO: Arc<[u8]> to avoid clones in IBD apply path.
+/// Clone is O(1); serialization format identical to ByteString for on-disk compatibility.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct SharedByteString(std::sync::Arc<[u8]>);
+
+impl std::fmt::Debug for SharedByteString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SharedByteString").field(&self.0.as_ref()).finish()
+    }
+}
+
+impl std::ops::Deref for SharedByteString {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Serialize for SharedByteString {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for SharedByteString {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v: Vec<u8> = Deserialize::deserialize(d)?;
+        Ok(Self(std::sync::Arc::from(v.into_boxed_slice())))
+    }
+}
+
+impl From<ByteString> for SharedByteString {
+    #[inline]
+    fn from(v: ByteString) -> Self {
+        Self(std::sync::Arc::from(v.into_boxed_slice()))
+    }
+}
+
+impl From<&[u8]> for SharedByteString {
+    #[inline]
+    fn from(v: &[u8]) -> Self {
+        Self(std::sync::Arc::from(v))
+    }
+}
+
+impl Default for SharedByteString {
+    #[inline]
+    fn default() -> Self {
+        Self(std::sync::Arc::from([]))
+    }
+}
+
+impl AsRef<[u8]> for SharedByteString {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl SharedByteString {
+    /// Get the underlying Arc<[u8]> for storage in script context (avoids clone of bytes).
+    #[inline]
+    pub fn as_arc(&self) -> std::sync::Arc<[u8]> {
+        std::sync::Arc::clone(&self.0)
+    }
+}
+
 /// Natural number type
 pub type Natural = u64;
 
@@ -214,12 +282,11 @@ impl std::ops::Deref for BlockHash {
 
 /// OutPoint: 𝒪 = ℍ × ℕ
 ///
-/// Performance optimization: Cache-line aligned for better memory access patterns
-#[repr(align(64))]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Uses u32 for index (Bitcoin wire format); saves 24 bytes vs repr(align(64)) padding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct OutPoint {
     pub hash: Hash,
-    pub index: Natural,
+    pub index: u32,
 }
 
 /// Transaction Input: ℐ = 𝒪 × 𝕊 × ℕ
@@ -294,7 +361,7 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct UTXO {
     pub value: Integer,
-    pub script_pubkey: ByteString,
+    pub script_pubkey: SharedByteString,
     pub height: Natural,
     /// Whether this UTXO is from a coinbase transaction
     /// Coinbase outputs require maturity (COINBASE_MATURITY blocks) before they can be spent
@@ -302,14 +369,21 @@ pub struct UTXO {
 }
 
 /// UTXO Set: 𝒰𝒮 = 𝒪 → 𝒰
-/// 
+///
+/// Arc<UTXO> avoids ~1500+ clones/block during IBD supplement_utxo_map and apply_sync_batch.
 /// In production builds, uses FxHashMap for 2-3x faster lookups in large UTXO sets.
-/// FxHash is faster than SipHash for fixed-size keys like OutPoint (36 bytes).
 #[cfg(feature = "production")]
-pub type UtxoSet = FxHashMap<OutPoint, UTXO>;
+pub type UtxoSet = FxHashMap<OutPoint, std::sync::Arc<UTXO>>;
 
 #[cfg(not(feature = "production"))]
-pub type UtxoSet = HashMap<OutPoint, UTXO>;
+pub type UtxoSet = HashMap<OutPoint, std::sync::Arc<UTXO>>;
+
+/// Insert owned UTXO into UtxoSet (wraps in Arc). Convenience for tests and one-off inserts.
+#[inline]
+pub fn utxo_set_insert(set: &mut UtxoSet, op: OutPoint, u: UTXO) {
+    use std::sync::Arc;
+    set.insert(op, Arc::new(u));
+}
 
 /// Validation result
 ///

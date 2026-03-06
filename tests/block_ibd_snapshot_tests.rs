@@ -5,9 +5,10 @@
 
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::types::{Block, Network, UtxoSet};
+use blvm_consensus::types::{Block, Network, UTXO, UtxoSet};
 use blvm_consensus::ValidationResult;
 use std::path::Path;
+use std::sync::Arc;
 
 fn load_dump(
     dir: &Path,
@@ -16,8 +17,10 @@ fn load_dump(
         bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(dir.join("block.bin"))?))?;
     let witnesses: Vec<Vec<Witness>> =
         bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(dir.join("witnesses.bin"))?))?;
-    let utxo_set: UtxoSet =
+    // Dump format: HashMap<OutPoint, UTXO> (no Arc). UtxoSet uses Arc<UTXO>.
+    let raw: std::collections::HashMap<_, UTXO> =
         bincode::deserialize_from(std::io::BufReader::new(std::fs::File::open(dir.join("utxo_set.bin"))?))?;
+    let utxo_set: UtxoSet = raw.into_iter().map(|(k, v)| (k, Arc::new(v))).collect();
     Ok((block, witnesses, utxo_set))
 }
 
@@ -78,7 +81,7 @@ fn block_ibd_snapshot_tests() {
                 .map(|tx| (0..tx.inputs.len()).map(|_| Vec::new()).collect())
                 .collect();
         }
-        let (result, _new_utxo_set, _tx_ids) = connect_block_ibd(
+        let (result, _new_utxo_set, _tx_ids, _utxo_delta) = connect_block_ibd(
             &block,
             &witnesses,
             utxo_set,
@@ -86,6 +89,9 @@ fn block_ibd_snapshot_tests() {
             None::<&[blvm_consensus::types::BlockHeader]>,
             0u64,
             Network::Mainnet,
+            None,
+            None,
+            Some(std::sync::Arc::new(block.clone())),
             None,
         )
         .expect("connect_block_ibd");

@@ -32,19 +32,35 @@ use crate::types::{ByteString, Hash};
 use secp256k1::{XOnlyPublicKey, Message, schnorr::{Signature, verify_batch}, Secp256k1};
 #[cfg(all(feature = "production", feature = "rayon"))]
 use rayon::prelude::*;
-use sha2::{Digest, Sha256};
+use crate::crypto::OptimizedSha256;
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Collector for Schnorr signatures to enable batch verification
 ///
-/// Uses lock-free SegQueue so collect(&self) can be called from parallel workers without
-/// mutex contention. Drain + sort by index preserves (tx, input) order for batch results.
+/// D (SoA): Pre-allocated Vecs when capacity > 0; atomic index. No Vec alloc per collect.
+/// Fallback SegQueue when capacity = 0.
 #[cfg(feature = "production")]
 pub struct SchnorrSignatureCollector {
+    soa: Option<std::sync::Arc<SchnorrSoAStorage>>,
     next_idx: AtomicUsize,
     tasks: crossbeam_queue::SegQueue<(usize, (Vec<u8>, Vec<u8>, Vec<u8>))>,
+    streaming_results: crossbeam_queue::SegQueue<Vec<(usize, bool)>>,
+}
+
+#[cfg(feature = "production")]
+struct SchnorrSoAStorage {
+    inner: std::sync::Mutex<SchnorrSoAInner>,
+    next_slot: AtomicUsize,
+}
+
+#[cfg(feature = "production")]
+struct SchnorrSoAInner {
+    indices: Vec<usize>,
+    msgs: Vec<[u8; 32]>,
+    pubkeys: Vec<[u8; 32]>,
+    sigs: Vec<[u8; 64]>,
 }
 
 #[cfg(feature = "production")]
@@ -56,13 +72,75 @@ impl Default for SchnorrSignatureCollector {
 
 #[cfg(feature = "production")]
 impl SchnorrSignatureCollector {
-    /// Create a new empty collector
+    /// Create a new empty collector (SegQueue fallback)
     pub fn new() -> Self {
         Self {
+            soa: None,
             next_idx: AtomicUsize::new(0),
             tasks: crossbeam_queue::SegQueue::new(),
+            streaming_results: crossbeam_queue::SegQueue::new(),
         }
     }
+
+    /// Returns true when using SoA storage (try_verify_chunk is a no-op).
+    pub fn uses_soa(&self) -> bool {
+        self.soa.is_some()
+    }
+
+    /// Create a collector with pre-allocated SoA storage (block validation path)
+    pub fn new_with_capacity(cap: usize) -> Self {
+        let soa = if cap == 0 {
+            None
+        } else {
+            Some(std::sync::Arc::new(SchnorrSoAStorage {
+                inner: std::sync::Mutex::new(SchnorrSoAInner {
+                    indices: vec![0; cap],
+                    msgs: vec![[0u8; 32]; cap],
+                    pubkeys: vec![[0u8; 32]; cap],
+                    sigs: vec![[0u8; 64]; cap],
+                }),
+                next_slot: AtomicUsize::new(0),
+            }))
+        };
+        Self {
+            soa,
+            next_idx: AtomicUsize::new(0),
+            tasks: crossbeam_queue::SegQueue::new(),
+            streaming_results: crossbeam_queue::SegQueue::new(),
+        }
+    }
+
+    /// Stream verification: drain up to `chunk_size` sigs, verify, store results.
+    /// No-op when using SoA.
+    #[cfg(all(feature = "production", feature = "rayon"))]
+    pub fn try_verify_chunk(&self, chunk_size: usize) {
+        if self.soa.is_some() || chunk_size == 0 {
+            return;
+        }
+        let mut chunk: Vec<_> = std::iter::from_fn(|| self.tasks.pop())
+            .take(chunk_size)
+            .collect();
+        if chunk.is_empty() {
+            return;
+        }
+        chunk.sort_by_key(|t| t.0);
+        let indices: Vec<usize> = chunk.iter().map(|(i, _)| *i).collect();
+        let tasks: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = chunk.into_iter().map(|(_, t)| t).collect();
+        let task_refs: Vec<(&[u8], &[u8], &[u8])> = tasks
+            .iter()
+            .map(|(msg, pk, sig)| (msg.as_slice(), pk.as_slice(), sig.as_slice()))
+            .collect();
+        if let Ok(results) = batch_verify_signatures_from_stack(&task_refs) {
+            let partial: Vec<(usize, bool)> = indices
+                .into_iter()
+                .zip(results.into_iter())
+                .collect();
+            let _ = self.streaming_results.push(partial);
+        }
+    }
+
+    #[cfg(all(feature = "production", not(feature = "rayon")))]
+    pub fn try_verify_chunk(&self, _chunk_size: usize) {}
 
     /// Collect a signature for deferred batch verification
     ///
@@ -76,22 +154,55 @@ impl SchnorrSignatureCollector {
     /// Collect with explicit global index (for CCheckQueue-style parallel script verification).
     /// Enables deterministic (tx, input) order when workers collect out of order.
     pub fn collect_with_index(&self, global_index: usize, message: &[u8], pubkey: &[u8], signature: &[u8]) {
-        self.tasks.push((
-            global_index,
-            (message.to_vec(), pubkey.to_vec(), signature.to_vec()),
-        ));
+        if let Some(ref soa) = self.soa {
+            if message.len() != 32 || pubkey.len() != 32 || signature.len() != 64 {
+                return;
+            }
+            let slot = soa.next_slot.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut inner) = soa.inner.lock() {
+                if slot < inner.indices.len() {
+                    inner.indices[slot] = global_index;
+                    inner.msgs[slot].copy_from_slice(message);
+                    inner.pubkeys[slot].copy_from_slice(pubkey);
+                    inner.sigs[slot].copy_from_slice(signature);
+                }
+            }
+        } else {
+            self.tasks.push((
+                global_index,
+                (message.to_vec(), pubkey.to_vec(), signature.to_vec()),
+            ));
+        }
     }
 
     /// Batch verify all collected signatures
     ///
     /// Returns a vector of results, one per collected signature (in collection order)
     pub fn verify_batch(&self) -> Result<Vec<bool>> {
+        if let Some(ref soa) = self.soa {
+            let count = soa.next_slot.load(Ordering::Relaxed);
+            if count == 0 {
+                return Ok(Vec::new());
+            }
+            return Self::verify_soa_batch(soa, count);
+        }
+
+        #[cfg(all(feature = "production", feature = "rayon"))]
+        let streaming: Vec<Vec<(usize, bool)>> = std::iter::from_fn(|| self.streaming_results.pop()).collect();
+
         let mut tasks: Vec<(usize, (Vec<u8>, Vec<u8>, Vec<u8>))> =
             std::iter::from_fn(|| self.tasks.pop()).collect();
         if tasks.is_empty() {
+            #[cfg(all(feature = "production", feature = "rayon"))]
+            if !streaming.is_empty() {
+                let mut merged: Vec<(usize, bool)> = streaming.into_iter().flatten().collect();
+                merged.sort_by_key(|(i, _)| *i);
+                return Ok(merged.into_iter().map(|(_, v)| v).collect());
+            }
             return Ok(Vec::new());
         }
         tasks.sort_by_key(|t| t.0);
+        let indices: Vec<usize> = tasks.iter().map(|(i, _)| *i).collect();
         let tasks: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = tasks.into_iter().map(|(_, t)| t).collect();
 
         let task_refs: Vec<(&[u8], &[u8], &[u8])> = tasks
@@ -99,13 +210,44 @@ impl SchnorrSignatureCollector {
             .map(|(msg, pk, sig)| (msg.as_slice(), pk.as_slice(), sig.as_slice()))
             .collect();
 
-        batch_verify_signatures_from_stack(&task_refs)
+        let remainder_results = batch_verify_signatures_from_stack(&task_refs)?;
+        let mut merged: Vec<(usize, bool)> = indices
+            .into_iter()
+            .zip(remainder_results.into_iter())
+            .collect();
+        #[cfg(feature = "rayon")]
+        for partial in streaming {
+            merged.extend(partial);
+        }
+        merged.sort_by_key(|(i, _)| *i);
+        Ok(merged.into_iter().map(|(_, v)| v).collect())
     }
 
-    /// Clear all collected signatures
+    fn verify_soa_batch(soa: &SchnorrSoAStorage, count: usize) -> Result<Vec<bool>> {
+        let inner = soa.inner.lock().map_err(|_| ConsensusError::BlockValidation("SoA lock poisoned".into()))?;
+        let task_refs: Vec<(&[u8], &[u8], &[u8])> = (0..count)
+            .map(|slot| {
+                (
+                    inner.msgs[slot].as_slice(),
+                    inner.pubkeys[slot].as_slice(),
+                    inner.sigs[slot].as_slice(),
+                )
+            })
+            .collect();
+        let results = batch_verify_signatures_from_stack(&task_refs)?;
+        let mut merged: Vec<(usize, bool)> = (0..count)
+            .map(|slot| (inner.indices[slot], results[slot]))
+            .collect();
+        merged.sort_by_key(|(i, _)| *i);
+        Ok(merged.into_iter().map(|(_, v)| v).collect())
+    }
+
+    /// Clear all collected signatures and streaming results
     pub fn clear(&self) {
         while self.tasks.pop().is_some() {}
         self.next_idx.store(0, Ordering::Relaxed);
+        #[cfg(all(feature = "production", feature = "rayon"))]
+        while self.streaming_results.pop().is_some() {}
     }
 
     /// Check if collector is empty
@@ -114,8 +256,12 @@ impl SchnorrSignatureCollector {
     }
 
     /// Merge tasks from another collector (for per-thread collection merge).
+    /// No-op when using SoA.
     #[cfg(feature = "rayon")]
     pub fn extend_from(&self, other: &Self) {
+        if self.soa.is_some() {
+            return;
+        }
         while let Some((_, task)) = other.tasks.pop() {
             let new_idx = self.next_idx.fetch_add(1, Ordering::Relaxed);
             self.tasks.push((new_idx, task));
@@ -208,8 +354,8 @@ pub fn verify_signature_from_stack(
         // Create message from bytes
         // BIP 340: Message is NOT hashed (accepts any size)
         // But secp256k1 requires 32 bytes, so we hash with SHA256
-        // This matches BIP348 reference implementation implementation
-        let message_hash = Sha256::digest(message);
+        // Uses OptimizedSha256 (SHA-NI when available) for faster hashing
+        let message_hash = OptimizedSha256::new().hash(message);
         let msg = Message::from_digest_slice(&message_hash)
             .map_err(|_| ConsensusError::InvalidSignature("Invalid message".into()))?;
 
@@ -310,25 +456,12 @@ pub fn batch_verify_signatures_from_stack(
             d.copy_from_slice(message);
             d
         } else {
-            // Arbitrary message (CSFS) - hash to 32 bytes
-            Sha256::digest(message).into()
+            // Arbitrary message (CSFS) - hash to 32 bytes. Uses OptimizedSha256 (SHA-NI when available)
+            OptimizedSha256::new().hash(message)
         };
 
         sigs.push(sig);
         pubkeys.push(pubkey_xonly);
-        // Store the 32-byte digest for batch verification
-        let digest: [u8; 32] = if message.len() == 32 {
-            // Already 32 bytes (Tapscript) - copy directly
-            let mut d = [0u8; 32];
-            d.copy_from_slice(message);
-            d
-        } else {
-            // Arbitrary message (CSFS) - hash to 32 bytes
-            let hash = Sha256::digest(message);
-            let mut d = [0u8; 32];
-            d.copy_from_slice(&hash);
-            d
-        };
         msgs.push(digest);
     }
 
@@ -337,54 +470,41 @@ pub fn batch_verify_signatures_from_stack(
     }
 
     let msg_refs: Vec<&[u8]> = msgs.iter().map(|m| m.as_slice()).collect();
-    // Chunk for parallelism: config override > hardware-derived. See ibd_tuning.
     let perf = &crate::config::get_consensus_config_ref().performance;
     let chunk_threshold = crate::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
+    let min_chunk = crate::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
+    let n = sigs.len();
 
     #[cfg(all(feature = "production", feature = "rayon"))]
     let batch_results: Vec<std::result::Result<(), secp256k1::Error>> = {
-        if sigs.len() <= chunk_threshold {
+        if n <= chunk_threshold {
             verify_batch(&sigs, &msg_refs, &pubkeys)
         } else {
-            let n = sigs.len();
-            let num_threads = rayon::current_num_threads().max(1);
-            let min_chunk = crate::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
-            let max_chunks = n / min_chunk;
-            let num_chunks = if max_chunks >= 2 {
-                num_threads.min(max_chunks)
-            } else if n >= min_chunk {
-                1 // single chunk gets Pippenger; split would give chunks < min_chunk → slow
-            } else {
-                1
-            };
-            let chunk_ranges: Vec<(usize, usize)> = (0..num_chunks)
-                .map(|i| {
-                    let start = (i * n) / num_chunks;
-                    let end = if i + 1 >= num_chunks { n } else { ((i + 1) * n) / num_chunks };
-                    (start, end)
-                })
-                .filter(|&(s, e)| s < e)
-                .collect();
-            let per_chunk: Vec<Vec<std::result::Result<(), secp256k1::Error>>> = chunk_ranges
+            // 10K BPS: each chunk >=128 sigs (Pippenger)
+            let num_threads = rayon::current_num_threads();
+            let max_parallel = (n / 128).max(1);
+            let num_chunks = num_threads.min(max_parallel).max(1);
+            let chunk_ranges = crate::ibd_tuning::compute_chunk_ranges(n, num_chunks, min_chunk);
+            chunk_ranges
                 .into_par_iter()
-                .map(|(start, end)| {
+                .flat_map(|(start, end)| {
                     verify_batch(
                         &sigs[start..end],
                         &msg_refs[start..end],
                         &pubkeys[start..end],
                     )
                 })
-                .collect();
-            per_chunk.into_iter().flatten().collect()
+                .collect()
         }
     };
 
     #[cfg(not(all(feature = "production", feature = "rayon")))]
-    let batch_results = verify_batch(&sigs, &msg_refs, &pubkeys);
+    let batch_results: Vec<std::result::Result<(), secp256k1::Error>> =
+        verify_batch(&sigs, &msg_refs, &pubkeys);
 
+    // Schnorr verify_batch returns Vec<Result> — one per signature
     for (i, result) in batch_results.iter().enumerate() {
-        let original_idx = task_indices[i];
-        results[original_idx] = result.is_ok();
+        results[task_indices[i]] = result.is_ok();
     }
 
     Ok(results)
