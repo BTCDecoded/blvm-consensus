@@ -678,7 +678,7 @@ proptest! {
     /// ∀ bits ∈ ℕ: ExpandTarget(bits) produces valid U256 target
     #[test]
     fn prop_target_expansion_valid(
-        bits in 0x1d00ffffu64..0x1d00ffffu64  // Valid bits range
+        bits in 0x1d00ffffu64..=0x1d00ffffu64  // Valid bits range (inclusive)
     ) {
         use blvm_consensus::pow;
         
@@ -765,7 +765,7 @@ proptest! {
     fn prop_block_hash_deterministic(
         version in 1i32..2i32,
         timestamp in 1000000u64..2000000u64,
-        bits in 0x1d00ffffu64..0x1d00ffffu64,
+        bits in 0x1d00ffffu64..=0x1d00ffffu64,
         nonce in 0u32..1000000u32
     ) {
         use blvm_consensus::block;
@@ -1186,7 +1186,7 @@ proptest! {
     /// ∀ bits ∈ ℕ: 0 < ExpandTarget(bits) <= TARGET_MAX
     #[test]
     fn prop_target_validity(
-        bits in 0x1d00ffffu64..0x1d00ffffu64  // Valid bits range
+        bits in 0x1d00ffffu64..=0x1d00ffffu64  // Valid bits range (inclusive)
     ) {
         use blvm_consensus::pow;
         use blvm_consensus::constants::MAX_TARGET;
@@ -1238,7 +1238,7 @@ proptest! {
     /// NextTarget adjustment is within 4x factor (clamped)
     #[test]
     fn prop_target_adjustment_bounds(
-        prev_bits in 0x1d00ffffu64..0x1d00ffffu64,
+        prev_bits in 0x1d00ffffu64..=0x1d00ffffu64,
         time_span in 3600u64..(2 * 7 * 24 * 3600)  // 1 hour to 2 weeks
     ) {
         use blvm_consensus::pow;
@@ -1313,7 +1313,7 @@ proptest! {
     /// Target expansion maintains precision for valid bits
     #[test]
     fn prop_target_precision(
-        bits in 0x1d00ffffu64..0x1d00ffffu64
+        bits in 0x1d00ffffu64..=0x1d00ffffu64
     ) {
         use blvm_consensus::pow;
         
@@ -1436,7 +1436,7 @@ proptest! {
     fn prop_block_hash_validity(
         version in 1i32..2i32,
         timestamp in 1000000u64..2000000u64,
-        bits in 0x1d00ffffu64..0x1d00ffffu64,
+        bits in 0x1d00ffffu64..=0x1d00ffffu64,
         nonce in 0u32..1000000u32
     ) {
         use sha2::{Sha256, Digest};
@@ -1557,11 +1557,16 @@ proptest! {
             });
         }
         
-        // Create outputs (less than inputs to have a fee)
+        // Create outputs (sum <= total_input for valid tx; leave fee headroom)
+        let output_budget = total_input_value - 1000; // Reserve min fee
         let mut outputs = Vec::new();
         let mut total_output_value = 0i64;
         for i in 0..num_outputs {
-            let value = 500000 * (i as i64 + 1); // 0.005 BTC per output
+            let value = if i == num_outputs - 1 {
+                (output_budget - total_output_value).max(1)
+            } else {
+                (output_budget / num_outputs as i64).max(1)
+            };
             total_output_value += value;
             outputs.push(TransactionOutput {
                 value,
@@ -2540,7 +2545,7 @@ proptest! {
     fn prop_header_round_trip(
         version in 1i32..2i32,
         timestamp in 1000000u64..2000000u64,
-        bits in 0x1d00ffffu64..0x1d00ffffu64,
+        bits in 0x1d00ffffu64..=0x1d00ffffu64,
         nonce in 0u32..1000000u32
     ) {
         use blvm_consensus::serialization::block::{serialize_block_header, deserialize_block_header};
@@ -2846,19 +2851,21 @@ proptest! {
         // Create transactions with different fee rates
         let mut transactions = Vec::new();
         for i in 0..num_txs {
-            // Create UTXO for input
+            // Create UTXO for input (higher i = smaller input so fee decreases)
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
                 index: 0,
             };
+            let input_value = 1000000 * (num_txs as i64 - i as i64);
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
-                value: 1000000 * (i as i64 + 1),
+                value: input_value,
                 script_pubkey: vec![i as u8; 20].into(),
                 height: 1,
                 is_coinbase: false,
             }));
             
-            // Create transaction with decreasing output (increasing fee)
+            // Create transaction: higher i = smaller fee (fee_rate descending)
+            let output_value = 500000 * (num_txs as i64 - i as i64);
             let tx = Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
@@ -2870,7 +2877,7 @@ proptest! {
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: 500000 * (i as i64 + 1), // Decreasing output = increasing fee
+                    value: output_value,
                     script_pubkey: vec![i as u8; 20].into(),
                 }].into(),
                 lock_time: 0,
@@ -3240,11 +3247,11 @@ proptest! {
             "Genesis block should have positive subsidy: subsidy = {}",
             subsidy);
         
-        // Total supply at height 0 should be 0 (no blocks mined yet)
+        // Total supply at height 0 = genesis block subsidy (block 0 exists)
         let total_supply = economic::total_supply(height);
-        prop_assert_eq!(total_supply, 0,
-            "Total supply at height 0 should be 0: total_supply = {}",
-            total_supply);
+        prop_assert_eq!(total_supply, subsidy,
+            "Total supply at height 0 should equal genesis subsidy: total_supply = {}, subsidy = {}",
+            total_supply, subsidy);
     }
 
     /// Edge Case: Halving Boundaries

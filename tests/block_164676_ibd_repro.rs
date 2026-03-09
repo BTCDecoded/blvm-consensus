@@ -1,13 +1,13 @@
 //! Reproduce block 164676 validation using dumped IBD failure data.
 //!
 //! When IBD fails at a block, the node dumps block.bin, witnesses.bin, utxo_set.bin to
-//! `$BLVM_IBD_FAILURE_DUMP_DIR/height_{height}/` (default /tmp/blvm_ibd_failure).
+//! `$BLVM_IBD_DUMP_DIR/height_{height}/` (default: platform temp dir + blvm_ibd_failure).
 //! This test loads that data and runs connect_block_ibd so we can fix the ECDSA batch
 //! issue without running full IBD.
 //!
 //! Run with: `cargo test --test block_164676_ibd_repro -- --ignored` (or run without
 //! --ignored if the dump is present and you want it to run in CI).
-//! Set BLVM_IBD_FAILURE_DUMP_DIR to point at the dump root if not using default.
+//! Set BLVM_IBD_DUMP_DIR to point at the dump root if not using default.
 
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::types::{Block, Network, UTXO, UtxoSet};
@@ -16,21 +16,22 @@ use blvm_consensus::ValidationResult;
 use std::path::Path;
 use std::sync::Arc;
 
-const DEFAULT_DUMP_DIR: &str = "/tmp/blvm_ibd_failure";
-/// Backup in repo so it survives cleanup; used when BLVM_IBD_FAILURE_DUMP_DIR is not set.
+/// Backup in repo so it survives cleanup; used when BLVM_IBD_DUMP_DIR is not set.
 const REPO_DUMP_SUBDIR: &str = "tests/test_data/ibd_failure_height_164676";
 const HEIGHT: u64 = 164676;
 
 fn dump_dir() -> std::path::PathBuf {
-    if let Ok(d) = std::env::var("BLVM_IBD_FAILURE_DUMP_DIR") {
+    if let Ok(d) = std::env::var("BLVM_IBD_DUMP_DIR") {
         return std::path::PathBuf::from(d).join(format!("height_{}", HEIGHT));
     }
-    // Prefer repo backup (survives /tmp cleanup)
+    // Prefer repo backup (survives temp cleanup)
     let repo = std::path::PathBuf::from(REPO_DUMP_SUBDIR);
     if repo.join("block.bin").exists() {
         return repo;
     }
-    std::path::PathBuf::from(DEFAULT_DUMP_DIR).join(format!("height_{}", HEIGHT))
+    std::env::temp_dir()
+        .join("blvm_ibd_failure")
+        .join(format!("height_{}", HEIGHT))
 }
 
 fn load_dump(dir: &Path) -> Result<(Block, Vec<Vec<Witness>>, UtxoSet), Box<dyn std::error::Error + Send + Sync>> {
@@ -53,7 +54,7 @@ fn load_dump(dir: &Path) -> Result<(Block, Vec<Vec<Witness>>, UtxoSet), Box<dyn 
 fn block_164676_connect_block_ibd_repro() {
     let dir = dump_dir();
     if !dir.join("block.bin").exists() {
-        eprintln!("Skip: dump not found at {} (set BLVM_IBD_FAILURE_DUMP_DIR or use repo tests/test_data/ibd_failure_height_164676)", dir.display());
+        eprintln!("Skip: dump not found at {} (set BLVM_IBD_DUMP_DIR or use repo tests/test_data/ibd_failure_height_164676)", dir.display());
         return;
     }
 

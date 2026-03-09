@@ -429,7 +429,7 @@ impl UtxoMerkleTree {
     pub fn from_utxo_set(utxo_set: &crate::types::UtxoSet) -> UtxoCommitmentResult<Self> {
         let mut tree = Self::new()?;
         for (outpoint, utxo) in utxo_set {
-            tree.insert(outpoint.clone(), utxo.clone())?;
+            tree.insert(outpoint.clone(), utxo.as_ref().clone())?;
         }
         Ok(tree)
     }
@@ -468,7 +468,7 @@ impl UtxoMerkleTree {
                     if let Some(old_utxo) = old_utxo_set.get(outpoint) {
                         self.remove(outpoint, old_utxo.as_ref())?;
                     }
-                    self.insert(outpoint.clone(), (**new_utxo).clone())?;
+                    self.insert(outpoint.clone(), new_utxo.as_ref().clone())?;
                 }
             }
         }

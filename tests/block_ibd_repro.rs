@@ -1,6 +1,6 @@
 //! Reproduce IBD failure using dumped block data.
 //!
-//! When IBD fails, the node dumps to $BLVM_IBD_FAILURE_DUMP_DIR/height_{N}/
+//! When IBD fails, the node dumps to $BLVM_IBD_DUMP_DIR/height_{N}/
 //! Run: `scripts/ibd_failure_to_repro_test.sh [HEIGHT]` to copy dump to repo.
 //!
 //! Run test: BLVM_IBD_FAILURE_HEIGHT=N cargo test --test block_ibd_repro -- --ignored
@@ -12,7 +12,6 @@ use blvm_consensus::ValidationResult;
 use std::path::Path;
 use std::sync::Arc;
 
-const DEFAULT_DUMP_DIR: &str = "/tmp/blvm_ibd_failure";
 fn height() -> u64 {
     std::env::var("BLVM_IBD_FAILURE_HEIGHT")
         .ok()
@@ -22,7 +21,7 @@ fn height() -> u64 {
 
 fn dump_dir() -> std::path::PathBuf {
     let h = height();
-    if let Ok(d) = std::env::var("BLVM_IBD_FAILURE_DUMP_DIR") {
+    if let Ok(d) = std::env::var("BLVM_IBD_DUMP_DIR") {
         return std::path::PathBuf::from(d).join(format!("height_{}", h));
     }
     // Repo backup: blvm-consensus/tests/test_data/ibd_failure_height_{h}
@@ -32,7 +31,9 @@ fn dump_dir() -> std::path::PathBuf {
     if repo.join("block.bin").exists() {
         return repo;
     }
-    std::path::PathBuf::from(DEFAULT_DUMP_DIR).join(format!("height_{}", h))
+    std::env::temp_dir()
+        .join("blvm_ibd_failure")
+        .join(format!("height_{}", h))
 }
 
 /// Dump format: HashMap<OutPoint, UTXO> (no Arc in serialized form)
@@ -126,20 +127,9 @@ fn block_ibd_repro() {
                 blvm_consensus::script::SigVersion::Base,
                 #[cfg(feature = "production")]
                 None, // schnorr_collector
-                #[cfg(feature = "production")]
-                None, // ecdsa_collector
                 #[cfg(not(feature = "production"))]
                 None,
-                #[cfg(not(feature = "production"))]
-                None,
-                #[cfg(feature = "production")]
-                None, // ecdsa_global_index
-                #[cfg(not(feature = "production"))]
-                None,
-                #[cfg(feature = "production")]
-                None, // bip143
-                #[cfg(not(feature = "production"))]
-                None,
+                None, // precomputed_bip143
                 #[cfg(feature = "production")]
                 None, // precomputed_sighash_all
                 #[cfg(feature = "production")]

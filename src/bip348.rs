@@ -29,7 +29,7 @@
 
 use crate::error::{ConsensusError, Result};
 use crate::types::{ByteString, Hash};
-use secp256k1::{XOnlyPublicKey, Message, schnorr::{Signature, verify_batch}, Secp256k1};
+use secp256k1::{XOnlyPublicKey, Message, schnorr::Signature};
 #[cfg(all(feature = "production", feature = "rayon"))]
 use rayon::prelude::*;
 use crate::crypto::OptimizedSha256;
@@ -359,12 +359,13 @@ pub fn verify_signature_from_stack(
         let msg = Message::from_digest_slice(&message_hash)
             .map_err(|_| ConsensusError::InvalidSignature("Invalid message".into()))?;
 
-        // Verify using secp256k1 BIP 340 verification
-        let secp = Secp256k1::verification_only();
-        match secp.verify_schnorr(&sig, &message_hash, &pubkey_xonly) {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false), // Invalid signature
-        }
+        // Verify using backend (secp256k1-fork or blvm-secp256k1)
+        let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
+        Ok(crate::secp256k1_backend::verify_schnorr(
+            &sig.serialize(),
+            &message_hash,
+            &pk_bytes,
+        )?)
     } else {
         // BIP-348: Unknown pubkey type - succeeds as if valid
         Ok(true)
@@ -469,42 +470,48 @@ pub fn batch_verify_signatures_from_stack(
         return Ok(results);
     }
 
+    let sigs_bytes: Vec<[u8; 64]> = sigs.iter().map(|s| s.serialize()).collect();
+    let pubkeys_bytes: Vec<[u8; 32]> = pubkeys.iter().map(|p| p.serialize()).collect();
     let msg_refs: Vec<&[u8]> = msgs.iter().map(|m| m.as_slice()).collect();
+
     let perf = &crate::config::get_consensus_config_ref().performance;
     let chunk_threshold = crate::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
     let min_chunk = crate::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
     let n = sigs.len();
 
     #[cfg(all(feature = "production", feature = "rayon"))]
-    let batch_results: Vec<std::result::Result<(), secp256k1::Error>> = {
+    let batch_bools: Vec<bool> = {
         if n <= chunk_threshold {
-            verify_batch(&sigs, &msg_refs, &pubkeys)
+            crate::secp256k1_backend::verify_schnorr_batch(&sigs_bytes, &msg_refs, &pubkeys_bytes)?
         } else {
-            // 10K BPS: each chunk >=128 sigs (Pippenger)
             let num_threads = rayon::current_num_threads();
             let max_parallel = (n / 128).max(1);
             let num_chunks = num_threads.min(max_parallel).max(1);
             let chunk_ranges = crate::ibd_tuning::compute_chunk_ranges(n, num_chunks, min_chunk);
-            chunk_ranges
+            let chunk_results: Vec<Result<Vec<bool>>> = chunk_ranges
                 .into_par_iter()
-                .flat_map(|(start, end)| {
-                    verify_batch(
-                        &sigs[start..end],
+                .map(|(start, end)| {
+                    crate::secp256k1_backend::verify_schnorr_batch(
+                        &sigs_bytes[start..end],
                         &msg_refs[start..end],
-                        &pubkeys[start..end],
+                        &pubkeys_bytes[start..end],
                     )
                 })
-                .collect()
+                .collect();
+            let mut batch_bools = Vec::with_capacity(n);
+            for r in chunk_results {
+                batch_bools.extend(r?);
+            }
+            batch_bools
         }
     };
 
     #[cfg(not(all(feature = "production", feature = "rayon")))]
-    let batch_results: Vec<std::result::Result<(), secp256k1::Error>> =
-        verify_batch(&sigs, &msg_refs, &pubkeys);
+    let batch_bools: Vec<bool> =
+        crate::secp256k1_backend::verify_schnorr_batch(&sigs_bytes, &msg_refs, &pubkeys_bytes)?;
 
-    // Schnorr verify_batch returns Vec<Result> — one per signature
-    for (i, result) in batch_results.iter().enumerate() {
-        results[task_indices[i]] = result.is_ok();
+    for (i, &valid) in batch_bools.iter().enumerate() {
+        results[task_indices[i]] = valid;
     }
 
     Ok(results)
@@ -564,13 +571,13 @@ pub fn verify_tapscript_schnorr_signature(
         Err(_) => return Ok(false), // Invalid signature format
     };
 
-    // Verify using secp256k1 BIP 340 verification
-    // verify_schnorr expects &[u8] for the message (32-byte sighash)
-    let secp = Secp256k1::verification_only();
-    match secp.verify_schnorr(&sig, sighash, &pubkey_xonly) {
-        Ok(_) => Ok(true),
-        Err(_) => Ok(false), // Invalid signature
-    }
+    // Verify using backend (secp256k1-fork or commons-secp256k1)
+    let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
+    Ok(crate::secp256k1_backend::verify_schnorr(
+        &sig.serialize(),
+        sighash,
+        &pk_bytes,
+    )?)
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ This document covers repo-specific security boundaries. See the [BTCDecoded Secu
 
 All consensus-critical cryptographic dependencies are pinned to exact versions for supply chain security:
 
-- **Consensus-critical cryptography**: Exact versions (`=`) for `secp256k1`, `k256`, `ripemd`, `bitcoin_hashes`
+- **Consensus-critical cryptography**: Exact versions (`=`) for `secp256k1`, `ripemd`, `bitcoin_hashes`
 - **Non-consensus utilities**: Exact versions for supply chain security (`serde`, `serde_json`, `anyhow`, `thiserror`)
 - **Formal verification tools**: Exact versions for reproducibility (`proptest`, `kani-verifier`)
 

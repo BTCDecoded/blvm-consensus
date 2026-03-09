@@ -77,7 +77,7 @@ pub const PIPPENGER_MIN_CHUNK: usize = 88;
 pub fn chunk_threshold_config_or_hardware(config_override: Option<usize>) -> usize {
     config_override
         .or_else(|| {
-            std::env::var("BLVM_CONSENSUS_PERFORMANCE_IBD_CHUNK_THRESHOLD")
+            std::env::var("BLVM_IBD_CHUNK_THRESHOLD")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .filter(|&n: &usize| n > 0 && n <= 1024)
@@ -98,7 +98,7 @@ pub fn chunk_threshold_config_or_hardware(config_override: Option<usize>) -> usi
 pub fn min_chunk_size_config_or_hardware(config_override: Option<usize>) -> usize {
     config_override
         .or_else(|| {
-            std::env::var("BLVM_CONSENSUS_PERFORMANCE_IBD_MIN_CHUNK_SIZE")
+            std::env::var("BLVM_IBD_MIN_CHUNK_SIZE")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .filter(|&n: &usize| n > 0 && n <= 512)
@@ -111,32 +111,6 @@ pub fn min_chunk_size_config_or_hardware(config_override: Option<usize>) -> usiz
                 128
             }
         })
-}
-
-/// Compute ECDSA batch chunk ranges for parallel verification.
-/// Single source of truth for verify_soa_batch and SegQueue verify_batch.
-/// Returns vec![(0, n)] when n <= chunk_threshold (single batch).
-#[cfg(feature = "production")]
-pub fn compute_ecdsa_batch_chunk_ranges(
-    n: usize,
-    chunk_threshold: usize,
-    min_chunk: usize,
-    num_threads: usize,
-) -> Vec<(usize, usize)> {
-    if n <= chunk_threshold {
-        return vec![(0, n)];
-    }
-    let min_chunk_pippenger = if n >= 256 { 128usize.max(min_chunk) } else { 64usize.max(min_chunk) };
-    let max_chunks = n / min_chunk_pippenger;
-    let target_chunks = if n > 1024 {
-        (4 * num_threads).min(max_chunks)
-    } else if n > 512 {
-        (2 * num_threads).min(max_chunks)
-    } else {
-        num_threads.min(max_chunks)
-    };
-    let num_chunks = target_chunks.max(1);
-    compute_chunk_ranges(n, num_chunks, min_chunk_pippenger)
 }
 
 /// Compute optimal chunk ranges for parallel batch verification.

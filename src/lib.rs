@@ -89,8 +89,7 @@ pub mod network;
 pub mod optimizations;
 pub mod pow;
 pub mod reorganization;
-#[cfg(feature = "k256")]
-pub mod script_k256;
+pub mod secp256k1_backend;
 pub mod segwit;
 pub mod sequence_locks;
 pub mod serialization;

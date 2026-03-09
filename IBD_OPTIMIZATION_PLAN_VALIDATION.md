@@ -3,6 +3,8 @@
 **Date:** 2025-02-26  
 **Scope:** Validate the 6-item optimization plan against the codebase and profile assumptions.
 
+> **Note (2025-03):** ECDSA batch verification has been removed. References to `block_ecdsa_collector`, `collect_bulk`, etc. in this document are obsolete. See `docs/SECP256K1_FORK_REMOVAL_PLAN.md`.
+
 ---
 
 ## Summary

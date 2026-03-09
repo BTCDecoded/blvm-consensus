@@ -26,11 +26,10 @@ smallvec = { version = "1.11", optional = true, features = ["serde", "const_gene
 # Using fork with batch Schnorr verification support
 # CI: Uses git dependency from secsovereign/rust-secp256k1
 # Local dev: Override with [patch.crates-io] section below (automatically uses local if available)
-# Use local fork (patched below) - batch verification not on GitHub yet
-# secp256k1 = { git = "https://github.com/secsovereign/rust-secp256k1.git", branch = "batch-schnorr-verification" }
-secp256k1 = { path = "../secp256k1-fork", default-features = true }
-# Pure Rust secp256k1 implementation (migration in progress)
-k256 = { version = "=0.13", optional = true, features = ["ecdsa", "sha256"] }
+# crates.io secp256k1; batch path uses blvm-secp256k1 when enabled
+secp256k1 = { version = "0.28", default-features = true }
+# blvm-secp256k1: pure Rust, BIP 341 correct TapTweak (use for Taproot path)
+blvm-secp256k1 = { path = "../blvm-secp256k1", optional = true }
 # Enable SIMD optimizations for hashing
 # The "asm" feature enables optimized assembly implementations
 # Note: sha2-asm doesn't support Windows, so we use target-specific dependencies below
@@ -80,11 +79,8 @@ tokio = { version = "1.35", features = ["rt", "macros"] }
 criterion = "0.5"
 
 [features]
-# Production (batch verification, fast paths) is default so tests and dependents compile script paths
-default = ["production"]
-# Enable k256 (uses deprecated generic_array from elliptic_curve, will be fixed when k256 updates)
-k256 = ["dep:k256"]
-
+# Production (batch verification, fast paths) is default; blvm-secp256k1 is default crypto backend
+default = ["production", "blvm-secp256k1"]
 # Enable fuzzing tests (Bolero framework)
 # Note: bolero is a dev-dependency, this feature is just for conditional compilation
 # Users should use: cargo test --features bolero
@@ -98,7 +94,8 @@ local-spec-lock = []
 
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
-production = ["lru", "rayon", "smallvec", "rustc-hash", "hashbrown", "crossbeam-queue", "siphasher"]
+# blvm-secp256k1: pure Rust crypto backend (ECDSA, Schnorr, Taproot) — default for profile/production
+production = ["lru", "rayon", "smallvec", "rustc-hash", "hashbrown", "crossbeam-queue", "siphasher", "blvm-secp256k1"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
 rayon = ["dep:rayon"]
@@ -140,6 +137,10 @@ profile = []
 # Enables OP_CHECKSIGFROMSTACK opcode support (Tapscript only)
 csfs = []
 
+# Use blvm-secp256k1 for Taproot tweak (correct BIP 341 tagged hash)
+# When disabled, uses crates.io secp256k1 (plain SHA256 - non-BIP341)
+blvm-secp256k1 = ["dep:blvm-secp256k1"]
+
 
 [dependencies.lru]
 version = "0.12"
@@ -179,13 +180,19 @@ sha2 = { version = "=0.10.9" }
 # Reference: Orange Paper Section 13.1 - Performance Considerations
 opt-level = 3
 lto = false        # off: fastest iteration; use thin/fat for production/CI
-codegen-units = 256  # max parallelism
+codegen-units = 1   # full inlining within crate (not LTO — doesn't cross crate boundaries)
 strip = true
 panic = "abort"  # Smaller binaries, no unwinding overhead
 
 # Additional optimizations - ensure all dependencies are optimized
 [profile.release.package."*"]
 opt-level = 3
+
+# blvm-secp256k1: single codegen unit for better inlining when used with blvm (production builds)
+# Note: LTO cannot be set per-package; use RUSTFLAGS="-C lto=thin" or build-blvm-profile.sh for LTO
+[profile.release.package."blvm-secp256k1"]
+opt-level = 3
+codegen-units = 1
 
 # Profile-guided optimization (PGO) setup:
 # 

@@ -111,6 +111,56 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
     count
 }
 
+/// Count sigops in a tapscript (BIP 342).
+/// CHECKSIG, CHECKSIGVERIFY, CHECKSIGADD each cost 1.
+#[spec_locked("11.2.8")]
+fn count_tapscript_sigops(script: &ByteString) -> u32 {
+    let mut count = 0u32;
+    let mut i = 0;
+
+    while i < script.len() {
+        let opcode = script[i];
+
+        if opcode > 0 && opcode < OP_PUSHDATA1 {
+            let len = opcode as usize;
+            i += 1 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA1 {
+            if i + 1 >= script.len() {
+                break;
+            }
+            let len = script[i + 1] as usize;
+            i += 2 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA2 {
+            if i + 2 >= script.len() {
+                break;
+            }
+            let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
+            i += 3 + len;
+            continue;
+        } else if opcode == OP_PUSHDATA4 {
+            if i + 4 >= script.len() {
+                break;
+            }
+            let len = u32::from_le_bytes([
+                script[i + 1],
+                script[i + 2],
+                script[i + 3],
+                script[i + 4],
+            ]) as usize;
+            i += 5 + len;
+            continue;
+        }
+
+        if opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY || opcode == OP_CHECKSIGADD {
+            count = count.saturating_add(1);
+        }
+        i += 1;
+    }
+    count
+}
+
 /// Check if a script is P2SH (Pay-to-Script-Hash)
 ///
 /// P2SH scripts have the format: OP_HASH160 (0xa9) <20-byte-hash> OP_EQUAL (0x87)
@@ -314,7 +364,27 @@ fn count_witness_sigops<U: UtxoLookup>(
                     }
                 }
             }
-            // Taproot: handled separately (no sigops in Taproot)
+            // P2TR (Taproot): OP_1 <32-byte-hash>, script path has tapscript in witness
+            else if (flags & 0x8000) != 0
+                && script_pubkey.len() == 34
+                && script_pubkey[0] == OP_1
+                && script_pubkey[1] == 0x20
+            {
+                if let Some(witness) = witnesses.get(i) {
+                    if witness.len() >= 2 {
+                        let script_idx = if witness.len() >= 3
+                            && witness[witness.len() - 2].first() == Some(&0x50)
+                        {
+                            witness.len() - 3
+                        } else {
+                            witness.len() - 2
+                        };
+                        let tapscript = &witness[script_idx];
+                        count = count
+                            .saturating_add(count_tapscript_sigops(tapscript) as u64);
+                    }
+                }
+            }
         }
     }
 
@@ -347,6 +417,67 @@ pub fn get_transaction_sigop_cost<U: UtxoLookup>(
 ) -> Result<u64> {
     let witness_slices = witness.map(std::slice::from_ref);
     get_transaction_sigop_cost_with_witness_slices(tx, utxo_lookup, witness_slices, flags)
+}
+
+/// Same as get_transaction_sigop_cost but accepts pre-fetched UTXOs in input order.
+/// Avoids redundant overlay lookups when caller already has UTXO data.
+#[spec_locked("5.2.2")]
+#[cfg(feature = "production")]
+pub fn get_transaction_sigop_cost_with_utxos(
+    tx: &Transaction,
+    utxos: &[Option<&UTXO>],
+    witnesses: Option<&[Witness]>,
+    flags: u32,
+) -> Result<u64> {
+    let legacy_count = get_legacy_sigop_count(tx) as u64;
+    let mut total_cost = legacy_count.saturating_mul(WITNESS_SCALE_FACTOR);
+
+    use crate::transaction::is_coinbase;
+    if is_coinbase(tx) {
+        return Ok(total_cost);
+    }
+
+    if (flags & 0x01) != 0 {
+        let mut p2sh_count = 0u32;
+        for (input, utxo_opt) in tx.inputs.iter().zip(utxos.iter()) {
+            if let Some(utxo) = utxo_opt {
+                if is_pay_to_script_hash(utxo.script_pubkey.as_ref()) {
+                    if let Some(redeem_script) = extract_redeem_script_from_scriptsig(&input.script_sig) {
+                        p2sh_count = p2sh_count.saturating_add(count_sigops_in_script(&redeem_script, true));
+                    }
+                }
+            }
+        }
+        total_cost = total_cost.saturating_add(p2sh_count.saturating_mul(WITNESS_SCALE_FACTOR as u32) as u64);
+    }
+
+    if let Some(witnesses) = witnesses {
+        if (flags & 0x800) != 0 {
+            for (i, (input, utxo_opt)) in tx.inputs.iter().zip(utxos.iter()).enumerate() {
+                if let Some(utxo) = utxo_opt {
+                    let script_pubkey = utxo.script_pubkey.as_ref();
+                    if script_pubkey.len() == 22 && script_pubkey[0] == OP_0 && script_pubkey[1] == 0x14 {
+                        if let Some(witness) = witnesses.get(i) {
+                            if !witness.is_empty() {
+                                total_cost = total_cost.saturating_add(1);
+                            }
+                        }
+                    } else if script_pubkey.len() == 34
+                        && script_pubkey[0] == OP_0
+                        && script_pubkey[1] == 0x20
+                    {
+                        if let Some(witness) = witnesses.get(i) {
+                            if let Some(witness_script) = witness.last() {
+                                total_cost = total_cost.saturating_add(count_sigops_in_script(witness_script, true) as u64);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(total_cost)
 }
 
 /// Same as get_transaction_sigop_cost but accepts per-input witness slices directly.

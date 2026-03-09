@@ -352,6 +352,90 @@ fn test_segwit_p2wsh_validation() {
 }
 
 #[test]
+#[cfg(feature = "production")]
+fn test_p2wsh_multisig_fast_path() {
+    use blvm_consensus::crypto::OptimizedSha256;
+    use blvm_consensus::constants::BIP147_ACTIVATION_MAINNET;
+
+    // 2-of-2 multisig witness script: OP_2 <pk1> <pk2> OP_2 OP_CHECKMULTISIG
+    let pk1 = [0x02u8; 33];
+    let pk2 = [0x03u8; 33];
+    let mut witness_script = vec![0x52]; // OP_2
+    witness_script.extend_from_slice(&pk1);
+    witness_script.extend_from_slice(&pk2);
+    witness_script.push(0x52); // OP_2
+    witness_script.push(0xae); // OP_CHECKMULTISIG
+
+    let wsh_hash = OptimizedSha256::new().hash(&witness_script);
+    let mut script_pubkey = vec![0x00, 0x20];
+    script_pubkey.extend_from_slice(&wsh_hash);
+
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let witness: Witness = vec![
+        vec![0x00],
+        vec![0x30u8; 72],
+        vec![0x30u8; 72],
+        witness_script.clone(),
+    ];
+
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        OutPoint { hash: [1; 32], index: 0 },
+        std::sync::Arc::new(UTXO {
+            value: 1000000,
+            script_pubkey: script_pubkey.into(),
+            height: 0,
+        }),
+    );
+
+    let input = &tx.inputs[0];
+    let utxo = utxo_set.get(&input.prevout).unwrap();
+    let pv = vec![utxo.value];
+    let psp: Vec<&crate::types::ByteString> = vec![&utxo.script_pubkey];
+
+    let result = verify_script_with_context_full(
+        &input.script_sig,
+        &utxo.script_pubkey,
+        Some(&witness),
+        0x810,
+        &tx,
+        0,
+        &pv,
+        &psp,
+        Some(BIP147_ACTIVATION_MAINNET + 1),
+        None,
+        crate::types::Network::Mainnet,
+        crate::script::SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None,
+    );
+
+    assert!(result.is_ok());
+    assert!(!result.unwrap());
+}
+
+#[test]
 fn test_segwit_weight_exceeds_limit() {
     // Test that block weight exceeding 4M is detected
     let mut block = Block {

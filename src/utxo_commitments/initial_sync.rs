@@ -391,7 +391,7 @@ impl InitialSync {
                 for (i, output) in tx.outputs.iter().enumerate() {
                     let outpoint = OutPoint {
                         hash: tx_id,
-                        index: i as Natural,
+                        index: i as u32,
                     };
 
                     let utxo = UTXO {
@@ -522,7 +522,7 @@ pub fn update_commitments_after_block(
             for (i, output) in tx.outputs.iter().enumerate() {
                 let outpoint = crate::types::OutPoint {
                     hash: tx_id,
-                    index: i as Natural,
+                    index: i as u32,
                 };
 
                 let utxo = crate::types::UTXO {

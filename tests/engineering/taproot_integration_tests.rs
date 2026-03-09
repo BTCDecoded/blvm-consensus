@@ -4,7 +4,7 @@
 //! block context, and output validation.
 
 use blvm_consensus::*;
-use blvm_consensus::taproot::*;
+use blvm_consensus::taproot::{compute_script_merkle_root, validate_taproot_script_path, TAPROOT_LEAF_VERSION_TAPSCRIPT, *};
 use blvm_consensus::script::verify_script_with_context_full;
 use super::bip_test_helpers::*;
 
@@ -79,39 +79,12 @@ fn test_taproot_key_aggregation() {
 
 #[test]
 fn test_taproot_script_path_validation() {
-    // Test Taproot script path spending with merkle proof
     let script = vec![0x51, 0x52]; // OP_1, OP_2
     let merkle_proof = vec![[3u8; 32], [4u8; 32]];
-    
-    // Compute merkle root from script and proof
-    let merkle_root = {
-        // Simplified: hash script, then hash with proof elements
-        let script_hash = {
-            use sha2::{Sha256, Digest};
-            let mut hasher = Sha256::new();
-            hasher.update(&script);
-            hasher.finalize()
-        };
-        
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&script_hash[..]);
-        
-        // Hash with proof elements (simplified for test)
-        for proof_hash in &merkle_proof {
-            let mut combined = Vec::new();
-            combined.extend_from_slice(&hash);
-            combined.extend_from_slice(proof_hash);
-            let combined_hash = Sha256::digest(&combined);
-            hash.copy_from_slice(&combined_hash[..]);
-        }
-        hash
-    };
-    
-    // Validate script path
+
+    let merkle_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+
     let is_valid = validate_taproot_script_path(&script, &merkle_proof, &merkle_root).unwrap();
-    
-    // Note: This test uses a simplified merkle root calculation
-    // In production, this would use the exact BIP341 merkle root algorithm
     assert!(is_valid);
 }
 
@@ -292,50 +265,23 @@ fn test_taproot_key_path_spending() {
 
 #[test]
 fn test_taproot_merkle_proof_validation() {
-    // Test merkle proof validation for script path
     let script = vec![0x51, 0x52, 0x53]; // OP_1, OP_2, OP_3
-    
-    // Create merkle proof (simplified)
     let merkle_proof = vec![[5u8; 32], [6u8; 32]];
-    
-    // Compute merkle root (simplified - actual BIP341 uses TaggedHash)
-    let merkle_root = {
-        // In real implementation, this uses BIP341 tagged hash
-        // For test, we use a simple hash
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(&script);
-        for proof_hash in &merkle_proof {
-            hasher.update(proof_hash);
-        }
-        let hash = hasher.finalize();
-        let mut root = [0u8; 32];
-        root.copy_from_slice(&hash);
-        root
-    };
-    
-    // Validate script path with merkle proof
-    // Note: This uses simplified merkle root - real implementation uses BIP341 algorithm
-    // For integration testing, we verify the function works correctly
+
+    let merkle_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+
     let result = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
     assert!(result.is_ok());
+    assert!(result.unwrap());
 }
 
 #[test]
 fn test_taproot_empty_merkle_proof() {
-    // Test script path with empty merkle proof (script is the only leaf)
     let script = vec![0x51];
     let merkle_proof = vec![];
-    
-    // Merkle root should be just the script hash
-    let merkle_root = {
-        use sha2::{Sha256, Digest};
-        let hash = Sha256::digest(&script);
-        let mut root = [0u8; 32];
-        root.copy_from_slice(&hash[..]);
-        root
-    };
-    
+
+    let merkle_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+
     let is_valid = validate_taproot_script_path(&script, &merkle_proof, &merkle_root).unwrap();
     assert!(is_valid);
 }

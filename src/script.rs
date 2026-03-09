@@ -17,8 +17,6 @@ use crate::crypto::OptimizedSha256;
 use digest::Digest;
 use ripemd::Ripemd160;
 use secp256k1::{ecdsa::Signature, Context, Message, PublicKey, Secp256k1, Verification};
-#[cfg(feature = "production")]
-use secp256k1::ffi;
 use sha1::Sha1;
 use blvm_spec_lock::spec_locked;
 
@@ -142,6 +140,24 @@ thread_local! {
         std::cell::RefCell::new(std::array::from_fn(|_| Vec::new()));
 }
 
+/// Thread-local buffers for verify_soa_batch; reused to avoid per-batch allocs.
+#[cfg(feature = "production")]
+thread_local! {
+    static SOA_BATCH_BUF: std::cell::RefCell<(
+        Vec<[u8; 64]>,
+        Vec<[u8; 32]>,
+        Vec<[u8; 33]>,
+        Vec<usize>,
+        Vec<[u8; 32]>,
+    )> = std::cell::RefCell::new((
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    ));
+}
+
 #[cfg(feature = "production")]
 fn batch_put_sig_cache(keys: &[[u8; 32]], results: &[bool]) {
     BATCH_PUT_SIG_CACHE_BY_SHARD.with(|cell| {
@@ -202,32 +218,6 @@ fn ecdsa_cache_key(msg: &[u8; 32], pk: &[u8; 33], sig_compact: &[u8; 64], flags:
     out
 }
 
-/// Thread-local guard: when set, verify_signature must NOT collect (interpreter path).
-/// Interpreter (CHECKMULTISIG etc.) can produce invalid sig/pubkey pairings for batch.
-#[cfg(feature = "production")]
-thread_local! {
-    static ECDSA_INTERPRETER_NO_COLLECT: std::cell::Cell<bool> = std::cell::Cell::new(false);
-}
-
-/// RAII guard that sets ECDSA_INTERPRETER_NO_COLLECT for the duration of interpreter script execution.
-#[cfg(feature = "production")]
-struct EcdsaNoCollectGuard;
-
-#[cfg(feature = "production")]
-impl EcdsaNoCollectGuard {
-    fn new() -> Self {
-        ECDSA_INTERPRETER_NO_COLLECT.with(|c| c.set(true));
-        Self
-    }
-}
-
-#[cfg(feature = "production")]
-impl Drop for EcdsaNoCollectGuard {
-    fn drop(&mut self) {
-        ECDSA_INTERPRETER_NO_COLLECT.with(|c| c.set(false));
-    }
-}
-
 /// Fast-path hit counters (production): verify that P2PK/P2PKH/P2SH/P2WPKH/P2WSH fast-paths are used.
 /// Logged periodically from block validation; interpreter = scripts that fell through to full interpreter.
 #[cfg(feature = "production")]
@@ -241,6 +231,8 @@ static FAST_PATH_P2WPKH: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_P2WSH: AtomicU64 = AtomicU64::new(0);
 static FAST_PATH_P2TR: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "production")]
+static FAST_PATH_BARE_MULTISIG: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_INTERPRETER: AtomicU64 = AtomicU64::new(0);
 
@@ -937,8 +929,6 @@ pub fn verify_script_with_context(
         network,
         sigversion,
         #[cfg(feature = "production")] None, // schnorr_collector
-        #[cfg(feature = "production")] None, // ecdsa_collector
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         None, // precomputed_bip143 - caller doesn't provide
         #[cfg(feature = "production")] None, // precomputed_sighash_all
         #[cfg(feature = "production")] None, // sighash_cache
@@ -969,7 +959,7 @@ pub fn verify_script_with_context(
 /// Common in early blocks (coinbase outputs). Returns Some(Ok(bool)) if handled; None to fall back.
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
-fn try_verify_p2pk_fast_path(
+pub fn try_verify_p2pk_fast_path(
     script_sig: &ByteString,
     script_pubkey: &[u8],
     flags: u32,
@@ -979,8 +969,6 @@ fn try_verify_p2pk_fast_path(
     prevout_script_pubkeys: &[&[u8]],
     block_height: Option<u64>,
     network: crate::types::Network,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
 ) -> Option<Result<bool>> {
     // P2PK scriptPubKey: OP_PUSHBYTES_N + pubkey + OP_CHECKSIG
@@ -1001,11 +989,7 @@ fn try_verify_p2pk_fast_path(
     }
     let pubkey_bytes = &script_pubkey[1..(len - 1)];
 
-    let pushes = parse_script_sig_push_only(script_sig.as_slice())?;
-    if pushes.len() != 1 {
-        return None;
-    }
-    let signature_bytes = &pushes[0];
+    let signature_bytes = parse_p2pk_script_sig(script_sig.as_slice())?;
     if signature_bytes.is_empty() {
         return Some(Ok(false));
     }
@@ -1018,7 +1002,7 @@ fn try_verify_p2pk_fast_path(
     let script_code: &[u8] = if script_pubkey.len() < 71 {
         script_pubkey
     } else {
-        let pattern = serialize_push_data(signature_bytes.as_slice());
+        let pattern = serialize_push_data(signature_bytes);
         deleted_storage = find_and_delete(script_pubkey, &pattern);
         deleted_storage.as_ref()
     };
@@ -1045,8 +1029,6 @@ fn try_verify_p2pk_fast_path(
             height,
             network,
             SigVersion::Base,
-            ecdsa_collector,
-            ecdsa_global_index,
         )
     });
     Some(is_valid)
@@ -1056,7 +1038,7 @@ fn try_verify_p2pk_fast_path(
 /// Returns None to fall back to full interpreter.
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
-fn try_verify_p2pkh_fast_path(
+pub fn try_verify_p2pkh_fast_path(
     script_sig: &ByteString,
     script_pubkey: &[u8],
     flags: u32,
@@ -1066,8 +1048,6 @@ fn try_verify_p2pkh_fast_path(
     prevout_script_pubkeys: &[&[u8]],
     block_height: Option<u64>,
     network: crate::types::Network,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     #[cfg(feature = "production")] precomputed_sighash_all: Option<[u8; 32]>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
     #[cfg(feature = "production")] precomputed_p2pkh_hash: Option<[u8; 20]>,
@@ -1141,17 +1121,12 @@ fn try_verify_p2pkh_fast_path(
             if let Some(precomp) = precomputed_sighash_all {
                 precomp
             } else {
-                match calculate_transaction_sighash_single_input(
+                crate::transaction_hash::compute_legacy_sighash_nocache(
                     tx,
                     input_index,
                     script_code,
-                    prevout_values[input_index],
-                    sighash_type,
-                    sighash_cache,
-                ) {
-                    Ok(h) => h,
-                    Err(e) => return Some(Err(e)),
-                }
+                    sighash_byte,
+                )
             }
         }
         #[cfg(not(feature = "production"))]
@@ -1172,20 +1147,46 @@ fn try_verify_p2pkh_fast_path(
     #[cfg(all(feature = "production", feature = "profile"))]
     let _t_secp = std::time::Instant::now();
     let height = block_height.unwrap_or(0);
-    let is_valid = SECP256K1_CONTEXT.with(|secp| {
-        verify_signature(
-            secp,
-            pubkey_bytes,
-            signature_bytes,
-            &sighash,
-            flags,
-            height,
-            network,
-            SigVersion::Base,
-            ecdsa_collector,
-            ecdsa_global_index,
-        )
-    });
+    let is_valid: Result<bool> = {
+        let assumevalid_height = get_assumevalid_height();
+        if assumevalid_height > 0 && height < assumevalid_height {
+            Ok(true)
+        } else {
+            let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+            if flags & 0x04 != 0 && !crate::bip_validation::check_bip66(signature_bytes, height, network).unwrap_or(false) {
+                Ok(false)
+            } else if flags & 0x02 != 0 {
+                let base_sighash = sighash_byte & !0x80;
+                if base_sighash < 0x01 || base_sighash > 0x03 {
+                    Ok(false)
+                } else if pubkey_bytes.len() == 33 {
+                    if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 {
+                        Ok(false)
+                    } else {
+                        let strict_der = flags & 0x04 != 0;
+                        let enforce_low_s = flags & 0x08 != 0;
+                        Ok(crate::secp256k1_backend::verify_ecdsa_direct(
+                            der_sig, pubkey_bytes, &sighash, strict_der, enforce_low_s,
+                        ).unwrap_or(false))
+                    }
+                } else if pubkey_bytes.len() == 65 && pubkey_bytes[0] == 0x04 {
+                    let strict_der = flags & 0x04 != 0;
+                    let enforce_low_s = flags & 0x08 != 0;
+                    Ok(crate::secp256k1_backend::verify_ecdsa_direct(
+                        der_sig, pubkey_bytes, &sighash, strict_der, enforce_low_s,
+                    ).unwrap_or(false))
+                } else {
+                    Ok(false)
+                }
+            } else {
+                let strict_der = flags & 0x04 != 0;
+                let enforce_low_s = flags & 0x08 != 0;
+                Ok(crate::secp256k1_backend::verify_ecdsa_direct(
+                    der_sig, pubkey_bytes, &sighash, strict_der, enforce_low_s,
+                ).unwrap_or(false))
+            }
+        }
+    };
     #[cfg(all(feature = "production", feature = "profile"))]
     {
         let ns = _t_secp.elapsed().as_nanos() as u64;
@@ -1193,6 +1194,157 @@ fn try_verify_p2pkh_fast_path(
         crate::script_profile::add_p2pkh_secp_context_ns(ns);
     }
     Some(is_valid)
+}
+
+/// Fully inlined P2PKH verification for the rayon fast path.
+/// Caller MUST have already verified script_pubkey is a valid P2PKH (25 bytes, correct opcodes).
+/// Eliminates: redundant pattern check, Option unwrapping for precomputed values (always None),
+/// assumevalid lookup, sighash cache overhead.
+/// Returns Ok(true/false) directly — no Option wrapping.
+#[cfg(feature = "production")]
+#[inline]
+pub fn verify_p2pkh_inline(
+    script_sig: &[u8],
+    script_pubkey: &[u8],
+    flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    height: u64,
+    network: crate::types::Network,
+    precomputed_sighash_all: Option<[u8; 32]>,
+) -> Result<bool> {
+    #[cfg(feature = "profile")]
+    let _t0 = std::time::Instant::now();
+
+    let expected_hash = &script_pubkey[3..23];
+
+    let (signature_bytes, pubkey_bytes) = match parse_p2pkh_script_sig(script_sig) {
+        Some(pair) => pair,
+        None => return Ok(false),
+    };
+
+    if (pubkey_bytes.len() != 33 && pubkey_bytes.len() != 65) || signature_bytes.is_empty() {
+        return Ok(false);
+    }
+
+    #[cfg(feature = "profile")]
+    let _t_hash = std::time::Instant::now();
+
+    let sha256_hash = OptimizedSha256::new().hash(pubkey_bytes);
+    let pubkey_hash: [u8; 20] = Ripemd160::digest(sha256_hash).into();
+    if pubkey_hash.as_slice() != expected_hash {
+        return Ok(false);
+    }
+
+    #[cfg(feature = "profile")]
+    crate::script_profile::add_p2pkh_hash160_ns(_t_hash.elapsed().as_nanos() as u64);
+
+    #[cfg(feature = "profile")]
+    let _t_sighash = std::time::Instant::now();
+
+    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+    let sighash = if let Some(precomp) = precomputed_sighash_all {
+        precomp
+    } else {
+        crate::transaction_hash::compute_legacy_sighash_buffered(
+            tx, input_index, script_pubkey, sighash_byte,
+        )
+    };
+
+    #[cfg(feature = "profile")]
+    crate::script_profile::add_sighash_ns(_t_sighash.elapsed().as_nanos() as u64);
+
+    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+    let strict_der = flags & 0x04 != 0;
+    let enforce_low_s = flags & 0x08 != 0;
+
+    if strict_der && !crate::bip_validation::check_bip66(signature_bytes, height, network).unwrap_or(false) {
+        return Ok(false);
+    }
+
+    if flags & 0x02 != 0 {
+        let sighash_base = sighash_byte & !0x80;
+        if sighash_base < 0x01 || sighash_base > 0x03 {
+            return Ok(false);
+        }
+        match pubkey_bytes.len() {
+            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
+            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
+            33 | 65 => {}
+            _ => return Ok(false),
+        }
+    }
+
+    #[cfg(feature = "profile")]
+    let _t_secp = std::time::Instant::now();
+
+    let result = crate::secp256k1_backend::verify_ecdsa_direct(
+        der_sig, pubkey_bytes, &sighash, strict_der, enforce_low_s,
+    ).unwrap_or(false);
+
+    #[cfg(feature = "profile")]
+    crate::script_profile::add_p2pkh_secp_context_ns(_t_secp.elapsed().as_nanos() as u64);
+
+    #[cfg(feature = "profile")]
+    crate::script_profile::add_p2pkh_fast_path_entry_ns(_t0.elapsed().as_nanos() as u64);
+
+    Ok(result)
+}
+
+/// P2PK (Pay-to-Public-Key) inline verify.
+#[cfg(feature = "production")]
+#[inline]
+pub fn verify_p2pk_inline(
+    script_sig: &[u8],
+    script_pubkey: &[u8],
+    flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    height: u64,
+    network: crate::types::Network,
+) -> Result<bool> {
+    let pk_len = script_pubkey.len() - 2; // 33 or 65
+    let pubkey_bytes = &script_pubkey[1..1 + pk_len];
+
+    let signature_bytes = match parse_p2pk_script_sig(script_sig) {
+        Some(s) => s,
+        None => return Ok(false),
+    };
+    if signature_bytes.is_empty() {
+        return Ok(false);
+    }
+
+    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+    let script_code: &[u8] = script_pubkey; // P2PK scriptPubKey < 71 bytes, no FindAndDelete
+
+    let sighash = crate::transaction_hash::compute_legacy_sighash_buffered(
+        tx, input_index, script_code, sighash_byte,
+    );
+
+    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+    let strict_der = flags & 0x04 != 0;
+    let enforce_low_s = flags & 0x08 != 0;
+
+    if strict_der && !crate::bip_validation::check_bip66(signature_bytes, height, network).unwrap_or(false) {
+        return Ok(false);
+    }
+
+    if flags & 0x02 != 0 {
+        let sighash_base = sighash_byte & !0x80;
+        if sighash_base < 0x01 || sighash_base > 0x03 {
+            return Ok(false);
+        }
+        match pubkey_bytes.len() {
+            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
+            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
+            33 | 65 => {}
+            _ => return Ok(false),
+        }
+    }
+
+    Ok(crate::secp256k1_backend::verify_ecdsa_direct(
+        der_sig, pubkey_bytes, &sighash, strict_der, enforce_low_s,
+    ).unwrap_or(false))
 }
 
 /// P2SH-multisig fast path: when redeem script matches OP_m <pubkeys> OP_n OP_CHECKMULTISIG,
@@ -1297,8 +1449,6 @@ fn try_verify_p2sh_multisig_fast_path(
                 height,
                 network,
                 SigVersion::Base,
-                None,
-                None,
             )
         });
 
@@ -1314,8 +1464,138 @@ fn try_verify_p2sh_multisig_fast_path(
                 height,
                 network,
                 SigVersion::Base,
-                #[cfg(feature = "production")] None,
-                #[cfg(feature = "production")] None,
+            )
+        };
+
+        let is_valid = match is_valid {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+
+        if is_valid {
+            valid_sigs += 1;
+            sig_index += 1;
+        }
+    }
+
+    if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
+        for sig_bytes in &signatures[sig_index..] {
+            if !sig_bytes.is_empty() {
+                return Some(Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::SigNullFail,
+                    message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
+                }));
+            }
+        }
+    }
+
+    Some(Ok(valid_sigs >= m))
+}
+
+/// Bare multisig fast path: scriptPubKey is OP_n <pubkeys> OP_m OP_CHECKMULTISIG directly.
+/// No P2SH wrapper; scriptSig is [dummy, sig_1, ..., sig_m]. Same verification as P2SH multisig.
+#[allow(clippy::too_many_arguments)]
+fn try_verify_bare_multisig_fast_path(
+    script_sig: &ByteString,
+    script_pubkey: &[u8],
+    flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    block_height: Option<u64>,
+    network: crate::types::Network,
+    #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
+) -> Option<Result<bool>> {
+    let (m, _n, pubkeys) = parse_redeem_multisig(script_pubkey)?;
+    let pushes = parse_p2sh_script_sig_pushes(script_sig.as_slice())?;
+    if pushes.len() < 2 {
+        return None;
+    }
+    let dummy = pushes.first().expect("at least 2 pushes").as_slice();
+    let signatures: Vec<&[u8]> = pushes[1..].iter().map(|e| e.as_slice()).collect();
+
+    const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
+    const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
+    let height = block_height.unwrap_or(0);
+    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
+        let activation = match network {
+            crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
+            crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
+            crate::types::Network::Regtest => 0,
+        };
+        if height >= activation {
+            if !dummy.is_empty() && dummy != [0x00] {
+                return Some(Ok(false));
+            }
+        }
+    }
+
+    let mut cleaned = script_pubkey.to_vec();
+    for sig in &signatures {
+        if !sig.is_empty() {
+            let pattern = serialize_push_data(sig);
+            cleaned = find_and_delete(&cleaned, &pattern).into_owned();
+        }
+    }
+
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+
+    let mut sig_index = 0;
+    let mut valid_sigs = 0u8;
+
+    for pubkey_bytes in pubkeys {
+        if sig_index >= signatures.len() {
+            break;
+        }
+        while sig_index < signatures.len() && signatures[sig_index].is_empty() {
+            sig_index += 1;
+        }
+        if sig_index >= signatures.len() {
+            break;
+        }
+        let signature_bytes = &signatures[sig_index];
+        let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+        let sighash_type = SighashType::from_byte(sighash_byte);
+        let sighash = match calculate_transaction_sighash_single_input(
+            tx,
+            input_index,
+            &cleaned,
+            prevout_values[input_index],
+            sighash_type,
+            #[cfg(feature = "production")]
+            sighash_cache,
+        ) {
+            Ok(h) => h,
+            Err(e) => return Some(Err(e)),
+        };
+
+        #[cfg(feature = "production")]
+        let is_valid = SECP256K1_CONTEXT.with(|secp| {
+            verify_signature(
+                secp,
+                pubkey_bytes,
+                signature_bytes,
+                &sighash,
+                flags,
+                height,
+                network,
+                SigVersion::Base,
+            )
+        });
+
+        #[cfg(not(feature = "production"))]
+        let is_valid = {
+            let secp = Secp256k1::new();
+            verify_signature(
+                &secp,
+                pubkey_bytes,
+                signature_bytes,
+                &sighash,
+                flags,
+                height,
+                network,
+                SigVersion::Base,
             )
         };
 
@@ -1360,8 +1640,6 @@ fn try_verify_p2sh_fast_path(
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     network: crate::types::Network,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
     #[cfg(feature = "production")] precomputed_sighash_all: Option<[u8; 32]>,
 ) -> Option<Result<bool>> {
@@ -1485,8 +1763,6 @@ fn try_verify_p2sh_fast_path(
                             height,
                             network,
                             SigVersion::Base,
-                            ecdsa_collector,
-                            ecdsa_global_index,
                         )
                     });
                     return Some(is_valid);
@@ -1540,8 +1816,6 @@ fn try_verify_p2sh_fast_path(
                                 height,
                                 network,
                                 SigVersion::Base,
-                                ecdsa_collector,
-                                ecdsa_global_index,
                             )
                         });
                         return Some(is_valid);
@@ -1567,9 +1841,7 @@ fn try_verify_p2sh_fast_path(
         SigVersion::Base,
         Some(redeem.as_slice()),
         None, // script_sig_for_sighash (P2SH redeem context)
-        #[cfg(feature = "production")] None,
-        #[cfg(feature = "production")] None,
-        #[cfg(feature = "production")] None,
+        #[cfg(feature = "production")] None, // schnorr_collector
         None, // precomputed_bip143 - Base sigversion
         #[cfg(feature = "production")] sighash_cache,
     );
@@ -1591,8 +1863,6 @@ fn try_verify_p2wpkh_fast_path(
     prevout_script_pubkeys: &[&[u8]],
     block_height: Option<u64>,
     network: crate::types::Network,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] precomputed_sighash_all: Option<[u8; 32]>,
 ) -> Option<Result<bool>> {
@@ -1673,8 +1943,6 @@ fn try_verify_p2wpkh_fast_path(
             height,
             network,
             SigVersion::WitnessV0,
-            ecdsa_collector,
-            ecdsa_global_index,
         )
     });
     Some(is_valid)
@@ -1694,8 +1962,6 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     prevout_script_pubkeys: &[&[u8]],
     block_height: Option<u64>,
     network: crate::types::Network,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
 ) -> Option<Result<bool>> {
     const SCRIPT_VERIFY_P2SH: u32 = 0x01;
@@ -1765,8 +2031,6 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
             height,
             network,
             SigVersion::WitnessV0,
-            ecdsa_collector,
-            ecdsa_global_index,
         )
     });
     Some(is_valid)
@@ -1789,8 +2053,6 @@ fn try_verify_p2wsh_fast_path(
     median_time_past: Option<u64>,
     network: crate::types::Network,
     schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
-    ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
 ) -> Option<Result<bool>> {
@@ -1868,8 +2130,6 @@ fn try_verify_p2wsh_fast_path(
                                 height,
                                 network,
                                 SigVersion::WitnessV0,
-                                ecdsa_collector,
-                                ecdsa_global_index,
                             )
                         });
                         return Some(is_valid);
@@ -1913,8 +2173,6 @@ fn try_verify_p2wsh_fast_path(
                             height,
                             network,
                             SigVersion::WitnessV0,
-                            ecdsa_collector,
-                            ecdsa_global_index,
                         )
                     });
                     return Some(is_valid);
@@ -1924,7 +2182,105 @@ fn try_verify_p2wsh_fast_path(
         }
     }
 
-    // FIX: Do NOT pass ecdsa_collector for witness script (interpreter path).
+    // P2WSH-with-multisig fast-path: witness_script = OP_n <pubkeys> OP_m OP_CHECKMULTISIG, stack = [dummy, sig_1, ..., sig_m]. BIP143, BIP147 NULLDUMMY.
+    if witness_sigversion == SigVersion::WitnessV0 {
+        if let Some((m, _n, pubkeys)) = parse_redeem_multisig(witness_script.as_slice()) {
+            if stack.len() < 2 {
+                return Some(Ok(false));
+            }
+            let dummy = stack[0].as_slice();
+            let signatures: Vec<&[u8]> = stack[1..].iter().map(|e| e.as_slice()).collect();
+
+            const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
+            const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
+            let height = block_height.unwrap_or(0);
+            if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
+                let activation = match network {
+                    crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
+                    crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
+                    crate::types::Network::Regtest => 0,
+                };
+                if height >= activation {
+                    if !dummy.is_empty() && dummy != [0x00] {
+                        return Some(Ok(false));
+                    }
+                }
+            }
+
+            let mut cleaned = witness_script.to_vec();
+            for sig in &signatures {
+                if !sig.is_empty() {
+                    let pattern = serialize_push_data(sig);
+                    cleaned = find_and_delete(&cleaned, &pattern).into_owned();
+                }
+            }
+
+            let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+            let mut sig_index = 0;
+            let mut valid_sigs = 0u8;
+
+            for pubkey_bytes in pubkeys {
+                if sig_index >= signatures.len() {
+                    break;
+                }
+                while sig_index < signatures.len() && signatures[sig_index].is_empty() {
+                    sig_index += 1;
+                }
+                if sig_index >= signatures.len() {
+                    break;
+                }
+                let signature_bytes = &signatures[sig_index];
+                let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+                match crate::transaction_hash::calculate_bip143_sighash(
+                    tx,
+                    input_index,
+                    &cleaned,
+                    amount,
+                    sighash_byte,
+                    precomputed_bip143,
+                ) {
+                    Ok(sighash) => {
+                        let is_valid = SECP256K1_CONTEXT.with(|secp| {
+                            verify_signature(
+                                secp,
+                                pubkey_bytes,
+                                signature_bytes,
+                                &sighash,
+                                flags,
+                                height,
+                                network,
+                                SigVersion::WitnessV0,
+                            )
+                        });
+                        match is_valid {
+                            Ok(v) if v => {
+                                valid_sigs += 1;
+                                sig_index += 1;
+                            }
+                            Ok(_) => {}
+                            Err(e) => return Some(Err(e)),
+                        }
+                    }
+                    Err(e) => return Some(Err(e)),
+                }
+            }
+
+            if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
+                for sig_bytes in &signatures[sig_index..] {
+                    if !sig_bytes.is_empty() {
+                        return Some(Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::SigNullFail,
+                            message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
+                        }));
+                    }
+                }
+            }
+
+            return Some(Ok(valid_sigs >= m));
+        }
+    }
+
+    // Witness script uses interpreter path (no batch collection).
     // CHECKMULTISIG in witness script can produce invalid sig/pubkey pairings for batch.
     let result = eval_script_with_context_full_inner(
         &witness_script,
@@ -1941,10 +2297,73 @@ fn try_verify_p2wsh_fast_path(
         None, // redeem_script_for_sighash
         None, // script_sig_for_sighash (witness script context)
         schnorr_collector,
-        #[cfg(feature = "production")] None, // ecdsa_collector: verify in-place only
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         precomputed_bip143,
         #[cfg(feature = "production")] sighash_cache,
+    );
+    Some(result)
+}
+
+/// P2TR script-path tapscript P2PK fast path. Tapscript 0x20 <32-byte-pubkey> 0xac, witness [sig, script, control_block].
+#[cfg(feature = "production")]
+#[allow(clippy::too_many_arguments)]
+fn try_verify_p2tr_scriptpath_p2pk_fast_path(
+    script_sig: &ByteString,
+    script_pubkey: &[u8],
+    witness: &crate::witness::Witness,
+    _flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    block_height: Option<u64>,
+    schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
+) -> Option<Result<bool>> {
+    use crate::constants::TAPROOT_ACTIVATION_MAINNET;
+    use crate::taproot::parse_taproot_script_path_witness;
+
+    if block_height.map(|h| h < TAPROOT_ACTIVATION_MAINNET).unwrap_or(true) {
+        return None;
+    }
+    if script_pubkey.len() != 34 || script_pubkey[0] != OP_1 || script_pubkey[1] != 0x20 {
+        return None;
+    }
+    if !script_sig.is_empty() {
+        return None;
+    }
+    if witness.len() < 2 {
+        return None;
+    }
+    let mut output_key = [0u8; 32];
+    output_key.copy_from_slice(&script_pubkey[2..34]);
+    let parsed = match parse_taproot_script_path_witness(witness, &output_key) {
+        Ok(Some(p)) => p,
+        Ok(None) | Err(_) => return None,
+    };
+    let (tapscript, stack_items, control_block) = parsed;
+    if tapscript.len() != 34 || tapscript[0] != 0x20 || tapscript[33] != 0xac {
+        return None;
+    }
+    if stack_items.len() != 1 || stack_items[0].len() != 64 {
+        return None;
+    }
+    let sig = stack_items[0].as_slice();
+    let pubkey_32 = &tapscript[1..33];
+    let sighash = crate::taproot::compute_tapscript_signature_hash(
+        tx,
+        input_index,
+        prevout_values,
+        prevout_script_pubkeys,
+        &tapscript,
+        control_block.leaf_version,
+        0xffff_ffff,
+        0x00,
+    )
+    .ok()?;
+    let result = crate::bip348::verify_tapscript_schnorr_signature(
+        &sighash,
+        pubkey_32,
+        sig,
+        schnorr_collector,
     );
     Some(result)
 }
@@ -2012,22 +2431,21 @@ pub fn verify_script_with_context_full(
     network: crate::types::Network,
     _sigversion: SigVersion,
     #[cfg(feature = "production")] schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] precomputed_sighash_all: Option<[u8; 32]>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
     #[cfg(feature = "production")] precomputed_p2pkh_hash: Option<[u8; 20]>,
 ) -> Result<bool> {
     // libbitcoin-consensus check (multi-input verify_script): prevouts length must match vin size
-    // Consensus: prevouts length must match vin size.
     if prevout_values.len() != tx.inputs.len() || prevout_script_pubkeys.len() != tx.inputs.len() {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::TxInputInvalid,
             message: format!(
-                "Prevout slices length {} must match input count {}",
+                "Prevout slices: values={}, script_pubkeys={}, input_count={} (input_idx={})",
                 prevout_values.len(),
-                tx.inputs.len()
+                prevout_script_pubkeys.len(),
+                tx.inputs.len(),
+                input_index,
             )
             .into(),
         });
@@ -2094,8 +2512,6 @@ pub fn verify_script_with_context_full(
             prevout_script_pubkeys,
             block_height,
             network,
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             #[cfg(feature = "production")]
             sighash_cache,
         ) {
@@ -2112,8 +2528,6 @@ pub fn verify_script_with_context_full(
             prevout_script_pubkeys,
             block_height,
             network,
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             #[cfg(feature = "production")]
             precomputed_sighash_all,
             #[cfg(feature = "production")]
@@ -2135,14 +2549,28 @@ pub fn verify_script_with_context_full(
             block_height,
             median_time_past,
             network,
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             #[cfg(feature = "production")]
             sighash_cache,
             #[cfg(feature = "production")]
             precomputed_sighash_all,
         ) {
             FAST_PATH_P2SH.fetch_add(1, Ordering::Relaxed);
+            return result;
+        }
+        if let Some(result) = try_verify_bare_multisig_fast_path(
+            script_sig,
+            script_pubkey,
+            flags,
+            tx,
+            input_index,
+            prevout_values,
+            prevout_script_pubkeys,
+            block_height,
+            network,
+            #[cfg(feature = "production")]
+            sighash_cache,
+        ) {
+            FAST_PATH_BARE_MULTISIG.fetch_add(1, Ordering::Relaxed);
             return result;
         }
     }
@@ -2160,8 +2588,6 @@ pub fn verify_script_with_context_full(
             prevout_script_pubkeys,
             block_height,
             network,
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             precomputed_bip143,
         ) {
             FAST_PATH_P2WPKH.fetch_add(1, Ordering::Relaxed);
@@ -2178,8 +2604,6 @@ pub fn verify_script_with_context_full(
             prevout_script_pubkeys,
             block_height,
             network,
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             precomputed_bip143,
             precomputed_sighash_all,
         ) {
@@ -2199,13 +2623,26 @@ pub fn verify_script_with_context_full(
             median_time_past,
             network,
             schnorr_collector.as_deref(),
-            ecdsa_collector.as_deref(),
-            ecdsa_global_index,
             precomputed_bip143,
             #[cfg(feature = "production")]
             sighash_cache,
         ) {
             FAST_PATH_P2WSH.fetch_add(1, Ordering::Relaxed);
+            return result;
+        }
+        if let Some(result) = try_verify_p2tr_scriptpath_p2pk_fast_path(
+            script_sig,
+            script_pubkey,
+            wit,
+            flags,
+            tx,
+            input_index,
+            prevout_values,
+            prevout_script_pubkeys,
+            block_height,
+            schnorr_collector.as_deref(),
+        ) {
+            FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
             return result;
         }
         if let Some(result) = try_verify_p2tr_keypath_fast_path(
@@ -2332,8 +2769,6 @@ pub fn verify_script_with_context_full(
     // Execute scriptSig (always Base sigversion)
     // FIX: scriptSig can contain CHECKSIG/CHECKMULTISIG (non-standard); collecting produces invalid
     // (sig, pubkey) pairings. Only fast paths (P2PKH, P2WPKH, P2WSH) have correct 1:1 pairing.
-    #[cfg(feature = "production")]
-    let _no_collect_guard = EcdsaNoCollectGuard::new();
     let script_sig_result = eval_script_with_context_full(
         script_sig,
         stack,
@@ -2348,8 +2783,6 @@ pub fn verify_script_with_context_full(
         SigVersion::Base,
         None, // script_sig not needed when executing scriptSig
         #[cfg(feature = "production")] schnorr_collector.as_deref(),
-        #[cfg(feature = "production")] None, // ecdsa_collector: scriptSig can have sig opcodes
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         None, // precomputed_bip143 - Base sigversion
         #[cfg(feature = "production")] sighash_cache,
     )?;
@@ -2440,27 +2873,52 @@ pub fn verify_script_with_context_full(
         }
     }
 
-    // CRITICAL FIX: For Taproot (P2TR), skip standard script execution
-    // Taproot uses OP_1 <32-byte-hash> which is not executable as a script
-    // Validation happens via witness using Taproot-specific logic (handled elsewhere)
     if is_taproot {
-        // For Taproot, scriptSig must be empty (already checked above)
-        // The scriptPubkey OP_1 <32-byte-hash> is not executed as a script
-        // Taproot validation happens through witness verification (key path or script path)
-        // Since we're in a differential test context and Taproot validation is complex,
-        // we return true here to indicate the script format is valid
-        // Full Taproot validation should happen at a higher level
-        return Ok(true);
+        let Some(witness_stack) = witness else {
+            return Ok(false);
+        };
+        if witness_stack.len() < 2 {
+            return Ok(false);
+        }
+        let mut output_key = [0u8; 32];
+        output_key.copy_from_slice(&script_pubkey[2..34]);
+        match crate::taproot::parse_taproot_script_path_witness(witness_stack, &output_key)? {
+            None => return Ok(false),
+            Some((tapscript, stack_items, _control_block)) => {
+                for item in &stack_items {
+                    stack.push(to_stack_element(item));
+                }
+                let tapscript_flags = flags | 0x8000;
+                if !eval_script_with_context_full(
+                    &tapscript,
+                    stack,
+                    tapscript_flags,
+                    tx,
+                    input_index,
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    block_height,
+                    median_time_past,
+                    network,
+                    SigVersion::Tapscript,
+                    None,
+                    #[cfg(feature = "production")] schnorr_collector.as_deref(),
+                    None,
+                    #[cfg(feature = "production")] sighash_cache,
+                )? {
+                    return Ok(false);
+                }
+                return Ok(true);
+            }
+        }
     }
     
     // Execute scriptPubkey (always Base sigversion)
     // For P2WPKH/P2WSH, witness stack elements are already on the stack
     // Pass script_sig so legacy sighash uses same signature bytes as fast path (FindAndDelete pattern).
-    // FIX: Do NOT pass ecdsa_collector for interpreter path. Interpreter sighash can diverge from
+    // Interpreter path: verify in-place only. Interpreter sighash can diverge from
     // fast path (e.g. CHECKMULTISIG), causing batch to store invalid triples. Verify in-place only.
     // Thread-local guard ensures we never collect even if a collector is accidentally threaded through.
-    #[cfg(feature = "production")]
-    let _no_collect_guard = EcdsaNoCollectGuard::new();
     let script_pubkey_result = eval_script_with_context_full(
         script_pubkey,
         stack,
@@ -2475,8 +2933,6 @@ pub fn verify_script_with_context_full(
         SigVersion::Base,
         Some(script_sig),
         #[cfg(feature = "production")] schnorr_collector.as_deref(),
-        #[cfg(feature = "production")] None, // ecdsa_collector: verify in-place only for interpreter
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         None, // precomputed_bip143 - Base sigversion
         #[cfg(feature = "production")] sighash_cache,
     )?;
@@ -2497,8 +2953,6 @@ pub fn verify_script_with_context_full(
         
         // Execute witness script with witness stack elements on the stack
         // Interpreter path: no collection (same invalid pairing issue as bare multisig).
-        #[cfg(feature = "production")]
-        let _no_collect_guard = EcdsaNoCollectGuard::new();
         if !eval_script_with_context_full(
             &witness_script,
             stack,
@@ -2513,8 +2967,6 @@ pub fn verify_script_with_context_full(
             witness_sigversion,
             None, // witness script, no script_sig for sighash
             #[cfg(feature = "production")] schnorr_collector.as_deref(),
-            #[cfg(feature = "production")] None, // ecdsa_collector: interpreter path
-            #[cfg(feature = "production")] None, // ecdsa_global_index
             precomputed_bip143, // WitnessV0 uses BIP143
             #[cfg(feature = "production")] sighash_cache,
         )? {
@@ -2604,8 +3056,6 @@ pub fn verify_script_with_context_full(
                     };
                     
                     // Interpreter path: no collection (P2WSH-in-P2SH).
-                    #[cfg(feature = "production")]
-                    let _no_collect_guard = EcdsaNoCollectGuard::new();
                     if !eval_script_with_context_full(
                         witness_script,
                         stack,
@@ -2620,8 +3070,6 @@ pub fn verify_script_with_context_full(
                         witness_sigversion,
                         None, // witness script
                         #[cfg(feature = "production")] schnorr_collector.as_deref(),
-                        #[cfg(feature = "production")] None, // ecdsa_collector: P2WSH-in-P2SH interpreter
-                        #[cfg(feature = "production")] None, // ecdsa_global_index
                         precomputed_bip143, // WitnessV0 uses BIP143
                         #[cfg(feature = "production")] sighash_cache,
                     )? {
@@ -2658,8 +3106,6 @@ pub fn verify_script_with_context_full(
                 Some(redeem.as_slice()), // Pass redeem script for sighash
                 Some(script_sig), // Use same script_sig for legacy sighash pattern (e.g. P2PKH inside P2SH)
                 #[cfg(feature = "production")] None, // schnorr_collector
-                #[cfg(feature = "production")] None, // ecdsa_collector
-                #[cfg(feature = "production")] None, // ecdsa_global_index
                 None, // precomputed_bip143 - Base sigversion
                 #[cfg(feature = "production")] sighash_cache,
             )?;
@@ -2735,8 +3181,6 @@ fn eval_script_with_context(
         SigVersion::Base,
         None, // script_sig_for_sighash
         #[cfg(feature = "production")] None, // schnorr_collector - No collector in this context
-        #[cfg(feature = "production")] None, // ecdsa_collector - No collector in this context
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         None, // precomputed_bip143 - Base sigversion
         #[cfg(feature = "production")] None, // sighash_cache - no context
     )
@@ -2758,14 +3202,12 @@ fn eval_script_with_context_full(
     sigversion: SigVersion,
     script_sig_for_sighash: Option<&ByteString>,
     #[cfg(feature = "production")] schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
 ) -> Result<bool> {
     #[cfg(all(feature = "production", feature = "profile"))]
     let _t0 = std::time::Instant::now();
-    let r = eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevout_values, prevout_script_pubkeys, block_height, median_time_past, network, sigversion, None, script_sig_for_sighash, #[cfg(feature = "production")] schnorr_collector, #[cfg(feature = "production")] ecdsa_collector, #[cfg(feature = "production")] ecdsa_global_index, precomputed_bip143, #[cfg(feature = "production")] sighash_cache);
+    let r = eval_script_with_context_full_inner(script, stack, flags, tx, input_index, prevout_values, prevout_script_pubkeys, block_height, median_time_past, network, sigversion, None, script_sig_for_sighash, #[cfg(feature = "production")] schnorr_collector, precomputed_bip143, #[cfg(feature = "production")] sighash_cache);
     #[cfg(all(feature = "production", feature = "profile"))]
     crate::script_profile::add_interpreter_ns(_t0.elapsed().as_nanos() as u64);
     r
@@ -2787,8 +3229,6 @@ fn eval_script_with_context_full_inner(
     redeem_script_for_sighash: Option<&[u8]>,
     script_sig_for_sighash: Option<&ByteString>,
     #[cfg(feature = "production")] schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
 ) -> Result<bool> {
@@ -2832,6 +3272,7 @@ fn eval_script_with_context_full_inner(
     // pbegincodehash: the script code used for sighash starts
     // from after the last OP_CODESEPARATOR (or from the beginning if none).
     let mut code_separator_pos: usize = 0;
+    let mut last_codesep_opcode_pos: u32 = 0xffff_ffff;
 
     // Use index-based iteration to properly handle push opcodes
     let mut i = 0;
@@ -3088,10 +3529,17 @@ fn eval_script_with_context_full_inner(
         }
 
         // OP_CHECKSIG / OP_CHECKSIGVERIFY - hot in multisig/P2SH (skip match dispatch)
-        if opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY {
+        // OP_CHECKSIGADD (BIP 342) - Tapscript only; in Base/WitnessV0, 0xba falls through to match
+        if opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY
+            || (opcode == OP_CHECKSIGADD && sigversion == SigVersion::Tapscript)
+        {
             if !in_false_branch {
-                // Same as _ => arm: scriptCode = script from CODESEPARATOR to end
                 let effective_script_code = Some(&script[code_separator_pos..]);
+                let (tapscript, codesep) = if sigversion == SigVersion::Tapscript {
+                    (Some(script), Some(last_codesep_opcode_pos))
+                } else {
+                    (None, None)
+                };
                 if !execute_opcode_with_context_full(
                     opcode,
                     stack,
@@ -3106,12 +3554,10 @@ fn eval_script_with_context_full_inner(
                     sigversion,
                     effective_script_code,
                     script_sig_for_sighash,
+                    tapscript,
+                    codesep,
                     #[cfg(feature = "production")]
                     schnorr_collector.as_deref(),
-                    #[cfg(feature = "production")]
-                    ecdsa_collector.as_deref(),
-                    #[cfg(feature = "production")]
-                    ecdsa_global_index,
                     #[cfg(feature = "production")]
                     precomputed_bip143,
                     #[cfg(feature = "production")]
@@ -3291,10 +3737,8 @@ fn eval_script_with_context_full_inner(
                     i += 1;
                     continue;
                 }
-                // Mark the position AFTER this opcode as the start of the script code
-                // for subsequent OP_CHECKSIG/CHECKMULTISIG sighash calculations.
-                // pbegincodehash = pc
                 code_separator_pos = i + 1;
+                last_codesep_opcode_pos = opcode_position_at_byte(script, i);
             }
             _ => {
                 if in_false_branch {
@@ -3306,12 +3750,17 @@ fn eval_script_with_context_full_inner(
                 // From the last OP_CODESEPARATOR position to the end of the script.
                 // scriptCode = slice from pbegincodehash to pend
                 // Only allocate for opcodes that actually use the script code.
-                let subscript_for_sighash = if matches!(opcode, OP_CHECKSIG | OP_CHECKSIGVERIFY | OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY) {
+                let subscript_for_sighash = if matches!(opcode, OP_CHECKSIG | OP_CHECKSIGVERIFY | OP_CHECKSIGADD | OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY) {
                     Some(&script[code_separator_pos..])
                 } else {
                     None
                 };
                 let effective_script_code = subscript_for_sighash.or(redeem_script_for_sighash);
+                let (tapscript, codesep) = if sigversion == SigVersion::Tapscript {
+                    (Some(script), Some(last_codesep_opcode_pos))
+                } else {
+                    (None, None)
+                };
                 if !execute_opcode_with_context_full(
                     opcode,
                     stack,
@@ -3326,9 +3775,9 @@ fn eval_script_with_context_full_inner(
                     sigversion,
                     effective_script_code,
                     script_sig_for_sighash,
+                    tapscript,
+                    codesep,
                     #[cfg(feature = "production")] schnorr_collector.as_deref(),
-                    #[cfg(feature = "production")] ecdsa_collector.as_deref(),
-                    #[cfg(feature = "production")] ecdsa_global_index,
                     #[cfg(feature = "production")] precomputed_bip143,
                     #[cfg(feature = "production")] sighash_cache,
                 )? {
@@ -3750,8 +4199,6 @@ fn execute_opcode(
                     0,
                     crate::types::Network::Regtest,
                     SigVersion::Base,
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
                 )
             });
 
@@ -3767,8 +4214,6 @@ fn execute_opcode(
                     0,
                     crate::types::Network::Regtest,
                     SigVersion::Base,
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
                 )
             };
 
@@ -3810,8 +4255,6 @@ fn execute_opcode(
                     0,
                     crate::types::Network::Regtest,
                     SigVersion::Base,
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
                 )
             });
 
@@ -3827,8 +4270,6 @@ fn execute_opcode(
                     0,
                     crate::types::Network::Regtest,
                     SigVersion::Base,
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
                 )
             };
 
@@ -4394,9 +4835,9 @@ fn execute_opcode_with_context(
         SigVersion::Base,
         None, // redeem_script_for_sighash (not available in this context)
         None, // script_sig_for_sighash
+        None, // tapscript_for_sighash
+        None, // tapscript_codesep_pos
         #[cfg(feature = "production")] None, // schnorr_collector - No collector in this context
-        #[cfg(feature = "production")] None, // ecdsa_collector - No collector in this context
-        #[cfg(feature = "production")] None, // ecdsa_global_index
         #[cfg(feature = "production")] None, // precomputed_bip143
         #[cfg(feature = "production")] None, // sighash_cache - No cache in this context
     )
@@ -4804,6 +5245,35 @@ pub(crate) fn find_and_delete<'a>(script: &'a [u8], pattern: &[u8]) -> std::borr
     std::borrow::Cow::Owned(result)
 }
 
+/// Return opcode position (0-indexed) of the opcode at byte_index in script. BIP 342 codesep_pos.
+fn opcode_position_at_byte(script: &[u8], byte_index: usize) -> u32 {
+    let mut pos = 0u32;
+    let mut i = 0usize;
+    while i < script.len() && i <= byte_index {
+        let opcode = script[i];
+        let advance = if opcode <= 0x4b {
+            1 + opcode as usize
+        } else if opcode == OP_PUSHDATA1 && i + 1 < script.len() {
+            2 + script[i + 1] as usize
+        } else if opcode == OP_PUSHDATA2 && i + 2 < script.len() {
+            3 + ((script[i + 1] as usize) | ((script[i + 2] as usize) << 8))
+        } else if opcode == OP_PUSHDATA4 && i + 4 < script.len() {
+            5 + ((script[i + 1] as usize)
+                | ((script[i + 2] as usize) << 8)
+                | ((script[i + 3] as usize) << 16)
+                | ((script[i + 4] as usize) << 24))
+        } else {
+            1
+        };
+        if i == byte_index {
+            return pos;
+        }
+        pos += 1;
+        i = std::cmp::min(i + advance, script.len());
+    }
+    0xffff_ffff
+}
+
 /// Execute a single opcode with full context including block height, median time-past, and network
 #[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "production", inline(always))]
@@ -4821,9 +5291,9 @@ fn execute_opcode_with_context_full(
     sigversion: SigVersion,
     redeem_script_for_sighash: Option<&[u8]>,
     script_sig_for_sighash: Option<&ByteString>,
+    tapscript_for_sighash: Option<&[u8]>,
+    tapscript_codesep_pos: Option<u32>,
     #[cfg(feature = "production")] schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_global_index: Option<(usize, &AtomicUsize)>,
     #[cfg(feature = "production")] precomputed_bip143: Option<&crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")] sighash_cache: Option<&crate::transaction_hash::SighashMidstateCache>,
 ) -> Result<bool> {
@@ -4847,16 +5317,30 @@ fn execute_opcode_with_context_full(
                 if sigversion == SigVersion::Tapscript {
                     // Tapscript: signature is 64-byte BIP 340 Schnorr, pubkey is 32-byte x-only
                     if signature_bytes.len() == 64 && pubkey_bytes.len() == 32 {
-                        // Calculate BIP 341 Taproot sighash
-                        let sighash_byte = 0x00; // Default SIGHASH_ALL for Tapscript
-                        
-                        let sighash = crate::taproot::compute_taproot_signature_hash(
-                            tx,
-                            input_index,
-                            prevout_values,
-                            prevout_script_pubkeys,
-                            sighash_byte,
-                        )?;
+                        let sighash_byte = 0x00;
+                        let (tapscript, codesep_pos) = tapscript_for_sighash
+                            .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
+                            .unwrap_or((&[] as &[u8], 0xffff_ffff));
+                        let sighash = if tapscript.is_empty() {
+                            crate::taproot::compute_taproot_signature_hash(
+                                tx,
+                                input_index,
+                                prevout_values,
+                                prevout_script_pubkeys,
+                                sighash_byte,
+                            )?
+                        } else {
+                            crate::taproot::compute_tapscript_signature_hash(
+                                tx,
+                                input_index,
+                                prevout_values,
+                                prevout_script_pubkeys,
+                                tapscript,
+                                crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
+                                codesep_pos,
+                                sighash_byte,
+                            )?
+                        };
 
                         // OPTIMIZATION: Use collector for batch verification if available
                         #[cfg(feature = "production")]
@@ -4969,8 +5453,6 @@ fn execute_opcode_with_context_full(
                         height,
                         network,
                         sigversion,
-                        #[cfg(feature = "production")] ecdsa_collector.as_deref(),
-                        #[cfg(feature = "production")] ecdsa_global_index,
                     )
                 })?;
 
@@ -4986,8 +5468,6 @@ fn execute_opcode_with_context_full(
                         height,
                         network,
                         sigversion,
-                        #[cfg(feature = "production")] None,
-                        #[cfg(feature = "production")] None,
                     )?
                 };
 
@@ -5084,8 +5564,6 @@ fn execute_opcode_with_context_full(
                         height,
                         network,
                         sigversion,
-                        #[cfg(feature = "production")] ecdsa_collector.as_deref(),
-                        #[cfg(feature = "production")] ecdsa_global_index,
                     )
                 })?;
 
@@ -5101,8 +5579,6 @@ fn execute_opcode_with_context_full(
                         height,
                         network,
                         sigversion,
-                        #[cfg(feature = "production")] None,
-                        #[cfg(feature = "production")] None,
                     )?
                 };
 
@@ -5114,6 +5590,101 @@ fn execute_opcode_with_context_full(
             } else {
                 Ok(false)
             }
+        }
+
+        // OP_CHECKSIGADD (BIP 342) - Tapscript only. Pops pubkey, n, sig. Verifies Schnorr; if valid push n+1 else fail.
+        OP_CHECKSIGADD => {
+            if sigversion != SigVersion::Tapscript {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::DisabledOpcode,
+                    message: "OP_CHECKSIGADD is only available in Tapscript".into(),
+                });
+            }
+            if stack.len() < 3 {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::InvalidStackOperation,
+                    message: "OP_CHECKSIGADD: insufficient stack items (need 3)".into(),
+                });
+            }
+            // BIP 342: pubkey (top), n (second), sig (third)
+            let pubkey_bytes = stack.pop().unwrap();
+            let n_bytes = stack.pop().unwrap();
+            let signature_bytes = stack.pop().unwrap();
+            let n = script_num_decode(&n_bytes, 4)?;
+
+            // Empty signature: push n unchanged (BIP 342)
+            if signature_bytes.is_empty() {
+                stack.push(to_stack_element(&script_num_encode(n)));
+                return Ok(true);
+            }
+
+            // 32-byte pubkey + non-empty sig: validate. BIP 342: validation failure terminates script.
+            if pubkey_bytes.len() == 32 && signature_bytes.len() == 64 {
+                let sighash_byte = 0x00;
+                let (tapscript, codesep_pos) = tapscript_for_sighash
+                    .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
+                    .unwrap_or((&[] as &[u8], 0xffff_ffff));
+                let sighash = if tapscript.is_empty() {
+                    crate::taproot::compute_taproot_signature_hash(
+                        tx,
+                        input_index,
+                        prevout_values,
+                        prevout_script_pubkeys,
+                        sighash_byte,
+                    )?
+                } else {
+                    crate::taproot::compute_tapscript_signature_hash(
+                        tx,
+                        input_index,
+                        prevout_values,
+                        prevout_script_pubkeys,
+                        tapscript,
+                        crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
+                        codesep_pos,
+                        sighash_byte,
+                    )?
+                };
+
+                #[cfg(feature = "production")]
+                let is_valid = {
+                    use crate::bip348::verify_tapscript_schnorr_signature;
+                    verify_tapscript_schnorr_signature(
+                        &sighash,
+                        &pubkey_bytes,
+                        &signature_bytes,
+                        schnorr_collector,
+                    )
+                    .unwrap_or(false)
+                };
+
+                #[cfg(not(feature = "production"))]
+                let is_valid = {
+                    #[cfg(feature = "csfs")]
+                    let x = {
+                        use crate::bip348::verify_tapscript_schnorr_signature;
+                        verify_tapscript_schnorr_signature(
+                            &sighash,
+                            &pubkey_bytes,
+                            &signature_bytes,
+                            None,
+                        )
+                        .unwrap_or(false)
+                    };
+                    #[cfg(not(feature = "csfs"))]
+                    let x = false;
+                    x
+                };
+
+                if !is_valid {
+                    return Ok(false); // BIP 342: validation failure terminates script
+                }
+                stack.push(to_stack_element(&script_num_encode(n + 1)));
+                return Ok(true);
+            }
+
+            // Unknown pubkey type (not 32 bytes): BIP 342 treats as always-valid, push n+1
+            stack.push(to_stack_element(&script_num_encode(n + 1)));
+            Ok(true)
         }
 
         // OP_CHECKMULTISIG - verify m-of-n multisig (hot path)
@@ -5374,26 +5945,22 @@ fn execute_opcode_with_context_full(
                             height,
                             network,
                             sigversion,
-                            ecdsa_collector.as_deref(),
-                            ecdsa_global_index,
                         )
                     })?;
 
                     #[cfg(not(feature = "production"))]
                     let is_valid = {
-                        let secp = Secp256k1::new();
-                        verify_signature(
-                            &secp,
-                            pubkey_bytes,
-                            signature_bytes,
-                            &sighash,
-                            flags,
-                            height,
-                            network,
-                            sigversion,
-                            #[cfg(feature = "production")] None,
-                            #[cfg(feature = "production")] None,
-                        )?
+                    let secp = Secp256k1::new();
+                    verify_signature(
+                        &secp,
+                        pubkey_bytes,
+                        signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                        sigversion,
+                    )?
                     };
 
                     const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
@@ -5445,8 +6012,6 @@ fn execute_opcode_with_context_full(
                         height,
                         network,
                         sigversion,
-                        #[cfg(feature = "production")] None,
-                        #[cfg(feature = "production")] None,
                     )?;
                     const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
                     if !is_valid && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
@@ -5485,9 +6050,9 @@ fn execute_opcode_with_context_full(
                 sigversion,
                 redeem_script_for_sighash,
                 script_sig_for_sighash,
+                tapscript_for_sighash,
+                tapscript_codesep_pos,
                 #[cfg(feature = "production")] None, // schnorr_collector
-                #[cfg(feature = "production")] None, // ecdsa_collector
-                #[cfg(feature = "production")] None, // ecdsa_global_index
                 #[cfg(feature = "production")] precomputed_bip143,
                 #[cfg(feature = "production")] sighash_cache,
             )?;
@@ -5998,13 +6563,11 @@ fn verify_signature<C: Context + Verification>(
     height: Natural,
     network: crate::types::Network,
     sigversion: SigVersion,
-    #[cfg(feature = "production")] ecdsa_collector: Option<&EcdsaSignatureCollector>,
-    #[cfg(feature = "production")] ecdsa_global_index: Option<(usize, &AtomicUsize)>,
 ) -> Result<bool> {
     // ASSUMEVALID OPTIMIZATION: Skip expensive signature verification for blocks
     // below the assumevalid height. This is safe because these blocks have been
     // validated by the entire network already. This speeds up IBD from days to hours.
-    // Set ASSUME_VALID_HEIGHT env var to enable (e.g., ASSUME_VALID_HEIGHT=850000)
+    // Set BLVM_ASSUME_VALID_HEIGHT env var to enable (e.g., BLVM_ASSUME_VALID_HEIGHT=850000)
     let assumevalid_height = get_assumevalid_height();
     if assumevalid_height > 0 && height < assumevalid_height {
         // Skip signature verification for historical blocks
@@ -6046,30 +6609,6 @@ fn verify_signature<C: Context + Verification>(
         }
     }
 
-    // FAST COLLECT: When batching, skip expensive parse; defer to batch extraction.
-    // Saves ~10–28 ms/blk (p2pkh_collect). Base only (P2PKH); P2WPKH uses full path.
-    #[cfg(feature = "production")]
-    let _fast_collect_succeeded = if sigversion == SigVersion::Base {
-        if let Some((base, counter)) = ecdsa_global_index {
-            let interpreter_no_collect = ECDSA_INTERPRETER_NO_COLLECT.with(|c| c.get());
-            if !interpreter_no_collect {
-                if let Some(collector) = ecdsa_collector {
-                    let sub = counter.fetch_add(1, Ordering::Relaxed);
-                    let idx = (base << 16) | sub;
-                    debug_sighash_log(idx, sighash, true);
-                    if collector.collect(idx, pubkey_bytes, signature_bytes, sighash, flags, height, network, sigversion) {
-                        return Ok(true);
-                    }
-                    // collect() failed (non-standard DER in pre-BIP66 block).
-                    // Fall through to standard verification.
-                    true
-                } else { false }
-            } else { false }
-        } else { false }
-    } else { false };
-    #[cfg(not(feature = "production"))]
-    let _fast_collect_succeeded = false;
-
     // Parse signature (DER format) - needed for both LOW_S check and verification
     // CRITICAL FIX: Use der_sig (without sighash byte) for parsing, not full signature_bytes
     // CRITICAL FIX: After BIP66 activation, do NOT normalize - use strict DER only
@@ -6090,24 +6629,13 @@ fn verify_signature<C: Context + Verification>(
         }
     };
 
-    // SCRIPT_VERIFY_LOW_S (0x08): Check that S value <= secp256k1 order / 2
-    // LOW_S enforcement prevents signature malleability (BIP62)
-    // secp256k1 curve order: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-    // Order / 2: 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
-    // CRITICAL FIX: Compare compact serializations instead of DER, as DER can vary for the same signature
-    // The compact format (64 bytes: r || s) is deterministic and allows reliable comparison
+    // SCRIPT_VERIFY_LOW_S (0x08): Reject high-S signatures (BIP62 malleability fix).
+    // secp256k1 0.28: normalize_s() mutates in place; compare before/after to detect high S.
     if flags & 0x08 != 0 {
-        // Check if signature has high S (S > order/2)
-        // We check this by normalizing the signature and comparing the compact serializations
-        // If normalize_s changes the signature, it means the original had high S
-        let original_compact = signature.serialize_compact();
-        
-        let mut normalized_sig = signature;
-        normalized_sig.normalize_s();
-        let normalized_compact = normalized_sig.serialize_compact();
-        
-        if original_compact != normalized_compact {
-            // Signature has high S (normalize_s changed it) - reject if LOW_S flag is set
+        let before = signature.serialize_compact();
+        let mut normalized = signature.clone();
+        normalized.normalize_s();
+        if before != normalized.serialize_compact() {
             return Ok(false);
         }
     }
@@ -6149,40 +6677,19 @@ fn verify_signature<C: Context + Verification>(
         Err(_) => return Ok(false),
     };
 
-    // Use the actual transaction sighash for verification
-    let message = match Message::from_digest_slice(sighash) {
-        Ok(msg) => msg,
-        Err(_) => return Ok(false),
+    // secp256k1 requires low-S. If LOW_S flag was checked (0x08), sig is already low-S.
+    // Otherwise normalize once here. Core does the same: always normalize before verify.
+    let normalized_signature = if flags & 0x08 != 0 {
+        signature
+    } else {
+        let mut s = signature;
+        s.normalize_s();
+        s
     };
 
-    // CRITICAL FIX: secp256k1 library requires low-S signatures for verification
-    // Even if LOW_S flag is set and the signature passed the LOW_S check (already low-S),
-    // we still need to normalize it before verification to ensure secp256k1 can verify it correctly.
-    // The normalization is idempotent for already-low-S signatures (doesn't change them).
-    let mut normalized_signature = signature;
-    normalized_signature.normalize_s(); // Always normalize for secp256k1 verification
-
-    // OPTIMIZATION: Collect signature for batch verification if collector is provided.
-    // Skip if fast-collect already attempted (and failed) for this invocation.
-    #[cfg(feature = "production")]
-    if !_fast_collect_succeeded {
-        if let Some((base, counter)) = ecdsa_global_index {
-            let sub = counter.fetch_add(1, Ordering::Relaxed);
-            let idx = (base << 16) | sub;
-            debug_sighash_log(idx, sighash, ecdsa_collector.is_some());
-            let interpreter_no_collect = ECDSA_INTERPRETER_NO_COLLECT.with(|c| c.get());
-            if !interpreter_no_collect {
-                if let Some(collector) = ecdsa_collector {
-                    if collector.collect(idx, pubkey_bytes, signature_bytes, sighash, flags, height, network, sigversion) {
-                        return Ok(true);
-                    }
-                    // collect() failed — fall through to direct secp verification
-                }
-            }
-        }
-    }
-
-    Ok(secp.verify_ecdsa(message, &normalized_signature, &pubkey).is_ok())
+    let sig_compact = normalized_signature.serialize_compact();
+    let pk_compressed = pubkey.serialize();
+    Ok(crate::secp256k1_backend::verify_ecdsa(sighash, &sig_compact, &pk_compressed)?)
 }
 
 /// Verify pre-extracted ECDSA (P2PKH/P2PK) inline without re-parsing script_sig.
@@ -6206,1107 +6713,8 @@ pub fn verify_pre_extracted_ecdsa(
             height,
             network,
             SigVersion::Base,
-            None,
-            None,
         )
     })
-}
-
-/// Collector for ECDSA signatures to enable batch verification
-///
-/// Collects signatures during script execution and defers verification
-/// until all signatures in a block can be batch verified together.
-/// This provides 2-3x performance improvement for blocks with multiple
-/// ECDSA signatures.
-///
-/// OPTIMIZATION: Stores parsed data (Signature, Message, PublicKey) to avoid
-/// redundant parsing during batch verification.
-/// Uses lock-free SegQueue so collect(&self) can be called from parallel workers without
-/// lock-free. Drain + sort by global_index preserves (tx, input) order for batch results.
-///
-/// C (SoA): Pre-allocated Vecs at block start; atomic index for collection. No SegQueue allocs.
-/// STREAMING: try_verify_chunk (SegQueue path only) drains up to N sigs, verifies, pushes (idx, bool).
-#[cfg(feature = "production")]
-pub struct EcdsaSignatureCollector {
-    /// SoA storage when capacity > 0 (block validation path)
-    soa: Option<std::sync::Arc<EcdsaSoAStorage>>,
-    /// Fallback SegQueue when soa is None (single-tx, tests)
-    tasks: crossbeam_queue::SegQueue<(usize, (PublicKey, Signature, Message, u32, crate::types::Natural, crate::types::Network, crate::script::SigVersion))>,
-    streaming_results: crossbeam_queue::SegQueue<Vec<(usize, bool)>>,
-    /// #6: Cache hits at collect time — skip SoA insertion, merge in verify_batch
-    cache_hits: crossbeam_queue::SegQueue<(usize, bool)>,
-    /// #1: Overlap results — chunk results from drain threads
-    soa_overlap_results: std::sync::Arc<crossbeam_queue::SegQueue<Vec<(usize, bool)>>>,
-}
-
-const ECDSA_SOA_CHUNK_SIZE: usize = 128;
-
-/// Max DER signature size (secp256k1): 72 bytes. Use 80 for safety.
-const ECDSA_MAX_DER_SIG_LEN: usize = 80;
-
-#[cfg(feature = "production")]
-#[repr(align(64))]
-struct ChunkReadySlot(std::sync::atomic::AtomicUsize);
-
-#[cfg(feature = "production")]
-impl ChunkReadySlot {
-    fn new() -> Self {
-        Self(std::sync::atomic::AtomicUsize::new(0))
-    }
-    fn fetch_add(&self, val: usize, order: std::sync::atomic::Ordering) -> usize {
-        self.0.fetch_add(val, order)
-    }
-}
-
-/// Store pre-parsed ffi structs at collect time; drain threads pass directly to Pippenger.
-/// pubkey_33: compressed pubkey bytes stored at collect to skip FFI serialization in verify_soa_batch.
-#[cfg(feature = "production")]
-struct EcdsaSoAShardInner {
-    indices: Vec<usize>,
-    msgs: Vec<[u8; 32]>,
-    ffi_sigs: Vec<ffi::Signature>,
-    ffi_pubs: Vec<ffi::PublicKey>,
-    pubkey_33: Vec<[u8; 33]>,
-    flags: Vec<u32>,
-}
-
-/// Wrapper to allow UnsafeCell in Arc sent across threads. Safety: each chunk slot is written
-/// by exactly one worker (fetch_add); readers run only after complete().
-#[cfg(feature = "production")]
-#[repr(transparent)]
-struct SendSyncUnsafeCell<T>(UnsafeCell<T>);
-#[cfg(feature = "production")]
-impl<T> SendSyncUnsafeCell<T> {
-    fn new(v: T) -> Self { Self(UnsafeCell::new(v)) }
-    fn get(&self) -> *mut T { self.0.get() }
-}
-#[cfg(feature = "production")]
-unsafe impl<T> Send for SendSyncUnsafeCell<T> {}
-#[cfg(feature = "production")]
-unsafe impl<T> Sync for SendSyncUnsafeCell<T> {}
-
-/// Chunks use UnsafeCell instead of Mutex: each (chunk_id, idx_in_chunk) is written by exactly
-/// one worker via unique slot from fetch_add. Readers run only after complete() (all writers done).
-#[cfg(feature = "production")]
-struct EcdsaSoAStorage {
-    chunks: Vec<SendSyncUnsafeCell<EcdsaSoAShardInner>>,
-    next_slot: AtomicUsize,
-    chunk_ready: Vec<ChunkReadySlot>,
-    ready_queue: std::sync::Arc<crossbeam_queue::SegQueue<usize>>,
-    total: usize,
-}
-
-#[cfg(feature = "production")]
-impl Default for EcdsaSignatureCollector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(feature = "production")]
-impl EcdsaSignatureCollector {
-    /// Create a new empty collector (SegQueue fallback)
-    pub fn new() -> Self {
-        Self {
-            soa: None,
-            tasks: crossbeam_queue::SegQueue::new(),
-            streaming_results: crossbeam_queue::SegQueue::new(),
-            cache_hits: crossbeam_queue::SegQueue::new(),
-            soa_overlap_results: std::sync::Arc::new(crossbeam_queue::SegQueue::new()),
-        }
-    }
-
-    /// Returns true when using SoA storage (try_verify_chunk is a no-op).
-    pub fn uses_soa(&self) -> bool {
-        self.soa.is_some()
-    }
-
-    /// #1: Spawn threads to drain SoA ready_queue and verify chunks during complete().
-    /// Returns join handles. Caller must: complete(), then collection_done.store(true, Release), then join.
-    /// Drain threads loop until collection_done (avoids early exit when queue temporarily empty).
-    #[cfg(all(feature = "production", feature = "rayon"))]
-    pub fn spawn_soa_drain_threads(
-        &self,
-        n_threads: usize,
-        collection_done: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    ) -> Vec<std::thread::JoinHandle<()>> {
-        let Some(ref soa) = self.soa else { return Vec::new() };
-        if soa.chunk_ready.is_empty() {
-            return Vec::new();
-        }
-        let n = n_threads.max(1).min(8);
-        let results = std::sync::Arc::clone(&self.soa_overlap_results);
-        (0..n)
-            .map(|_| {
-                let soa = std::sync::Arc::clone(soa);
-                let results = std::sync::Arc::clone(&results);
-                let done = std::sync::Arc::clone(&collection_done);
-                std::thread::spawn(move || {
-                    loop {
-                        match soa.ready_queue.pop() {
-                            Some(chunk_id) => {
-                                if let Ok(pairs) = Self::verify_soa_chunk(&soa, chunk_id) {
-                                    let _ = results.push(pairs);
-                                }
-                            }
-                            None => {
-                                if done.load(std::sync::atomic::Ordering::Acquire) {
-                                    while let Some(chunk_id) = soa.ready_queue.pop() {
-                                        if let Ok(pairs) = Self::verify_soa_chunk(&soa, chunk_id) {
-                                            let _ = results.push(pairs);
-                                        }
-                                    }
-                                    break;
-                                }
-                                for _ in 0..4 {
-                                    std::hint::spin_loop();
-                                }
-                                std::thread::yield_now();
-                            }
-                        }
-                    }
-                })
-            })
-            .collect()
-    }
-
-    /// Create a collector with pre-allocated SoA storage (block validation path)
-    pub fn new_with_capacity(cap: usize) -> Self {
-        let soa = if cap == 0 {
-            None
-        } else {
-            let num_chunks = (cap + ECDSA_SOA_CHUNK_SIZE - 1) / ECDSA_SOA_CHUNK_SIZE;
-            let chunks: Vec<SendSyncUnsafeCell<EcdsaSoAShardInner>> = (0..num_chunks)
-                .map(|k| {
-                    let chunk_cap = if k == num_chunks - 1 {
-                        cap - k * ECDSA_SOA_CHUNK_SIZE
-                    } else {
-                        ECDSA_SOA_CHUNK_SIZE
-                    };
-                    SendSyncUnsafeCell::new(EcdsaSoAShardInner {
-                        indices: vec![0; chunk_cap],
-                        msgs: vec![[0u8; 32]; chunk_cap],
-                        ffi_sigs: vec![unsafe { secp256k1::ffi::Signature::new() }; chunk_cap],
-                        ffi_pubs: vec![unsafe { secp256k1::ffi::PublicKey::new() }; chunk_cap],
-                        pubkey_33: vec![[0u8; 33]; chunk_cap],
-                        flags: vec![0; chunk_cap],
-                    })
-                })
-                .collect();
-            Some(std::sync::Arc::new(EcdsaSoAStorage {
-                chunks,
-                next_slot: AtomicUsize::new(0),
-                chunk_ready: (0..num_chunks).map(|_| ChunkReadySlot::new()).collect(),
-                ready_queue: std::sync::Arc::new(crossbeam_queue::SegQueue::new()),
-                total: cap,
-            }))
-        };
-        Self {
-            soa,
-            tasks: crossbeam_queue::SegQueue::new(),
-            streaming_results: crossbeam_queue::SegQueue::new(),
-            cache_hits: crossbeam_queue::SegQueue::new(),
-            soa_overlap_results: std::sync::Arc::new(crossbeam_queue::SegQueue::new()),
-        }
-    }
-
-    /// Stream verification: drain up to `chunk_size` sigs, verify, store results.
-    /// Called during block validation to overlap collection with verification.
-    /// No-op when using SoA (verify_batch does all work) or if queue has fewer than 1 sig.
-    #[cfg(all(feature = "production", feature = "rayon"))]
-    pub fn try_verify_chunk(&self, chunk_size: usize) {
-        if self.soa.is_some() || chunk_size == 0 {
-            return;
-        }
-        let mut chunk: Vec<_> = std::iter::from_fn(|| self.tasks.pop())
-            .take(chunk_size)
-            .collect();
-        if chunk.is_empty() {
-            return;
-        }
-        chunk.sort_by_key(|t| t.0);
-        if let Ok(partial) = Self::verify_tasks_chunk(chunk) {
-            let _ = self.streaming_results.push(partial);
-        }
-    }
-
-    #[cfg(all(feature = "production", not(feature = "rayon")))]
-    pub fn try_verify_chunk(&self, _chunk_size: usize) {
-        // No streaming without rayon (single-threaded; overlap negligible)
-    }
-
-    /// Verify a chunk of tasks, return (idx, bool) pairs. Used by try_verify_chunk and verify_batch.
-    /// Roadmap #10b: SoA extraction — single pass, direct push to sigs/msgs/pubkeys, no intermediate AoS.
-    #[cfg(feature = "production")]
-    fn verify_tasks_chunk(
-        mut tasks: Vec<(usize, (PublicKey, Signature, Message, u32, crate::types::Natural, crate::types::Network, crate::script::SigVersion))>,
-    ) -> Result<Vec<(usize, bool)>> {
-        let mut cached = Vec::new();
-        let n = tasks.len();
-        let mut sigs = Vec::with_capacity(n);
-        let mut msgs = Vec::with_capacity(n);
-        let mut pubkeys = Vec::with_capacity(n);
-        let mut indices = Vec::with_capacity(n);
-        let mut keys_for_cache = Vec::with_capacity(n);
-        for (idx, (pk, sig, msg, flags, _, _, _)) in tasks.drain(..) {
-            let pk33 = pk.serialize();
-            let sig64 = sig.serialize_compact();
-            let key = ecdsa_cache_key(<secp256k1::Message as AsRef<[u8; 32]>>::as_ref(&msg), &pk33, &sig64, flags);
-            if let Ok(guard) = get_sig_cache_shard(&key).read() {
-                if let Some(&cached_valid) = guard.peek(&key) {
-                    #[cfg(all(feature = "production", feature = "profile"))]
-                    crate::script_profile::add_ecdsa_cache_hit();
-                    cached.push((idx, cached_valid));
-                    continue;
-                }
-            }
-            #[cfg(all(feature = "production", feature = "profile"))]
-            crate::script_profile::add_ecdsa_cache_miss();
-            indices.push(idx);
-            keys_for_cache.push(key);
-            pubkeys.push(pk);
-            sigs.push(sig);
-            msgs.push(msg);
-        }
-
-        if sigs.is_empty() {
-            let mut merged = cached;
-            merged.sort_by_key(|(i, _)| *i);
-            return Ok(merged);
-        }
-        let n = sigs.len();
-
-        let batch_results = match secp256k1::ecdsa::verify_batch(&sigs, &msgs, &pubkeys) {
-            Ok(()) => vec![true; n],
-            Err(_) => Self::ecdsa_fallback_extracted(&sigs, &msgs, &pubkeys)?,
-        };
-        batch_put_sig_cache(&keys_for_cache, &batch_results);
-        let mut merged = cached;
-        for (i, &idx) in indices.iter().enumerate() {
-            if i < batch_results.len() {
-                merged.push((idx, batch_results[i]));
-            }
-        }
-        merged.sort_by_key(|(i, _)| *i);
-        Ok(merged)
-    }
-
-    /// Parse DER sig and raw pubkey to ffi structs. Returns None on parse failure or LOW_S reject.
-    /// Pre-BIP66: uses lax DER parser (like Bitcoin Core) to handle non-standard encodings.
-    /// Post-BIP66: uses strict DER parser.
-    #[cfg(feature = "production")]
-    fn parse_der_to_ffi(
-        raw_pubkey: &[u8],
-        der_sig: &[u8],
-        flags: u32,
-    ) -> Option<(ffi::Signature, ffi::PublicKey)> {
-        let mut ffi_pk = unsafe { ffi::PublicKey::new() };
-        if unsafe {
-            ffi::secp256k1_ec_pubkey_parse(
-                ffi::secp256k1_context_no_precomp,
-                &mut ffi_pk,
-                raw_pubkey.as_ptr(),
-                raw_pubkey.len(),
-            )
-        } != 1
-        {
-            return None;
-        }
-        let mut ffi_sig = unsafe { ffi::Signature::new() };
-        let der_ok = if flags & 0x04 != 0 {
-            (unsafe {
-                ffi::secp256k1_ecdsa_signature_parse_der(
-                    ffi::secp256k1_context_no_precomp,
-                    &mut ffi_sig,
-                    der_sig.as_ptr(),
-                    der_sig.len(),
-                )
-            }) == 1
-        } else {
-            // Pre-BIP66: use lax DER parser to handle non-standard encodings
-            // (negative integers, excessive padding, garbage suffixes, multi-byte lengths).
-            // This matches Bitcoin Core's ecdsa_signature_parse_der_lax.
-            (unsafe {
-                ffi::ecdsa_signature_parse_der_lax(
-                    ffi::secp256k1_context_no_precomp,
-                    &mut ffi_sig,
-                    der_sig.as_ptr(),
-                    der_sig.len(),
-                )
-            }) == 1
-        };
-        if !der_ok {
-            return None;
-        }
-        let mut norm_sig = unsafe { ffi::Signature::new() };
-        unsafe {
-            ffi::secp256k1_ecdsa_signature_normalize(
-                ffi::secp256k1_context_no_precomp,
-                &mut norm_sig,
-                &ffi_sig,
-            );
-        }
-        if flags & 0x08 != 0 {
-            let mut orig_compact = [0u8; 64];
-            let mut norm_compact = [0u8; 64];
-            unsafe {
-                ffi::secp256k1_ecdsa_signature_serialize_compact(
-                    ffi::secp256k1_context_no_precomp,
-                    orig_compact.as_mut_ptr(),
-                    &ffi_sig,
-                );
-                ffi::secp256k1_ecdsa_signature_serialize_compact(
-                    ffi::secp256k1_context_no_precomp,
-                    norm_compact.as_mut_ptr(),
-                    &norm_sig,
-                );
-            }
-            if orig_compact != norm_compact {
-                return None;
-            }
-        }
-        Some((norm_sig, ffi_pk))
-    }
-
-    /// Bulk collect: write many P2PKH sigs in one pass. One lock per shard instead of N locks.
-    /// Items: (global_index, pubkey, sig_with_sighash_byte, sighash, flags). Skips sig cache for speed.
-    /// Parses DER->compact at collect time; drain threads skip parsing.
-    /// Returns one bool per input item: true = successfully collected, false = parse failed (caller must verify via standard path).
-    #[cfg(feature = "production")]
-    pub fn collect_bulk(
-        &self,
-        items: &[(usize, &[u8], &[u8], &[u8; 32], u32)],
-    ) -> Vec<bool> {
-        let mut success = Vec::with_capacity(items.len());
-        if items.is_empty() {
-            return success;
-        }
-        let Some(ref soa) = self.soa else {
-            success.resize(items.len(), false);
-            return success;
-        };
-        let mut valid = Vec::new();
-        for &(idx, pubkey, sig, sighash, flags) in items.iter() {
-            if pubkey.len() != 33 && pubkey.len() != 65 {
-                success.push(false);
-                continue;
-            }
-            if sig.is_empty() || sig.len() < 2 {
-                success.push(false);
-                continue;
-            }
-            let der_sig = &sig[..sig.len() - 1];
-            if der_sig.is_empty() || der_sig.len() > ECDSA_MAX_DER_SIG_LEN {
-                success.push(false);
-                continue;
-            }
-            match Self::parse_der_to_ffi(pubkey, der_sig, flags) {
-                Some((ffi_sig, ffi_pub)) => {
-                    let pk33: [u8; 33] = if pubkey.len() == 33 {
-                        pubkey.try_into().unwrap()
-                    } else {
-                        secp256k1::ecdsa::serialize_ffi_pubkey_compressed(&ffi_pub)
-                    };
-                    valid.push((idx, ffi_sig, ffi_pub, pk33, sighash, flags));
-                    success.push(true);
-                }
-                None => success.push(false),
-            }
-        }
-        let n = valid.len();
-        if n == 0 {
-            return success;
-        }
-        let base_slot = soa.next_slot.fetch_add(n, Ordering::Relaxed);
-        let num_chunks = soa.chunks.len();
-        let chunk_id_min = base_slot / ECDSA_SOA_CHUNK_SIZE;
-        let chunk_id_max = (base_slot + n - 1) / ECDSA_SOA_CHUNK_SIZE;
-        let mut chunk_items: std::collections::HashMap<usize, Vec<(usize, usize, ffi::Signature, ffi::PublicKey, [u8; 33], [u8; 32], u32)>> =
-            std::collections::HashMap::with_capacity((chunk_id_max - chunk_id_min + 1).min(num_chunks));
-        for (i, (idx, ffi_sig, ffi_pub, pk33, sighash, flags)) in valid.into_iter().enumerate() {
-            let slot = base_slot + i;
-            let chunk_id = slot / ECDSA_SOA_CHUNK_SIZE;
-            let idx_in_chunk = slot % ECDSA_SOA_CHUNK_SIZE;
-            if chunk_id < num_chunks {
-                chunk_items
-                    .entry(chunk_id)
-                    .or_insert_with(|| Vec::with_capacity(ECDSA_SOA_CHUNK_SIZE.min(n) + 1))
-                    .push((idx_in_chunk, idx, ffi_sig, ffi_pub, pk33, *sighash, flags));
-            }
-        }
-        for (&chunk_id, items_for_chunk) in chunk_items.iter() {
-            if chunk_id < soa.chunks.len() {
-                // SAFETY: Each (chunk_id, idx_in_chunk) is written by exactly one caller; slots from fetch_add are unique.
-                let inner = unsafe { &mut *soa.chunks[chunk_id].get() };
-                for &(idx_in_chunk, global_index, ffi_sig, ffi_pub, pk33, sighash, flags) in items_for_chunk.iter() {
-                    if idx_in_chunk < inner.indices.len() {
-                        inner.indices[idx_in_chunk] = global_index;
-                        inner.msgs[idx_in_chunk].copy_from_slice(&sighash);
-                        inner.ffi_sigs[idx_in_chunk] = ffi_sig;
-                        inner.ffi_pubs[idx_in_chunk] = ffi_pub;
-                        inner.pubkey_33[idx_in_chunk] = pk33;
-                        inner.flags[idx_in_chunk] = flags;
-                    }
-                }
-            }
-        }
-        for i in 0..n {
-            let slot = base_slot + i;
-            let chunk_id = slot / ECDSA_SOA_CHUNK_SIZE;
-            let chunk_size = if chunk_id == soa.chunk_ready.len() - 1 {
-                soa.total - chunk_id * ECDSA_SOA_CHUNK_SIZE
-            } else {
-                ECDSA_SOA_CHUNK_SIZE
-            };
-            if chunk_id < soa.chunk_ready.len()
-                && soa.chunk_ready[chunk_id].fetch_add(1, Ordering::Relaxed) + 1 == chunk_size
-            {
-                let _ = soa.ready_queue.push(chunk_id);
-            }
-        }
-        success
-    }
-
-    /// Collect a signature for deferred batch verification.
-    /// Store raw bytes only; parse/normalize during SoA extraction (moves work from script to batch).
-    /// `global_index` is the block-wide ECDSA input index (tx0_in0=0, tx0_in1=1, ...).
-    /// Returns true if stored (or cache hit), false if parse failed (caller must return Ok(false)).
-    pub fn collect(
-        &self,
-        global_index: usize,
-        pubkey_bytes: &[u8],
-        signature_bytes: &[u8],
-        sighash: &[u8; 32],
-        flags: u32,
-        _height: crate::types::Natural,
-        _network: crate::types::Network,
-        _sigversion: crate::script::SigVersion,
-    ) -> bool {
-        if pubkey_bytes.len() != 33 && pubkey_bytes.len() != 65 {
-            return false;
-        }
-        if signature_bytes.is_empty() || signature_bytes.len() < 2 {
-            return false;
-        }
-        let der_sig = &signature_bytes[..signature_bytes.len() - 1]; // Strip sighash byte
-        if der_sig.is_empty() || der_sig.len() > ECDSA_MAX_DER_SIG_LEN {
-            return false;
-        }
-
-        if let Some(ref soa) = self.soa {
-            let (ffi_sig, ffi_pub) = match Self::parse_der_to_ffi(pubkey_bytes, der_sig, flags) {
-                Some(p) => p,
-                None => {
-                    // Don't push (global_index, false) to cache_hits here.
-                    // The caller should fall through to standard verification
-                    // for non-standard DER (pre-BIP66 blocks).
-                    return false;
-                }
-            };
-            #[cfg(feature = "production")]
-            if sig_cache_at_collect_enabled() {
-                let sig64 = secp256k1::ecdsa::serialize_ffi_sig_compact(&ffi_sig);
-                let pk33: [u8; 33] = if pubkey_bytes.len() == 33 {
-                    pubkey_bytes.try_into().unwrap()
-                } else {
-                    secp256k1::ecdsa::serialize_ffi_pubkey_compressed(&ffi_pub)
-                };
-                let key = ecdsa_cache_key(sighash, &pk33, &sig64, flags);
-                if let Ok(guard) = get_sig_cache_shard(&key).read() {
-                    if let Some(&cached_valid) = guard.peek(&key) {
-                        let _ = self.cache_hits.push((global_index, cached_valid));
-                        return true;
-                    }
-                }
-            }
-            #[cfg(all(feature = "production", feature = "profile"))]
-            let t_slot_start = std::time::Instant::now();
-            let slot = soa.next_slot.fetch_add(1, Ordering::Relaxed);
-            let chunk_id = slot / ECDSA_SOA_CHUNK_SIZE;
-            let idx_in_chunk = slot % ECDSA_SOA_CHUNK_SIZE;
-            #[cfg(all(feature = "production", feature = "profile"))]
-            crate::script_profile::add_collect_slot_ns(t_slot_start.elapsed().as_nanos() as u64);
-            #[cfg(all(feature = "production", feature = "profile"))]
-            let t_before_lock = std::time::Instant::now();
-            if chunk_id < soa.chunks.len() {
-                #[cfg(all(feature = "production", feature = "profile"))]
-                crate::script_profile::add_collect_shard_lock_ns(t_before_lock.elapsed().as_nanos() as u64);
-                #[cfg(all(feature = "production", feature = "profile"))]
-                let t_before_copy = std::time::Instant::now();
-                // SAFETY: Slot is unique per fetch_add; no other writer touches this (chunk_id, idx_in_chunk).
-                let inner = unsafe { &mut *soa.chunks[chunk_id].get() };
-                if idx_in_chunk < inner.indices.len() {
-                    inner.indices[idx_in_chunk] = global_index;
-                    inner.msgs[idx_in_chunk].copy_from_slice(sighash);
-                    inner.ffi_sigs[idx_in_chunk] = ffi_sig;
-                    inner.ffi_pubs[idx_in_chunk] = ffi_pub;
-                    inner.pubkey_33[idx_in_chunk] = if pubkey_bytes.len() == 33 {
-                        pubkey_bytes.try_into().unwrap()
-                    } else {
-                        secp256k1::ecdsa::serialize_ffi_pubkey_compressed(&ffi_pub)
-                    };
-                    inner.flags[idx_in_chunk] = flags;
-                }
-                #[cfg(all(feature = "production", feature = "profile"))]
-                crate::script_profile::add_collect_copy_ns(t_before_copy.elapsed().as_nanos() as u64);
-            }
-            #[cfg(all(feature = "production", feature = "profile"))]
-            let t_chunk_start = std::time::Instant::now();
-            let chunk_id = slot / ECDSA_SOA_CHUNK_SIZE;
-            let chunk_size = if chunk_id == soa.chunk_ready.len() - 1 {
-                soa.total - chunk_id * 128
-            } else {
-                ECDSA_SOA_CHUNK_SIZE
-            };
-            if chunk_id < soa.chunk_ready.len()
-                && soa.chunk_ready[chunk_id].fetch_add(1, Ordering::Relaxed) + 1 == chunk_size
-            {
-                let _ = soa.ready_queue.push(chunk_id);
-            }
-            #[cfg(all(feature = "production", feature = "profile"))]
-            crate::script_profile::add_collect_chunk_ns(t_chunk_start.elapsed().as_nanos() as u64);
-            true
-        } else {
-            // SegQueue fallback: parse here (no SoA)
-            let pubkey = match PublicKey::from_slice(pubkey_bytes) {
-                Ok(pk) => pk,
-                Err(_) => return false,
-            };
-            let signature = if flags & 0x04 != 0 {
-                match Signature::from_der(der_sig) {
-                    Ok(sig) => sig,
-                    Err(_) => return false,
-                }
-            } else {
-                match Signature::from_der_lax(der_sig) {
-                    Ok(sig) => sig,
-                    Err(_) => return false,
-                }
-            };
-            let mut normalized_signature = signature;
-            normalized_signature.normalize_s();
-            let message = match Message::from_digest_slice(sighash) {
-                Ok(m) => m,
-                Err(_) => return false,
-            };
-            self.tasks.push((
-                global_index,
-                (
-                    pubkey,
-                    normalized_signature,
-                    message,
-                    flags,
-                    _height,
-                    _network,
-                    _sigversion,
-                ),
-            ));
-            true
-        }
-    }
-
-    /// Merge tasks from another collector (for per-thread collection merge).
-    /// No-op when using SoA (single shared collector).
-    #[cfg(all(feature = "production", feature = "rayon"))]
-    pub fn extend_from(&self, other: &Self) {
-        if self.soa.is_some() {
-            return;
-        }
-        while let Some(task) = other.tasks.pop() {
-            self.tasks.push(task);
-        }
-    }
-
-    /// Batch verify all collected signatures
-    ///
-    /// Returns a vector of results, one per collected signature (in collection order)
-    /// When len > CHUNK_THRESHOLD and rayon is available, runs multiple batches in parallel
-    /// (each thread uses its own secp256k1 context).
-    pub fn verify_batch(&self) -> Result<Vec<bool>> {
-        // SoA path: read from pre-allocated arrays
-        if let Some(ref soa) = self.soa {
-            let count = soa.next_slot.load(Ordering::Relaxed);
-            if count == 0 {
-                return Ok(Vec::new());
-            }
-            // #1: If overlap drain ran, merge from soa_overlap_results
-            let overlap_pairs: Vec<_> = std::iter::from_fn(|| self.soa_overlap_results.pop()).collect();
-            let batch_pairs = if overlap_pairs.is_empty() {
-                Self::verify_soa_batch(soa, count)?
-            } else {
-                overlap_pairs.into_iter().flatten().collect()
-            };
-            // #6: Merge collect-time cache hits with batch results
-            let cache_hits_vec: Vec<_> = std::iter::from_fn(|| self.cache_hits.pop()).collect();
-            // Use soa.total (all ECDSA inputs) — cache hits skip collect, so count < total when hits exist
-            // Global indices use compound encoding (eidx << 16 | sub) for deterministic ordering;
-            // extract the base input index (>> 16) for results mapping. AND logic: any invalid sig
-            // for an input marks that input invalid (correct for multisig).
-            let total = soa.total;
-            let mut results = vec![true; total];
-            for (idx, v) in batch_pairs {
-                let input_idx = idx >> 16;
-                if input_idx < total {
-                    results[input_idx] = results[input_idx] && v;
-                }
-            }
-            for (idx, v) in cache_hits_vec {
-                let input_idx = idx >> 16;
-                if input_idx < total {
-                    results[input_idx] = results[input_idx] && v;
-                }
-            }
-            return Ok(results);
-        }
-
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        let streaming: Vec<Vec<(usize, bool)>> = std::iter::from_fn(|| self.streaming_results.pop()).collect();
-
-        let mut tasks: Vec<_> = std::iter::from_fn(|| self.tasks.pop()).collect();
-        if tasks.is_empty() {
-            #[cfg(all(feature = "production", feature = "rayon"))]
-            if !streaming.is_empty() {
-                let mut merged: Vec<(usize, bool)> = streaming.into_iter().flatten().collect();
-                merged.sort_by_key(|(i, _)| *i);
-                return Ok(merged.into_iter().map(|(_, v)| v).collect());
-            }
-            return Ok(Vec::new());
-        }
-        // Sort by global_index so batch result order matches (tx, input) order (critical for lock-free collection)
-        tasks.sort_by_key(|t| t.0);
-
-        #[cfg(feature = "production")]
-        let start_time = std::time::Instant::now();
-
-        // Sig cache + SoA extraction (roadmap #10b): single pass, direct push to sigs/msgs/pubkeys
-        #[cfg(feature = "production")]
-        let (cached_results, mut sigs, mut msgs, mut pubkeys, keys_for_cache, indices, extract_time) = {
-            let mut cached = Vec::new();
-            let n = tasks.len();
-            let mut sigs = Vec::with_capacity(n);
-            let mut msgs = Vec::with_capacity(n);
-            let mut pubkeys = Vec::with_capacity(n);
-            let mut keys_for_cache = Vec::with_capacity(n);
-            let mut indices = Vec::with_capacity(n);
-            for (idx, (pk, sig, msg, flags, _, _, _)) in tasks.drain(..) {
-                let pk33 = pk.serialize();
-                let sig64 = sig.serialize_compact();
-                let key = ecdsa_cache_key(<secp256k1::Message as AsRef<[u8; 32]>>::as_ref(&msg), &pk33, &sig64, flags);
-                if let Ok(guard) = get_sig_cache_shard(&key).read() {
-                    if let Some(&cached_valid) = guard.peek(&key) {
-                        #[cfg(all(feature = "production", feature = "profile"))]
-                        crate::script_profile::add_ecdsa_cache_hit();
-                        cached.push((idx, cached_valid));
-                        continue;
-                    }
-                }
-                #[cfg(all(feature = "production", feature = "profile"))]
-                crate::script_profile::add_ecdsa_cache_miss();
-                indices.push(idx);
-                keys_for_cache.push(key);
-                pubkeys.push(pk);
-                sigs.push(sig);
-                msgs.push(msg);
-            }
-            let extract_time = start_time.elapsed();
-            (cached, sigs, msgs, pubkeys, keys_for_cache, indices, extract_time)
-        };
-
-        #[cfg(not(feature = "production"))]
-        let (mut sigs, mut msgs, mut pubkeys, indices): (Vec<_>, Vec<_>, Vec<_>, Vec<_>) = {
-            let mut sigs = Vec::new();
-            let mut msgs = Vec::new();
-            let mut pubkeys = Vec::new();
-            let mut indices = Vec::new();
-            for (idx, (pk, sig, msg, _, _, _, _)) in tasks.drain(..) {
-                indices.push(idx);
-                pubkeys.push(pk);
-                sigs.push(sig);
-                msgs.push(msg);
-            }
-            (sigs, msgs, pubkeys, indices)
-        };
-
-        // All cached — return merged results
-        #[cfg(feature = "production")]
-        if sigs.is_empty() {
-            let mut sorted = cached_results;
-            sorted.sort_by_key(|(i, _)| *i);
-            return Ok(sorted.into_iter().map(|(_, v)| v).collect());
-        }
-
-        #[cfg(feature = "production")]
-        let n = sigs.len();
-
-        #[cfg(feature = "production")]
-        let batch_start = std::time::Instant::now();
-
-        // ECDSA chunking: 64-128 sigs = single Strauss batch. 129+ = split, each chunk >= 88 (Pippenger).
-        // See ibd_tuning: chunk_threshold=128, PIPPENGER_MIN_CHUNK=88.
-        let perf = &crate::config::get_consensus_config_ref().performance;
-        let chunk_threshold = crate::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
-        let min_chunk = crate::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
-
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        let batch_result = {
-            use rayon::prelude::*;
-            let n = sigs.len();
-            if n <= chunk_threshold {
-                // Single batch: n>=64 Strauss, n>=88 Pippenger
-                match secp256k1::ecdsa::verify_batch(&sigs, &msgs, &pubkeys) {
-                    Ok(()) => Ok(vec![true; n]),
-                    Err(_) => Self::ecdsa_fallback_extracted(&sigs, &msgs, &pubkeys),
-                }
-            } else {
-                let num_threads = rayon::current_num_threads();
-                let chunk_ranges = crate::ibd_tuning::compute_ecdsa_batch_chunk_ranges(
-                    n,
-                    chunk_threshold,
-                    min_chunk,
-                    num_threads,
-                );
-                let num_chunks_actual = chunk_ranges.len();
-                let chunk_sizes: Vec<usize> = chunk_ranges.iter().map(|(s, e)| e - s).collect();
-                let chunk_results: Vec<std::result::Result<(), _>> = chunk_ranges
-                    .into_par_iter()
-                    .map(|(start, end)| secp256k1::ecdsa::verify_batch(&sigs[start..end], &msgs[start..end], &pubkeys[start..end]))
-                    .collect();
-                #[cfg(all(feature = "production", feature = "profile"))]
-                if n > 50 {
-                    profile_log!("[BATCH_PERF] {} sigs, {} chunks, sizes={:?} (parallel)", n, num_chunks_actual, chunk_sizes);
-                }
-                if chunk_results.iter().any(|r| r.is_err()) {
-                    Self::ecdsa_fallback_extracted(&sigs, &msgs, &pubkeys)
-                } else {
-                    Ok(vec![true; n])
-                }
-            }
-        };
-
-        #[cfg(not(all(feature = "production", feature = "rayon")))]
-        let batch_result = match secp256k1::ecdsa::verify_batch(&sigs, &msgs, &pubkeys) {
-            Ok(()) => Ok(vec![true; n]),
-            Err(_) => Self::ecdsa_fallback_extracted(&sigs, &msgs, &pubkeys),
-        };
-
-
-        #[cfg(all(feature = "production", feature = "profile"))]
-        let batch_time = batch_start.elapsed();
-
-        // Merge cached + batch results, cache batch results, merge streaming
-        #[cfg(feature = "production")]
-        let result = {
-            let batch_results = batch_result?;
-            #[cfg(feature = "profile")]
-            let cache_write_start = std::time::Instant::now();
-            batch_put_sig_cache(&keys_for_cache, &batch_results);
-            #[cfg(feature = "profile")]
-            let cache_write_time = cache_write_start.elapsed();
-            #[cfg(all(feature = "production", feature = "profile"))]
-            {
-                crate::script_profile::add_batch_soa_extract_ns(extract_time.as_nanos() as u64);
-                crate::script_profile::add_batch_secp_verify_ns(batch_time.as_nanos() as u64);
-                crate::script_profile::add_batch_cache_write_ns(cache_write_time.as_nanos() as u64);
-            }
-            #[cfg(feature = "profile")]
-            if batch_time.as_millis() > 5 || n > 200 {
-                let total_time = start_time.elapsed();
-                profile_log!("[BATCH_PHASE] non-SoA: n={} extract={:?} secp_batch={:?} cache_write={:?} total={:?}",
-                    n, extract_time, batch_time, cache_write_time, total_time);
-            }
-            // Merge cached + batch by index
-            let mut merged: Vec<(usize, bool)> = cached_results;
-            for (i, &idx) in indices.iter().enumerate() {
-                if i < batch_results.len() {
-                    merged.push((idx, batch_results[i]));
-                }
-            }
-            #[cfg(feature = "rayon")]
-            for partial in streaming {
-                merged.extend(partial);
-            }
-            merged.sort_by_key(|(i, _)| *i);
-            Ok(merged.into_iter().map(|(_, v)| v).collect())
-        };
-
-        #[cfg(not(feature = "production"))]
-        let result = {
-            let batch_results = batch_result?;
-            let mut merged: Vec<(usize, bool)> = indices.iter().copied().zip(batch_results.iter().copied()).collect();
-            merged.sort_by_key(|(i, _)| *i);
-            Ok(merged.into_iter().map(|(_, v)| v).collect())
-        };
-
-        result
-    }
-
-    /// Verify SoA storage: compact form stored at collect; no parsing needed.
-    #[cfg(feature = "production")]
-    fn verify_soa_batch(soa: &EcdsaSoAStorage, count: usize) -> Result<Vec<(usize, bool)>> {
-        #[cfg(feature = "profile")]
-        let soa_start = std::time::Instant::now();
-
-        let mut cached = Vec::new();
-        let mut ffi_sigs_subset: Vec<secp256k1::ffi::Signature> = Vec::with_capacity(count);
-        let mut msgs_subset: Vec<[u8; 32]> = Vec::with_capacity(count);
-        let mut ffi_pubs_subset: Vec<secp256k1::ffi::PublicKey> = Vec::with_capacity(count);
-        let mut indices = Vec::with_capacity(count);
-        let mut keys_for_cache = Vec::with_capacity(count);
-        let use_cache = sig_cache_at_collect_enabled();
-
-        for chunk_id in 0..soa.chunks.len() {
-            // SAFETY: Reading after complete(); all writers are done.
-            let inner = unsafe { &*soa.chunks[chunk_id].get() };
-            for idx_in_chunk in 0..inner.indices.len() {
-                let slot = chunk_id * ECDSA_SOA_CHUNK_SIZE + idx_in_chunk;
-                if slot >= count {
-                    break;
-                }
-                let idx = inner.indices[idx_in_chunk];
-                let flags = inner.flags[idx_in_chunk];
-                if use_cache {
-                    let sig_64 = secp256k1::ecdsa::serialize_ffi_sig_compact(&inner.ffi_sigs[idx_in_chunk]);
-                    let pub_33 = &inner.pubkey_33[idx_in_chunk];
-                    let key = ecdsa_cache_key(&inner.msgs[idx_in_chunk], pub_33, &sig_64, flags);
-                    if let Ok(cache_guard) = get_sig_cache_shard(&key).read() {
-                        if let Some(&cached_valid) = cache_guard.peek(&key) {
-                            #[cfg(all(feature = "production", feature = "profile"))]
-                            crate::script_profile::add_ecdsa_cache_hit();
-                            cached.push((idx, cached_valid));
-                            continue;
-                        }
-                    }
-                    #[cfg(all(feature = "production", feature = "profile"))]
-                    crate::script_profile::add_ecdsa_cache_miss();
-                    keys_for_cache.push(key);
-                }
-                indices.push(idx);
-                ffi_sigs_subset.push(inner.ffi_sigs[idx_in_chunk]);
-                msgs_subset.push(inner.msgs[idx_in_chunk]);
-                ffi_pubs_subset.push(inner.ffi_pubs[idx_in_chunk]);
-            }
-        }
-
-        #[cfg(feature = "profile")]
-        let soa_extract_time = soa_start.elapsed();
-        #[cfg(all(feature = "production", feature = "profile"))]
-        crate::script_profile::add_batch_soa_extract_ns(soa_extract_time.as_nanos() as u64);
-
-        if ffi_sigs_subset.is_empty() {
-            let mut merged = cached;
-            merged.sort_by_key(|(i, _)| *i);
-            return Ok(merged);
-        }
-
-        let n = ffi_sigs_subset.len();
-        let perf = &crate::config::get_consensus_config_ref().performance;
-        let chunk_threshold = crate::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
-        let min_chunk = crate::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
-
-        #[cfg(feature = "profile")]
-        let soa_batch_start = std::time::Instant::now();
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        let batch_results: Vec<bool> = {
-            use rayon::prelude::*;
-            if n <= chunk_threshold {
-                secp256k1::ecdsa::verify_batch_preloaded(
-                    &ffi_sigs_subset,
-                    &msgs_subset,
-                    &ffi_pubs_subset,
-                )
-                .map_err(|_| ConsensusError::BlockValidation("ECDSA batch verify failed".into()))?
-            } else {
-                let num_threads = rayon::current_num_threads();
-                let chunk_ranges = crate::ibd_tuning::compute_ecdsa_batch_chunk_ranges(
-                    n,
-                    chunk_threshold,
-                    min_chunk,
-                    num_threads,
-                );
-                let chunk_results: Vec<Result<Vec<bool>>> = chunk_ranges
-                    .into_par_iter()
-                    .map(|(start, end)| {
-                        secp256k1::ecdsa::verify_batch_preloaded(
-                            &ffi_sigs_subset[start..end],
-                            &msgs_subset[start..end],
-                            &ffi_pubs_subset[start..end],
-                        )
-                        .map_err(|_| ConsensusError::BlockValidation("ECDSA chunk verify failed".into()))
-                    })
-                    .collect();
-                let mut out = Vec::with_capacity(n);
-                for res in chunk_results {
-                    out.extend(res.map_err(|_| ConsensusError::BlockValidation("ECDSA chunk verify failed".into()))?);
-                }
-                out
-            }
-        };
-
-        #[cfg(not(all(feature = "production", feature = "rayon")))]
-        let batch_results: Vec<bool> = secp256k1::ecdsa::verify_batch_preloaded(
-            &ffi_sigs_subset,
-            &msgs_subset,
-            &ffi_pubs_subset,
-        )
-        .map_err(|_| ConsensusError::BlockValidation("ECDSA batch verify failed".into()))?;
-
-        #[cfg(feature = "profile")]
-        let soa_batch_time = soa_batch_start.elapsed();
-        #[cfg(all(feature = "production", feature = "profile"))]
-        crate::script_profile::add_batch_secp_verify_ns(soa_batch_time.as_nanos() as u64);
-
-        #[cfg(feature = "profile")]
-        let cache_write_start = std::time::Instant::now();
-        if use_cache {
-            batch_put_sig_cache(&keys_for_cache, &batch_results);
-        }
-        #[cfg(feature = "profile")]
-        let soa_cache_write_time = cache_write_start.elapsed();
-        #[cfg(all(feature = "production", feature = "profile"))]
-        crate::script_profile::add_batch_cache_write_ns(soa_cache_write_time.as_nanos() as u64);
-        #[cfg(feature = "profile")]
-        if count > 50 {
-            profile_log!("[BATCH_PHASE] SoA: count={} extract={:?} secp_batch={:?} cache_write={:?}",
-                count, soa_extract_time, soa_batch_time, soa_cache_write_time);
-        }
-        let mut merged = cached;
-        for (i, &idx) in indices.iter().enumerate() {
-            if i < batch_results.len() {
-                merged.push((idx, batch_results[i]));
-            }
-        }
-        merged.sort_by_key(|(i, _)| *i);
-        Ok(merged)
-    }
-
-    /// #1: Verify a single SoA chunk (for overlap). Returns Vec<(global_index, valid)>.
-    /// SoA stores compact form; no parsing in drain.
-    #[cfg(feature = "production")]
-    fn verify_soa_chunk(soa: &EcdsaSoAStorage, chunk_id: usize) -> Result<Vec<(usize, bool)>> {
-        if chunk_id >= soa.chunks.len() {
-            return Ok(Vec::new());
-        }
-        let chunk_size = if chunk_id == soa.chunks.len() - 1 {
-            soa.total - chunk_id * ECDSA_SOA_CHUNK_SIZE
-        } else {
-            ECDSA_SOA_CHUNK_SIZE
-        };
-        if chunk_size == 0 {
-            return Ok(Vec::new());
-        }
-
-        #[cfg(all(feature = "production", feature = "profile"))]
-        let t_drain_start = std::time::Instant::now();
-        // SAFETY: Reading after complete(); all writers are done.
-        let inner = unsafe { &*soa.chunks[chunk_id].get() };
-        let mut cached = Vec::new();
-        let mut ffi_sigs_subset: Vec<secp256k1::ffi::Signature> = Vec::with_capacity(chunk_size);
-        let mut msgs_subset: Vec<[u8; 32]> = Vec::with_capacity(chunk_size);
-        let mut ffi_pubs_subset: Vec<secp256k1::ffi::PublicKey> = Vec::with_capacity(chunk_size);
-        let mut indices = Vec::with_capacity(chunk_size);
-        let mut keys_for_cache = Vec::with_capacity(chunk_size);
-        let mut miss_slot_indices: Vec<usize> = Vec::with_capacity(chunk_size);
-        let use_cache = sig_cache_at_collect_enabled();
-
-        for idx_in_chunk in 0..chunk_size.min(inner.indices.len()) {
-            let idx = inner.indices[idx_in_chunk];
-            if use_cache {
-                let sig_64 = secp256k1::ecdsa::serialize_ffi_sig_compact(&inner.ffi_sigs[idx_in_chunk]);
-                let pub_33 = &inner.pubkey_33[idx_in_chunk];
-                let key = ecdsa_cache_key(&inner.msgs[idx_in_chunk], pub_33, &sig_64, inner.flags[idx_in_chunk]);
-                if let Ok(cache_guard) = get_sig_cache_shard(&key).read() {
-                    if let Some(&cached_valid) = cache_guard.peek(&key) {
-                        #[cfg(all(feature = "production", feature = "profile"))]
-                        crate::script_profile::add_ecdsa_cache_hit();
-                        cached.push((idx, cached_valid));
-                        continue;
-                    }
-                }
-                #[cfg(all(feature = "production", feature = "profile"))]
-                crate::script_profile::add_ecdsa_cache_miss();
-                keys_for_cache.push(key);
-            }
-            indices.push(idx);
-            miss_slot_indices.push(idx_in_chunk);
-        }
-
-        #[cfg(all(feature = "production", feature = "profile"))]
-        crate::script_profile::add_drain_shard_copy_ns(t_drain_start.elapsed().as_nanos() as u64);
-
-        if indices.is_empty() {
-            let mut merged = cached;
-            merged.sort_by_key(|(i, _)| *i);
-            return Ok(merged);
-        }
-
-        #[cfg(all(feature = "production", feature = "profile"))]
-        let t_secp_start = std::time::Instant::now();
-        let batch_results = if miss_slot_indices.len() == chunk_size && cached.is_empty() {
-            secp256k1::ecdsa::verify_batch_preloaded(
-                &inner.ffi_sigs[..chunk_size],
-                &inner.msgs[..chunk_size],
-                &inner.ffi_pubs[..chunk_size],
-            )
-        } else {
-            for &i in &miss_slot_indices {
-                ffi_sigs_subset.push(inner.ffi_sigs[i]);
-                msgs_subset.push(inner.msgs[i]);
-                ffi_pubs_subset.push(inner.ffi_pubs[i]);
-            }
-            secp256k1::ecdsa::verify_batch_preloaded(
-                &ffi_sigs_subset,
-                &msgs_subset,
-                &ffi_pubs_subset,
-            )
-        }
-            .map_err(|_| ConsensusError::BlockValidation("ECDSA chunk verify failed".into()))?;
-        #[cfg(all(feature = "production", feature = "profile"))]
-        crate::script_profile::add_drain_secp_ns(t_secp_start.elapsed().as_nanos() as u64);
-        if use_cache {
-            batch_put_sig_cache(&keys_for_cache, &batch_results);
-        }
-        let mut merged = cached;
-        for (i, &idx) in indices.iter().enumerate() {
-            if i < batch_results.len() {
-                merged.push((idx, batch_results[i]));
-            }
-        }
-        merged.sort_by_key(|(i, _)| *i);
-        Ok(merged)
-    }
-
-    #[cfg(feature = "production")]
-    fn ecdsa_fallback_extracted(
-        sigs: &[secp256k1::ecdsa::Signature],
-        msgs: &[secp256k1::Message],
-        pubkeys: &[secp256k1::PublicKey],
-    ) -> Result<Vec<bool>> {
-        use secp256k1::ecdsa as ecdsa_module;
-        let mut results = Vec::with_capacity(sigs.len());
-        for i in 0..sigs.len() {
-            match ecdsa_module::verify(&sigs[i], msgs[i], &pubkeys[i]) {
-                Ok(_) => results.push(true),
-                Err(_) => results.push(false),
-            }
-        }
-        Ok(results)
-    }
-
-    /// Clear all collected signatures and streaming results
-    pub fn clear(&self) {
-        while self.tasks.pop().is_some() {}
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        while self.streaming_results.pop().is_some() {}
-    }
-
-    /// Check if collector is empty
-    pub fn is_empty(&self) -> bool {
-        if let Some(ref soa) = self.soa {
-            soa.next_slot.load(Ordering::Relaxed) == 0
-        } else {
-            self.tasks.is_empty()
-        }
-    }
 }
 
 /// Parse and validate one task for batch verification.
@@ -7391,12 +6799,10 @@ fn parse_task_for_batch(
     Ok(Some((pubkey, normalized_signature, message)))
 }
 
-/// Batch ECDSA signature verification
+/// Per-sig ECDSA verification for multisig (CHECKMULTISIG).
 ///
-/// Verifies multiple signatures in parallel, providing significant speedup
-/// for blocks with many signatures. For 4+ tasks, tries secp256k1::ecdsa::verify_batch
-/// first (single batched EC op); falls back to per-sig verification only when batch
-/// fails or pre-EC validation fails for any task.
+/// Verifies multiple signatures sequentially or in parallel (rayon). No ECDSA batch
+/// — each signature is verified individually via verify_signature.
 ///
 /// # Arguments
 /// * `verification_tasks` - Vector of (pubkey_bytes, signature_bytes, sighash) tuples
@@ -7423,87 +6829,6 @@ pub fn batch_verify_signatures(
         return Ok(Vec::new());
     }
 
-    // Small batches: sequential (overhead not worth parallelization or batch)
-    if verification_tasks.len() < 4 {
-        let mut results = Vec::with_capacity(verification_tasks.len());
-        for (pubkey_bytes, signature_bytes, sighash) in verification_tasks {
-            let result = SECP256K1_CONTEXT.with(|secp| {
-                verify_signature(
-                    secp,
-                    pubkey_bytes,
-                    signature_bytes,
-                    sighash,
-                    flags,
-                    height,
-                    network,
-                    SigVersion::Base,
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
-                )
-            })?;
-            results.push(result);
-        }
-        #[cfg(feature = "profile")]
-        crate::script_profile::add_multisig_ns(_t0.elapsed().as_nanos() as u64);
-        return Ok(results);
-    }
-
-    // 4+ tasks: try batch path first (multisig, P2SH redeem scripts)
-    let parsed: Vec<_> = verification_tasks
-        .iter()
-        .map(|(pk, sig, sh)| parse_task_for_batch(pk, sig, sh, flags, height, network))
-        .collect::<Result<Vec<_>>>()?;
-
-    let parse_fail_indices: Vec<usize> = parsed
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| if p.is_none() { Some(i) } else { None })
-        .collect();
-    let parsed_ok: Vec<_> = parsed
-        .iter()
-        .enumerate()
-        .filter_map(|(i, p)| p.as_ref().map(|t| (i, t)))
-        .collect();
-
-    // All parsed: full batch path
-    if parse_fail_indices.is_empty() {
-        let mut pubkeys = Vec::with_capacity(parsed.len());
-        let mut sigs = Vec::with_capacity(parsed.len());
-        let mut msgs = Vec::with_capacity(parsed.len());
-        for opt in parsed {
-            if let Some((pk, sig, msg)) = opt {
-                pubkeys.push(pk);
-                sigs.push(sig);
-                msgs.push(msg);
-            }
-        }
-        if let Ok(()) = secp256k1::ecdsa::verify_batch(&sigs, &msgs, &pubkeys) {
-            #[cfg(feature = "profile")]
-            crate::script_profile::add_multisig_ns(_t0.elapsed().as_nanos() as u64);
-            return Ok(vec![true; verification_tasks.len()]);
-        }
-    } else if parsed_ok.len() >= 4 {
-        // Partial batch — some parse failed; batch-verify the parsed subset
-        let mut pubkeys = Vec::with_capacity(parsed_ok.len());
-        let mut sigs = Vec::with_capacity(parsed_ok.len());
-        let mut msgs = Vec::with_capacity(parsed_ok.len());
-        for (_, (pk, sig, msg)) in &parsed_ok {
-            pubkeys.push(pk.clone());
-            sigs.push(sig.clone());
-            msgs.push(msg.clone());
-        }
-        if let Ok(()) = secp256k1::ecdsa::verify_batch(&sigs, &msgs, &pubkeys) {
-            let mut results = vec![false; verification_tasks.len()];
-            for (i, _) in &parsed_ok {
-                results[*i] = true;
-            }
-            #[cfg(feature = "profile")]
-            crate::script_profile::add_multisig_ns(_t0.elapsed().as_nanos() as u64);
-            return Ok(results);
-        }
-    }
-
-    // Fallback: per-sig verification (batch failed or pre-EC validation failed)
     #[cfg(feature = "rayon")]
     {
         use rayon::prelude::*;
@@ -7520,8 +6845,6 @@ pub fn batch_verify_signatures(
                         height,
                         network,
                         SigVersion::Base,
-                        #[cfg(feature = "production")] None,
-                        #[cfg(feature = "production")] None,
                     )
                 })
             })
@@ -7545,8 +6868,6 @@ pub fn batch_verify_signatures(
                 height,
                 network,
                 SigVersion::Base,
-                #[cfg(feature = "production")] None,
-                #[cfg(feature = "production")] None,
             )?;
             results.push(result);
         }
@@ -7569,9 +6890,9 @@ pub fn batch_verify_signatures(
 ///
 /// Get and reset fast-path hit counters (production). Used by block validation to log
 /// whether P2PK/P2PKH/P2SH/P2WPKH/P2WSH fast-paths are taken vs interpreter fallback.
-/// Returns (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, interpreter).
+/// Returns (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, bare_multisig, interpreter).
 #[cfg(feature = "production")]
-pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64, u64) {
+pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64, u64, u64) {
     (
         FAST_PATH_P2PK.swap(0, Ordering::Relaxed),
         FAST_PATH_P2PKH.swap(0, Ordering::Relaxed),
@@ -7579,6 +6900,7 @@ pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64,
         FAST_PATH_P2WPKH.swap(0, Ordering::Relaxed),
         FAST_PATH_P2WSH.swap(0, Ordering::Relaxed),
         FAST_PATH_P2TR.swap(0, Ordering::Relaxed),
+        FAST_PATH_BARE_MULTISIG.swap(0, Ordering::Relaxed),
         FAST_PATH_INTERPRETER.swap(0, Ordering::Relaxed),
     )
 }
@@ -8411,8 +7733,6 @@ mod tests {
             0,
             crate::types::Network::Regtest,
             SigVersion::Base,
-            #[cfg(feature = "production")] None,
-            #[cfg(feature = "production")] None,
         );
         assert!(!result.unwrap_or(false));
     }
@@ -8436,8 +7756,6 @@ mod tests {
             0,
             crate::types::Network::Regtest,
             SigVersion::Base,
-            #[cfg(feature = "production")] None,
-            #[cfg(feature = "production")] None,
         );
         assert!(!result.unwrap_or(false));
     }
@@ -8624,6 +7942,60 @@ mod tests {
             #[cfg(feature = "production")] None,
             #[cfg(feature = "production")] None,
             None, // precomputed_bip143
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
+        );
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    #[cfg(feature = "production")]
+    fn test_p2wsh_multisig_fast_path() {
+        // P2WSH 2-of-2 multisig: fast path parses and validates; placeholder sigs fail -> Ok(false).
+        use crate::crypto::OptimizedSha256;
+        use crate::constants::BIP147_ACTIVATION_MAINNET;
+
+        let pk1 = [0x02u8; 33];
+        let pk2 = [0x03u8; 33];
+        let mut witness_script = vec![0x52]; // OP_2
+        witness_script.extend_from_slice(&pk1);
+        witness_script.extend_from_slice(&pk2);
+        witness_script.push(0x52); // OP_2
+        witness_script.push(0xae); // OP_CHECKMULTISIG
+
+        let wsh_hash = OptimizedSha256::new().hash(&witness_script);
+        let mut script_pubkey = vec![OP_0, 0x20];
+        script_pubkey.extend_from_slice(&wsh_hash);
+
+        let witness: Vec<Vec<u8>> = vec![
+            vec![0x00],           // NULLDUMMY
+            vec![0x30u8; 72],     // placeholder sig 1
+            vec![0x30u8; 72],     // placeholder sig 2
+            witness_script.clone(),
+        ];
+
+        let (tx, pv, psp) = minimal_tx_and_prevouts(&[], &script_pubkey);
+        let psp_refs: Vec<&[u8]> = psp.iter().map(|b| b.as_slice()).collect();
+        let empty: Vec<u8> = vec![];
+        let result = verify_script_with_context_full(
+            &empty,
+            &script_pubkey,
+            Some(&witness),
+            0x810, // SIGHASH_ALL | VERIFY_NULLDUMMY | VERIFY_NULLFAIL
+            &tx,
+            0,
+            &pv,
+            &psp_refs,
+            Some(BIP147_ACTIVATION_MAINNET + 1),
+            None,
+            crate::types::Network::Mainnet,
+            SigVersion::Base,
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
+            #[cfg(feature = "production")] None,
+            None,
             #[cfg(feature = "production")] None,
             #[cfg(feature = "production")] None,
             #[cfg(feature = "production")] None,

@@ -359,6 +359,7 @@ fn benchmark_pow_batching(c: &mut Criterion) {
 // Note: SipHash benchmarking is in blvm-node/benches/compact_blocks.rs
 // since siphasher is only used in blvm-node
 
+/// Benchmarks batch_verify_signatures (multisig CHECKMULTISIG). Uses per-sig verification.
 #[cfg(feature = "production")]
 fn benchmark_batch_ecdsa_verification(c: &mut Criterion) {
     use blvm_consensus::script::batch_verify_signatures;

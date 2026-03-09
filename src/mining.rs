@@ -262,7 +262,7 @@ fn create_coinbase_transaction(
 #[track_caller] // Better error messages showing caller location
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
-#[spec_locked("12.1")]
+#[spec_locked("8.4.1")]
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -377,6 +377,8 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 ///
 /// Also usable directly when tx_ids are already computed, avoiding
 /// redundant serialization and hashing.
+/// Implements ComputeMerkleRoot (Orange Paper 8.4.1).
+#[spec_locked("8.4.1")]
 pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
     if tx_ids.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(

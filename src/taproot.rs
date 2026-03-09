@@ -4,10 +4,10 @@ use crate::error::Result;
 use crate::types::*;
 use crate::types::{ByteString, Hash};
 use crate::witness;
-use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
-use secp256k1::{PublicKey, Scalar, Secp256k1, XOnlyPublicKey};
-use sha2::{Digest, Sha256};
 use blvm_spec_lock::spec_locked;
+
+/// BIP 341 default tapscript leaf version.
+pub const TAPROOT_LEAF_VERSION_TAPSCRIPT: u8 = 0xc0;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
 ///
@@ -51,52 +51,12 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
 
 /// Compute Taproot tweak using proper cryptographic operations
 /// OutputKey = InternalPubKey + TaprootTweak(MerkleRoot) × G
+///
+/// With `blvm-secp256k1` feature: uses BIP 341 tagged hash (correct).
+/// Without: uses secp256k1-fork with plain SHA256 (legacy, non-BIP341).
 #[spec_locked("11.2")]
 pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
-    // Create secp256k1 context (optimized: reuse in production, create new otherwise)
-    // Note: Taproot operations need mutable context for add_exp_tweak, so we create new
-    // For verification-only operations, use thread-local context
-    let _secp = Secp256k1::new();
-
-    // Parse internal public key (x-only format for Taproot)
-    let internal_pk = match XOnlyPublicKey::from_slice(internal_pubkey) {
-        Ok(pk) => pk,
-        Err(_) => {
-            return Err(crate::error::ConsensusError::InvalidSignature(
-                "Invalid internal public key".into(),
-            ))
-        }
-    };
-
-    // Compute tweak: SHA256("TapTweak" || internal_pubkey || merkle_root)
-    let mut tweak_data = Vec::new();
-    tweak_data.extend_from_slice(b"TapTweak");
-    tweak_data.extend_from_slice(internal_pubkey);
-    tweak_data.extend_from_slice(merkle_root);
-
-    let tweak_hash = Sha256::digest(&tweak_data);
-    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash.into()) {
-        Ok(scalar) => scalar,
-        Err(_) => {
-            return Err(crate::error::ConsensusError::InvalidSignature(
-                "Invalid tweak scalar".into(),
-            ))
-        }
-    };
-
-    // Convert x-only public key to full public key for tweaking
-    let full_pk = PublicKey::from_x_only_public_key(internal_pk, secp256k1::Parity::Even);
-
-    // Compute tweaked public key: full_pk + tweak_scalar * G
-    let tweaked_pk = full_pk.add_exp_tweak(&tweak_scalar).map_err(|_| {
-        crate::error::ConsensusError::InvalidSignature(
-            "Failed to compute tweaked public key".into(),
-        )
-    })?;
-
-    // Return the x-coordinate of the tweaked public key
-    let xonly_pk = XOnlyPublicKey::from(tweaked_pk);
-    Ok(xonly_pk.serialize())
+    crate::secp256k1_backend::taproot_output_key(internal_pubkey, merkle_root)
 }
 
 /// Validate Taproot key aggregation
@@ -117,41 +77,114 @@ pub fn validate_taproot_script_path(
     merkle_proof: &[Hash],
     merkle_root: &Hash,
 ) -> Result<bool> {
-    // Compute merkle root from script and proof
-    let computed_root = compute_script_merkle_root(script, merkle_proof)?;
+    validate_taproot_script_path_with_leaf_version(
+        script,
+        merkle_proof,
+        merkle_root,
+        TAPROOT_LEAF_VERSION_TAPSCRIPT,
+    )
+}
+
+/// Validate Taproot script path spending with explicit leaf version.
+#[spec_locked("11.2")]
+pub fn validate_taproot_script_path_with_leaf_version(
+    script: &ByteString,
+    merkle_proof: &[Hash],
+    merkle_root: &Hash,
+    leaf_version: u8,
+) -> Result<bool> {
+    let computed_root = compute_script_merkle_root(script, merkle_proof, leaf_version)?;
     Ok(computed_root == *merkle_root)
 }
 
-/// Compute merkle root for script path
-fn compute_script_merkle_root(script: &ByteString, proof: &[Hash]) -> Result<Hash> {
-    let mut current_hash = hash_script(script);
+/// Compute merkle root for script path using BIP 341 TapLeaf/TapBranch tagged hashes.
+#[spec_locked("11.2.3")]
+pub fn compute_script_merkle_root(
+    script: &ByteString,
+    proof: &[Hash],
+    leaf_version: u8,
+) -> Result<Hash> {
+    let mut current_hash = crate::secp256k1_backend::tap_leaf_hash(leaf_version, script);
 
     for proof_hash in proof {
-        current_hash = hash_pair(&current_hash, proof_hash);
+        let (left, right) = if current_hash < *proof_hash {
+            (current_hash, *proof_hash)
+        } else {
+            (*proof_hash, current_hash)
+        };
+        current_hash = crate::secp256k1_backend::tap_branch_hash(&left, &right);
     }
 
     Ok(current_hash)
 }
 
-/// Hash a script
-fn hash_script(script: &ByteString) -> Hash {
-    let mut hasher = sha256d::Hash::engine();
-    hasher.input(script);
-    let result = sha256d::Hash::from_engine(hasher);
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+/// Parsed control block from Taproot script-path witness.
+#[derive(Debug)]
+pub struct TaprootControlBlock {
+    pub leaf_version: u8,
+    pub internal_pubkey: [u8; 32],
+    pub merkle_proof: Vec<Hash>,
 }
 
-/// Hash a pair of hashes
-fn hash_pair(left: &Hash, right: &Hash) -> Hash {
-    let mut hasher = sha256d::Hash::engine();
-    hasher.input(left);
-    hasher.input(right);
-    let result = sha256d::Hash::from_engine(hasher);
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
+/// Parse and validate Taproot script-path witness.
+/// Returns (tapscript, stack_items) if valid, Err otherwise.
+/// Witness format: [stack_items..., script, annex?, control_block]
+/// Annex: optional, last element before control block, must start with 0x50.
+/// Control block: leaf_version (1) + internal_pubkey (32) + merkle_proof (32*n).
+#[spec_locked("11.2")]
+pub fn parse_taproot_script_path_witness(
+    witness: &Witness,
+    output_key: &[u8; 32],
+) -> Result<Option<(ByteString, Vec<ByteString>, TaprootControlBlock)>> {
+    if witness.len() < 2 {
+        return Ok(None);
+    }
+
+    let control_block = witness.last().expect("len >= 2");
+    if control_block.len() < 33 || (control_block.len() - 33) % 32 != 0 {
+        return Ok(None);
+    }
+
+    let leaf_version = control_block[0];
+    let mut internal_pubkey = [0u8; 32];
+    internal_pubkey.copy_from_slice(&control_block[1..33]);
+    let merkle_proof: Vec<Hash> = control_block[33..]
+        .chunks_exact(32)
+        .map(|c| {
+            let mut h = [0u8; 32];
+            h.copy_from_slice(c);
+            h
+        })
+        .collect();
+
+    let script_idx = if witness.len() >= 3 {
+        let maybe_annex = &witness[witness.len() - 2];
+        if maybe_annex.first() == Some(&0x50) {
+            witness.len() - 3
+        } else {
+            witness.len() - 2
+        }
+    } else {
+        witness.len() - 2
+    };
+
+    let tapscript = witness[script_idx].clone();
+    let stack_items: Vec<ByteString> = witness[..script_idx].to_vec();
+
+    let merkle_root = compute_script_merkle_root(&tapscript, &merkle_proof, leaf_version)?;
+    if !validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, output_key)? {
+        return Ok(None);
+    }
+
+    Ok(Some((
+        tapscript,
+        stack_items,
+        TaprootControlBlock {
+            leaf_version,
+            internal_pubkey,
+            merkle_proof,
+        },
+    )))
 }
 
 /// Check if transaction output is Taproot
@@ -186,7 +219,8 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
     Ok(true)
 }
 
-/// Compute Taproot signature hash following BIP 341 specification
+/// Compute Taproot signature hash following BIP 341 specification.
+/// Uses TaggedHash("TapSighash", 0x00 || SigMsg(...)) per BIP 341.
 #[spec_locked("11.2")]
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
@@ -195,71 +229,93 @@ pub fn compute_taproot_signature_hash(
     prevout_script_pubkeys: &[&[u8]],
     sighash_type: u8,
 ) -> Result<Hash> {
-    // Create SHA256 hasher for Taproot signature hash
-    let mut hasher = Sha256::new();
+    let mut sigmsg = Vec::new();
 
-    // 1. Transaction version (4 bytes, little-endian)
-    hasher.update((tx.version as u32).to_le_bytes());
-
-    // 2. Input count (varint)
-    hasher.update(encode_varint(tx.inputs.len() as u64));
-
-    // 3. Inputs
+    sigmsg.extend((tx.version as u32).to_le_bytes());
+    sigmsg.extend(encode_varint(tx.inputs.len() as u64));
     for input in &tx.inputs {
-        // Previous output hash (32 bytes)
-        hasher.update(input.prevout.hash);
-        // Previous output index (4 bytes, little-endian)
-        hasher.update(input.prevout.index.to_le_bytes());
-        // Script length (varint) - empty for Taproot
-        hasher.update([0]);
-        // Sequence (4 bytes, little-endian)
-        hasher.update((input.sequence as u32).to_le_bytes());
+        sigmsg.extend(input.prevout.hash);
+        sigmsg.extend(input.prevout.index.to_le_bytes());
+        sigmsg.push(0);
+        sigmsg.extend((input.sequence as u32).to_le_bytes());
     }
-
-    // 4. Output count (varint)
-    hasher.update(encode_varint(tx.outputs.len() as u64));
-
-    // 5. Outputs
+    sigmsg.extend(encode_varint(tx.outputs.len() as u64));
     for output in &tx.outputs {
-        // Value (8 bytes, little-endian)
-        hasher.update((output.value as u64).to_le_bytes());
-        // Script length (varint)
-        hasher.update(encode_varint(output.script_pubkey.len() as u64));
-        // Script
-        hasher.update(&output.script_pubkey);
+        sigmsg.extend((output.value as u64).to_le_bytes());
+        sigmsg.extend(encode_varint(output.script_pubkey.len() as u64));
+        sigmsg.extend(&output.script_pubkey);
     }
-
-    // 6. Lock time (4 bytes, little-endian)
-    hasher.update((tx.lock_time as u32).to_le_bytes());
-
-    // 7. Sighash type (4 bytes, little-endian)
-    hasher.update((sighash_type as u32).to_le_bytes());
-
-    // 8. Input index (4 bytes, little-endian)
-    hasher.update((input_index as u32).to_le_bytes());
-
-    // 9. Previous output value (8 bytes, little-endian)
+    sigmsg.extend((tx.lock_time as u32).to_le_bytes());
+    sigmsg.extend((sighash_type as u32).to_le_bytes());
+    sigmsg.extend((input_index as u32).to_le_bytes());
     if input_index < prevout_values.len() {
-        hasher.update((prevout_values[input_index] as u64).to_le_bytes());
+        sigmsg.extend((prevout_values[input_index] as u64).to_le_bytes());
     } else {
-        hasher.update([0u8; 8]);
+        sigmsg.extend([0u8; 8]);
     }
-
-    // 10. Previous output script (varint + script)
     if input_index < prevout_script_pubkeys.len() {
-        hasher.update(encode_varint(
-            prevout_script_pubkeys[input_index].len() as u64
-        ));
-        hasher.update(prevout_script_pubkeys[input_index]);
+        sigmsg.extend(encode_varint(prevout_script_pubkeys[input_index].len() as u64));
+        sigmsg.extend(prevout_script_pubkeys[input_index]);
     } else {
-        hasher.update([0]);
+        sigmsg.push(0);
     }
 
-    // Final hash
-    let result = hasher.finalize();
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    Ok(hash)
+    let mut tagged_input = Vec::with_capacity(1 + sigmsg.len());
+    tagged_input.push(0x00);
+    tagged_input.extend(sigmsg);
+    Ok(crate::secp256k1_backend::tap_sighash_hash(&tagged_input))
+}
+
+/// Compute Tapscript signature hash per BIP 342.
+/// Same base SigMsg as key-path, with ext = codesep_pos (4) || key_version (1) || tapleaf_hash (32).
+#[spec_locked("11.2.7")]
+pub fn compute_tapscript_signature_hash(
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    tapscript: &[u8],
+    leaf_version: u8,
+    codesep_pos: u32,
+    sighash_type: u8,
+) -> Result<Hash> {
+    let mut sigmsg = Vec::new();
+    sigmsg.extend((tx.version as u32).to_le_bytes());
+    sigmsg.extend(encode_varint(tx.inputs.len() as u64));
+    for input in &tx.inputs {
+        sigmsg.extend(input.prevout.hash);
+        sigmsg.extend(input.prevout.index.to_le_bytes());
+        sigmsg.push(0);
+        sigmsg.extend((input.sequence as u32).to_le_bytes());
+    }
+    sigmsg.extend(encode_varint(tx.outputs.len() as u64));
+    for output in &tx.outputs {
+        sigmsg.extend((output.value as u64).to_le_bytes());
+        sigmsg.extend(encode_varint(output.script_pubkey.len() as u64));
+        sigmsg.extend(&output.script_pubkey);
+    }
+    sigmsg.extend((tx.lock_time as u32).to_le_bytes());
+    sigmsg.extend((sighash_type as u32).to_le_bytes());
+    sigmsg.extend((input_index as u32).to_le_bytes());
+    if input_index < prevout_values.len() {
+        sigmsg.extend((prevout_values[input_index] as u64).to_le_bytes());
+    } else {
+        sigmsg.extend([0u8; 8]);
+    }
+    if input_index < prevout_script_pubkeys.len() {
+        sigmsg.extend(encode_varint(prevout_script_pubkeys[input_index].len() as u64));
+        sigmsg.extend(prevout_script_pubkeys[input_index]);
+    } else {
+        sigmsg.push(0);
+    }
+    let tapleaf_hash = crate::secp256k1_backend::tap_leaf_hash(leaf_version, tapscript);
+    sigmsg.extend(codesep_pos.to_le_bytes());
+    sigmsg.push(0x00);
+    sigmsg.extend(tapleaf_hash);
+    let mut tagged_input = Vec::with_capacity(1 + sigmsg.len());
+    tagged_input.push(0x00);
+    tagged_input.extend(sigmsg);
+    Ok(crate::secp256k1_backend::tap_sighash_hash(&tagged_input))
 }
 
 /// Encode a number as a Bitcoin varint
@@ -347,7 +403,7 @@ mod tests {
     fn test_validate_taproot_script_path() {
         let script = vec![0x51, 0x52]; // OP_1, OP_2
         let merkle_proof = vec![[3u8; 32], [4u8; 32]];
-        let merkle_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
+        let merkle_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
 
         assert!(validate_taproot_script_path(&script, &merkle_proof, &merkle_root).unwrap());
     }
@@ -519,51 +575,33 @@ mod tests {
     fn test_validate_taproot_script_path_empty_proof() {
         let script = vec![0x51, 0x52]; // OP_1, OP_2
         let merkle_proof = vec![];
-        let merkle_root = hash_script(&script);
+        let merkle_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
 
         assert!(validate_taproot_script_path(&script, &merkle_proof, &merkle_root).unwrap());
     }
 
     #[test]
-    fn test_hash_script() {
+    fn test_tap_leaf_hash() {
         let script = vec![0x51, 0x52];
-        let hash = hash_script(&script);
+        let hash = crate::secp256k1_backend::tap_leaf_hash(TAPROOT_LEAF_VERSION_TAPSCRIPT, &script);
 
         assert_eq!(hash.len(), 32);
 
-        // Different script should produce different hash
         let script2 = vec![0x53, 0x54];
-        let hash2 = hash_script(&script2);
+        let hash2 = crate::secp256k1_backend::tap_leaf_hash(TAPROOT_LEAF_VERSION_TAPSCRIPT, &script2);
         assert_ne!(hash, hash2);
     }
 
     #[test]
-    fn test_hash_script_empty() {
-        let script = vec![];
-        let hash = hash_script(&script);
-
-        assert_eq!(hash.len(), 32);
-    }
-
-    #[test]
-    fn test_hash_pair() {
+    fn test_tap_branch_hash() {
         let left = [1u8; 32];
         let right = [2u8; 32];
-        let hash = hash_pair(&left, &right);
+        let hash = crate::secp256k1_backend::tap_branch_hash(&left, &right);
 
         assert_eq!(hash.len(), 32);
 
-        // Different order should produce different hash
-        let hash2 = hash_pair(&right, &left);
+        let hash2 = crate::secp256k1_backend::tap_branch_hash(&right, &left);
         assert_ne!(hash, hash2);
-    }
-
-    #[test]
-    fn test_hash_pair_same() {
-        let hash1 = [1u8; 32];
-        let hash2 = hash_pair(&hash1, &hash1);
-
-        assert_eq!(hash2.len(), 32);
     }
 
     #[test]
@@ -821,35 +859,29 @@ mod property_tests {
         }
     }
 
-    /// Property test: Script hashing is deterministic
-    ///
-    /// Mathematical specification:
-    /// ∀ script ∈ ByteString: hash_script(script) is deterministic
+    /// Property test: TapLeaf hashing is deterministic
     proptest! {
         #[test]
-        fn prop_hash_script_deterministic(
+        fn prop_tap_leaf_hash_deterministic(
             script in prop::collection::vec(any::<u8>(), 0..20)
         ) {
-            let hash1 = hash_script(&script);
-            let hash2 = hash_script(&script);
+            let hash1 = crate::secp256k1_backend::tap_leaf_hash(TAPROOT_LEAF_VERSION_TAPSCRIPT, &script);
+            let hash2 = crate::secp256k1_backend::tap_leaf_hash(TAPROOT_LEAF_VERSION_TAPSCRIPT, &script);
 
             assert_eq!(hash1, hash2);
             assert_eq!(hash1.len(), 32);
         }
     }
 
-    /// Property test: Hash pair operations are deterministic
-    ///
-    /// Mathematical specification:
-    /// ∀ left, right ∈ Hash: hash_pair(left, right) is deterministic
+    /// Property test: TapBranch hashing is deterministic
     proptest! {
         #[test]
-        fn prop_hash_pair_deterministic(
+        fn prop_tap_branch_hash_deterministic(
             left in create_hash_strategy(),
             right in create_hash_strategy()
         ) {
-            let hash1 = hash_pair(&left, &right);
-            let hash2 = hash_pair(&left, &right);
+            let hash1 = crate::secp256k1_backend::tap_branch_hash(&left, &right);
+            let hash2 = crate::secp256k1_backend::tap_branch_hash(&left, &right);
 
             assert_eq!(hash1, hash2);
             assert_eq!(hash1.len(), 32);
@@ -926,7 +958,7 @@ mod property_tests {
             script in prop::collection::vec(any::<u8>(), 0..20),
             merkle_proof in prop::collection::vec(create_hash_strategy(), 0..5)
         ) {
-            let computed_root = compute_script_merkle_root(&script, &merkle_proof).unwrap();
+            let computed_root = compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
             let is_valid = validate_taproot_script_path(&script, &merkle_proof, &computed_root).unwrap();
 
             assert!(is_valid);

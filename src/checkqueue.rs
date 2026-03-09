@@ -8,12 +8,11 @@
 use crate::error::{ConsensusError, Result};
 use crate::script::verify_script_with_context_full;
 use crate::witness::is_witness_empty;
-use crate::types::{Block, ByteString, Natural, Network, Transaction};
+use crate::types::{Block, Natural, Network};
 use crate::witness::Witness;
 use crossbeam_queue::SegQueue;
-use rustc_hash::FxHashMap;
+
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
@@ -23,19 +22,19 @@ const DEFAULT_BATCH_SIZE: usize = 128;
 
 /// Thread-local HashMaps reused across batches to avoid per-batch allocations.
 /// all_refs cannot be reused because it holds refs into buffer which is batch-scoped.
-/// PREVOUT_BUF: fallback when prevout_values not prefetched (run_check path).
 thread_local! {
-    static TX_REF_RANGES: RefCell<FxHashMap<usize, (usize, usize)>> = RefCell::new(FxHashMap::default());
     static PREVOUT_BUF: RefCell<Vec<i64>> = RefCell::new(Vec::new());
-    static TX_TO_INDICES: RefCell<FxHashMap<usize, Vec<usize>>> = RefCell::new(FxHashMap::default());
-    static WORKER_PV_BUF: RefCell<Vec<i64>> = RefCell::new(Vec::with_capacity(16));
 }
 
-/// Script check (minimal, 16 bytes). Workers use session buffers for script_pubkey and prevout_value.
+/// Script check with embedded per-input data. Workers use these directly without
+/// HashMap grouping or shared-buffer indirection (Core-style self-contained checks).
 #[derive(Clone, Debug)]
 pub struct ScriptCheck {
     pub tx_ctx_idx: usize,
     pub input_idx: usize,
+    pub spk_offset: u32,
+    pub spk_len: u32,
+    pub prevout_value: i64,
 }
 
 /// Per-tx context shared by all inputs of that tx.
@@ -60,7 +59,7 @@ pub struct TxScriptContext {
 }
 
 /// Session context for one block; set at start_session, used by workers until complete.
-/// When ecdsa_collector/schnorr_collector are None, verify in-place (no batch collection).
+/// When schnorr_collector is None, verify in-place (no batch collection).
 /// TxScriptContext stored in Arc to avoid cloning full context per check (workers get Arc::clone).
 /// Block-level buffers are immutable (Arc<Vec<...>>) — no locks during worker execution.
 pub struct BlockSessionContext {
@@ -77,18 +76,23 @@ pub struct BlockSessionContext {
     #[cfg(feature = "production")]
     pub ecdsa_sub_counters: Arc<Vec<AtomicUsize>>,
     #[cfg(feature = "production")]
-    pub ecdsa_collector: Option<Arc<crate::script::EcdsaSignatureCollector>>,
-    #[cfg(feature = "production")]
     pub schnorr_collector: Option<Arc<crate::bip348::SchnorrSignatureCollector>>,
     pub height: Natural,
     pub median_time_past: Option<u64>,
     pub network: Network,
     /// Lock-free: workers push batch_results; master drains at complete(). Reduces Mutex contention.
     pub results: Arc<SegQueue<Vec<(usize, bool)>>>,
+    /// Precomputed sighashes for P2PKH inputs, indexed by ecdsa_index_base + input_idx.
+    /// None = not precomputed (worker computes on demand).
+    #[cfg(feature = "production")]
+    pub precomputed_sighashes: Arc<Vec<Option<[u8; 32]>>>,
+    /// Precomputed HASH160(pubkey) for P2PKH inputs, indexed same as precomputed_sighashes.
+    #[cfg(feature = "production")]
+    pub precomputed_p2pkh_hashes: Arc<Vec<Option<[u8; 20]>>>,
 }
 
 struct QueueState {
-    checks: VecDeque<ScriptCheck>,
+    checks: Vec<ScriptCheck>,
     n_todo: usize,
     n_total: usize,
     n_idle: usize,
@@ -115,7 +119,7 @@ impl ScriptCheckQueue {
             .filter(|&b| b > 0 && b <= 1024)
             .unwrap_or(DEFAULT_BATCH_SIZE);
         let state = Arc::new(Mutex::new(QueueState {
-            checks: VecDeque::new(),
+            checks: Vec::new(),
             n_todo: 0,
             n_total: 0,
             n_idle: 0,
@@ -155,7 +159,7 @@ impl ScriptCheckQueue {
     /// Run a single check with pre-built refs (used when refs are cached per tx_ctx).
     /// p2pkh_hash: when Some, P2PKH fast path skips HASH160 (batch path).
     /// When script_pubkey and prevout_values are Some, skips per-check lock acquisitions (batch path).
-    fn run_check_with_refs(
+    pub fn run_check_with_refs(
         check: &ScriptCheck,
         session: &BlockSessionContext,
         ctx: &TxScriptContext,
@@ -179,23 +183,30 @@ impl ScriptCheckQueue {
                 &buffer[start..start + len]
             }
         };
-        let witness_for_script = session
-            .witness_buffer
-            .get(ctx.tx_index)
-            .and_then(|w| w.get(check.input_idx))
-            .and_then(|w| if is_witness_empty(w) { None } else { Some(w) });
+        let witness_for_script = if session.height < 481824 {
+            None
+        } else {
+            session.witness_buffer
+                .get(ctx.tx_index)
+                .and_then(|w| w.get(check.input_idx))
+                .and_then(|w| if is_witness_empty(w) { None } else { Some(w) })
+        };
         let ecdsa_global_idx = ctx.ecdsa_index_base + check.input_idx;
 
         #[cfg(feature = "production")]
-        let ecdsa_key = session.ecdsa_collector.as_ref().and_then(|_| {
-            let counters = &*session.ecdsa_sub_counters;
-            counters
-                .get(ecdsa_global_idx)
-                .map(|c| (ecdsa_global_idx, c))
-        });
+        let sighash_cache = ctx.sighash_midstate_cache.as_ref();
 
         #[cfg(feature = "production")]
-        let sighash_cache = ctx.sighash_midstate_cache.as_ref();
+        let precomputed_sighash = session.precomputed_sighashes
+            .get(ecdsa_global_idx)
+            .and_then(|s| *s);
+        #[cfg(feature = "production")]
+        let precomputed_p2pkh = match p2pkh_hash {
+            Some(h) => Some(h),
+            None => session.precomputed_p2pkh_hashes
+                .get(ecdsa_global_idx)
+                .and_then(|h| *h),
+        };
 
         let do_verify = |prevout_values: &[i64]| {
             verify_script_with_context_full(
@@ -213,14 +224,6 @@ impl ScriptCheckQueue {
                 crate::script::SigVersion::Base,
                 #[cfg(feature = "production")]
                 session.schnorr_collector.as_deref(),
-                #[cfg(feature = "production")]
-                session.ecdsa_collector.as_deref(),
-                #[cfg(not(feature = "production"))]
-                None,
-                #[cfg(not(feature = "production"))]
-                None,
-                #[cfg(feature = "production")]
-                ecdsa_key,
                 #[cfg(not(feature = "production"))]
                 None,
                 #[cfg(feature = "production")]
@@ -228,11 +231,11 @@ impl ScriptCheckQueue {
                 #[cfg(not(feature = "production"))]
                 None,
                 #[cfg(feature = "production")]
-                None, // precomputed_sighash: workers compute on demand
+                precomputed_sighash,
                 #[cfg(feature = "production")]
                 sighash_cache,
                 #[cfg(feature = "production")]
-                p2pkh_hash,
+                precomputed_p2pkh,
             )
             .map_err(|e| ConsensusError::BlockValidation(format!(
                 "Script verification failed at tx {} input {}: {}",
@@ -291,12 +294,10 @@ impl ScriptCheckQueue {
     ) {
         let mut n_now: usize = 0;
         let mut local_error: Option<ConsensusError> = None;
-        let mut pubkey_refs_buf: Vec<&[u8]> = Vec::with_capacity(128);
-        // Phase 1c: Reusable batch buffer — avoids .collect() allocation per batch.
         let mut batch_buf: Vec<ScriptCheck> = Vec::with_capacity(batch_size);
 
         loop {
-            let (session_opt, batch_len) = {
+            let (session_opt, _batch_len) = {
                 let mut guard = state.lock().unwrap();
                 if n_now > 0 {
                     if let Some(ref err) = local_error {
@@ -352,74 +353,51 @@ impl ScriptCheckQueue {
             #[cfg(all(feature = "production", feature = "profile"))]
             let t_run_check = std::time::Instant::now();
             {
-                // Phase 1b: Build refs/pv from session buffers (slim ScriptCheck has no embedded data).
-                TX_TO_INDICES.with(|cell| {
-                let mut tx_to_indices = cell.borrow_mut();
-                tx_to_indices.clear();
-                for (i, c) in batch_buf.iter().enumerate() {
-                    tx_to_indices.entry(c.tx_ctx_idx).or_default().push(i);
-                }
-                for indices in tx_to_indices.values_mut() {
-                    indices.sort_by_key(|&i| batch_buf[i].input_idx);
-                }
+                batch_buf.sort_unstable_by_key(|c| c.tx_ctx_idx);
                 let buffer = session.script_pubkey_buffer.as_slice();
                 let spi = session.script_pubkey_indices_buffer.as_slice();
                 let pv = session.prevout_values_buffer.as_slice();
-                let mut refs_buf: Vec<&[u8]> = Vec::with_capacity(16);
-                WORKER_PV_BUF.with(|pv_cell| {
-                let mut pv_buf = pv_cell.borrow_mut();
-                let mut done = false;
-                for (_tx_ctx_idx, indices) in tx_to_indices.iter() {
-                    if done {
-                        break;
-                    }
-                    refs_buf.clear();
-                    pv_buf.clear();
-                    if let Some(ctx) = indices.first().and_then(|&i| session.tx_contexts.get(batch_buf[i].tx_ctx_idx)) {
-                        let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
-                        let (pv_base, pv_count) = ctx.prevout_values_range;
-                        for j in 0..spi_count {
-                            let (s, l) = spi[spi_base + j];
-                            refs_buf.push(buffer[s..s + l].as_ref());
-                        }
-                        pv_buf.extend_from_slice(&pv[pv_base..][..pv_count]);
-                    }
-                    for &i in indices {
-                        let c = &batch_buf[i];
-                        if let Some(ctx) = session.tx_contexts.get(c.tx_ctx_idx) {
-                            let (spi_base, _) = ctx.script_pubkey_indices_range;
-                            let (s, l) = if c.input_idx < spi.len().saturating_sub(spi_base) {
-                                spi[spi_base + c.input_idx]
-                            } else {
-                                (0, 0)
-                            };
-                            let script_pubkey = if s + l <= buffer.len() { &buffer[s..s + l] } else { &[] };
-                            match Self::run_check_with_refs(
-                                c,
-                                session.as_ref(),
-                                ctx,
-                                &refs_buf,
-                                buffer,
-                                None, // p2pkh_hash: workers compute when needed
-                                Some(script_pubkey),
-                                Some(pv_buf.as_slice()),
-                            ) {
-                                Ok(valid) => batch_results.push((c.tx_ctx_idx, valid)),
-                                Err(e) => {
-                                    local_error = Some(e);
-                                    done = true;
-                                    break;
-                                }
-                            }
-                        } else {
+                let mut refs_buf: Vec<&[u8]> = Vec::with_capacity(64);
+                let mut cached_ctx_idx: usize = usize::MAX;
+                for c in batch_buf.iter() {
+                    let ctx = match session.tx_contexts.get(c.tx_ctx_idx) {
+                        Some(ctx) => ctx,
+                        None => {
                             local_error = Some(ConsensusError::BlockValidation("tx_ctx_idx out of range".into()));
-                            done = true;
+                            break;
+                        }
+                    };
+                    let s = c.spk_offset as usize;
+                    let l = c.spk_len as usize;
+                    let script_pubkey = if s + l <= buffer.len() { &buffer[s..s + l] } else { &[] };
+                    let (pv_base, pv_count) = ctx.prevout_values_range;
+                    let prevout_slice = &pv[pv_base..][..pv_count];
+                    if c.tx_ctx_idx != cached_ctx_idx {
+                        refs_buf.clear();
+                        let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
+                        for j in 0..spi_count {
+                            let (start, len) = spi[spi_base + j];
+                            refs_buf.push(if start + len <= buffer.len() { &buffer[start..start + len] } else { &[] });
+                        }
+                        cached_ctx_idx = c.tx_ctx_idx;
+                    }
+                    match Self::run_check_with_refs(
+                        c,
+                        session.as_ref(),
+                        ctx,
+                        &refs_buf,
+                        buffer,
+                        None,
+                        Some(script_pubkey),
+                        Some(prevout_slice),
+                    ) {
+                        Ok(valid) => batch_results.push((c.tx_ctx_idx, valid)),
+                        Err(e) => {
+                            local_error = Some(e);
                             break;
                         }
                     }
                 }
-                });
-                });
             }
             #[cfg(all(feature = "production", feature = "profile"))]
             crate::script_profile::add_worker_run_check_loop_ns(t_run_check.elapsed().as_nanos() as u64);
@@ -478,7 +456,7 @@ impl ScriptCheckQueue {
         }
     }
 
-    /// Run checks sequentially on the current thread (for ECDSA batch retry when parallel retry fails).
+    /// Run checks sequentially on the current thread (fallback when parallel retry fails).
     pub fn run_checks_sequential(
         checks: &[ScriptCheck],
         session: &BlockSessionContext,
@@ -503,8 +481,6 @@ impl ScriptCheckQueue {
         let mut n_now: usize = 0;
         let mut local_error: Option<ConsensusError> = None;
         let mut session_opt: Option<Arc<BlockSessionContext>> = None;
-        let mut pubkey_refs_buf: Vec<&[u8]> = Vec::with_capacity(128);
-        // Phase 1c: Reusable batch buffer — avoids .collect() allocation per batch.
         let mut batch_buf: Vec<ScriptCheck> = Vec::with_capacity(batch_size);
 
         loop {
@@ -527,10 +503,8 @@ impl ScriptCheckQueue {
                     if guard.n_todo == 0 {
                         guard.n_total -= 1;
                         let results = guard.session.as_ref().map(|s| {
-                            let batches: Vec<_> = std::iter::from_fn(|| s.results.pop()).collect();
-                            let total: usize = batches.iter().map(|b| b.len()).sum();
-                            let mut out = Vec::with_capacity(total);
-                            for batch in batches {
+                            let mut out = Vec::with_capacity(512);
+                            while let Some(batch) = s.results.pop() {
                                 out.extend(batch);
                             }
                             out
@@ -575,74 +549,51 @@ impl ScriptCheckQueue {
             #[cfg(all(feature = "production", feature = "profile"))]
             let t_run_check = std::time::Instant::now();
             {
-                // Phase 1b: Build refs/pv from session buffers (slim ScriptCheck has no embedded data).
-                TX_TO_INDICES.with(|cell| {
-                let mut tx_to_indices = cell.borrow_mut();
-                tx_to_indices.clear();
-                for (i, c) in batch_buf.iter().enumerate() {
-                    tx_to_indices.entry(c.tx_ctx_idx).or_default().push(i);
-                }
-                for indices in tx_to_indices.values_mut() {
-                    indices.sort_by_key(|&i| batch_buf[i].input_idx);
-                }
+                batch_buf.sort_unstable_by_key(|c| c.tx_ctx_idx);
                 let buffer = session.script_pubkey_buffer.as_slice();
                 let spi = session.script_pubkey_indices_buffer.as_slice();
                 let pv = session.prevout_values_buffer.as_slice();
-                let mut refs_buf: Vec<&[u8]> = Vec::with_capacity(16);
-                WORKER_PV_BUF.with(|pv_cell| {
-                let mut pv_buf = pv_cell.borrow_mut();
-                let mut done = false;
-                for (_tx_ctx_idx, indices) in tx_to_indices.iter() {
-                    if done {
-                        break;
-                    }
-                    refs_buf.clear();
-                    pv_buf.clear();
-                    if let Some(ctx) = indices.first().and_then(|&i| session.tx_contexts.get(batch_buf[i].tx_ctx_idx)) {
-                        let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
-                        let (pv_base, pv_count) = ctx.prevout_values_range;
-                        for j in 0..spi_count {
-                            let (s, l) = spi[spi_base + j];
-                            refs_buf.push(buffer[s..s + l].as_ref());
-                        }
-                        pv_buf.extend_from_slice(&pv[pv_base..][..pv_count]);
-                    }
-                    for &i in indices {
-                        let c = &batch_buf[i];
-                        if let Some(ctx) = session.tx_contexts.get(c.tx_ctx_idx) {
-                            let (spi_base, _) = ctx.script_pubkey_indices_range;
-                            let (s, l) = if c.input_idx < spi.len().saturating_sub(spi_base) {
-                                spi[spi_base + c.input_idx]
-                            } else {
-                                (0, 0)
-                            };
-                            let script_pubkey = if s + l <= buffer.len() { &buffer[s..s + l] } else { &[] };
-                            match Self::run_check_with_refs(
-                                c,
-                                session.as_ref(),
-                                ctx,
-                                &refs_buf,
-                                buffer,
-                                None, // p2pkh_hash: workers compute when needed
-                                Some(script_pubkey),
-                                Some(pv_buf.as_slice()),
-                            ) {
-                                Ok(valid) => batch_results.push((c.tx_ctx_idx, valid)),
-                                Err(e) => {
-                                    local_error = Some(e);
-                                    done = true;
-                                    break;
-                                }
-                            }
-                        } else {
+                let mut refs_buf: Vec<&[u8]> = Vec::with_capacity(64);
+                let mut cached_ctx_idx: usize = usize::MAX;
+                for c in batch_buf.iter() {
+                    let ctx = match session.tx_contexts.get(c.tx_ctx_idx) {
+                        Some(ctx) => ctx,
+                        None => {
                             local_error = Some(ConsensusError::BlockValidation("tx_ctx_idx out of range".into()));
-                            done = true;
+                            break;
+                        }
+                    };
+                    let s = c.spk_offset as usize;
+                    let l = c.spk_len as usize;
+                    let script_pubkey = if s + l <= buffer.len() { &buffer[s..s + l] } else { &[] };
+                    let (pv_base, pv_count) = ctx.prevout_values_range;
+                    let prevout_slice = &pv[pv_base..][..pv_count];
+                    if c.tx_ctx_idx != cached_ctx_idx {
+                        refs_buf.clear();
+                        let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
+                        for j in 0..spi_count {
+                            let (start, len) = spi[spi_base + j];
+                            refs_buf.push(if start + len <= buffer.len() { &buffer[start..start + len] } else { &[] });
+                        }
+                        cached_ctx_idx = c.tx_ctx_idx;
+                    }
+                    match Self::run_check_with_refs(
+                        c,
+                        session.as_ref(),
+                        ctx,
+                        &refs_buf,
+                        buffer,
+                        None,
+                        Some(script_pubkey),
+                        Some(prevout_slice),
+                    ) {
+                        Ok(valid) => batch_results.push((c.tx_ctx_idx, valid)),
+                        Err(e) => {
+                            local_error = Some(e);
                             break;
                         }
                     }
                 }
-                });
-                });
             }
             #[cfg(all(feature = "production", feature = "profile"))]
             crate::script_profile::add_worker_run_check_loop_ns(t_run_check.elapsed().as_nanos() as u64);

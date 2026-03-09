@@ -128,27 +128,10 @@ pub fn compute_witness_merkle_root_from_nested(block: &Block, witnesses: &[Vec<W
     compute_merkle_root(&witness_hashes)
 }
 
-/// Compute merkle root from hashes
+/// Compute merkle root from hashes (Orange Paper 8.4.1).
+/// Uses proper pair-and-hash with CVE-2012-2459 mutation detection.
 fn compute_merkle_root(hashes: &[Hash]) -> Result<Hash> {
-    if hashes.is_empty() {
-        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot compute merkle root from empty hash list".into(),
-        ));
-    }
-
-    if hashes.len() == 1 {
-        return Ok(hashes[0]);
-    }
-
-    // Simplified merkle root calculation
-    // In reality, this would use proper merkle tree construction
-    let mut hasher = sha256d::Hash::engine();
-    hasher.input(&hashes[0]);
-    hasher.input(&hashes[1]);
-    let result = sha256d::Hash::from_engine(hasher);
-    let mut root = [0u8; 32];
-    root.copy_from_slice(&result);
-    Ok(root)
+    crate::mining::calculate_merkle_root_from_tx_ids(hashes)
 }
 
 /// Validate witness commitment in coinbase transaction
