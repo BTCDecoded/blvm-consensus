@@ -2,7 +2,7 @@
 //!
 //! Mainnet coverage lives in other tests; this file locks testnet CSV / SegWit / Taproot / BIP65.
 
-use blvm_consensus::activation::{ForkActivationTable, IsForkActive, taproot_activation_height};
+use blvm_consensus::activation::{taproot_activation_height, ForkActivationTable, IsForkActive};
 use blvm_consensus::types::{ForkId, Network};
 use blvm_consensus::{
     BIP112_CSV_ACTIVATION_TESTNET, BIP147_ACTIVATION_TESTNET, BIP65_ACTIVATION_TESTNET,

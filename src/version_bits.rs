@@ -173,11 +173,7 @@ mod tests {
         let act = activation_height_from_headers(&headers, 4031, 1, &dep);
         assert_eq!(act, Some(6048));
         assert!(
-            !crate::bip_validation::is_bip54_active_at(
-                4031,
-                crate::types::Network::Mainnet,
-                act
-            ),
+            !crate::bip_validation::is_bip54_active_at(4031, crate::types::Network::Mainnet, act),
             "override height must not activate BIP54 before that height"
         );
     }

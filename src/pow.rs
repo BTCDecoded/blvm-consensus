@@ -990,7 +990,10 @@ mod tests {
     fn test_difficulty_from_bits() {
         // Genesis bits 0x1d00ffff → difficulty 1.0
         let d = difficulty_from_bits(0x1d00ffff).unwrap();
-        assert!((d - 1.0).abs() < 0.01, "Genesis difficulty should be ~1.0, got {d}");
+        assert!(
+            (d - 1.0).abs() < 0.01,
+            "Genesis difficulty should be ~1.0, got {d}"
+        );
         // Harder target (smaller mantissa) → higher difficulty
         let d_harder = difficulty_from_bits(0x1d000800).unwrap();
         assert!(d_harder > d, "Harder target should have higher difficulty");

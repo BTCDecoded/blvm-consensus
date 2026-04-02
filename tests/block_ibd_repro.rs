@@ -205,15 +205,20 @@ fn block_ibd_repro() {
         }
     }
     // Print all prevouts for transactions with ≥2 inputs (to identify which "input 1" might fail)
-    eprintln!("--- Transactions with multiple inputs (to identify 'input 1' in skip_signatures path) ---");
+    eprintln!(
+        "--- Transactions with multiple inputs (to identify 'input 1' in skip_signatures path) ---"
+    );
     for (tx_idx, tx) in block.transactions.iter().enumerate() {
-        if blvm_consensus::transaction::is_coinbase(tx) { continue; }
+        if blvm_consensus::transaction::is_coinbase(tx) {
+            continue;
+        }
         if tx.inputs.len() >= 2 {
             for (inp_idx, input) in tx.inputs.iter().enumerate() {
                 let found = utxo_set.get(&input.prevout).is_some();
                 eprintln!(
                     "  tx {} input {}: prevout {:02x?}..:{} in_utxo_set={}",
-                    tx_idx, inp_idx,
+                    tx_idx,
+                    inp_idx,
                     &input.prevout.hash[..4],
                     input.prevout.index,
                     found,

@@ -69,64 +69,75 @@ impl ForkActivationTable {
         network: Network,
         bip54_activation_override: Option<u64>,
     ) -> Self {
-        let (bip30_deactivation, bip16, bip34, bip66, bip65, bip112, bip147, segwit, taproot, ctv, csfs) =
-            match network {
-                Network::Mainnet => (
-                    BIP30_DEACTIVATION_MAINNET,
-                    BIP16_P2SH_ACTIVATION_MAINNET,
-                    BIP34_ACTIVATION_MAINNET,
-                    BIP66_ACTIVATION_MAINNET,
-                    BIP65_ACTIVATION_MAINNET,
-                    BIP112_CSV_ACTIVATION_MAINNET,
-                    BIP147_ACTIVATION_MAINNET,
-                    SEGWIT_ACTIVATION_MAINNET,
-                    TAPROOT_ACTIVATION_MAINNET,
-                    if CTV_ACTIVATION_MAINNET == 0 {
-                        u64::MAX
-                    } else {
-                        CTV_ACTIVATION_MAINNET
-                    },
-                    if CSFS_ACTIVATION_MAINNET == 0 {
-                        u64::MAX
-                    } else {
-                        CSFS_ACTIVATION_MAINNET
-                    },
-                ),
-                Network::Testnet => (
-                    BIP30_DEACTIVATION_TESTNET,
-                    BIP16_P2SH_ACTIVATION_TESTNET,
-                    BIP34_ACTIVATION_TESTNET,
-                    BIP66_ACTIVATION_TESTNET,
-                    BIP65_ACTIVATION_TESTNET,
-                    BIP112_CSV_ACTIVATION_TESTNET,
-                    BIP147_ACTIVATION_TESTNET,
-                    SEGWIT_ACTIVATION_TESTNET,
-                    TAPROOT_ACTIVATION_TESTNET,
-                    if CTV_ACTIVATION_TESTNET == 0 {
-                        u64::MAX
-                    } else {
-                        CTV_ACTIVATION_TESTNET
-                    },
-                    if CSFS_ACTIVATION_TESTNET == 0 {
-                        u64::MAX
-                    } else {
-                        CSFS_ACTIVATION_TESTNET
-                    },
-                ),
-                Network::Regtest => (
-                    BIP30_DEACTIVATION_REGTEST,
-                    BIP16_P2SH_ACTIVATION_REGTEST,
-                    BIP34_ACTIVATION_REGTEST,
-                    BIP66_ACTIVATION_REGTEST,
-                    0,
-                    BIP112_CSV_ACTIVATION_REGTEST,
-                    0,
-                    0,
-                    0,
-                    CTV_ACTIVATION_REGTEST,
-                    CSFS_ACTIVATION_REGTEST,
-                ),
-            };
+        let (
+            bip30_deactivation,
+            bip16,
+            bip34,
+            bip66,
+            bip65,
+            bip112,
+            bip147,
+            segwit,
+            taproot,
+            ctv,
+            csfs,
+        ) = match network {
+            Network::Mainnet => (
+                BIP30_DEACTIVATION_MAINNET,
+                BIP16_P2SH_ACTIVATION_MAINNET,
+                BIP34_ACTIVATION_MAINNET,
+                BIP66_ACTIVATION_MAINNET,
+                BIP65_ACTIVATION_MAINNET,
+                BIP112_CSV_ACTIVATION_MAINNET,
+                BIP147_ACTIVATION_MAINNET,
+                SEGWIT_ACTIVATION_MAINNET,
+                TAPROOT_ACTIVATION_MAINNET,
+                if CTV_ACTIVATION_MAINNET == 0 {
+                    u64::MAX
+                } else {
+                    CTV_ACTIVATION_MAINNET
+                },
+                if CSFS_ACTIVATION_MAINNET == 0 {
+                    u64::MAX
+                } else {
+                    CSFS_ACTIVATION_MAINNET
+                },
+            ),
+            Network::Testnet => (
+                BIP30_DEACTIVATION_TESTNET,
+                BIP16_P2SH_ACTIVATION_TESTNET,
+                BIP34_ACTIVATION_TESTNET,
+                BIP66_ACTIVATION_TESTNET,
+                BIP65_ACTIVATION_TESTNET,
+                BIP112_CSV_ACTIVATION_TESTNET,
+                BIP147_ACTIVATION_TESTNET,
+                SEGWIT_ACTIVATION_TESTNET,
+                TAPROOT_ACTIVATION_TESTNET,
+                if CTV_ACTIVATION_TESTNET == 0 {
+                    u64::MAX
+                } else {
+                    CTV_ACTIVATION_TESTNET
+                },
+                if CSFS_ACTIVATION_TESTNET == 0 {
+                    u64::MAX
+                } else {
+                    CSFS_ACTIVATION_TESTNET
+                },
+            ),
+            Network::Regtest => (
+                BIP30_DEACTIVATION_REGTEST,
+                BIP16_P2SH_ACTIVATION_REGTEST,
+                BIP34_ACTIVATION_REGTEST,
+                BIP66_ACTIVATION_REGTEST,
+                0,
+                BIP112_CSV_ACTIVATION_REGTEST,
+                0,
+                0,
+                0,
+                CTV_ACTIVATION_REGTEST,
+                CSFS_ACTIVATION_REGTEST,
+            ),
+        };
 
         let bip54 = bip54_activation_override.unwrap_or_else(|| match network {
             Network::Mainnet => BIP54_ACTIVATION_MAINNET,

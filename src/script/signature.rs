@@ -62,7 +62,9 @@ pub(crate) fn verify_signature<C: Context + Verification>(
     let sighash_byte = signature_bytes[sig_len - 1];
     let der_sig = &signature_bytes[..sig_len - 1];
 
-    if flags & 0x04 != 0 && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)? {
+    if flags & 0x04 != 0
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)?
+    {
         return Ok(false);
     }
 
@@ -180,7 +182,9 @@ fn parse_task_for_batch(
     let sighash_byte = signature_bytes[sig_len - 1];
     let der_sig = &signature_bytes[..sig_len - 1];
 
-    if flags & 0x04 != 0 && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)? {
+    if flags & 0x04 != 0
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)?
+    {
         return Ok(None);
     }
     if flags & 0x02 != 0 {

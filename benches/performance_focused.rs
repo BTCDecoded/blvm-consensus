@@ -12,8 +12,10 @@
 //! Run with: cargo bench --bench performance_focused --features production
 
 use blvm_consensus::{
-    block::{connect_block, BlockValidationContext}, segwit::Witness, types::Network, Block,
-    BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
+    block::{connect_block, BlockValidationContext},
+    segwit::Witness,
+    types::Network,
+    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 

@@ -5,18 +5,19 @@
 //! - Batch UTXO operations
 //! - Assume-Valid Blocks - skip validation for trusted checkpoints
 
+mod apply;
 mod connect;
 mod header;
-mod apply;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
-pub use script_cache::{
-    calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
-};
 pub(crate) use script_cache::{
     calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
 };
+pub use script_cache::{
+    calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
+};
 
+use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::bip113::get_median_time_past;
 use crate::constants::*;
 use crate::economic::get_block_subsidy;
@@ -24,13 +25,12 @@ use crate::error::{ConsensusError, Result};
 use crate::opcodes::*;
 #[cfg(feature = "profile")]
 use crate::profile_log;
-use blvm_spec_lock::spec_locked;
-use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::segwit::{validate_witness_commitment, Witness};
 use crate::transaction::{check_transaction, is_coinbase};
 use crate::types::*;
 use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
 use crate::witness::is_witness_empty;
+use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -154,17 +154,7 @@ pub fn connect_block(
     #[cfg(not(all(feature = "production", feature = "rayon")))]
     let block_arc = None;
     let (result, new_utxo_set, _tx_ids, undo_log, _delta) = connect::connect_block_inner(
-        block,
-        witnesses,
-        utxo_set,
-        None,
-        height,
-        context,
-        None,
-        None,
-        block_arc,
-        false,
-        None,
+        block, witnesses, utxo_set, None, height, context, None, None, block_arc, false, None,
     )?;
     Ok((result, new_utxo_set, undo_log))
 }
@@ -189,7 +179,12 @@ pub fn connect_block_ibd<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
-) -> Result<(ValidationResult, UtxoSet, std::borrow::Cow<'a, [Hash]>, Option<UtxoDelta>)> {
+) -> Result<(
+    ValidationResult,
+    UtxoSet,
+    std::borrow::Cow<'a, [Hash]>,
+    Option<UtxoDelta>,
+)> {
     let (result, new_utxo_set, tx_ids, _undo_log, utxo_delta) = connect::connect_block_inner(
         block,
         witnesses,
@@ -253,8 +248,10 @@ impl BlockValidationContext {
         bip54_boundary: Option<crate::types::Bip54BoundaryTimestamps>,
     ) -> Self {
         let time_context = build_time_context(recent_headers, network_time);
-        let activation =
-            ForkActivationTable::from_network_and_bip54_override(network, bip54_activation_override);
+        let activation = ForkActivationTable::from_network_and_bip54_override(
+            network,
+            bip54_activation_override,
+        );
         Self {
             time_context,
             network_time,
@@ -283,7 +280,13 @@ impl BlockValidationContext {
 
     /// Build context for a network only (no headers, network_time 0, no BIP54). For tests and simple callers.
     pub fn for_network(network: crate::types::Network) -> Self {
-        Self::from_connect_block_ibd_args(None::<&[crate::types::BlockHeader]>, 0, network, None, None)
+        Self::from_connect_block_ibd_args(
+            None::<&[crate::types::BlockHeader]>,
+            0,
+            network,
+            None,
+            None,
+        )
     }
 }
 
@@ -354,12 +357,7 @@ pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
 
     #[cfg(not(feature = "production"))]
     {
-        out.extend(
-            block
-                .transactions
-                .iter()
-                .map(calculate_tx_id),
-        );
+        out.extend(block.transactions.iter().map(calculate_tx_id));
     }
 }
 
@@ -370,888 +368,888 @@ pub fn compute_block_tx_ids(block: &Block) -> Vec<Hash> {
     v
 }
 
-    #[test]
-    fn test_connect_block_invalid_header() {
-        let coinbase_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 0, // Invalid version
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
+#[test]
+fn test_connect_block_invalid_header() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
             },
-            transactions: vec![coinbase_tx].into_boxed_slice(),
-        };
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
 
-        let utxo_set = UtxoSet::default();
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| {
-                (0..tx.inputs.len())
-                    .map(|_| Vec::with_capacity(2))
-                    .collect()
-            })
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
-
-        assert!(matches!(result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_connect_block_no_transactions() {
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![].into_boxed_slice(), // No transactions
-        };
-
-        let utxo_set = UtxoSet::default();
-        // One Vec<Witness> per tx (one Witness per input)
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| {
-                (0..tx.inputs.len())
-                    .map(|_| Vec::with_capacity(2))
-                    .collect()
-            })
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
-
-        assert!(matches!(result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_connect_block_first_tx_not_coinbase() {
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![regular_tx].into_boxed_slice(), // First tx is not coinbase
-        };
-
-        let utxo_set = UtxoSet::default();
-        // One Vec<Witness> per tx (one Witness per input)
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| {
-                (0..tx.inputs.len())
-                    .map(|_| Vec::with_capacity(2))
-                    .collect()
-            })
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
-
-        assert!(matches!(result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_connect_block_coinbase_exceeds_subsidy() {
-        let coinbase_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 6000000000, // 60 BTC - exceeds subsidy
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![coinbase_tx].into_boxed_slice(),
-        };
-
-        let utxo_set = UtxoSet::default();
-        // One Vec<Witness> per tx (one Witness per input)
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| {
-                (0..tx.inputs.len())
-                    .map(|_| Vec::with_capacity(2))
-                    .collect()
-            })
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
-
-        assert!(matches!(result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_apply_transaction_regular() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add a UTXO first
-        let prev_outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let prev_utxo = UTXO {
-            value: 1000,
-            script_pubkey: vec![OP_1].into(), // OP_1
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
-
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1], // OP_1
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 500,
-                script_pubkey: vec![OP_2].into(), // OP_2
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let (new_utxo_set, _undo_entries) = apply_transaction(&regular_tx, utxo_set, 1).unwrap();
-
-        // Should have 1 UTXO (the new output)
-        assert_eq!(new_utxo_set.len(), 1);
-    }
-
-    #[test]
-    fn test_apply_transaction_multiple_outputs() {
-        let coinbase_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![
-                TransactionOutput {
-                    value: 2500000000,
-                    script_pubkey: vec![OP_1].into(),
-                },
-                TransactionOutput {
-                    value: 2500000000,
-                    script_pubkey: vec![OP_2].into(),
-                },
-            ]
-            .into(),
-            lock_time: 0,
-        };
-
-        let utxo_set = UtxoSet::default();
-        let (new_utxo_set, _undo_entries) = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
-
-        assert_eq!(new_utxo_set.len(), 2);
-    }
-
-    #[test]
-    fn test_validate_block_header_valid() {
-        use sha2::{Digest, Sha256};
-
-        // Create a valid header with non-zero merkle root
-        let header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
-            timestamp: 1231006505,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-
-        let result = header::validate_block_header(&header, None).unwrap();
-        assert!(result);
-    }
-
-    #[test]
-    fn test_validate_block_header_invalid_version() {
-        let header = BlockHeader {
+    let block = Block {
+        header: BlockHeader {
             version: 0, // Invalid version
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1231006505,
             bits: 0x1d00ffff,
             nonce: 0,
-        };
+        },
+        transactions: vec![coinbase_tx].into_boxed_slice(),
+    };
 
-        let result = header::validate_block_header(&header, None).unwrap();
-        assert!(!result);
-    }
+    let utxo_set = UtxoSet::default();
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| {
+            (0..tx.inputs.len())
+                .map(|_| Vec::with_capacity(2))
+                .collect()
+        })
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
 
-    #[test]
-    fn test_validate_block_header_invalid_bits() {
-        let header = BlockHeader {
+    assert!(matches!(result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_connect_block_no_transactions() {
+    let block = Block {
+        header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1231006505,
-            bits: 0, // Invalid bits
-            nonce: 0,
-        };
-
-        let result = header::validate_block_header(&header, None).unwrap();
-        assert!(!result);
-    }
-
-    #[test]
-    fn test_is_coinbase_true() {
-        let coinbase_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert!(is_coinbase(&coinbase_tx));
-    }
-
-    #[test]
-    fn test_is_coinbase_false_wrong_hash() {
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0xffffffff,
-                }, // Wrong hash
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert!(!is_coinbase(&regular_tx));
-    }
-
-    #[test]
-    fn test_is_coinbase_false_wrong_index() {
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                }, // Wrong index
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert!(!is_coinbase(&regular_tx));
-    }
-
-    #[test]
-    fn test_is_coinbase_false_multiple_inputs() {
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [0; 32].into(),
-                        index: 0xffffffff,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32],
-                        index: 0,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-            ]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert!(!is_coinbase(&regular_tx));
-    }
-
-    #[test]
-    fn test_calculate_tx_id() {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let tx_id = calculate_tx_id(&tx);
-
-        // Should be a 32-byte hash (double SHA256 of serialized transaction)
-        assert_eq!(tx_id.len(), 32);
-
-        // Same transaction should produce same ID (deterministic)
-        let tx_id2 = calculate_tx_id(&tx);
-        assert_eq!(tx_id, tx_id2);
-
-        // Different transaction should produce different ID
-        let mut tx2 = tx.clone();
-        tx2.version = 2;
-        let tx_id3 = calculate_tx_id(&tx2);
-        assert_ne!(tx_id, tx_id3);
-    }
-
-    #[test]
-    fn test_calculate_tx_id_different_versions() {
-        let tx1 = Transaction {
-            version: 2,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-
-        let tx2 = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-
-        let id1 = calculate_tx_id(&tx1);
-        let id2 = calculate_tx_id(&tx2);
-
-        // Different versions should produce different IDs
-        assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_connect_block_empty_transactions() {
-        // Test that blocks with empty transactions are rejected
-        // Note: We need a valid merkle root even for empty blocks (though they're invalid)
-        // For testing purposes, we'll use a zero merkle root which will fail validation
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32], // Zero merkle root - will fail validation
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![].into_boxed_slice(), // Empty transactions - invalid
-        };
-
-        let utxo_set = UtxoSet::default();
-        // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
-        // The result should be Ok with ValidationResult::Invalid
-        assert!(result.is_ok());
-        let (validation_result, _, _undo_log) = result.unwrap();
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_connect_block_invalid_coinbase() {
-        let invalid_coinbase = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                }, // Wrong hash for coinbase
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![invalid_coinbase].into_boxed_slice(),
-        };
-
-        let utxo_set = UtxoSet::default();
-        // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
-        // The result should be Ok with ValidationResult::Invalid
-        assert!(result.is_ok());
-        let (validation_result, _, _undo_log) = result.unwrap();
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_apply_transaction_insufficient_funds() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add a UTXO with insufficient value
-        let prev_outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let prev_utxo = UTXO {
-            value: 100, // Small value
-            script_pubkey: vec![OP_1].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
-
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 200, // More than input value
-                script_pubkey: vec![OP_2].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        // The simplified implementation doesn't validate insufficient funds
-        let result = apply_transaction(&tx, utxo_set, 1);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_apply_transaction_missing_utxo() {
-        let utxo_set = UtxoSet::default(); // Empty UTXO set
-
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 100,
-                script_pubkey: vec![OP_2].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        // The simplified implementation doesn't validate missing UTXOs
-        let result = apply_transaction(&tx, utxo_set, 1);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_block_header_future_timestamp() {
-        use sha2::{Digest, Sha256};
-
-        // Create header with non-zero merkle root (required for validation)
-        // Timestamp validation now uses TimeContext (network time + median time-past)
-        let header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
-            timestamp: 9999999999, // Far future timestamp (would need network time check)
             bits: 0x1d00ffff,
             nonce: 0,
-        };
+        },
+        transactions: vec![].into_boxed_slice(), // No transactions
+    };
 
-        // Header structure is valid (actual future timestamp check needs network context)
-        let result = header::validate_block_header(&header, None).unwrap();
-        assert!(result);
-    }
+    let utxo_set = UtxoSet::default();
+    // One Vec<Witness> per tx (one Witness per input)
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| {
+            (0..tx.inputs.len())
+                .map(|_| Vec::with_capacity(2))
+                .collect()
+        })
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
 
-    #[test]
-    fn test_validate_block_header_zero_timestamp() {
-        use sha2::{Digest, Sha256};
+    assert!(matches!(result, ValidationResult::Invalid(_)));
+}
 
-        // Zero timestamp should be rejected by validate_block_header
-        let header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
-            timestamp: 0, // Zero timestamp (invalid)
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-
-        // Zero timestamp should be rejected
-        let result = header::validate_block_header(&header, None).unwrap();
-        assert!(!result);
-    }
-
-    #[test]
-    fn test_connect_block_coinbase_exceeds_subsidy_edge() {
-        let coinbase_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 2100000000000000, // Exceeds total supply
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
+#[test]
+fn test_connect_block_first_tx_not_coinbase() {
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
             },
-            transactions: vec![coinbase_tx].into_boxed_slice(),
-        };
-
-        let utxo_set = UtxoSet::default();
-        // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
-        // The result should be Ok with ValidationResult::Invalid
-        assert!(result.is_ok());
-        let (validation_result, _, _undo_log) = result.unwrap();
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_connect_block_first_tx_not_coinbase_edge() {
-        let regular_tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![OP_2].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let block = Block {
-            header: BlockHeader {
-                version: 1,
-                prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
-                nonce: 0,
-            },
-            transactions: vec![regular_tx].into_boxed_slice(), // First tx is not coinbase
-        };
-
-        let utxo_set = UtxoSet::default();
-        // Optimization: Pre-allocate witness vectors with capacity
-        let witnesses: Vec<Vec<Witness>> = block
-            .transactions
-            .iter()
-            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-            .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
-        let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
-        // The result should be Ok with ValidationResult::Invalid
-        assert!(result.is_ok());
-        let (validation_result, _, _undo_log) = result.unwrap();
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
-    }
-
-    #[test]
-    fn test_apply_transaction_multiple_inputs() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add multiple UTXOs
-        let outpoint1 = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let utxo1 = UTXO {
-            value: 500,
-            script_pubkey: vec![OP_1].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
-
-        let outpoint2 = OutPoint {
-            hash: [2; 32],
-            index: 0,
-        };
-        let utxo2 = UTXO {
-            value: 300,
-            script_pubkey: vec![OP_2].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint2, std::sync::Arc::new(utxo2));
-
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32].into(),
-                        index: 0,
-                    },
-                    script_sig: vec![OP_1],
-                    sequence: 0xffffffff,
-                },
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [2; 32],
-                        index: 0,
-                    },
-                    script_sig: vec![OP_2],
-                    sequence: 0xffffffff,
-                },
-            ]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 700, // Total input value
-                script_pubkey: vec![OP_3].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        let (new_utxo_set, _undo_entries) = apply_transaction(&tx, utxo_set, 1).unwrap();
-        assert_eq!(new_utxo_set.len(), 1);
-    }
-
-    #[test]
-    fn test_apply_transaction_no_outputs() {
-        let mut utxo_set = UtxoSet::default();
-
-        let prev_outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let prev_utxo = UTXO {
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
 
-        // Test that transactions with no outputs are rejected
-        // This is a validation test, not an application test
-        let tx = Transaction {
+    let block = Block {
+        header: BlockHeader {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![].into(), // No outputs - should be invalid
-            lock_time: 0,
-        };
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![regular_tx].into_boxed_slice(), // First tx is not coinbase
+    };
 
-        // The transaction should be invalid due to no outputs
-        // We can't apply an invalid transaction, so this test verifies validation rejects it
-        let validation_result = crate::transaction::check_transaction(&tx).unwrap();
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+    let utxo_set = UtxoSet::default();
+    // One Vec<Witness> per tx (one Witness per input)
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| {
+            (0..tx.inputs.len())
+                .map(|_| Vec::with_capacity(2))
+                .collect()
+        })
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
 
-        // For the actual apply test, use a valid transaction with at least one output
-        let valid_tx = Transaction {
+    assert!(matches!(result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_connect_block_coinbase_exceeds_subsidy() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 6000000000, // 60 BTC - exceeds subsidy
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let block = Block {
+        header: BlockHeader {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![OP_1],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 500, // Valid output
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase_tx].into_boxed_slice(),
+    };
+
+    let utxo_set = UtxoSet::default();
+    // One Vec<Witness> per tx (one Witness per input)
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| {
+            (0..tx.inputs.len())
+                .map(|_| Vec::with_capacity(2))
+                .collect()
+        })
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
+
+    assert!(matches!(result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_apply_transaction_regular() {
+    let mut utxo_set = UtxoSet::default();
+
+    // Add a UTXO first
+    let prev_outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
+    let prev_utxo = UTXO {
+        value: 1000,
+        script_pubkey: vec![OP_1].into(), // OP_1
+        height: 0,
+        is_coinbase: false,
+    };
+    utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
+
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1], // OP_1
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 500,
+            script_pubkey: vec![OP_2].into(), // OP_2
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let (new_utxo_set, _undo_entries) = apply_transaction(&regular_tx, utxo_set, 1).unwrap();
+
+    // Should have 1 UTXO (the new output)
+    assert_eq!(new_utxo_set.len(), 1);
+}
+
+#[test]
+fn test_apply_transaction_multiple_outputs() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![
+            TransactionOutput {
+                value: 2500000000,
                 script_pubkey: vec![OP_1].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
+            },
+            TransactionOutput {
+                value: 2500000000,
+                script_pubkey: vec![OP_2].into(),
+            },
+        ]
+        .into(),
+        lock_time: 0,
+    };
 
-        // Now apply the valid transaction
-        let (new_utxo_set, _undo_entries) = apply_transaction(&valid_tx, utxo_set, 1).unwrap();
-        // After applying, the input UTXO should be removed and the output UTXO should be added
-        assert_eq!(new_utxo_set.len(), 1);
+    let utxo_set = UtxoSet::default();
+    let (new_utxo_set, _undo_entries) = apply_transaction(&coinbase_tx, utxo_set, 0).unwrap();
 
-        // Verify the output UTXO exists
-        let output_outpoint = OutPoint {
-            hash: calculate_tx_id(&valid_tx),
-            index: 0,
-        };
-        assert!(new_utxo_set.contains_key(&output_outpoint));
-    }
+    assert_eq!(new_utxo_set.len(), 2);
+}
+
+#[test]
+fn test_validate_block_header_valid() {
+    use sha2::{Digest, Sha256};
+
+    // Create a valid header with non-zero merkle root
+    let header = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
+        timestamp: 1231006505,
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+
+    let result = header::validate_block_header(&header, None).unwrap();
+    assert!(result);
+}
+
+#[test]
+fn test_validate_block_header_invalid_version() {
+    let header = BlockHeader {
+        version: 0, // Invalid version
+        prev_block_hash: [0; 32],
+        merkle_root: [0; 32],
+        timestamp: 1231006505,
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+
+    let result = header::validate_block_header(&header, None).unwrap();
+    assert!(!result);
+}
+
+#[test]
+fn test_validate_block_header_invalid_bits() {
+    let header = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: [0; 32],
+        timestamp: 1231006505,
+        bits: 0, // Invalid bits
+        nonce: 0,
+    };
+
+    let result = header::validate_block_header(&header, None).unwrap();
+    assert!(!result);
+}
+
+#[test]
+fn test_is_coinbase_true() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    assert!(is_coinbase(&coinbase_tx));
+}
+
+#[test]
+fn test_is_coinbase_false_wrong_hash() {
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0xffffffff,
+            }, // Wrong hash
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    assert!(!is_coinbase(&regular_tx));
+}
+
+#[test]
+fn test_is_coinbase_false_wrong_index() {
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0,
+            }, // Wrong index
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    assert!(!is_coinbase(&regular_tx));
+}
+
+#[test]
+fn test_is_coinbase_false_multiple_inputs() {
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![
+            TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0xffffffff,
+                },
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            },
+            TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32],
+                    index: 0,
+                },
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            },
+        ]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    assert!(!is_coinbase(&regular_tx));
+}
+
+#[test]
+fn test_calculate_tx_id() {
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let tx_id = calculate_tx_id(&tx);
+
+    // Should be a 32-byte hash (double SHA256 of serialized transaction)
+    assert_eq!(tx_id.len(), 32);
+
+    // Same transaction should produce same ID (deterministic)
+    let tx_id2 = calculate_tx_id(&tx);
+    assert_eq!(tx_id, tx_id2);
+
+    // Different transaction should produce different ID
+    let mut tx2 = tx.clone();
+    tx2.version = 2;
+    let tx_id3 = calculate_tx_id(&tx2);
+    assert_ne!(tx_id, tx_id3);
+}
+
+#[test]
+fn test_calculate_tx_id_different_versions() {
+    let tx1 = Transaction {
+        version: 2,
+        inputs: vec![].into(),
+        outputs: vec![].into(),
+        lock_time: 0,
+    };
+
+    let tx2 = Transaction {
+        version: 1,
+        inputs: vec![].into(),
+        outputs: vec![].into(),
+        lock_time: 0,
+    };
+
+    let id1 = calculate_tx_id(&tx1);
+    let id2 = calculate_tx_id(&tx2);
+
+    // Different versions should produce different IDs
+    assert_ne!(id1, id2);
+}
+
+#[test]
+fn test_connect_block_empty_transactions() {
+    // Test that blocks with empty transactions are rejected
+    // Note: We need a valid merkle root even for empty blocks (though they're invalid)
+    // For testing purposes, we'll use a zero merkle root which will fail validation
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32], // Zero merkle root - will fail validation
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![].into_boxed_slice(), // Empty transactions - invalid
+    };
+
+    let utxo_set = UtxoSet::default();
+    // Optimization: Pre-allocate witness vectors with capacity
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
+    // The result should be Ok with ValidationResult::Invalid
+    assert!(result.is_ok());
+    let (validation_result, _, _undo_log) = result.unwrap();
+    assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_connect_block_invalid_coinbase() {
+    let invalid_coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            }, // Wrong hash for coinbase
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![invalid_coinbase].into_boxed_slice(),
+    };
+
+    let utxo_set = UtxoSet::default();
+    // Optimization: Pre-allocate witness vectors with capacity
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
+    // The result should be Ok with ValidationResult::Invalid
+    assert!(result.is_ok());
+    let (validation_result, _, _undo_log) = result.unwrap();
+    assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_apply_transaction_insufficient_funds() {
+    let mut utxo_set = UtxoSet::default();
+
+    // Add a UTXO with insufficient value
+    let prev_outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
+    let prev_utxo = UTXO {
+        value: 100, // Small value
+        script_pubkey: vec![OP_1].into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
+
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 200, // More than input value
+            script_pubkey: vec![OP_2].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    // The simplified implementation doesn't validate insufficient funds
+    let result = apply_transaction(&tx, utxo_set, 1);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_apply_transaction_missing_utxo() {
+    let utxo_set = UtxoSet::default(); // Empty UTXO set
+
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 100,
+            script_pubkey: vec![OP_2].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    // The simplified implementation doesn't validate missing UTXOs
+    let result = apply_transaction(&tx, utxo_set, 1);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_validate_block_header_future_timestamp() {
+    use sha2::{Digest, Sha256};
+
+    // Create header with non-zero merkle root (required for validation)
+    // Timestamp validation now uses TimeContext (network time + median time-past)
+    let header = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
+        timestamp: 9999999999, // Far future timestamp (would need network time check)
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+
+    // Header structure is valid (actual future timestamp check needs network context)
+    let result = header::validate_block_header(&header, None).unwrap();
+    assert!(result);
+}
+
+#[test]
+fn test_validate_block_header_zero_timestamp() {
+    use sha2::{Digest, Sha256};
+
+    // Zero timestamp should be rejected by validate_block_header
+    let header = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: Sha256::digest(b"test merkle root")[..].try_into().unwrap(),
+        timestamp: 0, // Zero timestamp (invalid)
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+
+    // Zero timestamp should be rejected
+    let result = header::validate_block_header(&header, None).unwrap();
+    assert!(!result);
+}
+
+#[test]
+fn test_connect_block_coinbase_exceeds_subsidy_edge() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 2100000000000000, // Exceeds total supply
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase_tx].into_boxed_slice(),
+    };
+
+    let utxo_set = UtxoSet::default();
+    // Optimization: Pre-allocate witness vectors with capacity
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
+    // The result should be Ok with ValidationResult::Invalid
+    assert!(result.is_ok());
+    let (validation_result, _, _undo_log) = result.unwrap();
+    assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_connect_block_first_tx_not_coinbase_edge() {
+    let regular_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![OP_2].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1231006505,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![regular_tx].into_boxed_slice(), // First tx is not coinbase
+    };
+
+    let utxo_set = UtxoSet::default();
+    // Optimization: Pre-allocate witness vectors with capacity
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+        .collect();
+    let ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    let result = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx);
+    // The result should be Ok with ValidationResult::Invalid
+    assert!(result.is_ok());
+    let (validation_result, _, _undo_log) = result.unwrap();
+    assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_apply_transaction_multiple_inputs() {
+    let mut utxo_set = UtxoSet::default();
+
+    // Add multiple UTXOs
+    let outpoint1 = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
+    let utxo1 = UTXO {
+        value: 500,
+        script_pubkey: vec![OP_1].into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
+
+    let outpoint2 = OutPoint {
+        hash: [2; 32],
+        index: 0,
+    };
+    let utxo2 = UTXO {
+        value: 300,
+        script_pubkey: vec![OP_2].into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    utxo_set.insert(outpoint2, std::sync::Arc::new(utxo2));
+
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![
+            TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![OP_1],
+                sequence: 0xffffffff,
+            },
+            TransactionInput {
+                prevout: OutPoint {
+                    hash: [2; 32],
+                    index: 0,
+                },
+                script_sig: vec![OP_2],
+                sequence: 0xffffffff,
+            },
+        ]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 700, // Total input value
+            script_pubkey: vec![OP_3].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let (new_utxo_set, _undo_entries) = apply_transaction(&tx, utxo_set, 1).unwrap();
+    assert_eq!(new_utxo_set.len(), 1);
+}
+
+#[test]
+fn test_apply_transaction_no_outputs() {
+    let mut utxo_set = UtxoSet::default();
+
+    let prev_outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0,
+    };
+    let prev_utxo = UTXO {
+        value: 1000,
+        script_pubkey: vec![OP_1].into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    utxo_set.insert(prev_outpoint, std::sync::Arc::new(prev_utxo));
+
+    // Test that transactions with no outputs are rejected
+    // This is a validation test, not an application test
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![].into(), // No outputs - should be invalid
+        lock_time: 0,
+    };
+
+    // The transaction should be invalid due to no outputs
+    // We can't apply an invalid transaction, so this test verifies validation rejects it
+    let validation_result = crate::transaction::check_transaction(&tx).unwrap();
+    assert!(matches!(validation_result, ValidationResult::Invalid(_)));
+
+    // For the actual apply test, use a valid transaction with at least one output
+    let valid_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 500, // Valid output
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    // Now apply the valid transaction
+    let (new_utxo_set, _undo_entries) = apply_transaction(&valid_tx, utxo_set, 1).unwrap();
+    // After applying, the input UTXO should be removed and the output UTXO should be added
+    assert_eq!(new_utxo_set.len(), 1);
+
+    // Verify the output UTXO exists
+    let output_outpoint = OutPoint {
+        hash: calculate_tx_id(&valid_tx),
+        index: 0,
+    };
+    assert!(new_utxo_set.contains_key(&output_outpoint));
+}

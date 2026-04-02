@@ -11,7 +11,10 @@ fn bip66_base_flags_include_dersig_not_strictenc_or_low_s() {
     let h = 364_000u64;
     assert!(table.is_fork_active(ForkId::Bip66, h));
     let flags = calculate_base_script_flags_for_block_network(h, Network::Mainnet);
-    assert!(flags & 0x04 != 0, "expected SCRIPT_VERIFY_DERSIG after BIP66");
+    assert!(
+        flags & 0x04 != 0,
+        "expected SCRIPT_VERIFY_DERSIG after BIP66"
+    );
     assert!(
         flags & 0x02 == 0,
         "STRICTENC is policy-only; not part of block consensus base flags"

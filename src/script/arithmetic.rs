@@ -67,11 +67,9 @@ pub(crate) fn op_booland(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if a != 0 && b != 0 {
-        1
-    } else {
-        0
-    })));
+    stack.push(to_stack_element(&super::script_num_encode(
+        if a != 0 && b != 0 { 1 } else { 0 },
+    )));
     Ok(true)
 }
 
@@ -81,11 +79,9 @@ pub(crate) fn op_boolor(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if a != 0 || b != 0 {
-        1
-    } else {
-        0
-    })));
+    stack.push(to_stack_element(&super::script_num_encode(
+        if a != 0 || b != 0 { 1 } else { 0 },
+    )));
     Ok(true)
 }
 
@@ -95,7 +91,11 @@ pub(crate) fn op_numequal(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if a == b { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if a == b {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -114,7 +114,11 @@ pub(crate) fn op_numnotequal(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if a != b { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if a != b {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -124,7 +128,11 @@ pub(crate) fn op_lessthan(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if b < a { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if b < a {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -134,7 +142,11 @@ pub(crate) fn op_greaterthan(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if b > a { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if b > a {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -144,7 +156,11 @@ pub(crate) fn op_lessthanorequal(stack: &mut Vec<StackElement>) -> Result<bool> 
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if b <= a { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if b <= a {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -154,7 +170,11 @@ pub(crate) fn op_greaterthanorequal(stack: &mut Vec<StackElement>) -> Result<boo
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(if b >= a { 1 } else { 0 })));
+    stack.push(to_stack_element(&super::script_num_encode(if b >= a {
+        1
+    } else {
+        0
+    })));
     Ok(true)
 }
 
@@ -164,7 +184,9 @@ pub(crate) fn op_min(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(std::cmp::min(b, a))));
+    stack.push(to_stack_element(&super::script_num_encode(std::cmp::min(
+        b, a,
+    ))));
     Ok(true)
 }
 
@@ -174,7 +196,9 @@ pub(crate) fn op_max(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
     let a = super::script_num_decode(&stack.pop().unwrap(), 4)?;
     let b = super::script_num_decode(&stack.pop().unwrap(), 4)?;
-    stack.push(to_stack_element(&super::script_num_encode(std::cmp::max(b, a))));
+    stack.push(to_stack_element(&super::script_num_encode(std::cmp::max(
+        b, a,
+    ))));
     Ok(true)
 }
 

@@ -468,7 +468,6 @@ pub struct ConsensusConfig {
     /// Advanced configuration options
     #[serde(default)]
     pub advanced: AdvancedConfig,
-
 }
 
 impl ConsensusConfig {

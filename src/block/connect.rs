@@ -11,22 +11,21 @@ use crate::error::{ConsensusError, Result};
 use crate::opcodes::*;
 #[cfg(feature = "profile")]
 use crate::profile_log;
+use crate::script::verify_script_with_context_full;
 use crate::segwit::{validate_witness_commitment, Witness};
 use crate::transaction::{check_transaction, check_tx_inputs, is_coinbase};
 use crate::types::*;
 use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
 use crate::witness::is_witness_empty;
-use crate::script::verify_script_with_context_full;
 use blvm_spec_lock::spec_locked;
-use std::borrow::Cow;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::borrow::Cow;
 
 use super::{
-    apply, header, script_cache,
-    BlockValidationContext, compute_block_tx_ids, get_assume_valid_height, skip_script_exec_cache,
-    calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
-    UtxoDelta,
+    apply, calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
+    compute_block_tx_ids, get_assume_valid_height, header, script_cache, skip_script_exec_cache,
+    BlockValidationContext, UtxoDelta,
 };
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -85,13 +84,15 @@ fn check_bip54_sigop_limit<'a, U: crate::utxo_overlay::UtxoLookup>(
     tx_flags: u32,
     utxo_set: &UtxoSet,
     tx_ids: &[Hash],
-) -> Result<Option<(
-    ValidationResult,
-    UtxoSet,
-    Cow<'a, [Hash]>,
-    crate::reorganization::BlockUndoLog,
-    Option<UtxoDelta>,
-)>> {
+) -> Result<
+    Option<(
+        ValidationResult,
+        UtxoSet,
+        Cow<'a, [Hash]>,
+        crate::reorganization::BlockUndoLog,
+        Option<UtxoDelta>,
+    )>,
+> {
     if !bip54_active || is_coinbase(tx) {
         return Ok(None);
     }
@@ -162,9 +163,7 @@ fn perf_cliff_sample_height(height: u64, stride: u64) -> bool {
         }
         perf_cliff_default_bands()
     });
-    bands
-        .iter()
-        .any(|(lo, hi)| height >= *lo && height <= *hi)
+    bands.iter().any(|(lo, hi)| height >= *lo && height <= *hi)
 }
 
 #[cfg(feature = "profile")]
@@ -307,7 +306,10 @@ pub(crate) fn connect_block_inner<'a>(
             return invalid_block_result(
                 &utxo_set,
                 &[],
-                format!("Block has too many transactions: {}", block.transactions.len()),
+                format!(
+                    "Block has too many transactions: {}",
+                    block.transactions.len()
+                ),
             );
         }
     }
@@ -517,7 +519,10 @@ pub(crate) fn connect_block_inner<'a>(
 
     // BIP54: Consensus Cleanup (activation-gated)
     if bip54_active {
-        let coinbase = block.transactions.first().expect("block has at least one tx");
+        let coinbase = block
+            .transactions
+            .first()
+            .expect("block has at least one tx");
         if !crate::bip_validation::check_bip54_coinbase(coinbase, height) {
             return invalid_block_result(
                 &utxo_set,
@@ -592,7 +597,8 @@ pub(crate) fn connect_block_inner<'a>(
         .map(|cw| cw >= crate::config::get_n_minimum_chain_work())
         .unwrap_or(true);
     #[cfg(feature = "production")]
-    let skip_signatures = height < crate::block::get_assume_valid_height() && two_week_ok && chainwork_ok;
+    let skip_signatures =
+        height < crate::block::get_assume_valid_height() && two_week_ok && chainwork_ok;
 
     #[cfg(not(feature = "production"))]
     let skip_signatures = false;
@@ -756,7 +762,9 @@ pub(crate) fn connect_block_inner<'a>(
                 }
             }
             #[cfg(feature = "profile")]
-            { total_tx_structure_time += structure_start.elapsed(); }
+            {
+                total_tx_structure_time += structure_start.elapsed();
+            }
 
             // Per-input ECDSA counters for composite index (base << 16) | sub so batch sort order
             // is deterministic under parallel script verification (see docs/IBD_BATCH_SPEED_PLAN.md §11).
@@ -962,9 +970,10 @@ pub(crate) fn connect_block_inner<'a>(
                                     total_sigop_cost = match total_sigop_cost.checked_add(cost) {
                                         Some(v) => v,
                                         None => {
-                                            early_return = Some(Err(ConsensusError::BlockValidation(
-                                                "Sigop cost overflow".into(),
-                                            )));
+                                            early_return =
+                                                Some(Err(ConsensusError::BlockValidation(
+                                                    "Sigop cost overflow".into(),
+                                                )));
                                             break;
                                         }
                                     };
@@ -1041,9 +1050,10 @@ pub(crate) fn connect_block_inner<'a>(
                                     total_sigop_cost = match total_sigop_cost.checked_add(cost) {
                                         Some(v) => v,
                                         None => {
-                                            early_return = Some(Err(ConsensusError::BlockValidation(
-                                                "Sigop cost overflow".into(),
-                                            )));
+                                            early_return =
+                                                Some(Err(ConsensusError::BlockValidation(
+                                                    "Sigop cost overflow".into(),
+                                                )));
                                             break;
                                         }
                                     };
@@ -1194,240 +1204,243 @@ pub(crate) fn connect_block_inner<'a>(
                         script_checks_queued_count = 0;
                     }
                 } else {
-                let witness_buffer: std::sync::Arc<Vec<Vec<Witness>>> = witnesses_arc
-                    .map(Arc::clone)
-                    .unwrap_or_else(|| {
-                        if witnesses.is_empty() {
-                            arc_empty_witness_rows()
-                        } else {
-                            Arc::new(witnesses.to_vec())
-                        }
-                    });
-                let tx_contexts_arc = Arc::new(tx_contexts);
-                let script_pubkey_buffer = Arc::new(script_pubkey_vec);
-                let prevout_values_buffer = Arc::new(prevout_values_vec);
-                let script_pubkey_indices_buffer = Arc::new(script_pubkey_indices_vec);
-                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-                let schnorr_collector = if use_per_sig_schnorr() {
-                    None
-                } else {
-                    Some(Arc::clone(&block_schnorr_collector))
-                };
-                #[cfg(all(feature = "production", not(feature = "blvm-secp256k1")))]
-                let schnorr_collector: Option<
-                    Arc<crate::bip348::SchnorrSignatureCollector>,
-                > = None;
-
-                // Small-block fast path: skip CCheckQueue overhead for blocks with <32 inputs.
-                const SMALL_BLOCK_THRESHOLD: usize = 32;
-                let precomputed_sighashes_arc = Arc::new(precomputed_sighashes);
-                let precomputed_p2pkh_hashes_arc = Arc::new(precomputed_p2pkh_hashes);
-
-                let check_results = if total_inputs < SMALL_BLOCK_THRESHOLD {
-                    let seq_session = BlockSessionContext {
-                        block: Arc::clone(&block_arc),
-                        prevout_values_buffer: Arc::clone(&prevout_values_buffer),
-                        script_pubkey_indices_buffer: Arc::clone(&script_pubkey_indices_buffer),
-                        script_pubkey_buffer: Arc::clone(&script_pubkey_buffer),
-                        witness_buffer: Arc::clone(&witness_buffer),
-                        tx_contexts: Arc::clone(&tx_contexts_arc),
-                        #[cfg(feature = "production")]
-                        ecdsa_sub_counters: Arc::clone(&ecdsa_sub_counters),
-                        #[cfg(feature = "production")]
-                        schnorr_collector: schnorr_collector.clone(),
-                        height,
-                        median_time_past,
-                        network,
-                        activation: context.activation.clone(),
-                        results: Arc::new(crossbeam_queue::SegQueue::new()),
-                        #[cfg(feature = "production")]
-                        precomputed_sighashes: Arc::clone(&precomputed_sighashes_arc),
-                        #[cfg(feature = "production")]
-                        precomputed_p2pkh_hashes: Arc::clone(&precomputed_p2pkh_hashes_arc),
+                    let witness_buffer: std::sync::Arc<Vec<Vec<Witness>>> =
+                        witnesses_arc.map(Arc::clone).unwrap_or_else(|| {
+                            if witnesses.is_empty() {
+                                arc_empty_witness_rows()
+                            } else {
+                                Arc::new(witnesses.to_vec())
+                            }
+                        });
+                    let tx_contexts_arc = Arc::new(tx_contexts);
+                    let script_pubkey_buffer = Arc::new(script_pubkey_vec);
+                    let prevout_values_buffer = Arc::new(prevout_values_vec);
+                    let script_pubkey_indices_buffer = Arc::new(script_pubkey_indices_vec);
+                    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                    let schnorr_collector = if use_per_sig_schnorr() {
+                        None
+                    } else {
+                        Some(Arc::clone(&block_schnorr_collector))
                     };
-                    crate::checkqueue::ScriptCheckQueue::run_checks_sequential(
-                        &block_checks_buf,
-                        &seq_session,
-                    )?
-                } else {
-                    let rayon_session = Arc::new(BlockSessionContext {
-                        block: Arc::clone(&block_arc),
-                        prevout_values_buffer: Arc::clone(&prevout_values_buffer),
-                        script_pubkey_indices_buffer: Arc::clone(&script_pubkey_indices_buffer),
-                        script_pubkey_buffer: Arc::clone(&script_pubkey_buffer),
-                        witness_buffer: Arc::clone(&witness_buffer),
-                        tx_contexts: Arc::clone(&tx_contexts_arc),
-                        #[cfg(feature = "production")]
-                        ecdsa_sub_counters: Arc::clone(&ecdsa_sub_counters),
-                        #[cfg(feature = "production")]
-                        schnorr_collector,
-                        height,
-                        median_time_past,
-                        network,
-                        activation: context.activation.clone(),
-                        results: Arc::clone(&results_arc),
-                        #[cfg(feature = "production")]
-                        precomputed_sighashes: Arc::clone(&precomputed_sighashes_arc),
-                        #[cfg(feature = "production")]
-                        precomputed_p2pkh_hashes: Arc::clone(&precomputed_p2pkh_hashes_arc),
-                    });
+                    #[cfg(all(feature = "production", not(feature = "blvm-secp256k1")))]
+                    let schnorr_collector: Option<
+                        Arc<crate::bip348::SchnorrSignatureCollector>,
+                    > = None;
 
-                    use rayon::prelude::*;
-                    let rayon_results: Vec<std::result::Result<(usize, bool), ConsensusError>> =
-                        block_checks_buf
-                            .par_iter()
-                            .map(|c| {
-                                let session = rayon_session.as_ref();
-                                let buffer = session.script_pubkey_buffer.as_slice();
-                                let ctx = &session.tx_contexts[c.tx_ctx_idx];
-                                let tx = &session.block.transactions[ctx.tx_index];
-                                let flags = ctx.flags;
-                                let height = session.height;
-                                let network = session.network;
-                                let s = c.spk_offset as usize;
-                                let l = c.spk_len as usize;
-                                let script_pubkey = if s + l <= buffer.len() {
-                                    &buffer[s..s + l]
-                                } else {
-                                    &[]
-                                };
+                    // Small-block fast path: skip CCheckQueue overhead for blocks with <32 inputs.
+                    const SMALL_BLOCK_THRESHOLD: usize = 32;
+                    let precomputed_sighashes_arc = Arc::new(precomputed_sighashes);
+                    let precomputed_p2pkh_hashes_arc = Arc::new(precomputed_p2pkh_hashes);
 
-                                let spk_len = script_pubkey.len();
-                                let last_byte = if spk_len > 0 {
-                                    script_pubkey[spk_len - 1]
-                                } else {
-                                    0
-                                };
+                    let check_results = if total_inputs < SMALL_BLOCK_THRESHOLD {
+                        let seq_session = BlockSessionContext {
+                            block: Arc::clone(&block_arc),
+                            prevout_values_buffer: Arc::clone(&prevout_values_buffer),
+                            script_pubkey_indices_buffer: Arc::clone(&script_pubkey_indices_buffer),
+                            script_pubkey_buffer: Arc::clone(&script_pubkey_buffer),
+                            witness_buffer: Arc::clone(&witness_buffer),
+                            tx_contexts: Arc::clone(&tx_contexts_arc),
+                            #[cfg(feature = "production")]
+                            ecdsa_sub_counters: Arc::clone(&ecdsa_sub_counters),
+                            #[cfg(feature = "production")]
+                            schnorr_collector: schnorr_collector.clone(),
+                            height,
+                            median_time_past,
+                            network,
+                            activation: context.activation.clone(),
+                            results: Arc::new(crossbeam_queue::SegQueue::new()),
+                            #[cfg(feature = "production")]
+                            precomputed_sighashes: Arc::clone(&precomputed_sighashes_arc),
+                            #[cfg(feature = "production")]
+                            precomputed_p2pkh_hashes: Arc::clone(&precomputed_p2pkh_hashes_arc),
+                        };
+                        crate::checkqueue::ScriptCheckQueue::run_checks_sequential(
+                            &block_checks_buf,
+                            &seq_session,
+                        )?
+                    } else {
+                        let rayon_session = Arc::new(BlockSessionContext {
+                            block: Arc::clone(&block_arc),
+                            prevout_values_buffer: Arc::clone(&prevout_values_buffer),
+                            script_pubkey_indices_buffer: Arc::clone(&script_pubkey_indices_buffer),
+                            script_pubkey_buffer: Arc::clone(&script_pubkey_buffer),
+                            witness_buffer: Arc::clone(&witness_buffer),
+                            tx_contexts: Arc::clone(&tx_contexts_arc),
+                            #[cfg(feature = "production")]
+                            ecdsa_sub_counters: Arc::clone(&ecdsa_sub_counters),
+                            #[cfg(feature = "production")]
+                            schnorr_collector,
+                            height,
+                            median_time_past,
+                            network,
+                            activation: context.activation.clone(),
+                            results: Arc::clone(&results_arc),
+                            #[cfg(feature = "production")]
+                            precomputed_sighashes: Arc::clone(&precomputed_sighashes_arc),
+                            #[cfg(feature = "production")]
+                            precomputed_p2pkh_hashes: Arc::clone(&precomputed_p2pkh_hashes_arc),
+                        });
 
-                                // P2PK fast path: <pubkey> OP_CHECKSIG (35 or 67 bytes)
-                                // Gate: script_sig must parse as exactly <sig> (1 push).
-                                if (spk_len == 35 || spk_len == 67)
-                                    && last_byte == OP_CHECKSIG
-                                    && (script_pubkey[0] == PUSH_33_BYTES
-                                        || script_pubkey[0] == PUSH_65_BYTES)
-                                    && crate::script::parse_p2pk_script_sig(
-                                        tx.inputs[c.input_idx].script_sig.as_slice()
-                                    ).is_some()
-                                {
-                                    return crate::script::verify_p2pk_inline(
-                                        tx.inputs[c.input_idx].script_sig.as_slice(),
-                                        script_pubkey,
-                                        flags,
-                                        tx,
-                                        c.input_idx,
-                                        height,
-                                        network,
-                                    )
-                                    .map(|v| (c.tx_ctx_idx, v))
-                                    .map_err(|e| {
-                                        ConsensusError::BlockValidation(
-                                            format!(
-                                                "P2PK tx {} input {}: {}",
-                                                ctx.tx_index, c.input_idx, e
-                                            )
-                                            .into(),
+                        use rayon::prelude::*;
+                        let rayon_results: Vec<std::result::Result<(usize, bool), ConsensusError>> =
+                            block_checks_buf
+                                .par_iter()
+                                .map(|c| {
+                                    let session = rayon_session.as_ref();
+                                    let buffer = session.script_pubkey_buffer.as_slice();
+                                    let ctx = &session.tx_contexts[c.tx_ctx_idx];
+                                    let tx = &session.block.transactions[ctx.tx_index];
+                                    let flags = ctx.flags;
+                                    let height = session.height;
+                                    let network = session.network;
+                                    let s = c.spk_offset as usize;
+                                    let l = c.spk_len as usize;
+                                    let script_pubkey = if s + l <= buffer.len() {
+                                        &buffer[s..s + l]
+                                    } else {
+                                        &[]
+                                    };
+
+                                    let spk_len = script_pubkey.len();
+                                    let last_byte = if spk_len > 0 {
+                                        script_pubkey[spk_len - 1]
+                                    } else {
+                                        0
+                                    };
+
+                                    // P2PK fast path: <pubkey> OP_CHECKSIG (35 or 67 bytes)
+                                    // Gate: script_sig must parse as exactly <sig> (1 push).
+                                    if (spk_len == 35 || spk_len == 67)
+                                        && last_byte == OP_CHECKSIG
+                                        && (script_pubkey[0] == PUSH_33_BYTES
+                                            || script_pubkey[0] == PUSH_65_BYTES)
+                                        && crate::script::parse_p2pk_script_sig(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
                                         )
-                                    });
-                                }
-
-                                // P2PKH fast path: OP_DUP OP_HASH160 <20> ... OP_EQUALVERIFY OP_CHECKSIG
-                                // Gate: script_sig must parse as exactly <sig> <pubkey> (2 pushes).
-                                // Non-standard script_sigs (e.g. OP_0 <sig> <pubkey>) fall through to
-                                // the full interpreter which handles them correctly.
-                                if spk_len == 25
-                                    && script_pubkey[0] == OP_DUP
-                                    && script_pubkey[1] == OP_HASH160
-                                    && script_pubkey[2] == PUSH_20_BYTES
-                                    && script_pubkey[23] == OP_EQUALVERIFY
-                                    && last_byte == OP_CHECKSIG
-                                    && crate::script::parse_p2pkh_script_sig(
-                                        tx.inputs[c.input_idx].script_sig.as_slice()
-                                    ).is_some()
-                                {
-                                    return crate::script::verify_p2pkh_inline(
-                                        tx.inputs[c.input_idx].script_sig.as_slice(),
-                                        script_pubkey,
-                                        flags,
-                                        tx,
-                                        c.input_idx,
-                                        height,
-                                        network,
-                                        None,
-                                    )
-                                    .map(|v| (c.tx_ctx_idx, v))
-                                    .map_err(|e| {
-                                        ConsensusError::BlockValidation(
-                                            format!(
-                                                "P2PKH tx {} input {}: {}",
-                                                ctx.tx_index, c.input_idx, e
-                                            )
-                                            .into(),
+                                        .is_some()
+                                    {
+                                        return crate::script::verify_p2pk_inline(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
+                                            script_pubkey,
+                                            flags,
+                                            tx,
+                                            c.input_idx,
+                                            height,
+                                            network,
                                         )
-                                    });
-                                }
+                                        .map(|v| (c.tx_ctx_idx, v))
+                                        .map_err(|e| {
+                                            ConsensusError::BlockValidation(
+                                                format!(
+                                                    "P2PK tx {} input {}: {}",
+                                                    ctx.tx_index, c.input_idx, e
+                                                )
+                                                .into(),
+                                            )
+                                        });
+                                    }
 
-                                // Fallback: full interpreter path
-                                let pv = session.prevout_values_buffer.as_slice();
-                                let spi = session.script_pubkey_indices_buffer.as_slice();
-                                let (pv_base, pv_count) = ctx.prevout_values_range;
-                                let prevout_slice = &pv[pv_base..][..pv_count];
-                                let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
-                                let refs: Vec<&[u8]> = (0..spi_count)
-                                    .map(|j| {
-                                        let (start, len) = spi[spi_base + j];
-                                        if start + len <= buffer.len() {
-                                            &buffer[start..start + len]
-                                        } else {
-                                            &[]
-                                        }
-                                    })
-                                    .collect();
-                                let valid =
-                                    crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
-                                        c,
-                                        session,
-                                        ctx,
-                                        &refs,
-                                        buffer,
-                                        #[cfg(feature = "production")]
-                                        None,
-                                        Some(script_pubkey),
-                                        Some(prevout_slice),
-                                    )?;
-                                Ok((c.tx_ctx_idx, valid))
-                            })
-                            .collect();
-                    let mut check_results = Vec::with_capacity(rayon_results.len());
-                    for r in rayon_results {
-                        check_results.push(r?);
+                                    // P2PKH fast path: OP_DUP OP_HASH160 <20> ... OP_EQUALVERIFY OP_CHECKSIG
+                                    // Gate: script_sig must parse as exactly <sig> <pubkey> (2 pushes).
+                                    // Non-standard script_sigs (e.g. OP_0 <sig> <pubkey>) fall through to
+                                    // the full interpreter which handles them correctly.
+                                    if spk_len == 25
+                                        && script_pubkey[0] == OP_DUP
+                                        && script_pubkey[1] == OP_HASH160
+                                        && script_pubkey[2] == PUSH_20_BYTES
+                                        && script_pubkey[23] == OP_EQUALVERIFY
+                                        && last_byte == OP_CHECKSIG
+                                        && crate::script::parse_p2pkh_script_sig(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
+                                        )
+                                        .is_some()
+                                    {
+                                        return crate::script::verify_p2pkh_inline(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
+                                            script_pubkey,
+                                            flags,
+                                            tx,
+                                            c.input_idx,
+                                            height,
+                                            network,
+                                            None,
+                                        )
+                                        .map(|v| (c.tx_ctx_idx, v))
+                                        .map_err(|e| {
+                                            ConsensusError::BlockValidation(
+                                                format!(
+                                                    "P2PKH tx {} input {}: {}",
+                                                    ctx.tx_index, c.input_idx, e
+                                                )
+                                                .into(),
+                                            )
+                                        });
+                                    }
+
+                                    // Fallback: full interpreter path
+                                    let pv = session.prevout_values_buffer.as_slice();
+                                    let spi = session.script_pubkey_indices_buffer.as_slice();
+                                    let (pv_base, pv_count) = ctx.prevout_values_range;
+                                    let prevout_slice = &pv[pv_base..][..pv_count];
+                                    let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
+                                    let refs: Vec<&[u8]> = (0..spi_count)
+                                        .map(|j| {
+                                            let (start, len) = spi[spi_base + j];
+                                            if start + len <= buffer.len() {
+                                                &buffer[start..start + len]
+                                            } else {
+                                                &[]
+                                            }
+                                        })
+                                        .collect();
+                                    let valid =
+                                        crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
+                                            c,
+                                            session,
+                                            ctx,
+                                            &refs,
+                                            buffer,
+                                            #[cfg(feature = "production")]
+                                            None,
+                                            Some(script_pubkey),
+                                            Some(prevout_slice),
+                                        )?;
+                                    Ok((c.tx_ctx_idx, valid))
+                                })
+                                .collect();
+                        let mut check_results = Vec::with_capacity(rayon_results.len());
+                        for r in rayon_results {
+                            check_results.push(r?);
+                        }
+                        check_results
+                    };
+
+                    #[cfg(feature = "profile")]
+                    {
+                        total_script_time += script_start.elapsed();
                     }
-                    check_results
-                };
 
-                #[cfg(feature = "profile")]
-                { total_script_time += script_start.elapsed(); }
-
-                let tx_contexts_len = tx_contexts_arc.len();
-                // Aggregate per-tx: all inputs must pass
-                let mut tx_all_valid = vec![true; tx_contexts_len];
-                for (tx_ctx_idx, valid) in check_results {
-                    if tx_ctx_idx < tx_contexts_len {
-                        tx_all_valid[tx_ctx_idx] &= valid;
+                    let tx_contexts_len = tx_contexts_arc.len();
+                    // Aggregate per-tx: all inputs must pass
+                    let mut tx_all_valid = vec![true; tx_contexts_len];
+                    for (tx_ctx_idx, valid) in check_results {
+                        if tx_ctx_idx < tx_contexts_len {
+                            tx_all_valid[tx_ctx_idx] &= valid;
+                        }
                     }
-                }
 
-                for (ctx, &all_valid) in tx_contexts_arc.iter().zip(tx_all_valid.iter()) {
-                    queue_results[ctx.loop_idx] =
-                        Some(Ok((ValidationResult::Valid, ctx.fee, all_valid)));
-                }
+                    for (ctx, &all_valid) in tx_contexts_arc.iter().zip(tx_all_valid.iter()) {
+                        queue_results[ctx.loop_idx] =
+                            Some(Ok((ValidationResult::Valid, ctx.fee, all_valid)));
+                    }
 
-                for r in queue_results {
-                    validation_results.push(r.expect("CCheckQueue: all slots must be filled"));
-                }
-                #[cfg(all(feature = "production", feature = "profile"))]
-                {
-                    script_checks_queued_count = block_checks_buf.len();
-                }
+                    for r in queue_results {
+                        validation_results.push(r.expect("CCheckQueue: all slots must be filled"));
+                    }
+                    #[cfg(all(feature = "production", feature = "profile"))]
+                    {
+                        script_checks_queued_count = block_checks_buf.len();
+                    }
                 }
             }
 
@@ -2315,11 +2328,7 @@ pub(crate) fn connect_block_inner<'a>(
     );
     if let Some(coinbase) = block.transactions.first() {
         if !is_coinbase(coinbase) {
-            return invalid_block_result(
-                &utxo_set,
-                tx_ids,
-                "First transaction must be coinbase",
-            );
+            return invalid_block_result(&utxo_set, tx_ids, "First transaction must be coinbase");
         }
 
         // Validate coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
@@ -2362,9 +2371,7 @@ pub(crate) fn connect_block_inner<'a>(
             return invalid_block_result(
                 &utxo_set,
                 tx_ids,
-                format!(
-                    "Coinbase output {coinbase_output} exceeds maximum money supply"
-                ),
+                format!("Coinbase output {coinbase_output} exceeds maximum money supply"),
             );
         }
 
@@ -2391,9 +2398,9 @@ pub(crate) fn connect_block_inner<'a>(
         // Validate witness commitment if witnesses are present (SegWit block).
         // Short-circuit: no witness commitment possible before SegWit activation.
         let has_segwit = segwit_active
-            && witnesses.iter().any(|tx_w| {
-                tx_w.iter().any(|stack| !stack.is_empty())
-            });
+            && witnesses
+                .iter()
+                .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
         // Invariant assertion: Witness count must match transaction count
         assert!(
             witnesses.len() == block.transactions.len(),
@@ -2440,9 +2447,7 @@ pub(crate) fn connect_block_inner<'a>(
         return invalid_block_result(
             &utxo_set,
             tx_ids,
-            format!(
-                "Block sigop cost {total_sigop_cost} exceeds maximum {MAX_BLOCK_SIGOPS_COST}"
-            ),
+            format!("Block sigop cost {total_sigop_cost} exceeds maximum {MAX_BLOCK_SIGOPS_COST}"),
         );
     }
 

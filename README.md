@@ -5,6 +5,11 @@ Pure mathematical implementation of Bitcoin consensus rules from the Orange Pape
 > **📚 Comprehensive Documentation**: See [blvm-docs](../blvm-docs/) for complete system documentation.  
 > **For verified system status**: See [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) in the BTCDecoded organization repository.
 
+[![crates.io](https://img.shields.io/crates/v/blvm-consensus.svg)](https://crates.io/crates/blvm-consensus)
+[![docs.rs](https://docs.rs/blvm-consensus/badge.svg)](https://docs.rs/blvm-consensus)
+[![CI](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 [![Verification Status](https://github.com/BTCDecoded/blvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/verify.yml)
 [![blvm-spec-lock Verification](https://img.shields.io/badge/blvm--spec--lock-Verified-green)](https://github.com/BTCDecoded/blvm-spec-lock)
 [![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
@@ -120,6 +125,15 @@ All critical Bitcoin Improvement Proposals (BIPs) are implemented and integrated
 BIP66 and BIP147 are enforced during script verification, which is called for all transactions in `connect_block()`. This is the correct approach as these BIPs apply to individual signatures and script execution.
 
 ## Dependencies
+
+**Monorepo vs crates.io:** In the BTCDecoded layout, this crate’s `Cargo.toml` uses **path** dependencies for sibling `blvm-*` crates. When you depend on a **published** release from [crates.io](https://crates.io/crates/blvm-consensus), use:
+
+```toml
+[dependencies]
+blvm-consensus = "0.1.6"
+```
+
+(Adjust the version to match the latest release on crates.io.)
 
 All consensus-critical dependencies are pinned to exact versions:
 

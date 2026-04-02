@@ -21,7 +21,7 @@ mod signature;
 mod stack;
 
 pub use signature::{batch_verify_signatures, verify_pre_extracted_ecdsa};
-pub use stack::{cast_to_bool, StackElement, to_stack_element};
+pub use stack::{cast_to_bool, to_stack_element, StackElement};
 
 use crate::constants::*;
 use crate::crypto::OptimizedSha256;
@@ -577,7 +577,8 @@ fn eval_script_inner(
             OP_ELSE => {
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If { executing } | control_flow::ControlBlock::NotIf { executing } => {
+                        control_flow::ControlBlock::If { executing }
+                        | control_flow::ControlBlock::NotIf { executing } => {
                             *executing = !*executing;
                         }
                     }
@@ -1174,7 +1175,8 @@ pub fn verify_p2pkh_inline(
     let enforce_low_s = flags & 0x08 != 0;
 
     if strict_der
-        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network).unwrap_or(false)
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
+            .unwrap_or(false)
     {
         return Ok(false);
     }
@@ -1251,7 +1253,8 @@ pub fn verify_p2pk_inline(
     let enforce_low_s = flags & 0x08 != 0;
 
     if strict_der
-        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network).unwrap_or(false)
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
+            .unwrap_or(false)
     {
         return Ok(false);
     }
@@ -2272,10 +2275,7 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
     use crate::taproot::parse_taproot_script_path_witness;
 
     let tap_h = taproot_activation_height(network);
-    if block_height
-        .map(|h| h < tap_h)
-        .unwrap_or(true)
-    {
+    if block_height.map(|h| h < tap_h).unwrap_or(true) {
         return None;
     }
     if script_pubkey.len() != 34 || script_pubkey[0] != OP_1 || script_pubkey[1] != PUSH_32_BYTES {
@@ -2341,10 +2341,7 @@ fn try_verify_p2tr_keypath_fast_path(
 ) -> Option<Result<bool>> {
     use crate::activation::taproot_activation_height;
     let tap_h = taproot_activation_height(network);
-    if block_height
-        .map(|h| h < tap_h)
-        .unwrap_or(true)
-    {
+    if block_height.map(|h| h < tap_h).unwrap_or(true) {
         return None;
     }
     // P2TR: 34 bytes = OP_1 PUSH_32_BYTES <32-byte output key>
@@ -3631,7 +3628,8 @@ fn eval_script_with_context_full_inner(
                 // OP_ELSE
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If { executing } | control_flow::ControlBlock::NotIf { executing } => {
+                        control_flow::ControlBlock::If { executing }
+                        | control_flow::ControlBlock::NotIf { executing } => {
                             *executing = !*executing;
                         }
                     }

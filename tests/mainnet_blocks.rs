@@ -12,8 +12,8 @@ use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    Block, BlockHeader, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, UtxoSet,
-    ValidationResult,
+    Block, BlockHeader, UtxoSet, ValidationResult, SEGWIT_ACTIVATION_MAINNET,
+    TAPROOT_ACTIVATION_MAINNET,
 };
 
 /// Genesis block (height 0) - the first Bitcoin block
@@ -109,7 +109,13 @@ fn test_taproot_activation_block() {
     {
         let utxo_set = UtxoSet::default();
         let ctx = BlockValidationContext::for_network(Network::Mainnet);
-        let result = connect_block(&block, &witnesses, utxo_set, taproot_activation_height, &ctx);
+        let result = connect_block(
+            &block,
+            &witnesses,
+            utxo_set,
+            taproot_activation_height,
+            &ctx,
+        );
 
         // Block should deserialize and validate (may fail due to missing UTXO context)
         assert!(result.is_ok());
@@ -361,8 +367,9 @@ pub fn validate_mainnet_block(
     let (block, witnesses) = deserialize_block_with_witnesses(&block_bytes)?;
 
     let ctx = BlockValidationContext::for_network(Network::Mainnet);
-    let (result, new_utxo_set, _undo_log) = connect_block(&block, &witnesses, prev_utxo_set, height, &ctx)
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    let (result, new_utxo_set, _undo_log) =
+        connect_block(&block, &witnesses, prev_utxo_set, height, &ctx)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     Ok((result, new_utxo_set))
 }
 

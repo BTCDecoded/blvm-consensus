@@ -56,18 +56,18 @@ siphasher = { version = "0.3", optional = true }
 hashbrown = { version = "0.14", optional = true }
 
 # Foundational types, serialization, crypto, config (shared with blvm-protocol)
-blvm-primitives = { path = "../blvm-primitives", default-features = false }
+# crates.io: allow any 0.x >=0.1 without editing Cargo.toml for each patch/minor
+blvm-primitives = { version = ">=0.1, <1", default-features = false }
 
 # Spec-lock for mathematical verification
-# LOCAL: Uses path (blvm-spec-lock in monorepo)
-# CI: setup-spec-lock.sh clones to ../blvm-spec-lock before build - path works in both contexts
+# CI: setup-spec-lock.sh clones to ../blvm-spec-lock when needed for the cargo-spec-lock CLI
 blvm-spec-lock = { path = "../blvm-spec-lock", default-features = false }
 # Spec-macros for spec_locked attributes (migration in progress - commented out until committed)
 # blvm-spec-macros = { path = "../blvm-spec-macros", optional = true }
 
 
 [dev-dependencies]
-blvm-muhash = { path = "../blvm-muhash" }
+blvm-muhash = { version = ">=0.1, <1" }
 blvm-protocol = { path = "../blvm-protocol", features = ["utxo-commitments"] }
 # Formal verification tools - EXACT VERSIONS for reproducibility
 proptest = "=1.5.0"

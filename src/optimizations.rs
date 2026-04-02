@@ -281,10 +281,7 @@ pub mod simd_vectorization {
         // Small batches: sequential processing. Use OptimizedSha256 (SHA-NI when available).
         if inputs.len() < 4 {
             let hasher = OptimizedSha256::new();
-            return inputs
-                .iter()
-                .map(|input| hasher.hash(input))
-                .collect();
+            return inputs.iter().map(|input| hasher.hash(input)).collect();
         }
 
         // Medium batches: chunked sequential processing

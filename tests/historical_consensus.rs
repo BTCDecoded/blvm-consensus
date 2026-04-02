@@ -14,8 +14,8 @@
 use blvm_consensus::block::{connect_block, BlockValidationContext};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    Block, BlockHeader, OutPoint, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET,
-    Transaction, TransactionInput, TransactionOutput, UtxoSet, ValidationResult, UTXO,
+    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
+    ValidationResult, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, UTXO,
 };
 
 /// Test CVE-2012-2459: Merkle tree duplicate hash vulnerability

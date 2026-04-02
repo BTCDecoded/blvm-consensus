@@ -785,10 +785,7 @@ pub(crate) mod transaction_proptest {
                 0..10,
             ),
             prop::collection::vec(
-                (
-                    any::<i64>(),
-                    prop::collection::vec(any::<u8>(), 0..100),
-                ),
+                (any::<i64>(), prop::collection::vec(any::<u8>(), 0..100)),
                 0..10,
             ),
             any::<u64>(),
@@ -851,8 +848,8 @@ pub(crate) mod transaction_proptest {
 #[cfg(test)]
 #[allow(unused_doc_comments)]
 mod property_tests {
-    use super::*;
     use super::transaction_proptest::{arb_outpoint, arb_transaction, arb_utxo};
+    use super::*;
     use proptest::prelude::*;
 
     /// Property test: check_transaction validates structure correctly

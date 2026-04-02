@@ -109,11 +109,7 @@ pub fn check_bip30(
 /// - Testnet: Block 211,111
 /// - Regtest: Block 0 (always active)
 #[spec_locked("5.4.2")]
-pub fn check_bip34(
-    block: &Block,
-    height: Natural,
-    activation: &impl IsForkActive,
-) -> Result<bool> {
+pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActive) -> Result<bool> {
     if !activation.is_fork_active(ForkId::Bip34, height) {
         return Ok(true);
     }
@@ -757,14 +753,24 @@ mod tests {
         assert!(result, "Version 1 should be valid before BIP34");
 
         // Test version 1 after BIP34 activation (should fail)
-        let result = check_bip90_network(1, crate::constants::BIP34_ACTIVATION_MAINNET, crate::types::Network::Mainnet).unwrap();
+        let result = check_bip90_network(
+            1,
+            crate::constants::BIP34_ACTIVATION_MAINNET,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
         assert!(
             !result,
             "Version 1 should be invalid after BIP34 activation"
         );
 
         // Test version 2 after BIP34 activation (should pass)
-        let result = check_bip90_network(2, crate::constants::BIP34_ACTIVATION_MAINNET, crate::types::Network::Mainnet).unwrap();
+        let result = check_bip90_network(
+            2,
+            crate::constants::BIP34_ACTIVATION_MAINNET,
+            crate::types::Network::Mainnet,
+        )
+        .unwrap();
         assert!(result, "Version 2 should be valid after BIP34 activation");
 
         // Test version 2 after BIP66 activation (should fail)
@@ -905,7 +911,8 @@ mod tests {
         );
 
         // Before activation, should always pass
-        let result = check_bip66_network(&valid_der, 100_000, crate::types::Network::Mainnet).unwrap();
+        let result =
+            check_bip66_network(&valid_der, 100_000, crate::types::Network::Mainnet).unwrap();
         assert!(result, "BIP66 should pass before activation");
     }
 

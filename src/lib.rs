@@ -192,8 +192,11 @@ impl ConsensusProof {
         time_context: Option<types::TimeContext>,
         network: types::Network,
     ) -> error::Result<(types::ValidationResult, types::UtxoSet)> {
-        let context =
-            block::BlockValidationContext::from_time_context_and_network(time_context, network, None);
+        let context = block::BlockValidationContext::from_time_context_and_network(
+            time_context,
+            network,
+            None,
+        );
         let (result, new_utxo_set, _undo_log) =
             block::connect_block(block, witnesses, utxo_set, height, &context)?;
         Ok((result, new_utxo_set))

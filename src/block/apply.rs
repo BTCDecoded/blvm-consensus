@@ -7,7 +7,7 @@ use crate::constants::MAX_MONEY;
 use crate::error::Result;
 use crate::reorganization::UndoEntry;
 use crate::transaction::is_coinbase;
-use crate::types::{Hash, Natural, OutPoint, Transaction, UTXO, UtxoSet};
+use crate::types::{Hash, Natural, OutPoint, Transaction, UtxoSet, UTXO};
 use blvm_spec_lock::spec_locked;
 
 /// ApplyTransaction (Orange Paper 5.3.1)

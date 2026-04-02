@@ -7,7 +7,9 @@
 use proptest::prelude::*;
 
 use crate::segwit::Witness;
-use crate::types::{BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use crate::types::{
+    BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
+};
 
 #[cfg(any(test, feature = "property-tests"))]
 /// Strategy yielding (Transaction, Vec<Witness>) with |w| = |tx.inputs|.

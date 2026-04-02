@@ -484,7 +484,8 @@ pub fn batch_verify_signatures_from_stack(
     let perf = &crate::config::get_consensus_config_ref().performance;
     let chunk_threshold =
         blvm_primitives::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
-    let min_chunk = blvm_primitives::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
+    let min_chunk =
+        blvm_primitives::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
     let n = sigs.len();
 
     #[cfg(all(feature = "production", feature = "rayon"))]
@@ -495,7 +496,8 @@ pub fn batch_verify_signatures_from_stack(
             let num_threads = rayon::current_num_threads();
             let max_parallel = (n / 128).max(1);
             let num_chunks = num_threads.min(max_parallel).max(1);
-            let chunk_ranges = blvm_primitives::ibd_tuning::compute_chunk_ranges(n, num_chunks, min_chunk);
+            let chunk_ranges =
+                blvm_primitives::ibd_tuning::compute_chunk_ranges(n, num_chunks, min_chunk);
             let chunk_results: Vec<Result<Vec<bool>>> = chunk_ranges
                 .into_par_iter()
                 .map(|(start, end)| {

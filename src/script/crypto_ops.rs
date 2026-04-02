@@ -8,9 +8,9 @@ use crate::opcodes::{OP_HASH160, OP_HASH256};
 use crate::types::Network;
 use digest::Digest;
 use ripemd::Ripemd160;
-use sha1::Sha1;
 #[cfg(not(feature = "production"))]
 use secp256k1::Secp256k1;
+use sha1::Sha1;
 
 use super::signature;
 use super::stack::{to_stack_element, StackElement};
