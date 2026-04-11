@@ -26,6 +26,7 @@ TARGETS=(
     "serialization"
     "script_opcodes"
     "differential_fuzzing"
+    "bip66_validation"
     "sighash_computation"
     "witness_validation"
 )
@@ -42,6 +43,14 @@ add_seed() {
     local content=$3
     
     echo -n "$content" > "$CORPUS_DIR/$target/$filename"
+    echo "Added seed: $target/$filename"
+}
+
+add_binary_seed() {
+    local target=$1
+    local filename=$2
+    shift 2
+    printf "$@" > "$CORPUS_DIR/$target/$filename"
     echo "Added seed: $target/$filename"
 }
 
@@ -81,17 +90,24 @@ add_seed "economic_validation" "height_0.hex" "0000000000000000"
 # Height at first halving
 add_seed "economic_validation" "height_210000.hex" "a086010000000000"
 
+# BIP66 validation seeds
+# Input format: byte[0]=selector (0=pre-activation, 1=activation boundary, 2=regtest),
+# bytes[1..]=signature candidate
+# Valid minimal DER: selector + 0x30 [total-len] 0x02 [R-len] [R] 0x02 [S-len] [S] [sighash]
+add_seed "bip66_validation" "valid_minimal_regtest.hex" "02300602010102010101"
+add_seed "bip66_validation" "valid_minimal_mainnet.hex" "01300602010102010101"
+# Pre-activation: anything passes
+add_seed "bip66_validation" "pre_activation_garbage.hex" "00ffffff"
+# Too short for DER (should reject when active)
+add_seed "bip66_validation" "too_short.hex" "023001"
+# Wrong SEQUENCE tag (should reject when active)
+add_seed "bip66_validation" "wrong_tag.hex" "02310602010102010101"
+# Empty signature (selector only)
+add_seed "bip66_validation" "empty_sig.hex" "02"
+
 # Sighash computation seeds (binary format — uses printf, not add_seed)
 # Header: [scenario, sighash_byte, input_idx, n_inputs, n_outputs,
 #          version(4), locktime(4), prevout_value(8), seq_seed, val_seed, script...]
-add_binary_seed() {
-    local target=$1
-    local filename=$2
-    shift 2
-    printf "$@" > "$CORPUS_DIR/$target/$filename"
-    echo "Added seed: $target/$filename"
-}
-
 # Scenario 0: Legacy SIGHASH_ALL determinism + perturbation (two distinct script halves)
 add_binary_seed "sighash_computation" "legacy_all_determ.bin" \
     '\x00\x01\x00\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\xe1\xf5\x05\x00\x00\x00\x00\xff\x32\x76\xa9\x14\x00\x00\x51\x52\x53'
