@@ -122,9 +122,37 @@ fuzz_target!(|data: &[u8]| {
             } else {
                 false
             };
-            // At least one of these structural checks must fail for a valid rejection.
+
+            // If structural checks pass, check if it's rejected due to BIP66 value constraints.
+            // This prevents false positives when the implementation correctly rejects
+            // a signature that is structurally correct but violates value rules.
+            let value_ok = if total_len_ok && r_tag_ok && s_tag_ok && sum_ok {
+                let len_r = sig[3] as usize;
+                let len_s = sig[5 + len_r] as usize;
+
+                let r_not_neg = sig[4] & 0x80 == 0;
+                let r_no_lead_zero = if len_r > 1 {
+                    !(sig[4] == 0x00 && sig[5] & 0x80 == 0)
+                } else {
+                    true
+                };
+                
+                let s_len_ok = len_s > 0;
+                let s_not_neg = sig[len_r + 6] & 0x80 == 0;
+                let s_no_lead_zero = if len_s > 1 && len_r + 7 < sig.len() {
+                    !(sig[len_r + 6] == 0x00 && sig[len_r + 7] & 0x80 == 0)
+                } else {
+                    true
+                };
+
+                r_not_neg && r_no_lead_zero && s_len_ok && s_not_neg && s_no_lead_zero
+            } else {
+                true // Structural failure already justifies rejection
+            };
+
+            // At least one check must fail for a valid rejection.
             assert!(
-                !total_len_ok || !r_tag_ok || !s_tag_ok || !sum_ok,
+                !total_len_ok || !r_tag_ok || !s_tag_ok || !sum_ok || !value_ok,
                 "Rejected signature looks structurally valid — possible false negative"
             );
         }
