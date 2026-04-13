@@ -1,5 +1,6 @@
 //! Tests for error paths and edge cases
 
+use blvm_consensus::mining::MiningResult;
 use blvm_consensus::opcodes::*;
 use blvm_consensus::*;
 
@@ -112,21 +113,24 @@ fn test_mempool_errors() {
 fn test_mining_errors() {
     let consensus = ConsensusProof::new();
 
-    // Test mining with invalid block
+    // `mine_block` does not return Err for invalid header fields; it only searches nonces and
+    // uses `check_proof_of_work(..).unwrap_or(false)`, so PoW/expand_target errors are not propagated.
     let invalid_block = Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 0,
-            bits: 0x1d00ffff, // Use valid target; header remains invalid due to timestamp
+            bits: 0x1d00ffff, // Valid compact target; timestamp still invalid for real validation
             nonce: 0,
         },
         transactions: vec![].into_boxed_slice(),
     };
 
     let result = consensus.mine_block(invalid_block, 1000);
-    assert!(result.is_err());
+    assert!(result.is_ok());
+    let (_, mining_result) = result.unwrap();
+    assert_eq!(mining_result, MiningResult::Failure);
 }
 
 #[test]
