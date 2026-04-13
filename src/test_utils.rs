@@ -58,7 +58,8 @@ fn transaction_with_input_count_strategy(input_count: usize) -> impl Strategy<Va
 #[cfg(any(test, feature = "property-tests"))]
 /// Strategy yielding Transaction for legacy (non-SegWit) round-trip tests.
 pub fn transaction_strategy() -> impl Strategy<Value = Transaction> {
-    (0..10usize, 0..10usize).prop_map(|(input_count, output_count)| {
+    // Wire round-trip matches Bitcoin serialization: at least one vin (vout may be empty).
+    (1..10usize, 0..10usize).prop_map(|(input_count, output_count)| {
         let inputs: Vec<TransactionInput> = (0..input_count)
             .map(|i| TransactionInput {
                 prevout: OutPoint {

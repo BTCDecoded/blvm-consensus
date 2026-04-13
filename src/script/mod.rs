@@ -5993,7 +5993,6 @@ fn execute_opcode_with_context_full(
                 // OPTIMIZATION: Use collector for batch verification if available
                 #[cfg(feature = "production")]
                 let is_valid = {
-                    
                     verify_signature_from_stack(
                         &message_bytes,    // Message (NOT hashed by BIP 340 spec)
                         &pubkey_bytes,     // Pubkey (32 bytes for BIP 340)

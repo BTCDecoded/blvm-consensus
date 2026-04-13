@@ -30,7 +30,7 @@ fn test_coinbase_maturity_exact_boundary() {
             sequence: 0xffffffff,
         }],
         outputs: blvm_consensus::tx_outputs![TransactionOutput {
-            value: 50_0000_0000,              // 50 BTC
+            value: 50_0000_0000,       // 50 BTC
             script_pubkey: vec![0x51], // OP_1
         }],
         lock_time: 0,

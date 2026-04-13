@@ -113,9 +113,7 @@ fn block_ibd_repro() {
             let utxo = match utxo_set.get(&input.prevout) {
                 Some(u) => u,
                 None => {
-                    eprintln!(
-                        "  tx {tx_idx} input {inp_idx}: UTXO not found for prevout"
-                    );
+                    eprintln!("  tx {tx_idx} input {inp_idx}: UTXO not found for prevout");
                     continue;
                 }
             };

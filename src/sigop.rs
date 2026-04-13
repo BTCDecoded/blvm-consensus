@@ -814,7 +814,8 @@ mod tests {
     /// Prefetched-UTXO sigop cost must match overlay-based counting (used on assume-valid path).
     /// P2TR witness does not contribute to legacy block sigop cost (`WitnessSigOps` v1 = 0 in Core).
     #[test]
-    fn get_transaction_sigop_cost_with_utxos_matches_witness_slices_p2tr_excluded_from_block_cost() {
+    fn get_transaction_sigop_cost_with_utxos_matches_witness_slices_p2tr_excluded_from_block_cost()
+    {
         use crate::segwit::Witness;
 
         let prev = OutPoint {

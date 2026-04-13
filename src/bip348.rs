@@ -214,8 +214,7 @@ impl SchnorrSignatureCollector {
             .collect();
 
         let remainder_results = batch_verify_signatures_from_stack(&task_refs)?;
-        let mut merged: Vec<(usize, bool)> =
-            indices.into_iter().zip(remainder_results).collect();
+        let mut merged: Vec<(usize, bool)> = indices.into_iter().zip(remainder_results).collect();
         #[cfg(feature = "rayon")]
         for partial in streaming {
             merged.extend(partial);

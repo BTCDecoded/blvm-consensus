@@ -13,19 +13,21 @@ use crate::profile_log;
 #[cfg(not(feature = "production"))]
 use crate::script::verify_script_with_context_full;
 use crate::segwit::{validate_witness_commitment, Witness};
-use crate::transaction::{check_transaction, is_coinbase};
 #[cfg(not(feature = "production"))]
 use crate::transaction::check_tx_inputs;
+use crate::transaction::{check_transaction, is_coinbase};
 use crate::types::*;
 use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
 use crate::witness::is_witness_empty;
 use std::borrow::Cow;
 
-use super::{apply, calculate_base_script_flags_for_block, header, BlockValidationContext, UtxoDelta};
-#[cfg(feature = "production")]
-use super::script_cache;
 #[cfg(not(feature = "production"))]
 use super::calculate_script_flags_for_block_with_base;
+#[cfg(feature = "production")]
+use super::script_cache;
+use super::{
+    apply, calculate_base_script_flags_for_block, header, BlockValidationContext, UtxoDelta,
+};
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
 #[cfg(feature = "production")]
@@ -818,8 +820,9 @@ pub(crate) fn connect_block_inner<'a>(
                 let mut queue_results: Vec<Option<Result<(ValidationResult, i64, bool)>>> =
                     vec![None; valid_tx_indices.len()];
 
-                let mut early_return: Option<std::result::Result<ConnectQueueEarlyExit, ConsensusError>> =
-                    None;
+                let mut early_return: Option<
+                    std::result::Result<ConnectQueueEarlyExit, ConsensusError>,
+                > = None;
                 let median_time_past = time_ctx
                     .map(|ctx| ctx.median_time_past)
                     .filter(|&mtp| mtp > 0);
@@ -1698,14 +1701,9 @@ pub(crate) fn connect_block_inner<'a>(
                     )
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
-                if let Some(msg) = check_bip54_sigop_limit(
-                    bip54_active,
-                    tx,
-                    &overlay,
-                    wits_i,
-                    tx_flags,
-                    tx_ids,
-                )? {
+                if let Some(msg) =
+                    check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
+                {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
 
@@ -1982,14 +1980,9 @@ pub(crate) fn connect_block_inner<'a>(
                         )?,
                     )
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
-                if let Some(msg) = check_bip54_sigop_limit(
-                    bip54_active,
-                    tx_j,
-                    &overlay,
-                    wits_j,
-                    tx_flags,
-                    tx_ids,
-                )? {
+                if let Some(msg) =
+                    check_bip54_sigop_limit(bip54_active, tx_j, &overlay, wits_j, tx_flags, tx_ids)?
+                {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
             }
@@ -2064,14 +2057,9 @@ pub(crate) fn connect_block_inner<'a>(
                 )
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
-            if let Some(msg) = check_bip54_sigop_limit(
-                bip54_active,
-                tx,
-                &overlay,
-                wits_i,
-                tx_flags,
-                tx_ids,
-            )? {
+            if let Some(msg) =
+                check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
+            {
                 return invalid_block_result(utxo_set, tx_ids, msg);
             }
 
@@ -2298,11 +2286,7 @@ pub(crate) fn connect_block_inner<'a>(
     );
     if let Some(coinbase) = block.transactions.first() {
         if !is_coinbase(coinbase) {
-            return invalid_block_result(
-                utxo_set,
-                tx_ids,
-                "First transaction must be coinbase",
-            );
+            return invalid_block_result(utxo_set, tx_ids, "First transaction must be coinbase");
         }
 
         // Validate coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
@@ -2409,11 +2393,7 @@ pub(crate) fn connect_block_inner<'a>(
             }
         }
     } else {
-        return invalid_block_result(
-            utxo_set,
-            tx_ids,
-            "Block must have at least one transaction",
-        );
+        return invalid_block_result(utxo_set, tx_ids, "Block must have at least one transaction");
     }
 
     // 3.5. Check block sigop cost limit (network rule)

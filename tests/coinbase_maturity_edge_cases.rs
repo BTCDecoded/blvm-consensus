@@ -27,10 +27,7 @@ fn test_coinbase_immature_rejected() {
         height: 0,
         is_coinbase: true, // This is a coinbase output
     };
-    utxo_set.insert(
-        coinbase_outpoint,
-        std::sync::Arc::new(coinbase_utxo),
-    );
+    utxo_set.insert(coinbase_outpoint, std::sync::Arc::new(coinbase_utxo));
 
     // Try to spend it at height 99 (one block before maturity)
     let tx = Transaction {
@@ -74,10 +71,7 @@ fn test_coinbase_mature_accepted() {
         height: 0,
         is_coinbase: true,
     };
-    utxo_set.insert(
-        coinbase_outpoint,
-        std::sync::Arc::new(coinbase_utxo),
-    );
+    utxo_set.insert(coinbase_outpoint, std::sync::Arc::new(coinbase_utxo));
 
     // Spend it at height 100 (exactly at maturity)
     let tx = Transaction {
@@ -121,10 +115,7 @@ fn test_coinbase_after_maturity_accepted() {
         height: 0,
         is_coinbase: true,
     };
-    utxo_set.insert(
-        coinbase_outpoint,
-        std::sync::Arc::new(coinbase_utxo),
-    );
+    utxo_set.insert(coinbase_outpoint, std::sync::Arc::new(coinbase_utxo));
 
     // Spend it at height 200 (well after maturity)
     let tx = Transaction {
@@ -212,10 +203,7 @@ fn test_coinbase_maturity_different_heights() {
         height: 50, // Created at height 50
         is_coinbase: true,
     };
-    utxo_set.insert(
-        coinbase_outpoint,
-        std::sync::Arc::new(coinbase_utxo),
-    );
+    utxo_set.insert(coinbase_outpoint, std::sync::Arc::new(coinbase_utxo));
 
     // Try to spend it at height 149 (one block before maturity: 50 + 100 - 1)
     let tx = Transaction {

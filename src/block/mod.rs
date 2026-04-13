@@ -320,10 +320,19 @@ mod tx_id_pool {
     }
 }
 
+/// Compute `{ Hash(tx) : tx ∈ block.transactions }` for ComputeMerkleRoot (Orange Paper §8.4.1).
+///
+/// **Spec reference:** sequential `calculate_tx_id` only (no `rayon`, no `&mut Vec`, no `cfg` in the
+/// body). blvm-spec-lock Z3 translates this for determinism/`ensures`. Optimized paths in
+/// [`compute_block_tx_ids_into`] are tested to match this result.
+#[spec_locked("8.4.1")]
+pub fn compute_block_tx_ids_spec(block: &Block) -> Vec<Hash> {
+    block.transactions.iter().map(calculate_tx_id).collect()
+}
+
 /// Compute transaction IDs for a block (extracted for reuse).
 /// Produces {Hash(tx) : tx ∈ block.transactions} for ComputeMerkleRoot input (Orange Paper 8.4.1).
 /// Public so node layer can compute once and share between collect_gaps and connect_block_ibd (#21).
-#[spec_locked("8.4.1")]
 pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
     out.clear();
     out.reserve(block.transactions.len());
@@ -360,11 +369,67 @@ pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
     }
 }
 
-#[spec_locked("8.4.1")]
 pub fn compute_block_tx_ids(block: &Block) -> Vec<Hash> {
     let mut v = Vec::new();
     compute_block_tx_ids_into(block, &mut v);
     v
+}
+
+/// Optimized paths (`rayon` / pooled hash) must agree with [`compute_block_tx_ids_spec`] (§8.4.1).
+#[test]
+fn compute_block_tx_ids_spec_matches_optimized_paths() {
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x03, 0x01, 0x00, 0x00],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let tx2 = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1u8; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 10_000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1,
+            bits: 0x207fffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase, tx2].into_boxed_slice(),
+    };
+    assert_eq!(
+        compute_block_tx_ids_spec(&block),
+        compute_block_tx_ids(&block),
+        "§8.4.1 spec reference must match compute_block_tx_ids / compute_block_tx_ids_into"
+    );
 }
 
 #[test]

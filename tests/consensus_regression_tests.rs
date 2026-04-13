@@ -851,7 +851,8 @@ fn test_regression_test_coverage() {
     // The actual tests above verify the fixes work correctly
 
     // List of critical bugs that must have regression tests:
-    let critical_bugs = ["P2SH push-only validation",
+    let critical_bugs = [
+        "P2SH push-only validation",
         "Taproot empty scriptSig",
         "P2SH redeem script sighash",
         "Nested SegWit",
@@ -861,7 +862,8 @@ fn test_regression_test_coverage() {
         "SegWit deserialization",
         "Transaction limits",
         "Taproot flag value",
-        "Strict DER validation"];
+        "Strict DER validation",
+    ];
 
     // If this test runs, it means the test file exists and is being executed
     assert!(

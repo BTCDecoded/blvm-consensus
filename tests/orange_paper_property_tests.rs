@@ -766,7 +766,7 @@ proptest! {
         bits in 0x1d00ffffu64..=0x1d00ffffu64,
         nonce in 0u32..1000000u32
     ) {
-        
+
         use sha2::{Sha256, Digest};
 
         let header = BlockHeader {

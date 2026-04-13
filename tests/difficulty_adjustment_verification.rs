@@ -81,8 +81,7 @@ fn test_difficulty_clamp_maximum_timespan() {
         version: 1,
         prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
-        timestamp: base_timestamp
-            + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK * 10),
+        timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK * 10),
         bits: 0x1d00ffff,
         nonce: 0,
     };
