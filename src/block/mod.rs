@@ -10,9 +10,9 @@ mod connect;
 mod header;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
-pub(crate) use script_cache::{
-    calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
-};
+pub(crate) use script_cache::calculate_base_script_flags_for_block;
+#[cfg(not(feature = "production"))]
+pub(crate) use script_cache::calculate_script_flags_for_block_with_base;
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
 };

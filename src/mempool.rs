@@ -158,14 +158,12 @@ pub fn accept_to_memory_pool(
                 // Bounds checking assertion: Input index must be valid
                 assert!(
                     i < tx.inputs.len(),
-                    "Input index {} out of bounds in script validation loop",
-                    i
+                    "Input index {i} out of bounds in script validation loop",
                 );
                 // Invariant: is_valid is bool from verify_script
                 if !is_valid {
                     return Ok(MempoolResult::Rejected(format!(
-                        "Invalid script at input {}",
-                        i
+                        "Invalid script at input {i}"
                     )));
                 }
             }

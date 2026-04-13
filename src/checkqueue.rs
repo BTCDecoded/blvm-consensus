@@ -24,7 +24,7 @@ const DEFAULT_BATCH_SIZE: usize = 128;
 /// Thread-local HashMaps reused across batches to avoid per-batch allocations.
 /// all_refs cannot be reused because it holds refs into buffer which is batch-scoped.
 thread_local! {
-    static PREVOUT_BUF: RefCell<Vec<i64>> = RefCell::new(Vec::new());
+    static PREVOUT_BUF: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Script check with embedded per-input data. Workers use these directly without
@@ -141,7 +141,7 @@ impl ScriptCheckQueue {
             let bs = batch_size;
             workers.push(
                 thread::Builder::new()
-                    .name(format!("scriptch.{}", n))
+                    .name(format!("scriptch.{n}"))
                     .spawn(move || {
                         Self::worker_loop(state_clone, &cv_clone, &master_clone, bs);
                     })

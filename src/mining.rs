@@ -366,7 +366,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
             ));
         }
 
-        return Ok(*hashes[0].as_bytes());
+        Ok(*hashes[0].as_bytes())
     }
 
     #[cfg(not(feature = "production"))]

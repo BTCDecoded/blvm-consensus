@@ -3,7 +3,9 @@
 use blvm_consensus::constants::{MAX_SCRIPT_OPS, MAX_STACK_SIZE};
 use blvm_consensus::opcodes::*;
 use blvm_consensus::script::*;
-use blvm_consensus::*;
+
+// Operation limit counts only opcodes **above** OP_16 (0x60); OP_1–OP_16 are push ops and do not
+// increment the counter (matches Bitcoin Core). Use OP_NOP (0x61) to exercise the limit.
 
 #[test]
 fn test_eval_script_op_1() {
@@ -109,10 +111,10 @@ fn test_eval_script_stack_underflow() {
 
 #[test]
 fn test_eval_script_operation_limit() {
-    let script = vec![OP_1; MAX_SCRIPT_OPS + 1]; // Too many operations
+    let script = vec![OP_NOP; MAX_SCRIPT_OPS + 1];
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-    assert!(result.is_err()); // Should fail due to operation limit
+    assert!(result.is_err()); // Non-push opcodes exceed MAX_SCRIPT_OPS
 }
 
 #[test]
@@ -157,8 +159,9 @@ fn test_verify_script_empty() {
 
 #[test]
 fn test_verify_script_large_scripts() {
-    let script_sig = vec![OP_1; 1000];
-    let script_pubkey = vec![OP_1; 1000];
+    // Each eval_script run has its own op counter; exceed limit in scriptSig alone.
+    let script_sig = vec![OP_NOP; MAX_SCRIPT_OPS + 1];
+    let script_pubkey = vec![OP_1];
     let result = verify_script(&script_sig, &script_pubkey, None, 0);
-    assert!(result.is_err()); // Should fail due to operation limit
+    assert!(result.is_err());
 }

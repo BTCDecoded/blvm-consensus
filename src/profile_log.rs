@@ -5,7 +5,6 @@
 //! Note: `tracing` also uses stderr; without a global lock, lines can rarely interleave with
 //! timestamps (`evict_ms=0` + `2026-03-29T...` on one physical line). Log analyzers normalize this;
 //! prefer `analyze_ibd_profile.py` over naive `grep` for `[IBD_VALIDATION]` phase=end splits.
-#![cfg(feature = "profile")]
 
 use std::io::Write;
 use std::sync::mpsc;
@@ -24,7 +23,7 @@ pub fn sender() -> Option<&'static mpsc::SyncSender<String>> {
             .name("profile-log".into())
             .spawn(move || {
                 for msg in rx {
-                    let _ = writeln!(std::io::stderr(), "{}", msg);
+                    let _ = writeln!(std::io::stderr(), "{msg}");
                 }
             })
             .expect("Failed to spawn profile log thread");

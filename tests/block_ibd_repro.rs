@@ -26,18 +26,18 @@ fn height() -> u64 {
 fn dump_dir() -> std::path::PathBuf {
     let h = height();
     if let Ok(d) = std::env::var("BLVM_IBD_DUMP_DIR") {
-        return std::path::PathBuf::from(d).join(format!("height_{}", h));
+        return std::path::PathBuf::from(d).join(format!("height_{h}"));
     }
     // Repo backup: blvm-consensus/tests/test_data/ibd_failure_height_{h}
     let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/test_data")
-        .join(format!("ibd_failure_height_{}", h));
+        .join(format!("ibd_failure_height_{h}"));
     if repo.join("block.bin").exists() {
         return repo;
     }
     std::env::temp_dir()
         .join("blvm_ibd_failure")
-        .join(format!("height_{}", h))
+        .join(format!("height_{h}"))
 }
 
 /// Dump format: HashMap<OutPoint, UTXO> (no Arc in serialized form)
@@ -114,8 +114,7 @@ fn block_ibd_repro() {
                 Some(u) => u,
                 None => {
                     eprintln!(
-                        "  tx {} input {}: UTXO not found for prevout",
-                        tx_idx, inp_idx
+                        "  tx {tx_idx} input {inp_idx}: UTXO not found for prevout"
                     );
                     continue;
                 }
@@ -170,8 +169,7 @@ fn block_ibd_repro() {
             match &result {
                 Ok(valid) if !valid => {
                     eprintln!(
-                        "  tx {} input {}: SCRIPT INVALID (verify returned false)",
-                        tx_idx, inp_idx
+                        "  tx {tx_idx} input {inp_idx}: SCRIPT INVALID (verify returned false)"
                     );
                     eprintln!(
                         "    script_pubkey ({} bytes): {:02x?}",
@@ -188,7 +186,7 @@ fn block_ibd_repro() {
                     }
                 }
                 Err(e) => {
-                    eprintln!("  tx {} input {}: SCRIPT ERROR: {}", tx_idx, inp_idx, e);
+                    eprintln!("  tx {tx_idx} input {inp_idx}: SCRIPT ERROR: {e}");
                 }
                 Ok(true) => {
                     if tx_idx == 8 {
@@ -255,6 +253,6 @@ fn block_ibd_repro() {
 
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("Block {} should be valid: {}", h, reason),
+        ValidationResult::Invalid(reason) => panic!("Block {h} should be valid: {reason}"),
     }
 }

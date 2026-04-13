@@ -18,7 +18,7 @@ fn test_coinbase_immature_rejected() {
 
     // Create a coinbase UTXO at height 0
     let coinbase_outpoint = OutPoint {
-        hash: [1; 32].into(),
+        hash: [1; 32],
         index: 0,
     };
     let coinbase_utxo = UTXO {
@@ -28,7 +28,7 @@ fn test_coinbase_immature_rejected() {
         is_coinbase: true, // This is a coinbase output
     };
     utxo_set.insert(
-        coinbase_outpoint.clone(),
+        coinbase_outpoint,
         std::sync::Arc::new(coinbase_utxo),
     );
 
@@ -43,7 +43,7 @@ fn test_coinbase_immature_rejected() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -65,7 +65,7 @@ fn test_coinbase_mature_accepted() {
 
     // Create a coinbase UTXO at height 0
     let coinbase_outpoint = OutPoint {
-        hash: [1; 32].into(),
+        hash: [1; 32],
         index: 0,
     };
     let coinbase_utxo = UTXO {
@@ -75,7 +75,7 @@ fn test_coinbase_mature_accepted() {
         is_coinbase: true,
     };
     utxo_set.insert(
-        coinbase_outpoint.clone(),
+        coinbase_outpoint,
         std::sync::Arc::new(coinbase_utxo),
     );
 
@@ -90,7 +90,7 @@ fn test_coinbase_mature_accepted() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -112,7 +112,7 @@ fn test_coinbase_after_maturity_accepted() {
 
     // Create a coinbase UTXO at height 0
     let coinbase_outpoint = OutPoint {
-        hash: [1; 32].into(),
+        hash: [1; 32],
         index: 0,
     };
     let coinbase_utxo = UTXO {
@@ -122,7 +122,7 @@ fn test_coinbase_after_maturity_accepted() {
         is_coinbase: true,
     };
     utxo_set.insert(
-        coinbase_outpoint.clone(),
+        coinbase_outpoint,
         std::sync::Arc::new(coinbase_utxo),
     );
 
@@ -137,7 +137,7 @@ fn test_coinbase_after_maturity_accepted() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -159,7 +159,7 @@ fn test_non_coinbase_no_maturity_requirement() {
 
     // Create a non-coinbase UTXO at height 0
     let outpoint = OutPoint {
-        hash: [1; 32].into(),
+        hash: [1; 32],
         index: 0,
     };
     let utxo = UTXO {
@@ -168,7 +168,7 @@ fn test_non_coinbase_no_maturity_requirement() {
         height: 0,
         is_coinbase: false, // Not a coinbase output
     };
-    utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo));
+    utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     // Try to spend it immediately at height 0
     let tx = Transaction {
@@ -181,7 +181,7 @@ fn test_non_coinbase_no_maturity_requirement() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -203,7 +203,7 @@ fn test_coinbase_maturity_different_heights() {
 
     // Create a coinbase UTXO at height 50
     let coinbase_outpoint = OutPoint {
-        hash: [1; 32].into(),
+        hash: [1; 32],
         index: 0,
     };
     let coinbase_utxo = UTXO {
@@ -213,7 +213,7 @@ fn test_coinbase_maturity_different_heights() {
         is_coinbase: true,
     };
     utxo_set.insert(
-        coinbase_outpoint.clone(),
+        coinbase_outpoint,
         std::sync::Arc::new(coinbase_utxo),
     );
 
@@ -221,14 +221,14 @@ fn test_coinbase_maturity_different_heights() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: coinbase_outpoint.clone(),
+            prevout: coinbase_outpoint,
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

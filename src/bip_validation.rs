@@ -191,7 +191,7 @@ pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool 
 #[spec_locked("5.4")]
 pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
     let required_lock_time = height.saturating_sub(13);
-    if (coinbase.lock_time as u64) != required_lock_time {
+    if coinbase.lock_time != required_lock_time {
         return false;
     }
     if coinbase.inputs.is_empty() {

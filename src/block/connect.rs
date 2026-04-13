@@ -197,10 +197,9 @@ fn n_crypto_drain_threads() -> usize {
                 let cores = std::thread::available_parallelism()
                     .map(|p| p.get())
                     .unwrap_or(8);
-                (cores / 2).max(4).min(8)
+                (cores / 2).clamp(4, 8)
             })
-            .max(1)
-            .min(16)
+            .clamp(1, 16)
     })
 }
 
@@ -408,14 +407,6 @@ pub(crate) fn connect_block_inner<'a>(
         block.header.version
     );
     let bip90_result = crate::bip_validation::check_bip90(block.header.version, height, context)?;
-    // Invariant assertion: BIP90 result must be boolean
-    #[allow(clippy::eq_op)]
-    {
-        assert!(
-            bip90_result || !bip90_result,
-            "BIP90 result must be boolean"
-        );
-    }
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     debug_assert!(
         bip90_result || height < BIP34_ACTIVATION_MAINNET, // BIP90 only applies after activation
@@ -492,14 +483,6 @@ pub(crate) fn connect_block_inner<'a>(
         context,
         tx_ids.first(), // Pass precomputed coinbase txid, avoids calculate_tx_id in check_bip30
     )?;
-    // Invariant assertion: BIP30 result must be boolean
-    #[allow(clippy::eq_op)]
-    {
-        assert!(
-            bip30_result || !bip30_result,
-            "BIP30 result must be boolean"
-        );
-    }
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     debug_assert!(
         bip30_result || !block.transactions.is_empty(), // BIP30 only applies to coinbase
@@ -584,8 +567,7 @@ pub(crate) fn connect_block_inner<'a>(
                     utxo_set,
                     &[],
                     format!(
-                        "Assume-valid block hash mismatch at height {}: expected {:?}, got {:?}",
-                        height, expected_hash, block_hash
+                        "Assume-valid block hash mismatch at height {height}: expected {expected_hash:?}, got {block_hash:?}",
                     ),
                 );
             }
@@ -1518,7 +1500,7 @@ pub(crate) fn connect_block_inner<'a>(
                     return invalid_block_result(
                         utxo_set,
                         tx_ids,
-                        format!("Schnorr batch verification failed: {:?}", e),
+                        format!("Schnorr batch verification failed: {e:?}"),
                     );
                 } else {
                     let schnorr_results = schnorr_result.unwrap();
@@ -2512,7 +2494,7 @@ pub(crate) fn connect_block_inner<'a>(
         height,
         time_context,
         network,
-        &tx_ids,
+        tx_ids,
         total_fees,
         bip30_index,
         maintain_bip30_index,
