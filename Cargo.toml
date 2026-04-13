@@ -69,7 +69,7 @@ blvm-spec-lock = { version = ">=0.1, <1", default-features = false }
 
 [dev-dependencies]
 blvm-muhash = { version = ">=0.1, <1" }
-blvm-protocol = { version = ">=0.1, <1", features = ["utxo-commitments"] }
+# UTXO commitments tests live in blvm-protocol (protocol → consensus only; no dev-dep cycle).
 # Formal verification tools - EXACT VERSIONS for reproducibility
 proptest = "=1.5.0"
 # Fuzzing framework for better test coverage ergonomics
@@ -85,7 +85,6 @@ criterion = "0.5"
 [patch.crates-io]
 blvm-primitives = { path = "../blvm-primitives" }
 blvm-spec-lock = { path = "../blvm-spec-lock" }
-blvm-protocol = { path = "../blvm-protocol" }
 blvm-muhash = { path = "../blvm-muhash" }
 blvm-secp256k1 = { path = "../blvm-secp256k1" }
 
@@ -115,7 +114,7 @@ rayon = ["dep:rayon"]
 # Enables cache clearing and state reset functions for reproducible benchmarks
 benchmarking = []
 
-# UTXO commitments (implementation in blvm-protocol; tests use blvm-protocol)
+# UTXO commitments (implementation in blvm-protocol; integration tests are in blvm-protocol)
 utxo-commitments = []
 # Verify UTXO proofs during initial sync (optional, for coin-freeze attack mitigation)
 utxo-proof-verification = []

@@ -33,7 +33,7 @@ Without `rayon`, the same validation runs sequentially. Consensus results are id
 
 - **`benchmarking`** — Cache clearing and state reset helpers for reproducible benchmarks.
 - **`property-tests`** — Proptest strategies (e.g. `transaction_with_witness_strategy`) for integration tests.
-- **`utxo-commitments`** — Enables tests that use blvm-protocol UTXO commitment types (implementation lives in blvm-protocol).
+- **`utxo-commitments`** — Placeholder feature for downstream crates; UTXO commitment logic and integration tests live in `blvm-protocol` (which depends on `blvm-consensus`, not the reverse).
 
 ## When editing `#[cfg]` code
 
