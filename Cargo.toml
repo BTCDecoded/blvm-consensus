@@ -1,6 +1,6 @@
 [package]
 name = "blvm-consensus"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 authors = ["Bitcoin Commons Team"]
 description = "Bitcoin Commons BLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
@@ -84,12 +84,6 @@ tokio = { version = "1.35", features = ["rt", "macros"] }
 criterion = "0.5"
 
 # Local monorepo: sibling paths override the blvm-* version pins above.
-[patch.crates-io]
-blvm-primitives = { path = "../blvm-primitives" }
-blvm-spec-lock = { path = "../blvm-spec-lock" }
-blvm-muhash = { path = "../blvm-muhash" }
-blvm-secp256k1 = { path = "../blvm-secp256k1" }
-
 [features]
 # Production (batch verification, fast paths) is default; blvm-secp256k1 is default crypto backend
 default = ["production", "blvm-secp256k1"]
