@@ -61,7 +61,7 @@ fuzz_target!(|data: &[u8]| {
                         data[offset + 1],
                         data[offset + 2],
                         data[offset + 3],
-                    ]) as u64
+                    ])
                 } else {
                     0
                 };
@@ -88,7 +88,7 @@ fuzz_target!(|data: &[u8]| {
         let mut outputs = Vec::new();
         for _ in 0..output_count {
             if offset + 8 <= data.len() {
-                let value = u64::from_le_bytes([
+                let value = i64::from_le_bytes([
                     data[offset],
                     data[offset + 1],
                     data[offset + 2],
@@ -139,8 +139,8 @@ fuzz_target!(|data: &[u8]| {
 
         transactions.push(Transaction {
             version,
-            inputs,
-            outputs,
+            inputs: inputs.into(),
+            outputs: outputs.into(),
             lock_time,
         });
     }
@@ -206,7 +206,7 @@ fuzz_target!(|data: &[u8]| {
                 bits: 0,
                 nonce: 0,
             },
-            transactions: transactions.clone(),
+            transactions: transactions.clone().into_boxed_slice(),
         };
 
         // Test witness merkle root computation

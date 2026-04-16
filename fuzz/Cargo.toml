@@ -10,10 +10,15 @@ cargo-fuzz = true
 
 [dependencies]
 blvm-consensus = { path = "..", features = ["utxo-commitments"] }
-blvm-protocol = { path = "../blvm-protocol", features = ["utxo-commitments"] }
-# Alias for fuzz targets still using old crate name
-consensus_proof = { path = "..", features = ["utxo-commitments"], package = "blvm-consensus" }
+blvm-protocol = { path = "../../blvm-protocol", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
+
+# Fuzz crate is built standalone; pin sibling crates to this workspace (same as blvm-consensus root).
+[patch.crates-io]
+blvm-primitives = { path = "../../blvm-primitives" }
+blvm-spec-lock = { path = "../../blvm-spec-lock" }
+blvm-secp256k1 = { path = "../../blvm-secp256k1" }
+blvm-muhash = { path = "../../blvm-muhash" }
 
 # Prevent warnings in generated code
 [profile.release]

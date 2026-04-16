@@ -1,6 +1,6 @@
 #![no_main]
-use consensus_proof::script::eval_script;
-use consensus_proof::ByteString;
+use blvm_consensus::script::{eval_script, to_stack_element, SigVersion};
+use blvm_consensus::ByteString;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -39,9 +39,9 @@ fuzz_target!(|data: &[u8]| {
     ];
 
     for &flags in &flag_combinations {
-        let mut stack = Vec::new();
+        let mut stack: Vec<blvm_consensus::script::StackElement> = Vec::new();
         // Should never panic - test robustness
-        let _result = eval_script(&script, &mut stack, flags);
+        let _result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
         // Also test with non-empty initial stack state
         // Simulate script_sig + script_pubkey scenario
@@ -51,8 +51,8 @@ fuzz_target!(|data: &[u8]| {
             let script_pubkey = script[split_point..].to_vec();
 
             // Test eval_script with script_sig results on stack
-            let mut stack_with_sig = vec![script_sig];
-            let _result2 = eval_script(&script_pubkey, &mut stack_with_sig, flags);
+            let mut stack_with_sig = vec![to_stack_element(&script_sig)];
+            let _result2 = eval_script(&script_pubkey, &mut stack_with_sig, flags, SigVersion::Base);
         }
     }
 });

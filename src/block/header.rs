@@ -29,7 +29,10 @@ pub(crate) fn validate_block_header(
         return Ok(false);
     }
     if let Some(ctx) = time_context {
-        if header.timestamp > ctx.network_time + crate::constants::MAX_FUTURE_BLOCK_TIME {
+        let max_ts = ctx
+            .network_time
+            .saturating_add(crate::constants::MAX_FUTURE_BLOCK_TIME);
+        if header.timestamp > max_ts {
             return Ok(false);
         }
         if header.timestamp < ctx.median_time_past {

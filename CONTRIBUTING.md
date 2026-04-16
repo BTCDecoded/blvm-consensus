@@ -18,7 +18,7 @@ This project follows the [Rust Code of Conduct](https://www.rust-lang.org/polici
 
 **CRITICAL:** This code implements Bitcoin consensus rules. Any changes must:
 
-1. **Match Bitcoin Core behavior exactly** - No deviations
+1. **Match mainnet consensus** as specified in the Orange Paper — no undocumented deviations
 2. **Not deviate from the Orange Paper specifications** - Mathematical correctness required
 3. **Handle all edge cases correctly** - Consensus code must be bulletproof
 4. **Maintain mathematical precision** - No approximations
@@ -59,7 +59,7 @@ cargo test --test comprehensive_unit_tests
 Reviewers will check:
 
 1. **Correctness** - Does the code work as intended?
-2. **Consensus compliance** - Does it match Bitcoin Core exactly?
+2. **Consensus compliance** — Does it match the spec and observed mainnet behavior?
 3. **Test coverage** - Are all cases covered (>95%)?
 4. **Performance** - No regressions?
 5. **Documentation** - Is it clear and complete?

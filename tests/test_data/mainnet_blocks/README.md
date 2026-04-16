@@ -48,7 +48,7 @@ let (block, witnesses) = load_mainnet_block_from_disk(&block_dir, 481824)?;
 ## Block Sources
 
 - **Blockstream API**: `https://blockstream.info/api/block/{hash}/raw`
-- Alternative: Bitcoin Core RPC `getblock` command
+- Alternative: reference RPC `getblock` command
 - Alternative: Public block archives
 
 ## File Size
@@ -60,7 +60,7 @@ let (block, witnesses) = load_mainnet_block_from_disk(&block_dir, 481824)?;
 ## Notes
 
 - Blocks are downloaded from public APIs (Blockstream)
-- Blocks are verified to match Bitcoin Core's validation
+- Blocks are verified to match reference validation
 - Hex format is used for easier inspection and debugging
 - Binary format is more efficient for large-scale testing
 

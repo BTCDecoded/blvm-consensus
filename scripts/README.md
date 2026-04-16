@@ -7,13 +7,13 @@ This directory contains scripts for managing test data and verification for blvm
 - `download_test_data.sh` - Download test data for consensus tests
 - `download_mainnet_blocks.sh` - Download mainnet blocks for testing
 - `manage_test_data.sh` - Manage test data files
-- `verify_core_test_vectors.sh` - Verify Bitcoin Core test vectors
+- `verify_core_test_vectors.sh` - Verify upstream reference vectors
 
 ## Usage
 
 These scripts are used to:
 - Download and manage test data for consensus validation
-- Verify against Bitcoin Core test vectors
+- Verify against upstream vectors
 - Prepare test data for fuzzing and property testing
 
 See [blvm-consensus/README.md](../README.md) for more information about the consensus layer.

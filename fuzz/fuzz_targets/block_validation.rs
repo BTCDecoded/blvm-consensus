@@ -1,6 +1,6 @@
 #![no_main]
-use consensus_proof::block::connect_block;
-use consensus_proof::{Block, BlockHeader, UtxoSet};
+use blvm_consensus::block::connect_block;
+use blvm_consensus::{Block, BlockHeader, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -62,20 +62,22 @@ fuzz_target!(|data: &[u8]| {
         let tx_data = &data[88..];
         if tx_data.len() >= 100 {
             // Create a minimal coinbase transaction
-            transactions.push(consensus_proof::Transaction {
+            transactions.push(blvm_consensus::Transaction {
                 version: 1,
-                inputs: vec![consensus_proof::TransactionInput {
-                    prevout: consensus_proof::OutPoint {
+                inputs: vec![blvm_consensus::TransactionInput {
+                    prevout: blvm_consensus::OutPoint {
                         hash: [0u8; 32],
                         index: 0xffffffff,
                     },
-                    script_sig: tx_data[..tx_data.len().min(100)].to_vec(),
+                    script_sig: tx_data[..tx_data.len().min(100)].to_vec().into(),
                     sequence: 0xffffffff,
-                }],
-                outputs: vec![consensus_proof::TransactionOutput {
+                }]
+                .into(),
+                outputs: vec![blvm_consensus::TransactionOutput {
                     value: 5000000000,
-                    script_pubkey: vec![0x51], // OP_1
-                }],
+                    script_pubkey: vec![0x51].into(), // OP_1
+                }]
+                .into(),
                 lock_time: 0,
             });
         }
@@ -83,17 +85,19 @@ fuzz_target!(|data: &[u8]| {
 
     let block = Block {
         header,
-        transactions,
+        transactions: transactions.into_boxed_slice(),
     };
 
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Vec<consensus_proof::Witness>> = block
+    let witnesses: Vec<Vec<blvm_consensus::Witness>> = block
         .transactions
         .iter()
         .map(|tx| (0..tx.inputs.len()).map(|_| vec![]).collect())
         .collect();
 
     // Should never panic - test robustness
-    let ctx = block::BlockValidationContext::for_network(consensus_proof::types::Network::Mainnet);
+    let ctx = blvm_consensus::block::BlockValidationContext::for_network(
+        blvm_consensus::types::Network::Mainnet,
+    );
     let _result = connect_block(&block, &witnesses, utxo_set, 0, &ctx);
 });

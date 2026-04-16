@@ -1,6 +1,5 @@
 #![no_main]
-use consensus_proof::script::eval_script;
-use consensus_proof::ByteString;
+use blvm_consensus::script::{eval_script, to_stack_element, SigVersion, StackElement};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -24,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Build stack from remaining data
-    let mut stack: Vec<ByteString> = Vec::new();
+    let mut stack: Vec<StackElement> = Vec::new();
     let mut offset = 5;
 
     // Parse stack items (each item is length-prefixed)
@@ -41,7 +40,7 @@ fuzz_target!(|data: &[u8]| {
 
         if item_len == 0 {
             // Empty item
-            stack.push(vec![]);
+            stack.push(to_stack_element(&[]));
             continue;
         }
 
@@ -50,7 +49,7 @@ fuzz_target!(|data: &[u8]| {
         }
 
         let item = data[offset..offset + item_len].to_vec();
-        stack.push(item);
+        stack.push(to_stack_element(&item));
         offset += item_len;
 
         // Limit stack size for tractability
@@ -64,23 +63,23 @@ fuzz_target!(|data: &[u8]| {
     // Test 1: Execute script with single opcode
     let script = vec![opcode];
     let mut stack1 = stack.clone();
-    let _result1 = eval_script(&script, &mut stack1, flags);
+    let _result1 = eval_script(&script, &mut stack1, flags, SigVersion::Base);
     // Should not panic regardless of opcode or stack state
 
     // Test 2: Execute script with empty stack
     let mut empty_stack = Vec::new();
-    let _result2 = eval_script(&script, &mut empty_stack, flags);
+    let _result2 = eval_script(&script, &mut empty_stack, flags, SigVersion::Base);
 
     // Test 3: Execute with single-item stack
     if !stack.is_empty() {
         let mut single_stack = vec![stack[0].clone()];
-        let _result3 = eval_script(&script, &mut single_stack, flags);
+        let _result3 = eval_script(&script, &mut single_stack, flags, SigVersion::Base);
     }
 
     // Test 4: Execute with two-item stack (for binary operations)
     if stack.len() >= 2 {
         let mut binary_stack = vec![stack[0].clone(), stack[1].clone()];
-        let _result4 = eval_script(&script, &mut binary_stack, flags);
+        let _result4 = eval_script(&script, &mut binary_stack, flags, SigVersion::Base);
     }
 
     // Test 5: Test all core opcodes explicitly
@@ -104,12 +103,12 @@ fuzz_target!(|data: &[u8]| {
         let test_script = vec![test_opcode];
         // Test with empty stack
         let mut test_stack = Vec::new();
-        let _result = eval_script(&test_script, &mut test_stack, flags);
+        let _result = eval_script(&test_script, &mut test_stack, flags, SigVersion::Base);
 
         // Test with non-empty stack
         if !stack.is_empty() {
             let mut test_stack = stack.clone();
-            let _result = eval_script(&test_script, &mut test_stack, flags);
+            let _result = eval_script(&test_script, &mut test_stack, flags, SigVersion::Base);
         }
     }
 
@@ -119,7 +118,7 @@ fuzz_target!(|data: &[u8]| {
     for &invalid_opcode in &invalid_opcodes {
         let invalid_script = vec![invalid_opcode];
         let mut test_stack = stack.clone();
-        let _result = eval_script(&invalid_script, &mut test_stack, flags);
+        let _result = eval_script(&invalid_script, &mut test_stack, flags, SigVersion::Base);
         // Should return error for unknown opcodes
     }
 
@@ -141,16 +140,16 @@ fuzz_target!(|data: &[u8]| {
     for &test_flags in &flag_combinations {
         if !stack.is_empty() {
             let mut test_stack = stack.clone();
-            let _result = eval_script(&script, &mut test_stack, test_flags);
+            let _result = eval_script(&script, &mut test_stack, test_flags, SigVersion::Base);
         }
     }
 
     // Test 8: Test stack size limits
     // Create large stack to test overflow handling
-    let mut large_stack: Vec<ByteString> = Vec::new();
+    let mut large_stack: Vec<StackElement> = Vec::new();
     for i in 0..100 {
-        large_stack.push(vec![i as u8]);
+        large_stack.push(to_stack_element(&[i as u8]));
     }
-    let _result = eval_script(&script, &mut large_stack, flags);
+    let _result = eval_script(&script, &mut large_stack, flags, SigVersion::Base);
     // Should handle large stacks gracefully (may fail due to limits, but shouldn't panic)
 });

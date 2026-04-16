@@ -1,8 +1,8 @@
 #![no_main]
-use consensus_proof::mempool::{
+use blvm_consensus::mempool::{
     accept_to_memory_pool, is_standard_tx, replacement_checks, Mempool,
 };
-use consensus_proof::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
 
@@ -58,7 +58,7 @@ fuzz_target!(|data: &[u8]| {
                 data[offset + 1],
                 data[offset + 2],
                 data[offset + 3],
-            ]) as u64;
+            ]);
             offset += 4;
             idx
         } else {
@@ -92,7 +92,7 @@ fuzz_target!(|data: &[u8]| {
 
         inputs.push(TransactionInput {
             prevout: OutPoint { hash, index },
-            script_sig,
+            script_sig: script_sig.into(),
             sequence,
         });
     }
@@ -148,7 +148,7 @@ fuzz_target!(|data: &[u8]| {
 
         outputs.push(TransactionOutput {
             value,
-            script_pubkey,
+            script_pubkey: script_pubkey.into(),
         });
     }
 
@@ -165,8 +165,8 @@ fuzz_target!(|data: &[u8]| {
 
     let tx = Transaction {
         version,
-        inputs,
-        outputs,
+        inputs: inputs.into(),
+        outputs: outputs.into(),
         lock_time,
     };
 
@@ -175,7 +175,7 @@ fuzz_target!(|data: &[u8]| {
     let mempool: Mempool = HashSet::new();
 
     // Test accept_to_memory_pool
-    let _accept_result = accept_to_memory_pool(&tx, &utxo_set, &mempool, 0);
+    let _accept_result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 0, None);
 
     // Test is_standard_tx
     let _standard_result = is_standard_tx(&tx);
@@ -202,6 +202,6 @@ fuzz_target!(|data: &[u8]| {
             tx1.inputs[0].sequence = 0xfffffffe;
         }
 
-        let _replacement_result = replacement_checks(&tx2, &tx1, &mempool);
+        let _replacement_result = replacement_checks(&tx2, &tx1, &utxo_set, &mempool);
     }
 });

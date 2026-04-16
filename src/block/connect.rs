@@ -498,11 +498,6 @@ pub(crate) fn connect_block_inner<'a>(
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
     // If this check is removed, integration tests will fail
     let bip34_result = crate::bip_validation::check_bip34(block, height, context)?;
-    #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
-    debug_assert!(
-        bip34_result || height < BIP34_ACTIVATION_MAINNET, // BIP34 only applies after activation
-        "BIP34 check was called but returned false - this should be handled below"
-    );
     if !bip34_result {
         return invalid_block_result(
             utxo_set,
@@ -2695,7 +2690,7 @@ fn connect_block_inner_with_tx_ids(
 
         // Expected supply change = subsidy + fees
         let subsidy = get_block_subsidy(height);
-        let _expected_change = subsidy + total_fees;
+        let _expected_change = subsidy.saturating_add(total_fees);
 
         // Actual supply change = actual_supply - previous_supply
         // We can't easily get previous_supply, but we can verify:
@@ -2704,8 +2699,9 @@ fn connect_block_inner_with_tx_ids(
 
         // Runtime assertion: Actual supply should not exceed expected supply by more than fees
         // (Allowing for fees because they're part of the economic model)
+        let supply_plus_fees = expected_supply.saturating_add(total_fees);
         debug_assert!(
-            actual_supply <= expected_supply + total_fees,
+            actual_supply <= supply_plus_fees,
             "Supply invariant violated at height {height}: actual supply {actual_supply} exceeds expected {expected_supply} + fees {total_fees}"
         );
 

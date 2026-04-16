@@ -5,17 +5,17 @@ This document describes all sources of test data used by blvm-consensus tests.
 ## Overview
 
 Test data is organized into three main categories:
-1. **Bitcoin Core Test Vectors** - Official test cases from Bitcoin Core
+1. **Reference JSON vectors** - Official test cases from the reference `bitcoin/bitcoin` tree
 2. **Mainnet Blocks** - Real Bitcoin blocks at key consensus-era heights
 3. **UTXO Set Checkpoints** - Verified UTXO set hashes at specific heights
 
-## Bitcoin Core Test Vectors
+## Upstream reference vectors
 
 ### Source
 - **Repository**: https://github.com/bitcoin/bitcoin
 - **Path**: `src/test/data/`
-- **License**: MIT (same as Bitcoin Core)
-- **Update Frequency**: Updated with each Bitcoin Core release
+- **License**: MIT (same license as upstream)
+- **Update Frequency**: Updated when upstream refreshes vectors
 
 ### Files
 
@@ -35,13 +35,13 @@ Test data is organized into three main categories:
 #### Script Test Vectors
 - **Files**: `script_valid.json`, `script_invalid.json`
 - **Status**: Not available as standalone JSON files
-- **Note**: Bitcoin Core uses functional tests for scripts, not JSON vectors
+- **Note**: The reference client uses functional tests for scripts, not JSON vectors
 - **Alternative**: Use our comprehensive script tests in `tests/unit/script_tests.rs`
 
 #### Block Test Vectors
 - **Files**: `block_valid.json`, `block_invalid.json`
 - **Status**: Not available as standalone JSON files
-- **Note**: Bitcoin Core uses functional tests for blocks, not JSON vectors
+- **Note**: The reference client uses functional tests for blocks, not JSON vectors
 - **Alternative**: Use our comprehensive block tests and mainnet blocks
 
 ### Download
@@ -65,7 +65,7 @@ curl -L -o tx_invalid.json \
 
 ### Verification
 
-Test vectors should be verified against Bitcoin Core's official repository:
+Test vectors should be verified against the official repository:
 - Check file hashes match upstream
 - Verify JSON format is valid
 - Ensure test cases are complete
@@ -74,7 +74,7 @@ Test vectors should be verified against Bitcoin Core's official repository:
 
 ### Source
 - **Primary**: Blockstream API (`https://blockstream.info/api/block/{hash}/raw`)
-- **Alternative**: Bitcoin Core RPC (`getblock` command with verbosity=0)
+- **Alternative**: reference full-node RPC (`getblock` command with verbosity=0)
 - **Format**: Raw Bitcoin wire format (hex-encoded)
 - **Update Frequency**: As needed for new consensus-era testing
 
@@ -116,7 +116,7 @@ curl -s "https://blockstream.info/api/block/$HASH/raw" | \
   xxd -p -c 0 > tests/test_data/mainnet_blocks/block_${HEIGHT}.hex
 ```
 
-**Manual** (using Bitcoin Core RPC):
+**Manual** (using reference full-node RPC):
 ```bash
 # Get block hash
 HASH=$(bitcoin-cli getblockhash 481824)
@@ -137,7 +137,7 @@ Blocks should be verified:
 
 ### Source
 - **Primary**: Generated from historical block replay
-- **Alternative**: Bitcoin Core RPC (`gettxoutsetinfo` at specific heights)
+- **Alternative**: reference full-node RPC (`gettxoutsetinfo` at specific heights)
 - **Format**: JSON files with height, UTXO set hash, block hash
 - **Update Frequency**: As needed for new checkpoint heights
 
@@ -168,7 +168,7 @@ let checkpoint = Checkpoint {
 };
 ```
 
-**From Bitcoin Core RPC**:
+**From reference full-node RPC**:
 ```bash
 # Get UTXO set info at specific height
 bitcoin-cli gettxoutsetinfo | jq '{height: .height, hash: .hash}'
@@ -195,7 +195,7 @@ sha256sum -c test_data_checksums.txt
 ### Version Tracking
 
 Test data versions should be tracked:
-- Document which Bitcoin Core version test vectors are from
+- Document which upstream snapshot test vectors are from
 - Track when mainnet blocks were downloaded
 - Note checkpoint generation timestamp
 
@@ -249,8 +249,8 @@ Some tests gracefully handle missing data:
 
 ## References
 
-- [Bitcoin Core Test Data](https://github.com/bitcoin/bitcoin/tree/master/src/test/data)
+- [Upstream test data](https://github.com/bitcoin/bitcoin/tree/master/src/test/data)
 - [Blockstream API](https://blockstream.info/api-doc)
-- [Bitcoin Core RPC](https://bitcoincore.org/en/doc/)
+- [reference full-node RPC](https://bitcoincore.org/en/doc/)
 - [Test Data Management](../scripts/manage_test_data.sh)
 

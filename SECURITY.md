@@ -87,7 +87,7 @@ We follow responsible disclosure practices:
 
 #### Consensus Rules
 - All consensus rules must be implemented exactly as specified
-- No deviations from Bitcoin Core behavior
+- No undocumented deviations from the Orange Paper and mainnet consensus rules
 - All edge cases must be handled correctly
 - Integer arithmetic must be precise
 

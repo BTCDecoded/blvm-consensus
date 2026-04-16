@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
     if data.len() >= 36 {
         let hash: Hash = data[0..32].try_into().unwrap_or([0; 32]);
         let index = if data.len() >= 36 {
-            u32::from_le_bytes([data[32], data[33], data[34], data[35]]) as u64
+            u32::from_le_bytes([data[32], data[33], data[34], data[35]])
         } else {
             0
         };
@@ -44,7 +44,7 @@ fuzz_target!(|data: &[u8]| {
                 data.get(38).copied().unwrap_or(0),
                 data.get(39).copied().unwrap_or(0),
                 data.get(40).copied().unwrap_or(0),
-            ])
+            ]) as u64
         } else {
             0xffffffff
         };
@@ -58,11 +58,12 @@ fuzz_target!(|data: &[u8]| {
         // Test 2: Transaction with single input
         let tx = Transaction {
             version: 1,
-            inputs: vec![input],
+            inputs: vec![input].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -83,7 +84,7 @@ fuzz_target!(|data: &[u8]| {
             let hash: Hash = data[offset..offset + 32].try_into().unwrap_or([0; 32]);
             offset += 32;
             let index = if offset + 4 <= data.len() {
-                u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]) as u64
+                u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
             } else {
                 0
             };
@@ -109,7 +110,7 @@ fuzz_target!(|data: &[u8]| {
                     data[offset + 1],
                     data[offset + 2],
                     data[offset + 3],
-                ])
+                ]) as u64
             } else {
                 0xffffffff
             };
@@ -124,11 +125,12 @@ fuzz_target!(|data: &[u8]| {
 
         let tx = Transaction {
             version: 1,
-            inputs,
+            inputs: inputs.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -139,14 +141,15 @@ fuzz_target!(|data: &[u8]| {
     if data.len() >= 50 {
         // Build transaction
         let hash: Hash = data[0..32].try_into().unwrap_or([0; 32]);
+        let prev_index = if data.len() >= 36 {
+            u32::from_le_bytes([data[32], data[33], data[34], data[35]])
+        } else {
+            0
+        };
         let input = TransactionInput {
             prevout: OutPoint {
                 hash,
-                index: if data.len() >= 36 {
-                    u32::from_le_bytes([data[32], data[33], data[34], data[35]]) as u64
-                } else {
-                    0
-                },
+                index: prev_index,
             },
             script_sig: vec![].into(),
             sequence: 0xffffffff,
@@ -154,11 +157,12 @@ fuzz_target!(|data: &[u8]| {
 
         let tx = Transaction {
             version: 1,
-            inputs: vec![input],
+            inputs: vec![input].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
@@ -167,12 +171,15 @@ fuzz_target!(|data: &[u8]| {
         utxo_set.insert(
             OutPoint {
                 hash,
-                index: 0,
+                index: prev_index,
             },
-            TransactionOutput {
+            blvm_consensus::UTXO {
                 value: 2000,
                 script_pubkey: vec![].into(),
-            },
+                height: 0,
+                is_coinbase: false,
+            }
+            .into(),
         );
 
         // Test check_tx_inputs
@@ -183,11 +190,12 @@ fuzz_target!(|data: &[u8]| {
     // Empty inputs
     let tx_empty_inputs = Transaction {
         version: 1,
-        inputs: vec![],
+        inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey: vec![].into(),
-        }],
+        }]
+        .into(),
         lock_time: 0,
     };
     let _result_empty = check_transaction(&tx_empty_inputs);
@@ -203,11 +211,12 @@ fuzz_target!(|data: &[u8]| {
     };
     let coinbase_tx = Transaction {
         version: 1,
-        inputs: vec![coinbase_input],
+        inputs: vec![coinbase_input].into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
             script_pubkey: vec![].into(),
-        }],
+        }]
+        .into(),
         lock_time: 0,
     };
     let _result_coinbase = check_transaction(&coinbase_tx);
@@ -223,11 +232,12 @@ fuzz_target!(|data: &[u8]| {
     };
     let tx_large_sequence = Transaction {
         version: 1,
-        inputs: vec![large_sequence_input],
+        inputs: vec![large_sequence_input].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey: vec![].into(),
-        }],
+        }]
+        .into(),
         lock_time: 0,
     };
     let _result_large_sequence = check_transaction(&tx_large_sequence);

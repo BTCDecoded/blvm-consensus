@@ -1,16 +1,8 @@
-# Fuzzing Infrastructure for blvm-consensus
+# blvm-consensus fuzz (cargo-fuzz)
 
-This directory contains comprehensive fuzzing infrastructure for the blvm-consensus crate, modeled after Bitcoin Core's fuzzing approach.
+Coverage-guided fuzzing with **libFuzzer**. **Harness names** are defined in **`Cargo.toml`** (`[[bin]]`); do not trust READMEs for a full list.
 
-## Overview
-
-- **12 Fuzz Targets**: Covering all critical consensus validation functions
-- **libFuzzer**: Primary fuzzing engine (LLVM-based)
-- **Sanitizers**: ASAN, UBSAN, MSAN support
-- **Corpus Management**: Automated corpus initialization and management
-- **Test Runner**: Python script for parallel execution and corpus management
-- **Differential Fuzzing**: Internal consistency testing (independent of Bitcoin Core)
-- **CI Integration**: Continuous fuzzing in GitHub Actions
+Narrative overview (timeless): [blvm-docs: Fuzzing](https://github.com/BTCDecoded/blvm-docs/blob/main/src/development/fuzzing.md).
 
 ## Quick Start
 
@@ -51,26 +43,6 @@ python3 test_runner.py fuzz/corpus/ --parallel
 # All sanitizers
 ./build_with_sanitizers.sh all
 ```
-
-## Fuzz Targets
-
-### Core Consensus (Critical)
-1. **transaction_validation** - Transaction parsing and validation
-2. **block_validation** - Block validation and connection
-3. **script_execution** - Script VM execution
-4. **script_opcodes** - Individual opcode execution
-
-### Advanced Features
-5. **segwit_validation** - SegWit weight calculations and witness validation
-6. **mempool_operations** - Mempool acceptance, RBF, standardness checks
-7. **utxo_commitments** - UTXO commitment verification
-
-### Infrastructure
-8. **serialization** - Serialization/deserialization round-trips
-9. **pow_validation** - Proof of Work and difficulty adjustment
-10. **economic_validation** - Supply calculations and fee validation
-11. **compact_block_reconstruction** - Compact block parsing
-12. **differential_fuzzing** - Internal consistency testing (validation, serialization, calculations)
 
 ## Running Campaigns
 
@@ -157,7 +129,7 @@ echo "76a914..." > fuzz/corpus/script_execution/p2pkh.hex
 
 ### Corpus Sources
 
-1. **Bitcoin Core Test Vectors**: `bitcoin-core/src/test/data/`
+1. **Public JSON test vectors** (same families used across the ecosystem): see `blvm-consensus/docs/TEST_DATA_SOURCES.md`
 2. **QA Assets**: `bitcoin-core/qa-assets` (if available)
 3. **Real Blockchain Data**: Mainnet/testnet transactions and blocks
 4. **Historical Blocks**: Pre/post SegWit, Taproot activation blocks
@@ -168,29 +140,6 @@ echo "76a914..." > fuzz/corpus/script_execution/p2pkh.hex
 - **Real-world data**: Prefer actual Bitcoin data over synthetic
 - **Size limits**: Keep corpus files reasonable (fuzzer has max_len defaults)
 - **Regular updates**: Add new interesting cases as discovered
-
-## Comparison with Bitcoin Core
-
-### Similarities
-- ✅ libFuzzer as primary fuzzer
-- ✅ Sanitizer support (ASAN, UBSAN, MSAN)
-- ✅ Corpus-based approach
-- ✅ Test runner for automation
-- ✅ Comprehensive target coverage
-
-### Advantages
-- ✅ Rust's memory safety (fewer memory errors)
-- ✅ Better integration with spec-lock verification
-- ✅ Property-based testing integration (proptest)
-
-## Metrics
-
-Track these metrics over time:
-- **Coverage**: Code coverage percentage
-- **Unique crashes**: Crashes found per target
-- **Corpus size**: Inputs in corpus
-- **Execution rate**: Executions per second
-- **Coverage growth**: New coverage over time
 
 ## Troubleshooting
 
@@ -226,43 +175,21 @@ export ASAN_OPTIONS="detect_leaks=1:detect_stack_use_after_return=1"
 RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz run transaction_validation
 ```
 
-## Differential Fuzzing
+## Internal differential harness
 
-The `differential_fuzzing` target tests internal consistency within blvm-consensus:
-
-- **Serialization round-trips**: Ensures serialize→deserialize preserves all properties
-- **Validation consistency**: Same transaction validates the same way after round-trip
-- **Calculation idempotency**: Weight calculations, economic calculations are deterministic
-- **Cross-validation**: Different code paths agree on validation results
-
-This does NOT call Bitcoin Core - it tests blvm-consensus independently.
+The `differential_fuzzing` binary checks consistency inside this crate (e.g. serialize/deserialize round-trips vs validation). It does not call an external node.
 
 ```bash
 cargo +nightly fuzz run differential_fuzzing
 ```
 
-## CI Integration
+## CI
 
-Continuous fuzzing is configured in `.github/workflows/fuzz.yml`:
-
-- **On PRs**: Runs critical targets (transaction, block, script validation) for 5 minutes each
-- **On Schedule**: Runs all 12 targets daily at 2 AM UTC
-- **Crash Reporting**: Automatically uploads crash artifacts on failures
-- **Corpus Management**: Stores corpus between runs on scheduled builds
-
-The CI workflow:
-1. Installs Rust nightly and cargo-fuzz
-2. Initializes corpus from test vectors
-3. Runs fuzzing campaigns with sanitizers
-4. Collects and reports crashes
-5. Uploads artifacts for analysis
-
-View CI fuzzing results in the GitHub Actions tab.
+Where fuzzing runs in CI, schedules and target matrices are defined in the workflow YAML for that repo—read the file; do not rely on this README for exact steps.
 
 ## References
 
-- [Bitcoin Core Fuzzing Documentation](https://github.com/bitcoin/bitcoin/blob/master/doc/fuzzing.md)
-- [libFuzzer Documentation](https://llvm.org/docs/LibFuzzer.html)
-- [Rust Fuzzing Book](https://rust-fuzz.github.io/book/)
+- [libFuzzer](https://llvm.org/docs/LibFuzzer.html)
+- [Rust Fuzz Book](https://rust-fuzz.github.io/book/)
 
 

@@ -68,7 +68,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 ∀ header H: CheckProofOfWork(H) = SHA256(SHA256(H)) < ExpandTarget(H.bits)
 ```
 
-**Target Compression/Expansion (Bitcoin Core GetCompact/SetCompact):**
+**Target Compression/Expansion (reference GetCompact/SetCompact):**
 ```
 ∀ bits ∈ [0x03000000, 0x1d00ffff]:
   Let expanded = expand_target(bits)
@@ -93,7 +93,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 **Verified Functions:**
 - `check_proof_of_work`: Verifies hash < target
 - `expand_target`: Handles compact target representation
-- `compress_target`: Implements Bitcoin Core GetCompact() exactly
+- `compress_target`: Implements reference GetCompact() exactly
 - `expand_target`/`compress_target`: **Formally verified** via spec-lock - proves significant bits preserved
 - `get_next_work_required`: Respects difficulty bounds
 

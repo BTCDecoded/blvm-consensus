@@ -136,6 +136,12 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
         })
         .map_err(|e| ConsensusError::EconomicValidation(Cow::Owned(e.to_string())))?;
 
+    if total_output < 0 {
+        return Err(ConsensusError::EconomicValidation(
+            "Negative total output value".into(),
+        ));
+    }
+
     // Note: We use inline error here because it's EconomicValidation, not TransactionValidation
     // The helper function returns TransactionValidation, so we keep inline for type consistency
     let fee = total_input

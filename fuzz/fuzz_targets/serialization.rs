@@ -1,7 +1,7 @@
 #![no_main]
-use consensus_proof::serialization::block::{deserialize_block_header, serialize_block_header};
-use consensus_proof::serialization::transaction::{deserialize_transaction, serialize_transaction};
-use consensus_proof::serialization::varint::{decode_varint, encode_varint};
+use blvm_consensus::serialization::block::{deserialize_block_header, serialize_block_header};
+use blvm_consensus::serialization::transaction::{deserialize_transaction, serialize_transaction};
+use blvm_consensus::serialization::varint::{decode_varint, encode_varint};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

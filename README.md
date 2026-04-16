@@ -227,11 +227,11 @@ Orange Paper (Math Spec) → #[spec_locked] → Implementation → Bitcoin Conse
 - Security is critical - billions of dollars depend on correctness
 - Mathematical proof exceeds human review
 
-**Verification Statistics**:
-- Spec-lock verifies `#[spec_locked]` functions against Orange Paper
-- 35 property tests verify mathematical invariants
-- 913 runtime assertions catch edge cases (814 `assert!` + 99 `debug_assert!`)
-- 13 fuzz targets discover vulnerabilities
+**Verification approaches** (details and scope: [docs/VERIFICATION.md](docs/VERIFICATION.md)):
+- **Spec-lock** on `#[spec_locked]` functions against the Orange Paper
+- **Property tests**, integration tests, and optional Bolero-backed tests
+- **Runtime assertions** on selected paths (see feature flags and [PROOF_LIMITATIONS.md](docs/PROOF_LIMITATIONS.md))
+- **Coverage-guided fuzzing** ([blvm-docs: fuzzing](https://github.com/BTCDecoded/blvm-docs/blob/main/src/development/fuzzing.md); harnesses under `fuzz/`)
 
 ## Orange Paper Compliance
 

@@ -65,13 +65,15 @@ fuzz_target!(|data: &[u8]| {
                         hash: [0; 32],
                         index: 0xffffffff,
                     },
-                    script_sig: vec![0x51, 0x51], // 2 bytes for valid coinbase
+                    script_sig: vec![0x51, 0x51].into(), // 2 bytes for valid coinbase
                     sequence: 0xffffffff,
-                }],
+                }]
+                .into(),
                 outputs: vec![blvm_consensus::TransactionOutput {
                     value: 5000000000, // 50 BTC
-                    script_pubkey: vec![0x51],
-                }],
+                    script_pubkey: vec![0x51].into(),
+                }]
+                .into(),
                 lock_time: 0,
             }]
             .into_boxed_slice(),
@@ -124,13 +126,15 @@ fuzz_target!(|data: &[u8]| {
                         hash: [0; 32],
                         index: 0xffffffff,
                     },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![0x51, 0x51].into(),
                     sequence: 0xffffffff,
-                }],
+                }]
+                .into(),
                 outputs: vec![blvm_consensus::TransactionOutput {
                     value: 5000000000,
-                    script_pubkey: vec![0x51],
-                }],
+                    script_pubkey: vec![0x51].into(),
+                }]
+                .into(),
                 lock_time: 0,
             }]
             .into_boxed_slice(),

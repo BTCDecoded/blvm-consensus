@@ -49,11 +49,11 @@ fuzz_target!(|data: &[u8]| {
                     },
                     script_sig: vec![].into(),
                     sequence: 0xffffffff,
-                }],
+                }].into(),
                 outputs: vec![TransactionOutput {
                     value: test_value as i64,
                     script_pubkey: vec![].into(),
-                }],
+                }].into(),
                 lock_time: 0,
             };
 
@@ -94,11 +94,11 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
+            }].into(),
             outputs: vec![TransactionOutput {
                 value,
                 script_pubkey: script_pubkey.into(),
-            }],
+            }].into(),
             lock_time: 0,
         };
 
@@ -157,8 +157,8 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
-            outputs,
+            }].into(),
+            outputs: outputs.into(),
             lock_time: 0,
         };
 
@@ -176,8 +176,8 @@ fuzz_target!(|data: &[u8]| {
             },
             script_sig: vec![].into(),
             sequence: 0xffffffff,
-        }],
-        outputs: vec![],
+        }].into(),
+        outputs: vec![].into(),
         lock_time: 0,
     };
     let _result_empty = check_transaction(&tx_empty_outputs);
@@ -192,11 +192,11 @@ fuzz_target!(|data: &[u8]| {
             },
             script_sig: vec![].into(),
             sequence: 0xffffffff,
-        }],
+        }].into(),
         outputs: vec![TransactionOutput {
             value: 0,
             script_pubkey: vec![].into(),
-        }],
+        }].into(),
         lock_time: 0,
     };
     let _result_zero = check_transaction(&tx_zero_value);
@@ -211,11 +211,11 @@ fuzz_target!(|data: &[u8]| {
             },
             script_sig: vec![].into(),
             sequence: 0xffffffff,
-        }],
+        }].into(),
         outputs: vec![TransactionOutput {
             value: -1,
             script_pubkey: vec![].into(),
-        }],
+        }].into(),
         lock_time: 0,
     };
     let _result_negative = check_transaction(&tx_negative_value);
@@ -232,11 +232,11 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
+            }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: large_script.into(),
-            }],
+            }].into(),
             lock_time: 0,
         };
         let _result_large_script = check_transaction(&tx_large_script);
@@ -252,7 +252,7 @@ fuzz_target!(|data: &[u8]| {
             },
             script_sig: vec![].into(),
             sequence: 0xffffffff,
-        }],
+        }].into(),
         outputs: vec![
             TransactionOutput {
                 value: MAX_MONEY / 2,
@@ -262,7 +262,8 @@ fuzz_target!(|data: &[u8]| {
                 value: MAX_MONEY / 2 + 1, // Should cause overflow
                 script_pubkey: vec![].into(),
             },
-        ],
+        ]
+        .into(),
         lock_time: 0,
     };
     let _result_overflow = check_transaction(&tx_overflow);
