@@ -25,7 +25,8 @@ TARGETS=(
     "economic_validation"
     "serialization"
     "script_opcodes"
-    "differential_fuzzing"
+    "differential_fuzzing",
+    "sigop_validation"
 )
 
 for target in "${TARGETS[@]}"; do
@@ -78,6 +79,88 @@ add_seed "pow_validation" "genesis_header.hex" "01000000000000000000000000000000
 add_seed "economic_validation" "height_0.hex" "0000000000000000"
 # Height at first halving
 add_seed "economic_validation" "height_210000.hex" "a086010000000000"
+
+# sigop_validation seeds
+# ------------------------------------------------------------------
+# CORE OPCODE BEHAVIOR
+# -----------------------------
+add_seed "sigop_validation" "checksig.hex" "ac"
+add_seed "sigop_validation" "multi_checksig.hex" "acacac"
+add_seed "sigop_validation" "checksigverify.hex" "ad"
+
+# Mixed basic opcodes
+add_seed "sigop_validation" "core_mixed.hex" "acadacacad"
+
+# -----------------------------
+# MULTISIG BEHAVIOR
+# -----------------------------
+add_seed "sigop_validation" "multisig_accurate.hex" "52ae"
+add_seed "sigop_validation" "multisig_max.hex" "60ae"
+add_seed "sigop_validation" "multisig_invalid_prefix.hex" "faae"
+add_seed "sigop_validation" "multisig_no_prefix.hex" "ae"
+
+# Repeated multisig stress (survives slicing well)
+add_seed "sigop_validation" "multisig_repeat.hex" "$(printf '52ae%.0s' {1..20})"
+
+# -----------------------------
+# PUSHDATA MASKING (CRITICAL CONSENSUS AREA)
+# -----------------------------
+add_seed "sigop_validation" "pushdata1_mask.hex" "4c03acacac"
+add_seed "sigop_validation" "pushdata2_mask.hex" "4d0400acadaeaf"
+add_seed "sigop_validation" "pushdata4_mask.hex" "4e02000000acac"
+
+# Direct push masking (very important for your bug class)
+add_seed "sigop_validation" "direct_push.hex" "05acacacacac"
+
+# Push then real opcode boundary test
+add_seed "sigop_validation" "push_then_opcode.hex" "03acacacacacacacacac"
+
+# Large push block (DoS-style edge)
+add_seed "sigop_validation" "large_push.hex" "4c64$(printf 'ac%.0s' {1..50})"
+
+# -----------------------------
+# TRUNCATION / MALFORMED PUSHES
+# -----------------------------
+add_seed "sigop_validation" "trunc_push1.hex" "4c"
+add_seed "sigop_validation" "trunc_push2.hex" "4d01"
+add_seed "sigop_validation" "trunc_push4.hex" "4e010000"
+
+# Extended malformed truncation stress
+add_seed "sigop_validation" "trunc_repeat.hex" "$(printf '4c%.0s' {1..10})"
+
+# -----------------------------
+# TAPSCRIPT / MODERN OPCODES
+# -----------------------------
+add_seed "sigop_validation" "tapscript_sigop.hex" "ba"
+
+# Mixed tapscript + legacy mix
+add_seed "sigop_validation" "tapscript_mixed.hex" "acbaadacba"
+
+# Tapscript stress pattern
+add_seed "sigop_validation" "tapscript_repeat.hex" "$(printf 'ba%.0s' {1..20})"
+
+# -----------------------------
+# CROSS-BOUNDARY / FUZZ-CRITICAL SEEDS
+# (IMPORTANT FOR YOUR SPLITTING MODEL)
+# -----------------------------
+add_seed "sigop_validation" "boundary_mix1.hex" "ac52ae4c03acba4e010000ad"
+add_seed "sigop_validation" "boundary_mix2.hex" "faaeacac4c03acacbaad"
+add_seed "sigop_validation" "boundary_mix3.hex" "52aeac52aeac52aeac52ae"
+
+# alternating opcode/push chaos
+add_seed "sigop_validation" "alternating.hex" "01ac01ac01ac01ac01ac"
+
+# random-like dense opcode stream
+add_seed "sigop_validation" "dense_stream.hex" "acac52ae4cadbaac4e01000052ae"
+
+# -----------------------------
+# STRESS / DOS-STYLE INPUTS
+# -----------------------------
+# many CHECKSIG (classic sigop explosion case)
+add_seed "sigop_validation" "many_checksig.hex" "$(printf 'ac%.0s' {1..100})"
+
+# mixed explosion pattern
+add_seed "sigop_validation" "mixed_stress.hex" "$(printf 'ac52aeadba%.0s' {1..30})"
 
 # Add Bitcoin Core test vectors if available
 BITCOIN_CORE_TEST_DIR="${BITCOIN_CORE_TEST_DIR:-/home/user/src/bitcoin/test/functional/data/util}"

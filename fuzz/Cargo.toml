@@ -152,3 +152,10 @@ path = "fuzz_targets/transaction_output_validation.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sigop_validation"
+path = "fuzz_targets/sigop_validation.rs"
+test = false
+doc = false
+bench = false
