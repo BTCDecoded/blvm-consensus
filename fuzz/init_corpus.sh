@@ -123,6 +123,20 @@ add_binary_seed "sighash_computation" "bip143_bounds.bin" \
 # Extra: SIGHASH_NONE with 3 inputs, varied sequences
 add_binary_seed "sighash_computation" "legacy_none_multi.bin" \
     '\x00\x02\x01\x03\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\xe1\xf5\x05\x00\x00\x00\x00\xab\x32\x76\xa9\x14\x00\x00\x51\x52\x53'
+    
+# Witness validation seeds
+# Boundary 520 bytes
+add_seed "witness_validation" "boundary_520.hex" "$(printf '01%.0s' {1..520})"
+# Boundary 521 bytes
+add_seed "witness_validation" "boundary_521.hex" "$(printf '01%.0s' {1..521})"
+# Taproot Control Block (33 bytes)
+add_seed "witness_validation" "taproot_cb_33.hex" "$(printf '00%.0s' {1..33})"
+# Taproot Control Block (65 bytes)
+add_seed "witness_validation" "taproot_cb_65.hex" "$(printf '00%.0s' {1..65})"
+# Taproot Invalid CB (34 bytes)
+add_seed "witness_validation" "taproot_cb_34.hex" "$(printf '00%.0s' {1..34})"
+# Degenerate: 32 empty elements
+add_seed "witness_validation" "degenerate_empty.hex" "$(printf '00%.0s' {1..32}"
 
 # Add Bitcoin Core test vectors if available
 BITCOIN_CORE_TEST_DIR="${BITCOIN_CORE_TEST_DIR:-/home/user/src/bitcoin/test/functional/data/util}"
@@ -198,17 +212,3 @@ echo "  - Extract from Bitcoin Core test vectors"
 echo "  - Use real blockchain data (mainnet/testnet)"
 echo ""
 echo "Corpus directories: $CORPUS_DIR"
-
-# Witness validation seeds
-# Boundary 520 bytes
-add_seed "witness_validation" "boundary_520.hex" "$(printf '01%.0s' {1..520})"
-# Boundary 521 bytes
-add_seed "witness_validation" "boundary_521.hex" "$(printf '01%.0s' {1..521})"
-# Taproot Control Block (33 bytes)
-add_seed "witness_validation" "taproot_cb_33.hex" "$(printf '00%.0s' {1..33})"
-# Taproot Control Block (65 bytes)
-add_seed "witness_validation" "taproot_cb_65.hex" "$(printf '00%.0s' {1..65})"
-# Taproot Invalid CB (34 bytes)
-add_seed "witness_validation" "taproot_cb_34.hex" "$(printf '00%.0s' {1..34})"
-# Degenerate: 32 empty elements
-add_seed "witness_validation" "degenerate_empty.hex" "$(printf '00%.0s' {1..32})"
