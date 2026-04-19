@@ -14,6 +14,7 @@ blvm-protocol = { path = "../blvm-protocol", features = ["utxo-commitments"] }
 # Alias for fuzz targets still using old crate name
 consensus_proof = { path = "..", features = ["utxo-commitments"], package = "blvm-consensus" }
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 # Prevent warnings in generated code
 [profile.release]
@@ -177,6 +178,13 @@ bench = false
 [[bin]]
 name = "sigop_validation"
 path = "fuzz_targets/sigop_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sequence_locks_validation"
+path = "fuzz_targets/sequence_locks_validation.rs"
 test = false
 doc = false
 bench = false
