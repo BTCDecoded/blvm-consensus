@@ -179,7 +179,7 @@ fn create_realistic_block(num_txs: usize) -> Block {
                 },
                 TransactionOutput {
                     value: 5_000_000,
-                    script_pubkey: vec![0x51; 25],
+                    script_pubkey: vec![0x51; 25].into(),
                 },
             ]
             .into(),
@@ -206,9 +206,13 @@ fn bench_block_validation(c: &mut Criterion) {
 
     // Small block (10 txs) - typical for quick blocks
     let block_10 = create_realistic_block(10);
-    let witnesses_10: Vec<Witness> = block_10.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses_10: Vec<Vec<Witness>> = block_10
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
-    let ctx = block::BlockValidationContext::for_network(Network::Mainnet);
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
     group.bench_function("10_txs", |b| {
         b.iter(|| {
             let utxo_set = UtxoSet::default();
@@ -224,7 +228,11 @@ fn bench_block_validation(c: &mut Criterion) {
 
     // Medium block (100 txs) - typical average block
     let block_100 = create_realistic_block(100);
-    let witnesses_100: Vec<Witness> = block_100.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses_100: Vec<Vec<Witness>> = block_100
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
     group.bench_function("100_txs", |b| {
         b.iter(|| {
@@ -247,16 +255,16 @@ fn bench_block_validation(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_utxo_operations(c: &mut Criterion) {
-    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    let mut utxo_set: UtxoSet = HashMap::new();
+    let mut utxo_set: UtxoSet = UtxoSet::default();
     let outpoint = OutPoint {
-        hash: [1; 32],
+        hash: [1; 32].into(),
         index: 0,
     };
-    let utxo = crate::UTXO {
+    let utxo = UTXO {
         value: 1_000_000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![0x51].into(),
         height: 0,
         is_coinbase: false,
     };
@@ -267,13 +275,16 @@ fn bench_utxo_operations(c: &mut Criterion) {
     group.bench_function("insert", |b| {
         b.iter(|| {
             let mut set = utxo_set.clone();
-            set.insert(black_box(outpoint.clone()), black_box(utxo.clone()));
+            set.insert(
+                black_box(outpoint.clone()),
+                black_box(Arc::new(utxo.clone())),
+            );
             black_box(set)
         })
     });
 
     // Lookup UTXO
-    utxo_set.insert(outpoint.clone(), utxo.clone());
+    utxo_set.insert(outpoint.clone(), Arc::new(utxo.clone()));
     group.bench_function("get", |b| {
         b.iter(|| black_box(utxo_set.get(black_box(&outpoint))))
     });

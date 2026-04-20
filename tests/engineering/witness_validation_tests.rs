@@ -172,7 +172,11 @@ fn test_median_time_past_validation() {
     let mut utxo_set = UtxoSet::default();
     
     // Validate with recent headers for median time-past
-    let ctx = block::BlockValidationContext::from_connect_block_ibd_args(Some(&headers), 0u64, crate::types::Network::Mainnet, None, None);
+    let ctx = block::block_validation_context_for_connect_ibd(
+        Some(&headers[..]),
+        0u64,
+        crate::types::Network::Mainnet,
+    );
     let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }

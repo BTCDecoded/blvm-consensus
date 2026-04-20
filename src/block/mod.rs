@@ -279,14 +279,25 @@ impl BlockValidationContext {
 
     /// Build context for a network only (no headers, network_time 0, no BIP54). For tests and simple callers.
     pub fn for_network(network: crate::types::Network) -> Self {
-        Self::from_connect_block_ibd_args(
-            None::<&[crate::types::BlockHeader]>,
-            0,
-            network,
-            None,
-            None,
-        )
+        block_validation_context_for_connect_ibd(None::<&[BlockHeader]>, 0, network)
     }
+}
+
+/// Forwards to [`BlockValidationContext::from_connect_block_ibd_args`] with BIP54 activation override
+/// and boundary timestamps set to `None`.
+#[inline]
+pub fn block_validation_context_for_connect_ibd<H: AsRef<BlockHeader>>(
+    recent_headers: Option<&[H]>,
+    network_time: u64,
+    network: Network,
+) -> BlockValidationContext {
+    BlockValidationContext::from_connect_block_ibd_args(
+        recent_headers,
+        network_time,
+        network,
+        None,
+        None,
+    )
 }
 
 impl IsForkActive for BlockValidationContext {

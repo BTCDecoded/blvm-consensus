@@ -26,9 +26,13 @@ fn create_test_block() -> Block {
 fn benchmark_connect_block(c: &mut Criterion) {
     let block = create_test_block();
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
-    let ctx = block::BlockValidationContext::for_network(Network::Mainnet);
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
     c.bench_function("connect_block", |b| {
         b.iter(|| {
             let _result = connect_block(
@@ -74,9 +78,13 @@ fn benchmark_connect_block_multi_tx(c: &mut Criterion) {
     };
 
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
-    let ctx = block::BlockValidationContext::for_network(Network::Mainnet);
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
     c.bench_function("connect_block_multi_tx", |b| {
         b.iter(|| {
             let _result = connect_block(

@@ -78,12 +78,10 @@ fn validate_once(
     height: u64,
     block_arc: &Arc<Block>,
 ) -> f64 {
-    let ctx = blvm_consensus::block::BlockValidationContext::from_connect_block_ibd_args(
+    let ctx = blvm_consensus::block::block_validation_context_for_connect_ibd(
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
-        None,
-        None,
     );
     let t = Instant::now();
     let (result, _new_utxo, _txids, _delta) = connect_block_ibd(
@@ -118,12 +116,10 @@ fn validate_call_only(
     precomputed_tx_ids: Option<&[blvm_consensus::types::Hash]>,
     witnesses_arc: Option<&Arc<Vec<Vec<Witness>>>>,
 ) -> (f64, UtxoSet) {
-    let ctx = blvm_consensus::block::BlockValidationContext::from_connect_block_ibd_args(
+    let ctx = blvm_consensus::block::block_validation_context_for_connect_ibd(
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
-        None,
-        None,
     );
     let t = Instant::now();
     let (result, new_utxo, _txids, _delta) = connect_block_ibd(
@@ -154,12 +150,10 @@ fn validate_once_timed(
     height: u64,
     block_arc: &Arc<Block>,
 ) -> f64 {
-    let ctx = blvm_consensus::block::BlockValidationContext::from_connect_block_ibd_args(
+    let ctx = blvm_consensus::block::block_validation_context_for_connect_ibd(
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
-        None,
-        None,
     );
     let t0 = Instant::now();
     let clone_done = Instant::now(); // utxo_set already cloned by caller
@@ -204,12 +198,10 @@ fn validate_with_txids(
     block_arc: &Arc<Block>,
     tx_ids: &[blvm_consensus::types::Hash],
 ) -> f64 {
-    let ctx = blvm_consensus::block::BlockValidationContext::from_connect_block_ibd_args(
+    let ctx = blvm_consensus::block::block_validation_context_for_connect_ibd(
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
-        None,
-        None,
     );
     let t = Instant::now();
     let (result, _, _, _) = connect_block_ibd(

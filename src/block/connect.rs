@@ -376,9 +376,7 @@ pub(crate) fn connect_block_inner<'a>(
         return invalid_block_result(
             utxo_set,
             &[],
-            format!(
-                "Block weight {block_weight} exceeds reasonable maximum"
-            ),
+            format!("Block weight {block_weight} exceeds reasonable maximum"),
         );
     }
     if block_weight > crate::constants::MAX_BLOCK_WEIGHT as u64 {
@@ -486,7 +484,11 @@ pub(crate) fn connect_block_inner<'a>(
     // BIP30: Duplicate coinbase prevention
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
     if block.transactions.is_empty() {
-        return invalid_block_result(utxo_set, &[], "Block must have transactions for BIP30 check");
+        return invalid_block_result(
+            utxo_set,
+            &[],
+            "Block must have transactions for BIP30 check",
+        );
     }
     let bip30_result = crate::bip_validation::check_bip30(
         block,
@@ -1441,11 +1443,14 @@ pub(crate) fn connect_block_inner<'a>(
             // Sequential application (write operations) — must be sequential
             // NOTE: Use block_arc (block moved into parallel block at 741)
             if validation_results.len() != block_arc.transactions.len() {
-                return Err(ConsensusError::BlockValidation(format!(
-                    "Validation results count {} must match transaction count {}",
-                    validation_results.len(),
-                    block_arc.transactions.len()
-                )));
+                return Err(ConsensusError::BlockValidation(
+                    format!(
+                        "Validation results count {} must match transaction count {}",
+                        validation_results.len(),
+                        block_arc.transactions.len()
+                    )
+                    .into(),
+                ));
             }
 
             for (i, result) in validation_results.into_iter().enumerate() {
@@ -2318,9 +2323,9 @@ pub(crate) fn connect_block_inner<'a>(
 
         let subsidy = get_block_subsidy(height);
         if !(0..=MAX_MONEY).contains(&subsidy) {
-            return Err(ConsensusError::BlockValidation(format!(
-                "Block subsidy {subsidy} out of valid range"
-            )));
+            return Err(ConsensusError::BlockValidation(
+                format!("Block subsidy {subsidy} out of valid range").into(),
+            ));
         }
 
         // Use checked sum to prevent overflow when summing coinbase outputs
@@ -2520,11 +2525,14 @@ fn connect_block_inner_with_tx_ids(
     let collect_undo = !ibd_mode;
 
     if tx_ids.len() != block.transactions.len() {
-        return Err(ConsensusError::BlockValidation(format!(
-            "Transaction ID count {} must match transaction count {}",
-            tx_ids.len(),
-            block.transactions.len()
-        )));
+        return Err(ConsensusError::BlockValidation(
+            format!(
+                "Transaction ID count {} must match transaction count {}",
+                tx_ids.len(),
+                block.transactions.len()
+            )
+            .into(),
+        ));
     }
 
     // NOTE: With UtxoOverlay approach, validation uses a read-only view of utxo_set.
@@ -2563,11 +2571,14 @@ fn connect_block_inner_with_tx_ids(
 
             if is_coinbase(tx) {
                 if utxo_set.len() < initial_utxo_size {
-                    return Err(ConsensusError::BlockValidation(format!(
-                        "UTXO set size {} must not decrease after coinbase (was {})",
-                        utxo_set.len(),
-                        initial_utxo_size
-                    )));
+                    return Err(ConsensusError::BlockValidation(
+                        format!(
+                            "UTXO set size {} must not decrease after coinbase (was {})",
+                            utxo_set.len(),
+                            initial_utxo_size
+                        )
+                        .into(),
+                    ));
                 }
             } else {
                 // Non-coinbase: UTXO set size should change by (outputs - inputs)
@@ -2640,25 +2651,25 @@ fn connect_block_inner_with_tx_ids(
 
         let expected_supply = total_supply(height);
         if !(0..=MAX_MONEY).contains(&expected_supply) {
-            return Err(ConsensusError::BlockValidation(format!(
-                "Expected supply {expected_supply} out of valid range [0, MAX_MONEY]"
-            )));
+            return Err(ConsensusError::BlockValidation(
+                format!("Expected supply {expected_supply} out of valid range [0, MAX_MONEY]")
+                    .into(),
+            ));
         }
 
         if utxo_set.len() > u32::MAX as usize {
-            return Err(ConsensusError::BlockValidation(format!(
-                "UTXO set size {} must fit in u32",
-                utxo_set.len()
-            )));
+            return Err(ConsensusError::BlockValidation(
+                format!("UTXO set size {} must fit in u32", utxo_set.len()).into(),
+            ));
         }
 
         let mut actual_supply: i64 = 0i64;
         for utxo in utxo_set.values() {
             let v = utxo.value;
             if !(0..=MAX_MONEY).contains(&v) {
-                return Err(ConsensusError::BlockValidation(format!(
-                    "UTXO value {v} out of valid range [0, MAX_MONEY]"
-                )));
+                return Err(ConsensusError::BlockValidation(
+                    format!("UTXO value {v} out of valid range [0, MAX_MONEY]").into(),
+                ));
             }
             actual_supply = actual_supply.checked_add(v).ok_or_else(|| {
                 ConsensusError::BlockValidation("UTXO supply sum overflow".into())
@@ -2677,10 +2688,13 @@ fn connect_block_inner_with_tx_ids(
     }
 
     if utxo_set.len() > u32::MAX as usize {
-        return Err(ConsensusError::BlockValidation(format!(
-            "UTXO set size {} must not exceed maximum after block connection",
-            utxo_set.len()
-        )));
+        return Err(ConsensusError::BlockValidation(
+            format!(
+                "UTXO set size {} must not exceed maximum after block connection",
+                utxo_set.len()
+            )
+            .into(),
+        ));
     }
 
     Ok((ValidationResult::Valid, utxo_set, undo_log))

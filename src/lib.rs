@@ -174,12 +174,10 @@ impl ConsensusProof {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
-        let context = block::BlockValidationContext::from_connect_block_ibd_args(
+        let context = block::block_validation_context_for_connect_ibd(
             None::<&[types::BlockHeader]>,
             network_time,
             types::Network::Mainnet,
-            None,
-            None,
         );
         let (result, new_utxo_set, _undo_log) =
             block::connect_block(block, &witnesses, utxo_set, height, &context)?;

@@ -35,7 +35,7 @@ fn create_complex_transaction(input_count: usize, output_count: usize) -> Transa
                         h[0] = i as u8;
                         h
                     },
-                    index: i as u64,
+                    index: i as u32,
                 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,

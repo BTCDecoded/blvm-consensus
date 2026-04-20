@@ -50,7 +50,11 @@ jobs:
           # 2. Fallback: Clone GitHub repo and use path dependency if crate not available
           # 3. Local dev: Use .cargo/config.toml with [patch.crates-io] (not in CI)
           bash scripts/setup-spec-lock.sh
-      
+
+      # Must run before any step that invokes `cargo` (self-hosted runners may not have Rust on PATH by default).
+      - name: Install Rust
+        uses: BTCDecoded/rust-ci/install-rust-toolchain@main
+
       - name: Regenerate Orange Paper constants
         run: |
           echo "🔄 Regenerating constants from Orange Paper..."
@@ -87,9 +91,6 @@ jobs:
           echo "cache-key=$CACHE_KEY" >> $GITHUB_OUTPUT
           
           mkdir -p "$CARGO_CACHE_DIR"/{registry,git} "$TARGET_CACHE_DIR"
-
-      - name: Install Rust
-        uses: BTCDecoded/rust-ci/install-rust-toolchain@main
 
   test:
     name: Test

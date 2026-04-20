@@ -21,7 +21,7 @@ fn test_network_message_limits_default() {
 fn test_block_validation_config_default() {
     let config = BlockValidationConfig::default();
 
-    assert_eq!(config.assume_valid_height, 0);
+    assert_eq!(config.assume_valid_height, 938343);
     assert_eq!(config.median_time_past_headers, 11);
     assert_eq!(config.coinbase_maturity_override, 0);
     assert_eq!(config.max_block_sigops_cost_override, 0);
@@ -41,7 +41,7 @@ fn test_consensus_config_default() {
 
     // Verify all sub-configs have defaults
     assert_eq!(config.network_limits.max_addr_addresses, 1000);
-    assert_eq!(config.block_validation.assume_valid_height, 0);
+    assert_eq!(config.block_validation.assume_valid_height, 938343);
 }
 
 #[test]
