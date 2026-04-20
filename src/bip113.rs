@@ -77,7 +77,8 @@ pub fn get_median_time_past<H: AsRef<BlockHeader>>(headers: &[H]) -> u64 {
             "Lower median timestamp ({lower}) must be <= upper ({upper})"
         );
 
-        let median = (lower + upper) / 2;
+        // `lower + upper` can overflow `u64` (e.g. both near MAX); use wider math.
+        let median = ((lower as u128 + upper as u128) / 2) as u64;
 
         // Runtime assertion: Median must be between lower and upper
         debug_assert!(
@@ -170,6 +171,15 @@ mod tests {
         ];
         // Median of [1000, 2000, 3000, 4000] = (2000 + 3000) / 2 = 2500
         assert_eq!(get_median_time_past(&headers), 2500);
+    }
+
+    #[test]
+    fn test_median_time_even_branch_large_timestamps_no_overflow() {
+        let headers = [
+            create_header(u64::MAX - 1),
+            create_header(u64::MAX),
+        ];
+        assert_eq!(get_median_time_past(&headers), u64::MAX - 1);
     }
 
     #[test]

@@ -3696,11 +3696,7 @@ fn eval_script_with_context_full_inner(
         i += 1;
     }
 
-    // Invariant assertion: Control stack must be empty at end
-    assert!(
-        control_stack.is_empty(),
-        "Control stack must be empty at end (unclosed IF/NOTIF blocks)"
-    );
+    // Invariant: control stack must be empty — return Err if not (unclosed IF/NOTIF)
     if !control_stack.is_empty() {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::UnbalancedConditional,

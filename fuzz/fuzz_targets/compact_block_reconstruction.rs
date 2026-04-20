@@ -7,7 +7,7 @@
 //! see blvm-node/fuzz/ when available.
 
 use blvm_consensus::block::connect_block;
-use blvm_consensus::{Block, BlockHeader, Hash, Transaction, TransactionOutput, UtxoSet};
+use blvm_consensus::{Block, BlockHeader, Transaction, TransactionOutput, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

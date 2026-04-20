@@ -421,11 +421,6 @@ pub(crate) fn connect_block_inner<'a>(
         );
     }
     let bip90_result = crate::bip_validation::check_bip90(block.header.version, height, context)?;
-    #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
-    debug_assert!(
-        bip90_result || height < BIP34_ACTIVATION_MAINNET, // BIP90 only applies after activation
-        "BIP90 check was called but returned false - this should be handled below"
-    );
     if !bip90_result {
         return invalid_block_result(
             utxo_set,

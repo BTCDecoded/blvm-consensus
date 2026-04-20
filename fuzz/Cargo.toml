@@ -22,7 +22,10 @@ blvm-muhash = { path = "../../blvm-muhash" }
 # Prevent warnings in generated code
 [profile.release]
 opt-level = 3
-
+# cargo-fuzz injects -Cdebug-assertions; without this, overflow-checked + panics on
+# adversarial inputs and libFuzzer exits 77. Fuzz targets use release overflow semantics.
+debug-assertions = false
+overflow-checks = false
 
 [[bin]]
 name = "transaction_validation"

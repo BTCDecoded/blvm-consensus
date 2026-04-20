@@ -336,11 +336,16 @@ pub fn replacement_checks(
                 .into(),
         ));
     }
-    assert!(!is_coinbase(new_tx), "New transaction cannot be coinbase");
-    assert!(
-        !is_coinbase(existing_tx),
-        "Existing transaction cannot be coinbase"
-    );
+    if is_coinbase(new_tx) {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            "New transaction cannot be coinbase".to_string().into(),
+        ));
+    }
+    if is_coinbase(existing_tx) {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            "Existing transaction cannot be coinbase".to_string().into(),
+        ));
+    }
     assert!(
         utxo_set.len() <= u32::MAX as usize,
         "UTXO set size {} exceeds maximum",
