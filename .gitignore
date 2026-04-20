@@ -1,6 +1,9 @@
 # Rust build artifacts
 /target/
 fuzz/target/
+# libFuzzer crash/hang output and locally grown corpora (seed with -f if you commit minimal cases)
+fuzz/artifacts/
+fuzz/corpus/
 **/*.rs.bk
 *.pdb
 **/*.rmeta

@@ -8,7 +8,9 @@
 #[cfg(feature = "bolero")]
 use bolero::check;
 #[cfg(feature = "bolero")]
-use blvm_consensus::{Transaction, ValidationResult, check_transaction};
+use blvm_consensus::transaction::check_transaction;
+#[cfg(feature = "bolero")]
+use blvm_consensus::Transaction;
 
 #[cfg(feature = "bolero")]
 #[test]

@@ -8,7 +8,15 @@
 #[cfg(feature = "bolero")]
 use bolero::check;
 #[cfg(feature = "bolero")]
-use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult, connect_block, check_proof_of_work};
+use blvm_consensus::block::BlockValidationContext;
+#[cfg(feature = "bolero")]
+use blvm_consensus::block::connect_block;
+#[cfg(feature = "bolero")]
+use blvm_consensus::pow::check_proof_of_work;
+#[cfg(feature = "bolero")]
+use blvm_consensus::types::Network;
+#[cfg(feature = "bolero")]
+use blvm_consensus::{Block, BlockHeader, UtxoSet};
 
 #[cfg(feature = "bolero")]
 #[test]
@@ -21,7 +29,12 @@ fn fuzz_check_proof_of_work_robustness() {
         let header_bytes: [u8; 80] = data[..80].try_into().unwrap_or_else(|_| [0; 80]);
         // Create a block header from fuzzed bytes
         let header = BlockHeader {
-            version: i32::from_le_bytes([header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]]),
+            version: i64::from(i32::from_le_bytes([
+                header_bytes[0],
+                header_bytes[1],
+                header_bytes[2],
+                header_bytes[3],
+            ])),
             prev_block_hash: header_bytes[4..36].try_into().unwrap_or([0; 32]),
             merkle_root: header_bytes[36..68].try_into().unwrap_or([0; 32]),
             timestamp: u64::from_le_bytes([
@@ -49,7 +62,12 @@ fn fuzz_check_proof_of_work_deterministic() {
         }
         let header_bytes: [u8; 80] = data[..80].try_into().unwrap_or_else(|_| [0; 80]);
         let header = BlockHeader {
-            version: i32::from_le_bytes([header_bytes[0], header_bytes[1], header_bytes[2], header_bytes[3]]),
+            version: i64::from(i32::from_le_bytes([
+                header_bytes[0],
+                header_bytes[1],
+                header_bytes[2],
+                header_bytes[3],
+            ])),
             prev_block_hash: header_bytes[4..36].try_into().unwrap_or([0; 32]),
             merkle_root: header_bytes[36..68].try_into().unwrap_or([0; 32]),
             timestamp: u64::from_le_bytes([
@@ -84,12 +102,12 @@ fn fuzz_connect_block_structure() {
                     bits: 0x1d00ffff,
                     nonce: 0,
                 },
-            transactions: vec![].into(),
+                transactions: vec![].into(),
             };
-            
+
             let initial_utxo_set = UtxoSet::default();
-            let witnesses: Vec<segwit::Witness> = minimal_block.transactions.iter().map(|_| Vec::new()).collect();
-            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            let witnesses: Vec<Vec<blvm_consensus::Witness>> = vec![];
+            let ctx = BlockValidationContext::for_network(Network::Mainnet);
             let result = connect_block(&minimal_block, &witnesses, initial_utxo_set, 0, &ctx);
             // Result should always be Ok, even if validation fails
             assert!(result.is_ok(), "connect_block should handle blocks without panicking");
