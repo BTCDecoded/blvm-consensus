@@ -44,12 +44,7 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: |
-          # blvm-spec-lock dependency resolution:
-          # 1. Default: crates.io `blvm-spec-lock` (after strip-patch; semver in Cargo.toml)
-          # 2. Fallback: Clone GitHub repo and use path dependency if crate not available
-          # 3. Local dev: Use .cargo/config.toml with [patch.crates-io] (not in CI)
-          bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
 
       # Must run before any step that invokes `cargo` (self-hosted runners may not have Rust on PATH by default).
       - name: Install Rust
@@ -211,7 +206,7 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
       
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
@@ -283,7 +278,7 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
       
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
@@ -312,10 +307,10 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
       
       - name: Setup blvm-spec (PROTOCOL.md + ARCHITECTURE.md for verification)
-        run: bash scripts/setup-spec.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
       
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -590,7 +585,7 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
       
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -655,7 +650,7 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
       - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec-lock@main
       
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
