@@ -245,9 +245,6 @@ jobs:
           fi
       
       - name: Docs
-        run: cargo doc --no-deps
-      
-      - name: Verify docs
         run: cargo doc --no-deps --document-private-items
 
   security:
@@ -387,10 +384,11 @@ jobs:
           echo "✅ MIRI checks passed"
 
   fuzz:
-    name: Fuzz (${{ matrix.target }})
+    name: Fuzz (shard ${{ matrix.shard }}/8)
     needs: [setup, test]
     runs-on: [self-hosted, Linux, X64, builds]
-    timeout-minutes: 45
+    # One full `fuzz build` plus up to 8 sequential fuzz runs (210s cap each) needs headroom
+    timeout-minutes: 60
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
@@ -400,64 +398,7 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        target:
-          - bip113_median_time
-          - bip119_ctv
-          - bip_check_bip147
-          - bip_check_bip34
-          - bip_check_bip54
-          - bip_check_bip66
-          - bip_check_bip90
-          - block_header_validation
-          - block_validation
-          - compact_block_reconstruction
-          - crypto_tap_branch_hash
-          - crypto_tap_leaf_hash
-          - crypto_tap_sighash_hash
-          - crypto_taproot_output_key
-          - crypto_verify_ecdsa
-          - crypto_verify_ecdsa_direct
-          - crypto_verify_schnorr
-          - crypto_verify_schnorr_batch
-          - differential_fuzzing
-          - economic_validation
-          - locktime_bip65
-          - locktime_decode
-          - locktime_sequence
-          - locktime_sequence_fields
-          - mempool_operations
-          - merkle_validation
-          - optimizations_batch_hash
-          - optimizations_memory_layout
-          - pow_validation
-          - reorganization
-          - script_eval_segwit_flags
-          - script_execution
-          - script_opcodes
-          - script_p2sh_push_only
-          - script_verify_witness_stack
-          - segwit_validation
-          - serialization
-          - sigop_count_script
-          - sigop_count_tapscript
-          - sigop_is_p2sh
-          - sigop_legacy_count_tx
-          - signature_verification
-          - taproot_tweak
-          - taproot_validation
-          - taproot_witness_parse
-          - transaction_input_validation
-          - transaction_output_validation
-          - transaction_validation
-          - tx_sighash_batch
-          - tx_sighash_bip143
-          - tx_sighash_legacy
-          - tx_sighash_taproot_keypath
-          - tx_sighash_tapscript
-          - utxo_commitments
-          - version_bits_activation
-          - witness_scriptpubkey
-          - witness_structure_validation
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
 
@@ -521,13 +462,37 @@ jobs:
           chmod +x init_corpus.sh
           ./init_corpus.sh
 
-      - name: Run cargo-fuzz (${{ matrix.target }})
+      # One `cargo fuzz build` compiles all bins and shared deps once per shard (see fuzz/TARGETS.md).
+      - name: Build all fuzz binaries (once per shard job)
         working-directory: fuzz
         env:
           RUSTFLAGS: "-Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=4"
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          timeout 360 cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time=120 -timeout=10 -max_len=100000
+          cargo +nightly fuzz build
+
+      - name: Run cargo-fuzz (TARGETS.md shard)
+        working-directory: fuzz
+        env:
+          RUSTFLAGS: "-Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=4"
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          mapfile -t bins < <(grep -v '^#' TARGETS.md | grep -v '^$' || true)
+          shard=${{ matrix.shard }}
+          shards=8
+          idx=0
+          for t in "${bins[@]}"; do
+            if (( idx % shards != shard )); then
+              ((idx++)) || true
+              continue
+            fi
+            ((idx++)) || true
+            echo "=== shard $shard/$shards: cargo-fuzz run $t ==="
+            timeout 210 cargo +nightly fuzz run "$t" -- \
+              -max_total_time=120 \
+              -timeout=10 \
+              -max_len=100000
+          done
 
       - name: Save Cargo cache
         if: always()
