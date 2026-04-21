@@ -1,6 +1,6 @@
 //! Chain reorganization functions from Orange Paper Section 10.3
 
-use crate::block::{connect_block, BlockValidationContext};
+use crate::block::connect_block;
 use crate::error::Result;
 use crate::segwit::Witness;
 use crate::types::*;
@@ -268,12 +268,10 @@ pub fn reorganize_chain_with_witnesses(
         // Network time should be provided by node layer, use block timestamp as fallback for reorganization
         // In production, the node layer should provide adjusted network time
         let network_time = block.header.timestamp;
-        let context = BlockValidationContext::from_connect_block_ibd_args(
+        let context = crate::block::block_validation_context_for_connect_ibd(
             recent_headers,
             network_time,
             network,
-            None,
-            None,
         );
         let (validation_result, new_utxo_set, undo_log) =
             connect_block(block, &witnesses, utxo_set, new_height, &context)?;
@@ -368,6 +366,7 @@ pub fn reorganize_chain_with_witnesses(
 ///     None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
 ///     None::<fn(&blvm_consensus::types::Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
 ///     None::<fn(&blvm_consensus::types::Hash, &blvm_consensus::reorganization::BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+///     Network::Regtest,
 /// );
 /// if let Ok(reorg_result) = reorg_result {
 ///     let _removed = update_mempool_after_reorg(
@@ -1164,7 +1163,7 @@ mod tests {
             .iter()
             .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Regtest);
+        let ctx = crate::block::BlockValidationContext::for_network(crate::types::Network::Regtest);
         let (result, new_utxo_set, undo_log) =
             connect_block(&block, &witnesses, utxo_set.clone(), 1, &ctx).unwrap();
 
@@ -1218,7 +1217,7 @@ mod tests {
             .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
             .collect();
 
-        let ctx = BlockValidationContext::for_network(crate::types::Network::Regtest);
+        let ctx = crate::block::BlockValidationContext::for_network(crate::types::Network::Regtest);
         let (result, connected_utxo_set, undo_log) =
             connect_block(&block, &witnesses, utxo_set.clone(), 1, &ctx).unwrap();
 

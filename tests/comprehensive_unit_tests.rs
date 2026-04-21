@@ -536,7 +536,8 @@ fn test_check_proof_of_work_invalid_target() {
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
-        bits: 0x1f00ffff, // Invalid target
+        // Exponent 0x21 = 33 is outside expand_target's allowed [3, 32] (0x1f00ffff had exp 31, which is valid).
+        bits: 0x2100ffff,
         nonce: 0,
     };
 

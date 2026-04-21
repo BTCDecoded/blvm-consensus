@@ -1,6 +1,6 @@
 #![no_main]
-use consensus_proof::transaction::check_transaction;
-use consensus_proof::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::transaction::check_transaction;
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -55,7 +55,7 @@ fuzz_target!(|data: &[u8]| {
             data[offset + 1],
             data[offset + 2],
             data[offset + 3],
-        ]) as u64;
+        ]);
         offset += 4;
 
         // Script length (varint)
@@ -167,8 +167,8 @@ fuzz_target!(|data: &[u8]| {
 
     let tx = Transaction {
         version,
-        inputs,
-        outputs,
+        inputs: inputs.into(),
+        outputs: outputs.into(),
         lock_time,
     };
 

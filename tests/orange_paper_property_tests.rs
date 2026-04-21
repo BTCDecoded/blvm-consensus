@@ -70,7 +70,7 @@ proptest! {
         height in 0u64..(H * 100)  // Up to 100 halvings
     ) {
         let expected = expected_totalsupply_from_orange_paper(height);
-        let max_money = M_MAX as i64;
+        let max_money = M_MAX;
         prop_assert!(expected <= max_money,
             "Orange Paper formula guarantees TotalSupply({}) = {} ≤ M_MAX = {}",
             height, expected, max_money);
@@ -148,7 +148,7 @@ proptest! {
         height in (60 * H)..(65 * H)  // Near end of halvings
     ) {
         let supply = expected_totalsupply_from_orange_paper(height);
-        let max_money = M_MAX as i64;
+        let max_money = M_MAX;
 
         // Supply should be close to max (within 1% or exact at convergence)
         let diff = max_money - supply;
@@ -419,7 +419,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -657,7 +657,7 @@ proptest! {
     ) {
         let expected_remaining = expected_remainingsupply_from_orange_paper(height);
         let total_supply = expected_totalsupply_from_orange_paper(height);
-        let actual_remaining = (M_MAX as i64) - total_supply;
+        let actual_remaining = M_MAX - total_supply;
 
         prop_assert_eq!(actual_remaining, expected_remaining,
             "Remaining supply at height {} must match Orange Paper formula: actual={}, expected={}",
@@ -739,7 +739,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             });
@@ -766,7 +766,7 @@ proptest! {
         bits in 0x1d00ffffu64..=0x1d00ffffu64,
         nonce in 0u32..1000000u32
     ) {
-        use blvm_consensus::block;
+
         use sha2::{Sha256, Digest};
 
         let header = BlockHeader {
@@ -780,8 +780,8 @@ proptest! {
 
         // Calculate block hash (double SHA256 of header)
         let serialized = crate::serialization::block::serialize_block_header(&header);
-        let hash1 = Sha256::digest(&Sha256::digest(&serialized));
-        let hash2 = Sha256::digest(&Sha256::digest(&serialized));
+        let hash1 = Sha256::digest(Sha256::digest(&serialized));
+        let hash2 = Sha256::digest(Sha256::digest(&serialized));
 
         prop_assert_eq!(hash1.as_slice(), hash2.as_slice(),
             "Block hash must be deterministic: hash1 = hash2");
@@ -842,7 +842,7 @@ proptest! {
             total_output_value += value;
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -896,7 +896,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -940,7 +940,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -993,7 +993,7 @@ proptest! {
         let expected_value = expected_utxosetvalue_from_orange_paper(&utxo_values);
 
         // Calculate actual value from UTXO set
-        let actual_value: i64 = utxo_set.iter().map(|(_, utxo)| utxo.value).sum();
+        let actual_value: i64 = utxo_set.values().map(|utxo| utxo.value).sum();
 
         prop_assert_eq!(actual_value, expected_value,
             "UTXO set value must match Orange Paper formula: actual={}, expected={}",
@@ -1058,7 +1058,7 @@ proptest! {
         height in 0u64..(H * 100)
     ) {
         let total_supply = economic::total_supply(height);
-        let max_money = M_MAX as i64;
+        let max_money = M_MAX;
 
         prop_assert!(total_supply <= max_money,
             "Total supply at height {} must be <= M_MAX: TotalSupply({}) = {} > M_MAX = {}",
@@ -1117,7 +1117,7 @@ proptest! {
         height in (60 * H)..(65 * H)  // Near end of halvings
     ) {
         let total_supply = economic::total_supply(height);
-        let max_money = M_MAX as i64;
+        let max_money = M_MAX;
 
         // Supply should be close to max (within 1% or exact at convergence)
         let diff = max_money - total_supply;
@@ -1372,7 +1372,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             });
@@ -1384,7 +1384,7 @@ proptest! {
         prop_assert!(estimated_size > 0,
             "Block size must be positive: size = {}",
             estimated_size);
-        prop_assert!(estimated_size <= MAX_BLOCK_SIZE as usize,
+        prop_assert!(estimated_size <= MAX_BLOCK_SIZE,
             "Block size must be <= MAX_BLOCK_SIZE: size = {} > MAX_BLOCK_SIZE = {}",
             estimated_size, MAX_BLOCK_SIZE);
     }
@@ -1413,7 +1413,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             });
@@ -1449,7 +1449,7 @@ proptest! {
         };
 
         let serialized = crate::serialization::block::serialize_block_header(&header);
-        let hash = Sha256::digest(&Sha256::digest(&serialized));
+        let hash = Sha256::digest(Sha256::digest(&serialized));
 
         prop_assert_eq!(hash.len(), 32,
             "Block hash must be 32 bytes: length = {}",
@@ -1568,7 +1568,7 @@ proptest! {
             total_output_value += value;
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -1637,7 +1637,7 @@ proptest! {
             let value = 500000 * (i as i64 + 1);
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -1681,7 +1681,7 @@ proptest! {
 
             outputs.push(TransactionOutput {
                 value,
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
     }
@@ -1757,7 +1757,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -1806,7 +1806,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -1892,11 +1892,11 @@ proptest! {
         script.push(0xacu8); // OP_CHECKSIG
 
         // Create a stack (StackElement = SmallVec in production)
-        let mut stack1: Vec<script::StackElement> = (0..stack_size)
-            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+        let stack1: Vec<script::StackElement> = (0..stack_size)
+            .map(|i| script::to_stack_element(&[i as u8; 20]))
             .collect();
 
-        let mut stack2 = stack1.clone();
+        let stack2 = stack1.clone();
 
         // Execute script twice with same inputs
         let mut stack1_copy = stack1.clone();
@@ -1916,8 +1916,8 @@ proptest! {
                 prop_assert!(true, "Script execution errors are deterministic");
             }
             _ => {
-                let r1_debug = format!("{:?}", result1);
-                let r2_debug = format!("{:?}", result2);
+                let r1_debug = format!("{result1:?}");
+                let r2_debug = format!("{result2:?}");
                 prop_assert!(false,
                     "Script execution must be deterministic: result1 = {}, result2 = {}",
                     r1_debug, r2_debug);
@@ -2029,7 +2029,7 @@ proptest! {
         }
 
         // Total UTXO value should equal sum of individual values
-        let actual_total: i64 = utxo_set.iter().map(|(_, utxo)| utxo.value).sum();
+        let actual_total: i64 = utxo_set.values().map(|utxo| utxo.value).sum();
 
         prop_assert_eq!(actual_total, total_utxo_value,
             "UTXO value conservation: sum(UTXOValue) = {} should equal expected = {}",
@@ -2061,7 +2061,7 @@ proptest! {
             };
 
             let outpoint_clone1 = outpoint;
-            let outpoint_clone2 = outpoint_clone1.clone();
+            let outpoint_clone2 = outpoint_clone1;
             utxo_set1.insert(outpoint_clone1, std::sync::Arc::new(utxo.clone()));
             utxo_set2.insert(outpoint_clone2, std::sync::Arc::new(utxo));
         }
@@ -2073,7 +2073,7 @@ proptest! {
 
         // Verify all UTXOs match
         for (outpoint, utxo1) in &utxo_set1 {
-            let outpoint_clone = outpoint.clone();
+            let outpoint_clone = *outpoint;
             if let Some(utxo2) = utxo_set2.get(&outpoint_clone) {
                 prop_assert_eq!(utxo1.value, utxo2.value,
                     "UTXO values should match: outpoint = {:?}, value1 = {}, value2 = {}",
@@ -2202,14 +2202,14 @@ proptest! {
             };
 
             let outpoint_clone1 = outpoint;
-            let outpoint_clone2 = outpoint_clone1.clone();
+            let outpoint_clone2 = outpoint_clone1;
             expected_utxos.insert(outpoint_clone1, utxo.value);
             utxo_set.insert(outpoint_clone2, std::sync::Arc::new(utxo));
         }
 
         // Verify lookups
         for (outpoint, expected_value) in &expected_utxos {
-            let outpoint_clone = outpoint.clone();
+            let outpoint_clone = *outpoint;
             if let Some(utxo) = utxo_set.get(&outpoint_clone) {
                 prop_assert_eq!(utxo.value, *expected_value,
                     "UTXO lookup should return correct value: outpoint = {:?}, expected = {}, actual = {}",
@@ -2240,7 +2240,7 @@ proptest! {
 
         let empty_script = vec![];
         let mut stack: Vec<script::StackElement> = (0..stack_size)
-            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+            .map(|i| script::to_stack_element(&[i as u8; 20]))
             .collect();
 
         // Empty script should either succeed or fail gracefully
@@ -2295,7 +2295,7 @@ proptest! {
 
         // Create stack at boundary
         let mut stack: Vec<script::StackElement> = (0..stack_size.min(L_STACK as usize))
-            .map(|i| script::to_stack_element(&vec![i as u8; 20]))
+            .map(|i| script::to_stack_element(&[i as u8; 20]))
             .collect();
 
         // Simple script that doesn't modify stack much
@@ -2453,7 +2453,7 @@ proptest! {
         let script = vec![0x76u8, 0x76u8]; // OP_DUP, OP_DUP
         let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..initial_stack_size {
-            stack.push(script::to_stack_element(&vec![i as u8; 20]));
+            stack.push(script::to_stack_element(&[i as u8; 20]));
         }
 
         let initial_len = stack.len();
@@ -2487,7 +2487,7 @@ proptest! {
         let script = vec![0x51u8]; // OP_1
         let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..stack_size {
-            stack.push(script::to_stack_element(&vec![i as u8; 20]));
+            stack.push(script::to_stack_element(&[i as u8; 20]));
         }
 
         // Script should handle boundary conditions gracefully
@@ -2605,7 +2605,7 @@ proptest! {
         for i in 0..num_outputs {
             tx.outputs.push(TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8; 20].into(),
+                script_pubkey: vec![i as u8; 20],
             });
         }
 
@@ -2782,7 +2782,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             };
@@ -2843,7 +2843,7 @@ proptest! {
         use blvm_consensus::economic::calculate_fee;
         use blvm_consensus::transaction::calculate_transaction_size;
 
-        let mut mempool = Mempool::new();
+        let mempool = Mempool::new();
         let mut utxo_set = UtxoSet::default();
 
         // Create transactions with different fee rates
@@ -2876,7 +2876,7 @@ proptest! {
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: output_value,
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             };
@@ -2992,7 +2992,7 @@ proptest! {
             use sha2::{Digest, Sha256};
             let serialized = serialize_block_header(&header);
             let first_hash = Sha256::digest(&serialized);
-            let second_hash = Sha256::digest(&first_hash);
+            let second_hash = Sha256::digest(first_hash);
             let mut block_hash = [0u8; 32];
             block_hash.copy_from_slice(&second_hash);
 
@@ -3030,7 +3030,7 @@ proptest! {
             use sha2::{Digest, Sha256};
             let serialized = serialize_block_header(&header);
             let first_hash = Sha256::digest(&serialized);
-            let second_hash = Sha256::digest(&first_hash);
+            let second_hash = Sha256::digest(first_hash);
             let mut block_hash = [0u8; 32];
             block_hash.copy_from_slice(&second_hash);
 
@@ -3141,7 +3141,7 @@ proptest! {
     ) {
         use sha2::{Digest, Sha256};
 
-        let mut data1 = vec![0u8; data_len];
+        let data1 = vec![0u8; data_len];
         let mut data2 = vec![0u8; data_len];
 
         // Change one byte
@@ -3176,11 +3176,11 @@ proptest! {
         let first_hash = Sha256::digest(&data);
 
         // Double hash
-        let second_hash = Sha256::digest(&first_hash);
+        let second_hash = Sha256::digest(first_hash);
 
         // Manual double hash
         let manual_first = Sha256::digest(&data);
-        let manual_second = Sha256::digest(&manual_first);
+        let manual_second = Sha256::digest(manual_first);
 
         prop_assert_eq!(second_hash, manual_second,
             "Double hash must be consistent: second_hash = {:?}, manual_second = {:?}",
@@ -3204,7 +3204,7 @@ proptest! {
                 inputs: vec![].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![i as u8; 20].into(),
+                    script_pubkey: vec![i as u8; 20],
                 }].into(),
                 lock_time: 0,
             });

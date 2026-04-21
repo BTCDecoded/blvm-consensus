@@ -35,7 +35,7 @@ fn test_bip65_cltv_height() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -44,7 +44,7 @@ fn test_bip65_cltv_height() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 1000, // Same as CLTV value
@@ -73,7 +73,7 @@ fn test_bip65_cltv_time() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -82,7 +82,7 @@ fn test_bip65_cltv_time() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 500000000, // Same as CLTV value
@@ -133,7 +133,7 @@ fn test_bip112_csv_sequence() {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -142,7 +142,7 @@ fn test_bip112_csv_sequence() {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -256,7 +256,7 @@ fn test_locktime_soft_fork_interaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -265,7 +265,7 @@ fn test_locktime_soft_fork_interaction() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -311,7 +311,7 @@ fn test_bip65_cltv_with_tx_locktime() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -320,7 +320,7 @@ fn test_bip65_cltv_with_tx_locktime() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 1000, // Block height locktime
@@ -353,7 +353,7 @@ fn test_bip112_csv_sequence_combinations() {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -362,7 +362,7 @@ fn test_bip112_csv_sequence_combinations() {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,

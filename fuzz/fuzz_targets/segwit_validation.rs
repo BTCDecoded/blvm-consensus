@@ -1,8 +1,9 @@
 #![no_main]
-use consensus_proof::segwit::{
+use blvm_consensus::segwit::{
     calculate_block_weight, calculate_transaction_weight, is_segwit_transaction,
 };
-use consensus_proof::{
+use blvm_consensus::witness::Witness;
+use blvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput,
 };
 use libfuzzer_sys::fuzz_target;
@@ -56,7 +57,7 @@ fuzz_target!(|data: &[u8]| {
                 data[offset + 1],
                 data[offset + 2],
                 data[offset + 3],
-            ]) as u64;
+            ]);
             offset += 4;
             idx
         } else {
@@ -90,7 +91,7 @@ fuzz_target!(|data: &[u8]| {
 
         inputs.push(TransactionInput {
             prevout: OutPoint { hash, index },
-            script_sig,
+            script_sig: script_sig.into(),
             sequence,
         });
     }
@@ -143,7 +144,7 @@ fuzz_target!(|data: &[u8]| {
 
         outputs.push(TransactionOutput {
             value,
-            script_pubkey,
+            script_pubkey: script_pubkey.into(),
         });
     }
 
@@ -160,8 +161,8 @@ fuzz_target!(|data: &[u8]| {
 
     let tx = Transaction {
         version,
-        inputs,
-        outputs,
+        inputs: inputs.into(),
+        outputs: outputs.into(),
         lock_time,
     };
 
@@ -169,8 +170,7 @@ fuzz_target!(|data: &[u8]| {
     let _is_segwit = is_segwit_transaction(&tx);
 
     // Create witness data from remaining fuzzed data
-    // Witness is Vec<ByteString> where ByteString = Vec<u8>
-    let witness_data: Option<Vec<Vec<u8>>> = if offset < data.len() && data.len() - offset > 10 {
+    let witness_data: Option<Witness> = if offset < data.len() && data.len() - offset > 10 {
         // Create 1-3 witness entries
         let witness_count = ((data[offset] % 3) + 1) as usize;
         let mut witnesses = Vec::new();
@@ -217,13 +217,10 @@ fuzz_target!(|data: &[u8]| {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: vec![tx.clone()],
+            transactions: vec![tx.clone()].into_boxed_slice(),
         };
 
-        let witnesses: Vec<Vec<Vec<u8>>> = witness_data
-            .as_ref()
-            .map(|w| vec![w.clone()])
-            .unwrap_or_default();
+        let witnesses: Vec<Witness> = vec![witness_data.clone().unwrap_or_default()];
         let _block_weight = calculate_block_weight(&block, &witnesses);
     }
 });

@@ -10,7 +10,6 @@
 //! - Merkle root != 0
 //! - Proof of work: hash < target
 
-use blvm_consensus::constants::*;
 use blvm_consensus::pow::{check_proof_of_work, expand_target};
 use blvm_consensus::types::*;
 use sha2::{Digest, Sha256};
@@ -19,7 +18,7 @@ use sha2::{Digest, Sha256};
 fn create_valid_header() -> BlockHeader {
     BlockHeader {
         version: 1,
-        prev_block_hash: [1; 32].into(),
+        prev_block_hash: [1; 32],
         merkle_root: [2; 32],
         timestamp: 1231006505,
         bits: 0x1d00ffff, // Genesis difficulty
@@ -230,7 +229,7 @@ fn test_proof_of_work_header_serialization() {
 
     // Double SHA256 should work
     let hash1 = Sha256::digest(&header_bytes);
-    let hash2 = Sha256::digest(&hash1);
+    let hash2 = Sha256::digest(hash1);
 
     assert_eq!(hash2.len(), 32, "Double SHA256 should produce 32-byte hash");
 }

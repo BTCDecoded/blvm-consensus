@@ -4,28 +4,29 @@
 //! Profile `[PERF_CLIFF]`: `BLVM_PERF_CLIFF_RANGES` (comma-separated `START-END`), `BLVM_PERF_CLIFF_STRIDE` (default 100).
 
 use crate::activation::IsForkActive;
-use crate::bip113::get_median_time_past;
 use crate::constants::*;
 use crate::economic::get_block_subsidy;
 use crate::error::{ConsensusError, Result};
 use crate::opcodes::*;
 #[cfg(feature = "profile")]
 use crate::profile_log;
+#[cfg(not(feature = "production"))]
 use crate::script::verify_script_with_context_full;
 use crate::segwit::{validate_witness_commitment, Witness};
-use crate::transaction::{check_transaction, check_tx_inputs, is_coinbase};
+#[cfg(not(feature = "production"))]
+use crate::transaction::check_tx_inputs;
+use crate::transaction::{check_transaction, is_coinbase};
 use crate::types::*;
 use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
 use crate::witness::is_witness_empty;
-use blvm_spec_lock::spec_locked;
-#[cfg(feature = "production")]
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::borrow::Cow;
 
+#[cfg(not(feature = "production"))]
+use super::calculate_script_flags_for_block_with_base;
+#[cfg(feature = "production")]
+use super::script_cache;
 use super::{
-    apply, calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
-    compute_block_tx_ids, get_assume_valid_height, header, script_cache, skip_script_exec_cache,
-    BlockValidationContext, UtxoDelta,
+    apply, calculate_base_script_flags_for_block, header, BlockValidationContext, UtxoDelta,
 };
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -198,10 +199,9 @@ fn n_crypto_drain_threads() -> usize {
                 let cores = std::thread::available_parallelism()
                     .map(|p| p.get())
                     .unwrap_or(8);
-                (cores / 2).max(4).min(8)
+                (cores / 2).clamp(4, 8)
             })
-            .max(1)
-            .min(16)
+            .clamp(1, 16)
     })
 }
 
@@ -250,21 +250,26 @@ pub(crate) fn connect_block_inner<'a>(
     let bip54_boundary = context.bip54_boundary;
     let bip54_active = context.is_fork_active(ForkId::Bip54, height);
 
-    // Precondition assertions: Validate function inputs before execution
-    // Note: We check empty blocks in validation logic rather than asserting,
-    // to allow tests to verify the validation behavior properly
-    assert!(height <= i64::MAX as u64, "Block height must fit in i64");
-    assert!(
-        utxo_set.len() <= u32::MAX as usize,
-        "UTXO set size {} exceeds maximum",
-        utxo_set.len()
-    );
-    assert!(
-        witnesses.is_empty() || witnesses.len() == block.transactions.len(),
-        "Witness count {} must match transaction count {} (or be empty for pre-SegWit)",
-        witnesses.len(),
-        block.transactions.len()
-    );
+    // Preconditions: reject bad inputs without panicking (witness/API misuse or state overflow).
+    if height > i64::MAX as u64 {
+        return invalid_block_result(utxo_set, &[], "Block height exceeds representable range");
+    }
+    if utxo_set.len() > u32::MAX as usize {
+        return Err(ConsensusError::BlockValidation(
+            "UTXO set size exceeds maximum".into(),
+        ));
+    }
+    if !witnesses.is_empty() && witnesses.len() != block.transactions.len() {
+        return invalid_block_result(
+            utxo_set,
+            &[],
+            format!(
+                "Witness count {} must match transaction count {} (or pass empty witness matrix for legacy)",
+                witnesses.len(),
+                block.transactions.len()
+            ),
+        );
+    }
 
     // Empty `witnesses` means "no witness stacks" from legacy/non-witness callers.
     // Expand to one empty stack per transaction so weight, script checks, and witness
@@ -364,12 +369,16 @@ pub(crate) fn connect_block_inner<'a>(
     // This must be done before expensive transaction validation
     use crate::segwit::calculate_block_weight_from_nested;
     let block_weight = calculate_block_weight_from_nested(block, witnesses)?;
-    // Invariant assertion: Block weight must be non-zero and within reasonable bounds
-    assert!(block_weight > 0, "Block weight must be positive");
-    assert!(
-        block_weight <= crate::constants::MAX_BLOCK_WEIGHT as u64 * 2,
-        "Block weight {block_weight} exceeds reasonable maximum"
-    );
+    if block_weight == 0 {
+        return invalid_block_result(utxo_set, &[], "Block weight must be positive");
+    }
+    if block_weight > crate::constants::MAX_BLOCK_WEIGHT as u64 * 2 {
+        return invalid_block_result(
+            utxo_set,
+            &[],
+            format!("Block weight {block_weight} exceeds reasonable maximum"),
+        );
+    }
     if block_weight > crate::constants::MAX_BLOCK_WEIGHT as u64 {
         return invalid_block_result(
             utxo_set,
@@ -401,22 +410,17 @@ pub(crate) fn connect_block_inner<'a>(
 
     // BIP90: Block version enforcement (check header version)
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
-    // If this check is removed, integration tests will fail
-    // Precondition assertion: Header version must be valid
-    assert!(
-        block.header.version >= 1,
-        "Header version {} must be >= 1 for BIP90 check",
-        block.header.version
-    );
-    let bip90_result = crate::bip_validation::check_bip90(block.header.version, height, context)?;
-    // Invariant assertion: BIP90 result must be boolean
-    #[allow(clippy::eq_op)]
-    {
-        assert!(
-            bip90_result || !bip90_result,
-            "BIP90 result must be boolean"
+    if block.header.version < 1 {
+        return invalid_block_result(
+            utxo_set,
+            &[],
+            format!(
+                "Block header version {} must be >= 1 for BIP90 check",
+                block.header.version
+            ),
         );
     }
+    let bip90_result = crate::bip_validation::check_bip90(block.header.version, height, context)?;
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     debug_assert!(
         bip90_result || height < BIP34_ACTIVATION_MAINNET, // BIP90 only applies after activation
@@ -479,12 +483,13 @@ pub(crate) fn connect_block_inner<'a>(
 
     // BIP30: Duplicate coinbase prevention
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
-    // If this check is removed, integration tests will fail
-    // Precondition assertion: Block must have transactions for BIP30 check
-    assert!(
-        !block.transactions.is_empty(),
-        "Block must have transactions for BIP30 check"
-    );
+    if block.transactions.is_empty() {
+        return invalid_block_result(
+            utxo_set,
+            &[],
+            "Block must have transactions for BIP30 check",
+        );
+    }
     let bip30_result = crate::bip_validation::check_bip30(
         block,
         &utxo_set,
@@ -493,14 +498,6 @@ pub(crate) fn connect_block_inner<'a>(
         context,
         tx_ids.first(), // Pass precomputed coinbase txid, avoids calculate_tx_id in check_bip30
     )?;
-    // Invariant assertion: BIP30 result must be boolean
-    #[allow(clippy::eq_op)]
-    {
-        assert!(
-            bip30_result || !bip30_result,
-            "BIP30 result must be boolean"
-        );
-    }
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     debug_assert!(
         bip30_result || !block.transactions.is_empty(), // BIP30 only applies to coinbase
@@ -514,11 +511,6 @@ pub(crate) fn connect_block_inner<'a>(
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
     // If this check is removed, integration tests will fail
     let bip34_result = crate::bip_validation::check_bip34(block, height, context)?;
-    #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
-    debug_assert!(
-        bip34_result || height < BIP34_ACTIVATION_MAINNET, // BIP34 only applies after activation
-        "BIP34 check was called but returned false - this should be handled below"
-    );
     if !bip34_result {
         return invalid_block_result(
             utxo_set,
@@ -529,10 +521,9 @@ pub(crate) fn connect_block_inner<'a>(
 
     // BIP54: Consensus Cleanup (activation-gated)
     if bip54_active {
-        let coinbase = block
-            .transactions
-            .first()
-            .expect("block has at least one tx");
+        let Some(coinbase) = block.transactions.first() else {
+            return invalid_block_result(utxo_set, &[], "Block has no transactions");
+        };
         if !crate::bip_validation::check_bip54_coinbase(coinbase, height) {
             return invalid_block_result(
                 utxo_set,
@@ -552,14 +543,7 @@ pub(crate) fn connect_block_inner<'a>(
         }
     }
 
-    // Validate witnesses length matches transactions length
-    // Invariant assertion: Witness count must match transaction count
-    assert!(
-        witnesses.len() == block.transactions.len(),
-        "Witness count {} must match transaction count {}",
-        witnesses.len(),
-        block.transactions.len()
-    );
+    // Validate witnesses length matches transactions length (post legacy expansion).
     if witnesses.len() != block.transactions.len() {
         return invalid_block_result(
             utxo_set,
@@ -585,8 +569,7 @@ pub(crate) fn connect_block_inner<'a>(
                     utxo_set,
                     &[],
                     format!(
-                        "Assume-valid block hash mismatch at height {}: expected {:?}, got {:?}",
-                        height, expected_hash, block_hash
+                        "Assume-valid block hash mismatch at height {height}: expected {expected_hash:?}, got {block_hash:?}",
                     ),
                 );
             }
@@ -639,8 +622,6 @@ pub(crate) fn connect_block_inner<'a>(
         _fn_start.elapsed().as_secs_f64() * 1000.0
     );
     let mut total_fees = 0i64;
-    // Invariant assertion: Total fees must start at zero
-    assert!(total_fees == 0, "Total fees must start at zero");
     // Sigop cost accumulated in overlay pass to avoid separate utxo_set pass
     let mut total_sigop_cost = 0u64;
 
@@ -800,9 +781,15 @@ pub(crate) fn connect_block_inner<'a>(
             // Hoist for parallel block validation
             // Caller MUST pass Some(Arc<Block>) to avoid full block clone — see connect_block_ibd.
             #[cfg(all(feature = "production", feature = "rayon"))]
-            let block_arc = block_arc.expect(
-                "block_arc required for production+rayon (pass Some(Arc::new(block)) from caller)",
-            );
+            let block_arc = match block_arc {
+                Some(a) => a,
+                None => {
+                    return Err(ConsensusError::BlockValidation(
+                        "block Arc required for production+rayon validation (caller must pass Some(Arc::new(block)))"
+                            .into(),
+                    ));
+                }
+            };
             #[cfg(all(feature = "production", feature = "rayon"))]
             let mut tx_contexts: Vec<crate::checkqueue::TxScriptContext> = Vec::new();
             #[cfg(all(feature = "production", feature = "rayon"))]
@@ -837,8 +824,9 @@ pub(crate) fn connect_block_inner<'a>(
                 let mut queue_results: Vec<Option<Result<(ValidationResult, i64, bool)>>> =
                     vec![None; valid_tx_indices.len()];
 
-                let mut early_return: Option<std::result::Result<ConnectQueueEarlyExit, ConsensusError>> =
-                    None;
+                let mut early_return: Option<
+                    std::result::Result<ConnectQueueEarlyExit, ConsensusError>,
+                > = None;
                 let median_time_past = time_ctx
                     .map(|ctx| ctx.median_time_past)
                     .filter(|&mtp| mtp > 0);
@@ -1189,7 +1177,15 @@ pub(crate) fn connect_block_inner<'a>(
                 // Skip CCheckQueue session setup, empty run_checks_sequential, and redundant Arc clones.
                 if block_checks_buf.is_empty() {
                     for r in queue_results {
-                        validation_results.push(r.expect("CCheckQueue: all slots must be filled"));
+                        match r {
+                            None => {
+                                return Err(ConsensusError::BlockValidation(
+                                    "Internal error: script check queue slot not filled".into(),
+                                ));
+                            }
+                            Some(Ok(triple)) => validation_results.push(Ok(triple)),
+                            Some(Err(e)) => return Err(e),
+                        }
                     }
                     #[cfg(all(feature = "production", feature = "profile"))]
                     {
@@ -1427,7 +1423,15 @@ pub(crate) fn connect_block_inner<'a>(
                     }
 
                     for r in queue_results {
-                        validation_results.push(r.expect("CCheckQueue: all slots must be filled"));
+                        match r {
+                            None => {
+                                return Err(ConsensusError::BlockValidation(
+                                    "Internal error: script check queue slot not filled".into(),
+                                ));
+                            }
+                            Some(Ok(triple)) => validation_results.push(Ok(triple)),
+                            Some(Err(e)) => return Err(e),
+                        }
                     }
                     #[cfg(all(feature = "production", feature = "profile"))]
                     {
@@ -1437,17 +1441,19 @@ pub(crate) fn connect_block_inner<'a>(
             }
 
             // Sequential application (write operations) — must be sequential
-            // Invariant assertion: Validation results count must match transaction count
             // NOTE: Use block_arc (block moved into parallel block at 741)
-            assert!(
-                validation_results.len() == block_arc.transactions.len(),
-                "Validation results count {} must match transaction count {}",
-                validation_results.len(),
-                block_arc.transactions.len()
-            );
+            if validation_results.len() != block_arc.transactions.len() {
+                return Err(ConsensusError::BlockValidation(
+                    format!(
+                        "Validation results count {} must match transaction count {}",
+                        validation_results.len(),
+                        block_arc.transactions.len()
+                    )
+                    .into(),
+                ));
+            }
 
             for (i, result) in validation_results.into_iter().enumerate() {
-                debug_assert!(i < block_arc.transactions.len());
                 let (input_valid, fee, script_valid) = result?;
 
                 if !matches!(input_valid, ValidationResult::Valid) {
@@ -1468,10 +1474,26 @@ pub(crate) fn connect_block_inner<'a>(
                     );
                 }
 
+                if fee < 0 {
+                    return invalid_block_result(
+                        utxo_set,
+                        tx_ids,
+                        format!("Fee {fee} must be non-negative at transaction {i}"),
+                    );
+                }
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees
                     .checked_add(fee)
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
+                if total_fees < 0 {
+                    return invalid_block_result(
+                        utxo_set,
+                        tx_ids,
+                        format!(
+                            "Total fees {total_fees} must be non-negative after transaction {i}"
+                        ),
+                    );
+                }
             }
             #[cfg(all(feature = "production", feature = "profile"))]
             let validation_elapsed = validation_start.elapsed();
@@ -1519,7 +1541,7 @@ pub(crate) fn connect_block_inner<'a>(
                     return invalid_block_result(
                         utxo_set,
                         tx_ids,
-                        format!("Schnorr batch verification failed: {:?}", e),
+                        format!("Schnorr batch verification failed: {e:?}"),
                     );
                 } else {
                     let schnorr_results = schnorr_result.unwrap();
@@ -1717,14 +1739,9 @@ pub(crate) fn connect_block_inner<'a>(
                     )
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
-                if let Some(msg) = check_bip54_sigop_limit(
-                    bip54_active,
-                    tx,
-                    &overlay,
-                    wits_i,
-                    tx_flags,
-                    tx_ids,
-                )? {
+                if let Some(msg) =
+                    check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
+                {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
 
@@ -1802,25 +1819,10 @@ pub(crate) fn connect_block_inner<'a>(
                         ConsensusError::TransactionValidation("Fee calculation underflow".into())
                     })?;
 
-                    // Runtime assertion: Fee must be non-negative after checked subtraction
-                    debug_assert!(
-                        fee >= 0,
-                        "Fee ({}) must be non-negative (input: {}, output: {})",
-                        fee,
-                        total_input,
-                        total_output
-                    );
-
                     if fee < 0 {
                         (ValidationResult::Invalid("Negative fee".to_string()), 0)
                     } else {
-                        // Runtime assertion: Fee cannot exceed total input
-                        debug_assert!(
-                            fee <= total_input,
-                            "Fee ({}) cannot exceed total input ({})",
-                            fee,
-                            total_input
-                        );
+                        // fee = total_input - total_output ⇒ fee <= total_input when non-negative
                         // Pass pre-collected UTXOs to avoid redundant lookups
                         let (input_valid, _) = crate::transaction::check_tx_inputs_with_utxos(
                             tx,
@@ -1975,10 +1977,26 @@ pub(crate) fn connect_block_inner<'a>(
                 apply_transaction_to_overlay_no_undo(&mut overlay, tx, tx_id, height);
                 total_overlay_apply_time += overlay_apply_start.elapsed();
 
+                if fee < 0 {
+                    return invalid_block_result(
+                        utxo_set,
+                        tx_ids,
+                        format!("Fee {fee} must be non-negative at transaction {i}"),
+                    );
+                }
                 // Use checked arithmetic to prevent fee overflow
                 total_fees = total_fees
                     .checked_add(fee)
                     .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
+                if total_fees < 0 {
+                    return invalid_block_result(
+                        utxo_set,
+                        tx_ids,
+                        format!(
+                            "Total fees {total_fees} must be non-negative after transaction {i}"
+                        ),
+                    );
+                }
             }
             // Accumulate sigop for remaining txs (production sequential path)
             for j in last_sigop_index..block.transactions.len() {
@@ -2001,14 +2019,9 @@ pub(crate) fn connect_block_inner<'a>(
                         )?,
                     )
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
-                if let Some(msg) = check_bip54_sigop_limit(
-                    bip54_active,
-                    tx_j,
-                    &overlay,
-                    wits_j,
-                    tx_flags,
-                    tx_ids,
-                )? {
+                if let Some(msg) =
+                    check_bip54_sigop_limit(bip54_active, tx_j, &overlay, wits_j, tx_flags, tx_ids)?
+                {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
             }
@@ -2055,14 +2068,6 @@ pub(crate) fn connect_block_inner<'a>(
         let mut prevout_script_pubkeys_reusable: Vec<&[u8]> = Vec::with_capacity(256);
 
         for (i, tx) in block.transactions.iter().enumerate() {
-            // Bounds checking assertion: Transaction index must be valid
-            assert!(
-                i < block.transactions.len(),
-                "Transaction index {} out of bounds (block has {} transactions)",
-                i,
-                block.transactions.len()
-            );
-
             // Accumulate sigop for this tx (non-production path; overlay has prev txs)
             let wits_i = witnesses.get(i).map(|w| w.as_slice());
             let has_wit = wits_i
@@ -2083,14 +2088,9 @@ pub(crate) fn connect_block_inner<'a>(
                 )
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
-            if let Some(msg) = check_bip54_sigop_limit(
-                bip54_active,
-                tx,
-                &overlay,
-                wits_i,
-                tx_flags,
-                tx_ids,
-            )? {
+            if let Some(msg) =
+                check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
+            {
                 return invalid_block_result(utxo_set, tx_ids, msg);
             }
 
@@ -2107,11 +2107,13 @@ pub(crate) fn connect_block_inner<'a>(
             // CRITICAL: Use overlay which includes outputs from previous transactions in this block
             let (input_valid, fee) = check_tx_inputs(tx, &overlay, height)?;
 
-            // Postcondition assertion: Fee calculation result must be valid
-            assert!(
-                fee >= 0 || !matches!(input_valid, ValidationResult::Valid),
-                "Fee {fee} must be non-negative for valid transaction at index {i}"
-            );
+            if matches!(input_valid, ValidationResult::Valid) && fee < 0 {
+                return invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!("Negative fee {fee} for valid transaction at index {i}"),
+                );
+            }
             if !matches!(input_valid, ValidationResult::Valid) {
                 #[cfg(debug_assertions)]
                 eprintln!(
@@ -2194,21 +2196,6 @@ pub(crate) fn connect_block_inner<'a>(
                 let schnorr_collector = crate::bip348::SchnorrSignatureCollector::new();
 
                 for (j, input) in tx.inputs.iter().enumerate() {
-                    // Bounds checking assertion: Input index must be valid
-                    assert!(
-                        j < tx.inputs.len(),
-                        "Input index {} out of bounds (transaction has {} inputs)",
-                        j,
-                        tx.inputs.len()
-                    );
-                    // Bounds checking assertion: Witness index must be valid
-                    assert!(
-                        i < witnesses.len(),
-                        "Witness index {} out of bounds (block has {} witnesses)",
-                        i,
-                        witnesses.len()
-                    );
-
                     if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
                         // Reuse cached tx_witnesses and flags from above
                         // Get witness stack for this transaction input if available
@@ -2288,19 +2275,23 @@ pub(crate) fn connect_block_inner<'a>(
             apply_transaction_to_overlay_no_undo(&mut overlay, tx, tx_id, height);
 
             // Use checked arithmetic to prevent fee overflow
-            // Invariant assertion: Fee must be non-negative
-            assert!(
-                fee >= 0,
-                "Fee {fee} must be non-negative at transaction {i}"
-            );
+            if fee < 0 {
+                return invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!("Fee {fee} must be non-negative at transaction {i}"),
+                );
+            }
             total_fees = total_fees
                 .checked_add(fee)
                 .ok_or_else(|| make_fee_overflow_error(Some(i)))?;
-            // Invariant assertion: Total fees must remain non-negative after addition
-            assert!(
-                total_fees >= 0,
-                "Total fees {total_fees} must be non-negative after transaction {i}"
-            );
+            if total_fees < 0 {
+                return invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!("Total fees {total_fees} must be non-negative after transaction {i}"),
+                );
+            }
         }
     }
 
@@ -2311,17 +2302,9 @@ pub(crate) fn connect_block_inner<'a>(
         _fn_start.elapsed().as_secs_f64() * 1000.0
     );
     // 3. Validate coinbase transaction
-    assert!(
-        is_coinbase(&block.transactions[0]),
-        "First transaction in block must be coinbase"
-    );
     if let Some(coinbase) = block.transactions.first() {
         if !is_coinbase(coinbase) {
-            return invalid_block_result(
-                utxo_set,
-                tx_ids,
-                "First transaction must be coinbase",
-            );
+            return invalid_block_result(utxo_set, tx_ids, "First transaction must be coinbase");
         }
 
         // Validate coinbase scriptSig length (Orange Paper Section 5.1, rule 5)
@@ -2339,12 +2322,11 @@ pub(crate) fn connect_block_inner<'a>(
         }
 
         let subsidy = get_block_subsidy(height);
-        // Invariant assertion: Subsidy must be non-negative and within MAX_MONEY
-        assert!(subsidy >= 0, "Block subsidy must be non-negative");
-        assert!(
-            subsidy <= MAX_MONEY,
-            "Block subsidy {subsidy} must not exceed MAX_MONEY"
-        );
+        if !(0..=MAX_MONEY).contains(&subsidy) {
+            return Err(ConsensusError::BlockValidation(
+                format!("Block subsidy {subsidy} out of valid range").into(),
+            ));
+        }
 
         // Use checked sum to prevent overflow when summing coinbase outputs
         let coinbase_output: i64 = coinbase
@@ -2357,8 +2339,9 @@ pub(crate) fn connect_block_inner<'a>(
             })
             .map_err(|e| ConsensusError::BlockValidation(Cow::Owned(e.to_string())))?;
 
-        // Invariant assertion: Coinbase output must be non-negative
-        assert!(coinbase_output >= 0, "Coinbase output must be non-negative");
+        if coinbase_output < 0 {
+            return invalid_block_result(utxo_set, tx_ids, "Coinbase output must be non-negative");
+        }
         // Check that coinbase output doesn't exceed MAX_MONEY
         if coinbase_output > MAX_MONEY {
             return invalid_block_result(
@@ -2373,11 +2356,6 @@ pub(crate) fn connect_block_inner<'a>(
             .checked_add(subsidy)
             .ok_or_else(|| ConsensusError::BlockValidation("Fees + subsidy overflow".into()))?;
 
-        // Invariant assertion: Coinbase output must not exceed subsidy + fees
-        assert!(
-            coinbase_output <= max_coinbase_value,
-            "Coinbase output {coinbase_output} must not exceed fees {total_fees} + subsidy {subsidy}"
-        );
         if coinbase_output > max_coinbase_value {
             return invalid_block_result(
                 utxo_set,
@@ -2394,29 +2372,14 @@ pub(crate) fn connect_block_inner<'a>(
             && witnesses
                 .iter()
                 .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
-        // Invariant assertion: Witness count must match transaction count
-        assert!(
-            witnesses.len() == block.transactions.len(),
-            "Witness count {} must match transaction count {}",
-            witnesses.len(),
-            block.transactions.len()
-        );
 
         if has_segwit && !witnesses.is_empty() {
-            // Invariant assertion: SegWit block must have witnesses
-            assert!(!witnesses.is_empty(), "SegWit block must have witnesses");
-
             // Skip witness commitment validation in IBD mode. In IBD we replay blocks
             // that were already validated by Bitcoin Core (CheckBlock + ConnectBlock).
             if !ibd_mode {
                 let witness_merkle_root =
                     crate::segwit::compute_witness_merkle_root_from_nested(block, witnesses)?;
-                // Invariant assertion: Witness merkle root must be 32 bytes
-                assert!(
-                    witness_merkle_root.len() == 32,
-                    "Witness merkle root length {} must be 32 bytes",
-                    witness_merkle_root.len()
-                );
+                // `Hash` is 32 bytes; commitment compares to header field directly.
 
                 if !validate_witness_commitment(coinbase, &witness_merkle_root, &witnesses[0])? {
                     return invalid_block_result(
@@ -2428,11 +2391,7 @@ pub(crate) fn connect_block_inner<'a>(
             }
         }
     } else {
-        return invalid_block_result(
-            utxo_set,
-            tx_ids,
-            "Block must have at least one transaction",
-        );
+        return invalid_block_result(utxo_set, tx_ids, "Block must have at least one transaction");
     }
 
     // 3.5. Check block sigop cost limit (network rule)
@@ -2513,7 +2472,7 @@ pub(crate) fn connect_block_inner<'a>(
         height,
         time_context,
         network,
-        &tx_ids,
+        tx_ids,
         total_fees,
         bip30_index,
         maintain_bip30_index,
@@ -2564,16 +2523,17 @@ fn connect_block_inner_with_tx_ids(
     use crate::reorganization::BlockUndoLog;
     let mut undo_log = BlockUndoLog::new();
     let collect_undo = !ibd_mode;
-    // Invariant assertion: Undo log must start empty
-    assert!(undo_log.entries.is_empty(), "Undo log must start empty");
 
-    // Invariant assertion: Transaction ID count must match transaction count
-    assert!(
-        tx_ids.len() == block.transactions.len(),
-        "Transaction ID count {} must match transaction count {}",
-        tx_ids.len(),
-        block.transactions.len()
-    );
+    if tx_ids.len() != block.transactions.len() {
+        return Err(ConsensusError::BlockValidation(
+            format!(
+                "Transaction ID count {} must match transaction count {}",
+                tx_ids.len(),
+                block.transactions.len()
+            )
+            .into(),
+        ));
+    }
 
     // NOTE: With UtxoOverlay approach, validation uses a read-only view of utxo_set.
     // The overlay tracks additions/deletions in memory but DOES NOT modify the base utxo_set.
@@ -2582,9 +2542,6 @@ fn connect_block_inner_with_tx_ids(
         // Normal path: Apply transactions sequentially to build undo log
         let mut bip30_none_slot: Option<&mut crate::bip_validation::Bip30Index> = None;
         for (i, tx) in block.transactions.iter().enumerate() {
-            debug_assert!(i < block.transactions.len());
-            debug_assert!(i < tx_ids.len());
-
             let initial_utxo_size = utxo_set.len();
             let bip30_apply_ref = if maintain_bip30_index {
                 &mut bip30_index
@@ -2612,14 +2569,17 @@ fn connect_block_inner_with_tx_ids(
             }
             utxo_set = new_utxo_set;
 
-            // Invariant assertion: UTXO set size must change reasonably
             if is_coinbase(tx) {
-                assert!(
-                    utxo_set.len() >= initial_utxo_size,
-                    "UTXO set size {} must not decrease after coinbase (was {})",
-                    utxo_set.len(),
-                    initial_utxo_size
-                );
+                if utxo_set.len() < initial_utxo_size {
+                    return Err(ConsensusError::BlockValidation(
+                        format!(
+                            "UTXO set size {} must not decrease after coinbase (was {})",
+                            utxo_set.len(),
+                            initial_utxo_size
+                        )
+                        .into(),
+                    ));
+                }
             } else {
                 // Non-coinbase: UTXO set size should change by (outputs - inputs)
                 let expected_change = tx.outputs.len() as i64 - tx.inputs.len() as i64;
@@ -2689,86 +2649,53 @@ fn connect_block_inner_with_tx_ids(
         use crate::constants::MAX_MONEY;
         use crate::economic::{get_block_subsidy, total_supply};
 
-        // Calculate expected supply at this height
         let expected_supply = total_supply(height);
-        // Invariant assertion: Expected supply must be non-negative and within MAX_MONEY
-        assert!(
-            expected_supply >= 0,
-            "Expected supply {expected_supply} must be non-negative"
-        );
-        assert!(
-            expected_supply <= MAX_MONEY,
-            "Expected supply {expected_supply} must not exceed MAX_MONEY"
-        );
+        if !(0..=MAX_MONEY).contains(&expected_supply) {
+            return Err(ConsensusError::BlockValidation(
+                format!("Expected supply {expected_supply} out of valid range [0, MAX_MONEY]")
+                    .into(),
+            ));
+        }
 
-        // Calculate actual supply from UTXO set (sum of all UTXO values)
-        // Invariant assertion: UTXO set size must be reasonable
-        assert!(
-            utxo_set.len() <= u32::MAX as usize,
-            "UTXO set size {} must fit in u32",
-            utxo_set.len()
-        );
+        if utxo_set.len() > u32::MAX as usize {
+            return Err(ConsensusError::BlockValidation(
+                format!("UTXO set size {} must fit in u32", utxo_set.len()).into(),
+            ));
+        }
 
-        let actual_supply: i64 = utxo_set
-            .values()
-            .map(|utxo| {
-                // Invariant assertion: Each UTXO value must be valid
-                assert!(
-                    utxo.value >= 0,
-                    "UTXO value {} must be non-negative",
-                    utxo.value
-                );
-                assert!(
-                    utxo.value <= MAX_MONEY,
-                    "UTXO value {} must not exceed MAX_MONEY",
-                    utxo.value
-                );
-                utxo.value
-            })
-            .try_fold(0i64, |acc, val| {
-                // Invariant assertion: Accumulator must remain non-negative
-                assert!(acc >= 0, "Accumulator {acc} must be non-negative");
-                acc.checked_add(val)
-            })
-            .unwrap_or(MAX_MONEY);
+        let mut actual_supply: i64 = 0i64;
+        for utxo in utxo_set.values() {
+            let v = utxo.value;
+            if !(0..=MAX_MONEY).contains(&v) {
+                return Err(ConsensusError::BlockValidation(
+                    format!("UTXO value {v} out of valid range [0, MAX_MONEY]").into(),
+                ));
+            }
+            actual_supply = actual_supply.checked_add(v).ok_or_else(|| {
+                ConsensusError::BlockValidation("UTXO supply sum overflow".into())
+            })?;
+        }
 
-        // Expected supply change = subsidy + fees
         let subsidy = get_block_subsidy(height);
-        let _expected_change = subsidy + total_fees;
+        let _expected_change = subsidy.saturating_add(total_fees);
 
-        // Actual supply change = actual_supply - previous_supply
-        // We can't easily get previous_supply, but we can verify:
-        // - Actual supply should be <= expected_supply (no inflation beyond subsidy)
-        // - Actual supply should be >= expected_supply - some_tolerance (no excessive destruction)
-
-        // Runtime assertion: Actual supply should not exceed expected supply by more than fees
-        // (Allowing for fees because they're part of the economic model)
+        let supply_plus_fees = expected_supply.saturating_add(total_fees);
+        // Soft check: model vs summed UTXOs (can warn in dev if economics/UTXO state diverge).
         debug_assert!(
-            actual_supply <= expected_supply + total_fees,
+            actual_supply <= supply_plus_fees,
             "Supply invariant violated at height {height}: actual supply {actual_supply} exceeds expected {expected_supply} + fees {total_fees}"
-        );
-
-        // Runtime assertion: Actual supply should be non-negative and <= MAX_MONEY
-        debug_assert!(
-            actual_supply >= 0,
-            "Supply invariant violated: actual supply {actual_supply} is negative"
-        );
-        debug_assert!(
-            actual_supply <= MAX_MONEY,
-            "Supply invariant violated: actual supply {actual_supply} exceeds MAX_MONEY {MAX_MONEY}"
         );
     }
 
-    // Postcondition assertions: Validate function outputs and state after execution
-    assert!(
-        matches!(ValidationResult::Valid, ValidationResult::Valid),
-        "Validation result must be Valid on success"
-    );
-    assert!(
-        utxo_set.len() <= u32::MAX as usize,
-        "UTXO set size {} must not exceed maximum after block connection",
-        utxo_set.len()
-    );
+    if utxo_set.len() > u32::MAX as usize {
+        return Err(ConsensusError::BlockValidation(
+            format!(
+                "UTXO set size {} must not exceed maximum after block connection",
+                utxo_set.len()
+            )
+            .into(),
+        ));
+    }
 
     Ok((ValidationResult::Valid, utxo_set, undo_log))
 }

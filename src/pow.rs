@@ -199,7 +199,7 @@ pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
     let header_bytes = serialize_header(header);
 
     // Double SHA256
-    let hash1 = Sha256::digest(&header_bytes);
+    let hash1 = Sha256::digest(header_bytes);
     let hash2 = Sha256::digest(hash1);
 
     // Convert to U256 (big-endian)

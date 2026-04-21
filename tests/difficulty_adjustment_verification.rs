@@ -23,7 +23,7 @@ fn test_difficulty_clamp_minimum_timespan() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: base_timestamp + (i * 10), // Very short 10-second intervals
             bits: 0x1d00ffff,                     // Genesis difficulty
@@ -33,7 +33,7 @@ fn test_difficulty_clamp_minimum_timespan() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * 10),
         bits: 0x1d00ffff,
@@ -69,9 +69,9 @@ fn test_difficulty_clamp_maximum_timespan() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
-            timestamp: base_timestamp + (i as u64 * TARGET_TIME_PER_BLOCK * 10), // 10x normal spacing
+            timestamp: base_timestamp + (i * TARGET_TIME_PER_BLOCK * 10), // 10x normal spacing
             bits: 0x1d00ffff,
             nonce: 0,
         });
@@ -79,10 +79,9 @@ fn test_difficulty_clamp_maximum_timespan() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
-        timestamp: base_timestamp
-            + (DIFFICULTY_ADJUSTMENT_INTERVAL as u64 * TARGET_TIME_PER_BLOCK * 10),
+        timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK * 10),
         bits: 0x1d00ffff,
         nonce: 0,
     };
@@ -114,7 +113,7 @@ fn test_difficulty_perfect_timing() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: base_timestamp + (i * TARGET_TIME_PER_BLOCK),
             bits: 0x1d00ffff,
@@ -124,7 +123,7 @@ fn test_difficulty_perfect_timing() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK),
         bits: 0x1d00ffff,
@@ -140,11 +139,7 @@ fn test_difficulty_perfect_timing() {
     // Due to the off-by-one bug, there will be a small adjustment
     // But it should be close to the original bits
     let original_bits = 0x1d00ffff;
-    let diff = if new_bits > original_bits {
-        new_bits - original_bits
-    } else {
-        original_bits - new_bits
-    };
+    let diff = new_bits.abs_diff(original_bits);
 
     // Allow small difference due to off-by-one bug and rounding
     assert!(
@@ -166,7 +161,7 @@ fn test_difficulty_off_by_one_bug() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: base_timestamp + (i * TARGET_TIME_PER_BLOCK),
             bits: 0x1d00ffff,
@@ -176,7 +171,7 @@ fn test_difficulty_off_by_one_bug() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK),
         bits: 0x1d00ffff,
@@ -204,7 +199,7 @@ fn test_difficulty_off_by_one_bug() {
 fn test_difficulty_insufficient_headers() {
     let prev_headers = vec![BlockHeader {
         version: 1,
-        prev_block_hash: [0; 32].into(),
+        prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
         bits: 0x1d00ffff,
@@ -213,7 +208,7 @@ fn test_difficulty_insufficient_headers() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505 + 600,
         bits: 0x1d00ffff,
@@ -238,7 +233,7 @@ fn test_difficulty_clamping_boundaries() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: base_timestamp
                 + (i * timespan_quarter / (DIFFICULTY_ADJUSTMENT_INTERVAL - 1)),
@@ -249,7 +244,7 @@ fn test_difficulty_clamping_boundaries() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: base_timestamp + timespan_quarter,
         bits: 0x1d00ffff,
@@ -276,7 +271,7 @@ fn test_difficulty_integer_arithmetic() {
     for i in 0..DIFFICULTY_ADJUSTMENT_INTERVAL {
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: base_timestamp + (i * TARGET_TIME_PER_BLOCK),
             bits: 0x1d00ffff,
@@ -286,7 +281,7 @@ fn test_difficulty_integer_arithmetic() {
 
     let current_header = BlockHeader {
         version: 1,
-        prev_block_hash: [0xff; 32].into(),
+        prev_block_hash: [0xff; 32],
         merkle_root: [0; 32],
         timestamp: base_timestamp + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK),
         bits: 0x1d00ffff,
@@ -321,7 +316,7 @@ fn mainnet_retarget_height_112896_matches_observed_chain_bits() {
         };
         prev_headers.push(BlockHeader {
             version: 1,
-            prev_block_hash: [i as u8; 32].into(),
+            prev_block_hash: [i as u8; 32],
             merkle_root: [0; 32],
             timestamp: ts,
             bits: period_bits,
@@ -331,7 +326,7 @@ fn mainnet_retarget_height_112896_matches_observed_chain_bits() {
 
     let current = BlockHeader {
         version: 1,
-        prev_block_hash: [0xee; 32].into(),
+        prev_block_hash: [0xee; 32],
         merkle_root: [0; 32],
         timestamp: 1299684355,
         bits: 453041201,

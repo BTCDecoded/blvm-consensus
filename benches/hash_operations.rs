@@ -206,7 +206,7 @@ fn benchmark_merkle_root_batching(c: &mut Criterion) {
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32].into(),
-                        index: 0u64,
+                        index: 0u32,
                     },
                     script_sig: vec![0x51], // OP_1
                     sequence: 0xffffffffu64,
@@ -246,7 +246,7 @@ fn benchmark_block_validation_tx_ids(c: &mut Criterion) {
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32].into(),
-                        index: 0u64,
+                        index: 0u32,
                     },
                     script_sig: vec![0x51],
                     sequence: 0xffffffffu64,
@@ -292,7 +292,7 @@ fn benchmark_sighash_batching(c: &mut Criterion) {
                 .map(|i| TransactionInput {
                     prevout: OutPoint {
                         hash: [i as u8; 32],
-                        index: 0u64,
+                        index: 0u32,
                     },
                     script_sig: vec![0x51],
                     sequence: 0xffffffffu64,
@@ -456,7 +456,7 @@ fn benchmark_sighash_templates(c: &mut Criterion) {
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [0u8; 32].into(),
-                index: 0u64,
+                index: 0u32,
             },
             script_sig: vec![0x51],
             sequence: 0xffffffffu64,
@@ -520,7 +520,7 @@ fn benchmark_early_exit_transaction(c: &mut Criterion) {
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [0u8; 32].into(),
-                index: 0u64,
+                index: 0u32,
             },
             script_sig: vec![0x51],
             sequence: 0xffffffffu64,

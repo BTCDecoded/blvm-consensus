@@ -39,14 +39,21 @@ pub fn calculate_transaction_weight(
     ))
 }
 
-/// Calculate base size (transaction without witness data)
+/// Calculate base size (transaction without witness data).
+///
+/// Simplified consensus-facing estimate (version + inputs + outputs + lock_time). Split into
+/// bounded `usize` steps then a single cast so blvm-spec-lock Z3 can verify `ensures` without
+/// timing out on one huge arithmetic expression.
 #[spec_locked("11.1.1")]
 fn calculate_base_size(tx: &Transaction) -> Natural {
-    // Simplified calculation - in reality this would be the actual serialized size
-    (4 + // version
-    tx.inputs.len() * (32 + 4 + 1 + 4) + // inputs (OutPoint + script_sig_len + sequence)
-    tx.outputs.len() * (8 + 1) + // outputs (value + script_pubkey_len)
-    4) as Natural // lock_time
+    const VERSION_AND_LOCKTIME: usize = 4 + 4;
+    const PER_INPUT: usize = 32 + 4 + 1 + 4;
+    const PER_OUTPUT: usize = 8 + 1;
+    let n_in = tx.inputs.len();
+    let n_out = tx.outputs.len();
+    let inputs_part = n_in.saturating_mul(PER_INPUT);
+    let outputs_part = n_out.saturating_mul(PER_OUTPUT);
+    (VERSION_AND_LOCKTIME + inputs_part + outputs_part) as Natural
 }
 
 /// Calculate total size (transaction with witness data)
@@ -161,7 +168,11 @@ pub fn compute_witness_merkle_root_from_nested(
             let has_witness = tx_witnesses.iter().any(|w| !w.is_empty());
             let hash = if has_witness {
                 // SegWit tx: wtxid = sha256d(version || 0x00 0x01 || inputs || outputs || witnesses || locktime)
-                let serialized = crate::serialization::transaction::serialize_transaction_with_witness(tx, tx_witnesses);
+                let serialized =
+                    crate::serialization::transaction::serialize_transaction_with_witness(
+                        tx,
+                        tx_witnesses,
+                    );
                 sha256d_bytes(&serialized)
             } else {
                 // Non-SegWit tx: wtxid = txid = sha256d(version || inputs || outputs || locktime)
@@ -263,11 +274,7 @@ pub fn validate_witness_commitment(
 #[spec_locked("11.1.5")]
 pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
     const MAGIC: [u8; 4] = [0xaa, 0x21, 0xa9, 0xed];
-    if script.len() >= 38
-        && script[0] == OP_RETURN
-        && script[1] == 0x24
-        && script[2..6] == MAGIC
-    {
+    if script.len() >= 38 && script[0] == OP_RETURN && script[1] == 0x24 && script[2..6] == MAGIC {
         let mut commitment = [0u8; 32];
         commitment.copy_from_slice(&script[6..38]);
         return Some(commitment);
@@ -364,7 +371,11 @@ pub fn validate_segwit_block(
     if !block.transactions.is_empty() && !witnesses.is_empty() {
         let witness_root = compute_witness_merkle_root(block, witnesses)?;
         // witnesses[0] is the coinbase input's witness stack (contains the reserved nonce)
-        if !validate_witness_commitment(&block.transactions[0], &witness_root, std::slice::from_ref(&witnesses[0]))? {
+        if !validate_witness_commitment(
+            &block.transactions[0],
+            &witness_root,
+            std::slice::from_ref(&witnesses[0]),
+        )? {
             return Ok(false);
         }
     }
@@ -508,8 +519,7 @@ mod tests {
         let witness_root = [1u8; 32];
 
         // No witness commitment in script
-        let is_valid =
-            validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+        let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
         assert!(is_valid); // Should be valid for non-SegWit blocks
     }
 
@@ -523,8 +533,7 @@ mod tests {
         coinbase_tx.outputs[0].script_pubkey =
             create_witness_commitment_script(&invalid_root, &[0u8; 32]);
 
-        let is_valid =
-            validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+        let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
         assert!(!is_valid);
     }
 

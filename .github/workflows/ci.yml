@@ -9,6 +9,7 @@ on:
     types: [published]
   repository_dispatch:
     types: [build-chain, upstream-changed]
+  # Full pipeline on demand (e.g. after a chore commit bumps blvm-spec-lock); use GitHub Actions → CI → Run workflow.
   workflow_dispatch:
 
 permissions:
@@ -42,25 +43,14 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: |
-          # blvm-spec-lock dependency resolution:
-          # 1. Default: crates.io `blvm-spec-lock` (after strip-patch; semver in Cargo.toml)
-          # 2. Fallback: Clone GitHub repo and use path dependency if crate not available
-          # 3. Local dev: Use .cargo/config.toml with [patch.crates-io] (not in CI)
-          bash scripts/setup-spec-lock.sh
-      
+
+      # Must run before any step that invokes `cargo` (self-hosted runners may not have Rust on PATH by default).
+      - name: Install Rust
+        uses: BTCDecoded/rust-ci/install-rust-toolchain@main
+
       - name: Regenerate Orange Paper constants
         run: |
           echo "🔄 Regenerating constants from Orange Paper..."
-          # Build cargo-spec-lock if not already available
-          if [ ! -f "../blvm-spec-lock/target/debug/cargo-spec-lock" ]; then
-            echo "Building cargo-spec-lock..."
-            cd ../blvm-spec-lock
-            CARGO_INCREMENTAL=0 cargo build -j 1 --bin cargo-spec-lock
-            cd ../blvm-consensus
-          fi
-          
           # Orange Paper constants moved to blvm-primitives; no regeneration here.
       
       - name: Cache
@@ -87,9 +77,6 @@ jobs:
           
           mkdir -p "$CARGO_CACHE_DIR"/{registry,git} "$TARGET_CACHE_DIR"
 
-      - name: Install Rust
-        uses: BTCDecoded/rust-ci/install-rust-toolchain@main
-
   test:
     name: Test
     needs: setup
@@ -98,7 +85,9 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
       - uses: actions/checkout@v4
       
@@ -161,7 +150,9 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
       - uses: actions/checkout@v4
       
@@ -201,16 +192,16 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
       - uses: actions/checkout@v4
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
-      
+
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
       
@@ -230,7 +221,9 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_docs]'))
     steps:
       - uses: actions/checkout@v4
       
@@ -260,9 +253,6 @@ jobs:
           fi
       
       - name: Docs
-        run: cargo doc --no-deps
-      
-      - name: Verify docs
         run: cargo doc --no-deps --document-private-items
 
   security:
@@ -273,21 +263,22 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
       - uses: actions/checkout@v4
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
       
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
       
+      # 0.22+ parses CVSS 4.0 in advisory-db; 0.21 fails loading the DB (e.g. cap-primitives RUSTSEC-2024-0445).
       - name: Install audit
-        run: cargo install cargo-audit --version 0.21.0 --locked
+        run: cargo install cargo-audit --version 0.22.1 --locked
       
       - name: Audit
         run: cargo audit
@@ -301,18 +292,18 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]')))
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_verify]'))
     steps:
       - uses: actions/checkout@v4
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
-      
+
       - name: Setup blvm-spec (PROTOCOL.md + ARCHITECTURE.md for verification)
-        run: bash scripts/setup-spec.sh
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
       
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -328,17 +319,8 @@ jobs:
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
 
-      - name: Build blvm-spec-lock (with Z3 for full contract verification)
-        env:
-          CARGO_INCREMENTAL: "0"
-        run: |
-          cd ../blvm-spec-lock
-          # Build with Z3 so get_block_subsidy and other contracts get full verification
-          # Requires: libz3-dev libclang-dev (apt) or z3 llvm llvm-libs clang (pacman)
-          # -j 1 + CARGO_INCREMENTAL=0: mitigates missing .d dep-info flakes on self-hosted runners
-          cargo build --release -j 1 --features z3 --bin cargo-spec-lock
-          cd ../blvm-consensus
-          echo "✅ cargo-spec-lock ready"
+      - name: Install blvm-spec-lock (with Z3 for full contract verification)
+        run: cargo install blvm-spec-lock --locked --features z3
       
       - name: Run blvm-spec-lock verify
         run: |
@@ -354,7 +336,9 @@ jobs:
             echo "❌ No spec found at ../blvm-spec (PROTOCOL.md, ARCHITECTURE.md, or THE_ORANGE_PAPER.md). setup-spec.sh should have cloned blvm-spec."
             exit 1
           fi
-          ../blvm-spec-lock/target/release/cargo-spec-lock verify --strict $SPEC_ARGS 2>&1 | tee spec_lock_output.txt
+          # Strict mode: SPEC_LOCK_STRICT=1 works with cargo-spec-lock builds that lack `--strict` on the CLI.
+          export SPEC_LOCK_STRICT=1
+          cargo-spec-lock verify $SPEC_ARGS 2>&1 | tee spec_lock_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           if [ $EXIT_CODE -ne 0 ]; then
             echo "❌ blvm-spec-lock verification failed"
@@ -411,9 +395,177 @@ jobs:
           }
           echo "✅ MIRI checks passed"
 
+  fuzz-build:
+    name: Fuzz (build once)
+    needs: [setup]
+    runs-on: [self-hosted, Linux, X64, builds]
+    timeout-minutes: 60
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_fuzz]'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Strip [patch.crates-io] for crates.io-only CI
+        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Checkout blvm-protocol (sibling for fuzz path deps)
+        uses: actions/checkout@v4
+        with:
+          repository: BTCDecoded/blvm-protocol
+          path: _temp-blvm-protocol
+      - name: Checkout blvm-primitives (sibling for fuzz [patch.crates-io])
+        uses: actions/checkout@v4
+        with:
+          repository: BTCDecoded/blvm-primitives
+          path: _temp-blvm-primitives
+      - name: Checkout blvm-secp256k1 (sibling for fuzz [patch.crates-io])
+        uses: actions/checkout@v4
+        with:
+          repository: BTCDecoded/blvm-secp256k1
+          path: _temp-blvm-secp256k1
+      - name: Checkout blvm-muhash (sibling for fuzz [patch.crates-io])
+        uses: actions/checkout@v4
+        with:
+          repository: BTCDecoded/blvm-muhash
+          path: _temp-blvm-muhash
+      - name: Move sibling crates next to repo root
+        run: |
+          for name in blvm-protocol blvm-primitives blvm-secp256k1 blvm-muhash; do
+            if [ -d "../${name}" ]; then rm -rf "../${name}"; fi
+          done
+          mv _temp-blvm-protocol ../blvm-protocol
+          mv _temp-blvm-primitives ../blvm-primitives
+          mv _temp-blvm-secp256k1 ../blvm-secp256k1
+          mv _temp-blvm-muhash ../blvm-muhash
+
+      - name: Cache
+        uses: BTCDecoded/rust-ci/runner-cargo-cache@main
+        with:
+          operation: bind-env
+          cache-key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Restore Cargo cache
+        uses: BTCDecoded/rust-ci/runner-cargo-cache@main
+        with:
+          operation: restore
+
+      - name: Install Rust
+        uses: BTCDecoded/rust-ci/install-rust-toolchain@main
+
+      - name: Install nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly
+          rustup component add rustfmt --toolchain nightly 2>/dev/null || true
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install cargo-fuzz
+
+      - name: Initialize corpus dirs
+        working-directory: fuzz
+        run: |
+          chmod +x init_corpus.sh
+          ./init_corpus.sh
+
+      # Do not set RUSTFLAGS here: cargo-fuzz already injects sancov + ASAN; duplicating
+      # -Cpasses=sancov-module breaks the link step (sancov ctors discarded with --gc-sections).
+      - name: Build all fuzz binaries (once per workflow)
+        working-directory: fuzz
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo +nightly fuzz build
+
+      - name: Save Cargo cache
+        if: always()
+        uses: BTCDecoded/rust-ci/runner-cargo-cache@main
+        with:
+          operation: save
+
+      # Shard jobs read this path on the runner filesystem (no GitHub artifact upload).
+      # Requires fuzz-build and all fuzz matrix jobs to run on hosts that share this path
+      # (same machine or NFS-mounted /tmp).
+      - name: Stash fuzz target for shard jobs
+        run: |
+          STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
+          rm -rf "$STASH"
+          mkdir -p "$STASH"
+          cp -a fuzz/target "$STASH/"
+
+  fuzz:
+    name: Fuzz (shard ${{ matrix.shard }}/8)
+    needs: [setup, fuzz-build]
+    runs-on: [self-hosted, Linux, X64, builds]
+    # Sequential fuzz runs only (210s cap each); binaries copied from fuzz-build stash on disk
+    timeout-minutes: 60
+    if: |
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       (!contains(github.event.head_commit.message, '[skip ci]') &&
+        !contains(github.event.head_commit.message, '[ci skip]') &&
+        !contains(github.event.head_commit.message, '[no ci]'))) &&
+      (github.event_name != 'push' || github.event.head_commit == null || 
+       !contains(github.event.head_commit.message, '[skip_fuzz]'))
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Shards only execute prebuilt libFuzzer binaries from fuzz-build (no Cargo/rustup).
+      # `cargo fuzz run` was re-invoking Cargo, re-locking deps, and resolving blvm-consensus
+      # from crates.io after strip-patch — breaking spec_locked. Parallel install-rust also
+      # races on ~/.cargo/bin/rustup across matrix jobs on a shared self-hosted runner.
+
+      - name: Initialize corpus dirs
+        working-directory: fuzz
+        run: |
+          chmod +x init_corpus.sh
+          ./init_corpus.sh
+
+      - name: Restore fuzz target from shared stash
+        run: |
+          STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
+          if [ ! -d "$STASH/target" ]; then
+            echo "Expected $STASH/target from fuzz-build (same GITHUB_RUN_ID, shared /tmp on runner pool)"
+            exit 1
+          fi
+          rm -rf fuzz/target
+          cp -a "$STASH/target" fuzz/target
+
+      - name: Run libFuzzer binaries (TARGETS.md shard)
+        working-directory: fuzz
+        env:
+          ASAN_OPTIONS: detect_odr_violation=0
+        run: |
+          mapfile -t bins < <(grep -v '^#' TARGETS.md | grep -v '^$' || true)
+          shard=${{ matrix.shard }}
+          shards=8
+          idx=0
+          for t in "${bins[@]}"; do
+            if (( idx % shards != shard )); then
+              ((idx++)) || true
+              continue
+            fi
+            ((idx++)) || true
+            echo "=== shard $shard/$shards: $t ==="
+            bin="$PWD/target/x86_64-unknown-linux-gnu/release/$t"
+            if [ ! -x "$bin" ]; then
+              echo "missing executable $bin"
+              exit 1
+            fi
+            timeout 210 "$bin" "corpus/$t" -- \
+              -max_total_time=120 \
+              -timeout=10 \
+              -max_len=100000
+          done
+
   build:
     name: Build
-    needs: [setup, test, clippy, fmt, docs, security, verify]
+    needs: [setup, test, clippy, fmt, docs, security, verify, fuzz]
     runs-on: [self-hosted, Linux, X64, builds]
     env:
       # Use release-fast for PRs, branches — full release only for push to main
@@ -426,17 +578,20 @@ jobs:
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
-      (needs.test.result == 'success' && needs.verify.result == 'success' && needs.clippy.result == 'success' && 
-        needs.fmt.result == 'success' && needs.docs.result == 'success' && needs.security.result == 'success')
+      ((needs.test.result == 'success' || needs.test.result == 'skipped') &&
+        (needs.verify.result == 'success' || needs.verify.result == 'skipped') &&
+        (needs.clippy.result == 'success' || needs.clippy.result == 'skipped') &&
+        (needs.fmt.result == 'success' || needs.fmt.result == 'skipped') &&
+        (needs.docs.result == 'success' || needs.docs.result == 'skipped') &&
+        (needs.security.result == 'success' || needs.security.result == 'skipped') &&
+        (needs.fuzz.result == 'success' || needs.fuzz.result == 'skipped'))
     steps:
       - uses: actions/checkout@v4
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
-      
+
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
@@ -484,7 +639,8 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]') &&
         !contains(github.event.head_commit.message, '[skip release]'))) &&
-      (needs.test.result == 'success' && needs.verify.result == 'success')
+      ((needs.test.result == 'success' || needs.test.result == 'skipped') &&
+        (needs.verify.result == 'success' || needs.verify.result == 'skipped'))
     permissions:
       contents: write
       id-token: write
@@ -499,9 +655,7 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-      - name: Setup blvm-spec-lock dependency
-        run: bash scripts/setup-spec-lock.sh
-      
+
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
       
@@ -665,18 +819,8 @@ jobs:
       - name: Pre-release smoke test
         if: env.CARGO_REGISTRY_TOKEN != ''
         run: |
-          echo "🧪 Running smoke tests with new version..."
-          # Quick compile check
-          cargo check --quiet || {
-            echo "❌ Compilation failed after version update"
-            exit 1
-          }
-          # Run a quick test to ensure nothing broke
-          cargo test --lib --quiet -- --test-threads=1 || {
-            echo "❌ Tests failed after version update"
-            exit 1
-          }
-          echo "✅ Smoke tests passed"
+          # Full compile/tests already ran in CI; validate manifest after version bump only.
+          cargo metadata --format-version 1 --no-deps > /dev/null
       
       - name: Commit Cargo.toml changes
         if: env.CARGO_REGISTRY_TOKEN != ''

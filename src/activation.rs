@@ -139,7 +139,7 @@ impl ForkActivationTable {
             ),
         };
 
-        let bip54 = bip54_activation_override.unwrap_or_else(|| match network {
+        let bip54 = bip54_activation_override.unwrap_or(match network {
             Network::Mainnet => BIP54_ACTIVATION_MAINNET,
             Network::Testnet => BIP54_ACTIVATION_TESTNET,
             Network::Regtest => BIP54_ACTIVATION_REGTEST,

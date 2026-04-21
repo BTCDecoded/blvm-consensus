@@ -656,9 +656,9 @@ pub mod _optimized_access {
     }
 }
 
-/// Re-export prealloc_tx_buffer for convenience
+/// Re-export prealloc helpers for convenience
 #[cfg(feature = "production")]
-pub use optimized_access::prealloc_tx_buffer;
+pub use optimized_access::{prealloc_block_buffer, prealloc_tx_buffer};
 
 /// Reference implementations for equivalence proofs
 ///

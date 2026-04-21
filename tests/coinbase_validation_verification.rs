@@ -9,13 +9,11 @@
 //! - Coinbase output <= fees + subsidy
 //! - Coinbase output <= MAX_MONEY
 
-use blvm_consensus::block::connect_block;
 use blvm_consensus::constants::*;
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::test_utils::create_coinbase_tx;
 use blvm_consensus::transaction::is_coinbase;
 use blvm_consensus::types::*;
-use std::collections::HashMap;
 
 /// Test coinbase scriptSig length: minimum (2 bytes)
 ///
@@ -26,7 +24,7 @@ fn test_coinbase_script_sig_minimum_length() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51, 0x52], // Exactly 2 bytes (minimum)
@@ -35,7 +33,7 @@ fn test_coinbase_script_sig_minimum_length() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -57,7 +55,7 @@ fn test_coinbase_script_sig_below_minimum() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51], // 1 byte (below minimum)
@@ -66,7 +64,7 @@ fn test_coinbase_script_sig_below_minimum() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -93,7 +91,7 @@ fn test_coinbase_script_sig_maximum_length() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51; 100], // Exactly 100 bytes (maximum)
@@ -102,7 +100,7 @@ fn test_coinbase_script_sig_maximum_length() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -128,7 +126,7 @@ fn test_coinbase_script_sig_above_maximum() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51; 101], // 101 bytes (above maximum)
@@ -137,7 +135,7 @@ fn test_coinbase_script_sig_above_maximum() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -239,7 +237,7 @@ fn test_coinbase_identification_valid() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51, 0x52],
@@ -248,7 +246,7 @@ fn test_coinbase_identification_valid() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -267,7 +265,7 @@ fn test_coinbase_identification_multiple_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -275,7 +273,7 @@ fn test_coinbase_identification_multiple_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 0,
                 },
                 script_sig: vec![0x52],
@@ -285,7 +283,7 @@ fn test_coinbase_identification_multiple_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -306,7 +304,7 @@ fn test_coinbase_identification_non_null_prevout() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(), // Non-null hash
+                hash: [1; 32], // Non-null hash
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -315,7 +313,7 @@ fn test_coinbase_identification_non_null_prevout() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

@@ -57,7 +57,7 @@ fn test_p2sh_scriptsig_push_only_validation() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: invalid_script_sig.clone(),
@@ -72,7 +72,7 @@ fn test_p2sh_scriptsig_push_only_validation() {
         lock_time: 0,
     };
 
-    let prevouts = vec![TransactionOutput {
+    let prevouts = [TransactionOutput {
         value: 1000000,
         script_pubkey: script_pubkey.clone(),
     }];
@@ -136,7 +136,7 @@ fn test_taproot_empty_scriptsig_requirement() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51], // Non-empty scriptSig (should be rejected)
@@ -151,7 +151,7 @@ fn test_taproot_empty_scriptsig_requirement() {
         lock_time: 0,
     };
 
-    let prevouts = vec![TransactionOutput {
+    let prevouts = [TransactionOutput {
         value: 1000000,
         script_pubkey: script_pubkey.clone(),
     }];
@@ -228,7 +228,7 @@ fn test_p2sh_redeem_script_sighash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -237,7 +237,7 @@ fn test_p2sh_redeem_script_sighash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -247,9 +247,9 @@ fn test_p2sh_redeem_script_sighash() {
     script_pubkey_vec.extend_from_slice(&[0u8; 20]);
     script_pubkey_vec.push(0x87); // OP_EQUAL
 
-    let prevouts = vec![TransactionOutput {
+    let prevouts = [TransactionOutput {
         value: 1000000,
-        script_pubkey: script_pubkey_vec.clone().into(),
+        script_pubkey: script_pubkey_vec.clone(),
     }];
 
     let redeem_script = vec![0x51, 0x52]; // Redeem script (different from scriptPubkey)
@@ -376,7 +376,7 @@ fn test_bip30_deactivation() {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0u8; 32].into(),
+                    hash: [0u8; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![0x04, 0xff, 0xff, 0x00, 0x1d, 0x01, 0x04], // Block height
@@ -385,7 +385,7 @@ fn test_bip30_deactivation() {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x41, 0x04].into(), // Pubkey
+                script_pubkey: vec![0x41, 0x04], // Pubkey
             }]
             .into(),
             lock_time: 0,
@@ -430,7 +430,7 @@ fn test_sighash_alllegacy() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -439,15 +439,15 @@ fn test_sighash_alllegacy() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
     };
 
-    let prevouts = vec![TransactionOutput {
+    let prevouts = [TransactionOutput {
         value: 1000000,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![0x51],
     }];
 
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
@@ -532,7 +532,7 @@ fn test_script_flags_per_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![], // Empty for Taproot
@@ -547,7 +547,7 @@ fn test_script_flags_per_transaction() {
         lock_time: 0,
     };
 
-    let prevouts = vec![TransactionOutput {
+    let prevouts = [TransactionOutput {
         value: 1000000,
         script_pubkey: script_pubkey_taproot.clone(),
     }];
@@ -619,7 +619,7 @@ fn test_segwit_deserialization() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![], // Empty scriptSig for SegWit
@@ -659,7 +659,7 @@ fn test_transaction_limits() {
     let many_inputs: Vec<TransactionInput> = (0..5000)
         .map(|i| TransactionInput {
             prevout: OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -672,7 +672,7 @@ fn test_transaction_limits() {
         inputs: many_inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -686,7 +686,7 @@ fn test_transaction_limits() {
         "Transaction should support more than 1000 inputs"
     );
     assert!(
-        tx.inputs.len() < MAX_INPUTS as usize,
+        tx.inputs.len() < MAX_INPUTS,
         "Transaction should be within MAX_INPUTS limit"
     );
 
@@ -694,7 +694,7 @@ fn test_transaction_limits() {
     let many_outputs: Vec<TransactionOutput> = (0..5000)
         .map(|_| TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         })
         .collect();
 
@@ -702,7 +702,7 @@ fn test_transaction_limits() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -718,7 +718,7 @@ fn test_transaction_limits() {
         "Transaction should support more than 1000 outputs"
     );
     assert!(
-        tx_many_outputs.outputs.len() < MAX_OUTPUTS as usize,
+        tx_many_outputs.outputs.len() < MAX_OUTPUTS,
         "Transaction should be within MAX_OUTPUTS limit"
     );
 }
@@ -746,7 +746,7 @@ fn test_taproot_flag_value() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -755,7 +755,7 @@ fn test_taproot_flag_value() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: script_pubkey.into(),
+            script_pubkey,
         }]
         .into(),
         lock_time: 0,
@@ -851,7 +851,7 @@ fn test_regression_test_coverage() {
     // The actual tests above verify the fixes work correctly
 
     // List of critical bugs that must have regression tests:
-    let critical_bugs = vec![
+    let critical_bugs = [
         "P2SH push-only validation",
         "Taproot empty scriptSig",
         "P2SH redeem script sighash",

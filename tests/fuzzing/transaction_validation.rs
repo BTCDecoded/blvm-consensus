@@ -6,9 +6,11 @@
 //! Note: Uses byte-level fuzzing since Transaction doesn't implement Arbitrary.
 
 #[cfg(feature = "bolero")]
-use bolero::check;
+use blvm_consensus::transaction::check_transaction;
 #[cfg(feature = "bolero")]
-use blvm_consensus::{Transaction, ValidationResult, check_transaction};
+use blvm_consensus::Transaction;
+#[cfg(feature = "bolero")]
+use bolero::check;
 
 #[cfg(feature = "bolero")]
 #[test]
@@ -22,7 +24,7 @@ fn fuzz_check_transaction_robustness() {
             outputs: vec![].into(),
             lock_time: data.get(1).copied().unwrap_or(0) as u64,
         };
-        
+
         // Validate that check_transaction doesn't panic on any input
         let result = check_transaction(&tx);
         // Result should always be Ok, even if validation fails
@@ -41,11 +43,11 @@ fn fuzz_check_transaction_deterministic() {
             outputs: vec![].into(),
             lock_time: data.get(1).copied().unwrap_or(0) as u64,
         };
-        
+
         // Check that validation is deterministic
         let result1 = check_transaction(&tx);
         let result2 = check_transaction(&tx);
-        
+
         assert_eq!(result1, result2, "check_transaction must be deterministic");
     });
 }

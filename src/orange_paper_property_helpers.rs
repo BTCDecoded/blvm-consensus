@@ -2,6 +2,10 @@
 //!
 //! Formula helpers (TotalSupply, GetBlockSubsidy, etc.) live in blvm-primitives.
 //! VerifyConsensusCommitment stubs stay here (protocol-specific; uses UtxoCommitment).
+//!
+//! **Not a supported production API:** functions that `panic!` or `unimplemented!` here are for
+//! spec-lock / test wiring only. Production verification lives under
+//! `blvm_protocol::utxo_commitments::verification`.
 
 pub use blvm_primitives::orange_paper_helpers::*;
 

@@ -72,12 +72,10 @@ fn block_164676_connect_block_ibd_repro() {
             .map(|tx| (0..tx.inputs.len()).map(|_| Vec::new()).collect())
             .collect();
     }
-    let ctx = blvm_consensus::block::BlockValidationContext::from_connect_block_ibd_args(
+    let ctx = blvm_consensus::block::block_validation_context_for_connect_ibd(
         None::<&[blvm_consensus::types::BlockHeader]>,
         0u64,
         Network::Mainnet,
-        None,
-        None,
     );
     let (result, _new_utxo_set, _tx_ids, _utxo_delta) = connect_block_ibd(
         &block,

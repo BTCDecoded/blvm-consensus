@@ -130,8 +130,7 @@ impl SchnorrSignatureCollector {
             .map(|(msg, pk, sig)| (msg.as_slice(), pk.as_slice(), sig.as_slice()))
             .collect();
         if let Ok(results) = batch_verify_signatures_from_stack(&task_refs) {
-            let partial: Vec<(usize, bool)> =
-                indices.into_iter().zip(results.into_iter()).collect();
+            let partial: Vec<(usize, bool)> = indices.into_iter().zip(results).collect();
             self.streaming_results.push(partial);
         }
     }
@@ -215,10 +214,7 @@ impl SchnorrSignatureCollector {
             .collect();
 
         let remainder_results = batch_verify_signatures_from_stack(&task_refs)?;
-        let mut merged: Vec<(usize, bool)> = indices
-            .into_iter()
-            .zip(remainder_results.into_iter())
-            .collect();
+        let mut merged: Vec<(usize, bool)> = indices.into_iter().zip(remainder_results).collect();
         #[cfg(feature = "rayon")]
         for partial in streaming {
             merged.extend(partial);

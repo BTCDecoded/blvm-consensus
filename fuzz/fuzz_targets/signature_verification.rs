@@ -147,17 +147,19 @@ fuzz_target!(|data: &[u8]| {
                         },
                         script_sig: vec![].into(),
                         sequence: 0xffffffff,
-                    }],
+                    }]
+                    .into(),
                     outputs: vec![blvm_consensus::types::TransactionOutput {
                         value: 0,
                         script_pubkey: vec![].into(),
-                    }],
+                    }]
+                    .into(),
                     lock_time: 0,
                 };
 
                 let pv = vec![0i64];
                 let empty_sp: blvm_consensus::types::ByteString = vec![].into();
-                let psp: Vec<&blvm_consensus::types::ByteString> = vec![&empty_sp];
+                let psp: [&[u8]; 1] = [empty_sp.as_slice()];
 
                 // Test signature verification through script
                 // Should never panic - handle errors gracefully
@@ -177,9 +179,8 @@ fuzz_target!(|data: &[u8]| {
                     None,
                     None,
                     None,
-                    None, // precomputed_bip143
-                    #[cfg(feature = "production")] None,
-                    #[cfg(feature = "production")] None,
+                    None,
+                    None,
                 );
             }
         }
@@ -200,17 +201,19 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
+            }]
+            .into(),
             outputs: vec![blvm_consensus::types::TransactionOutput {
                 value: 0,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
         let pv = vec![0i64];
         let empty_sp: blvm_consensus::types::ByteString = vec![].into();
-        let psp: Vec<&blvm_consensus::types::ByteString> = vec![&empty_sp];
+        let psp: [&[u8]; 1] = [empty_sp.as_slice()];
 
         let _result_empty_pubkey = verify_script_with_context_full(
             &script_sig,
@@ -228,9 +231,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None,
-            None, // precomputed_bip143
-            #[cfg(feature = "production")] None,
-            #[cfg(feature = "production")] None,
+            None,
+            None,
         );
     }
 
@@ -250,17 +252,19 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
+            }]
+            .into(),
             outputs: vec![blvm_consensus::types::TransactionOutput {
                 value: 0,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
         let pv = vec![0i64];
         let empty_sp: blvm_consensus::types::ByteString = vec![].into();
-        let psp: Vec<&blvm_consensus::types::ByteString> = vec![&empty_sp];
+        let psp: [&[u8]; 1] = [empty_sp.as_slice()];
 
         let _result_empty_sig = verify_script_with_context_full(
             &script_sig,
@@ -278,9 +282,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None,
-            None, // precomputed_bip143
-            #[cfg(feature = "production")] None,
-            #[cfg(feature = "production")] None,
+            None,
+            None,
         );
     }
 
@@ -300,17 +303,19 @@ fuzz_target!(|data: &[u8]| {
                 },
                 script_sig: vec![].into(),
                 sequence: 0xffffffff,
-            }],
+            }]
+            .into(),
             outputs: vec![blvm_consensus::types::TransactionOutput {
                 value: 0,
                 script_pubkey: vec![].into(),
-            }],
+            }]
+            .into(),
             lock_time: 0,
         };
 
         let pv = vec![0i64];
         let empty_sp: blvm_consensus::types::ByteString = vec![].into();
-        let psp: Vec<&blvm_consensus::types::ByteString> = vec![&empty_sp];
+        let psp: [&[u8]; 1] = [empty_sp.as_slice()];
 
         let _result_long_sig = verify_script_with_context_full(
             &long_sig,
@@ -328,9 +333,8 @@ fuzz_target!(|data: &[u8]| {
             None,
             None,
             None,
-            None, // precomputed_bip143
-            #[cfg(feature = "production")] None,
-            #[cfg(feature = "production")] None,
+            None,
+            None,
         );
     }
 });

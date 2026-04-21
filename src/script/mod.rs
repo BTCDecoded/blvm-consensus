@@ -27,8 +27,6 @@ use crate::constants::*;
 use crate::crypto::OptimizedSha256;
 use crate::error::{ConsensusError, Result, ScriptErrorCode};
 use crate::opcodes::*;
-#[cfg(all(feature = "production", feature = "profile"))]
-use crate::profile_log;
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
 use digest::Digest;
@@ -5855,7 +5853,7 @@ fn execute_opcode_with_context_full(
                 use crate::bip119::calculate_template_hash;
 
                 // CTV requires exactly 32 bytes (template hash) on stack
-                if stack.len() < 1 {
+                if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
                         message: "OP_CHECKTEMPLATEVERIFY: insufficient stack items".into(),
@@ -5886,7 +5884,7 @@ fn execute_opcode_with_context_full(
                 let actual_hash = calculate_template_hash(tx, input_index).map_err(|e| {
                     ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::TxInvalid,
-                        message: format!("CTV hash calculation failed: {}", e).into(),
+                        message: format!("CTV hash calculation failed: {e}").into(),
                     }
                 })?;
 
@@ -5959,7 +5957,7 @@ fn execute_opcode_with_context_full(
                             message: "OP_CHECKSIGFROMSTACK not yet activated".into(),
                         });
                     }
-                    Ok(true) // OP_SUCCESS204 succeeds
+                    return Ok(true); // OP_SUCCESS204 succeeds
                 }
 
                 use crate::bip348::verify_signature_from_stack;
@@ -5988,14 +5986,13 @@ fn execute_opcode_with_context_full(
                 // BIP-348: If signature is empty, push empty vector and continue
                 if signature_bytes.is_empty() {
                     stack.push(to_stack_element(&[])); // Empty vector, not 0
-                    Ok(true)
+                    return Ok(true);
                 }
 
                 // BIP-348: Verify signature (only for 32-byte pubkeys)
                 // OPTIMIZATION: Use collector for batch verification if available
                 #[cfg(feature = "production")]
                 let is_valid = {
-                    use crate::bip348::SchnorrSignatureCollector;
                     verify_signature_from_stack(
                         &message_bytes,    // Message (NOT hashed by BIP 340 spec)
                         &pubkey_bytes,     // Pubkey (32 bytes for BIP 340)

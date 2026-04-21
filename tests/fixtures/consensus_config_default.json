@@ -1,0 +1,68 @@
+{
+  "network_limits": {
+    "max_addr_addresses": 1000,
+    "max_inv_items": 50000,
+    "max_headers": 2000,
+    "max_user_agent_length": 256
+  },
+  "block_validation": {
+    "assume_valid_height": 938343,
+    "assume_valid_hash": null,
+    "n_minimum_chain_work": 0,
+    "median_time_past_headers": 11,
+    "enable_parallel_validation": true,
+    "coinbase_maturity_override": 0,
+    "max_block_sigops_cost_override": 0
+  },
+  "mempool": {
+    "max_mempool_mb": 300,
+    "max_mempool_txs": 100000,
+    "mempool_expiry_hours": 336,
+    "min_relay_fee_rate": 1,
+    "min_tx_fee": 1000,
+    "rbf_fee_increment": 1000,
+    "max_op_return_size": 80,
+    "max_op_return_outputs": 1,
+    "reject_multiple_op_return": true,
+    "max_standard_script_size": 200,
+    "reject_envelope_protocol": true,
+    "reject_spam_in_mempool": false,
+    "min_fee_rate_large_tx": 2,
+    "large_tx_threshold_bytes": 1000
+  },
+  "utxo_commitment": {
+    "max_utxo_commitment_set_mb": 512,
+    "max_utxo_count": 100000000,
+    "max_historical_commitments": 1000,
+    "enable_incremental_updates": true
+  },
+  "performance": {
+    "script_verification_threads": 0,
+    "parallel_batch_size": 8,
+    "enable_simd_optimizations": true,
+    "enable_cache_optimizations": true,
+    "enable_batch_utxo_lookups": true
+  },
+  "debug": {
+    "enable_runtime_assertions": false,
+    "enable_runtime_invariants": false,
+    "enable_verbose_logging": false,
+    "enable_performance_profiling": false,
+    "log_rejections": false
+  },
+  "features": {
+    "enable_experimental_optimizations": false,
+    "enable_bounds_check_optimizations": true,
+    "enable_reference_checks": false,
+    "enable_aggressive_caching": true,
+    "enable_batch_tx_id_computation": true,
+    "enable_simd_hash_operations": true
+  },
+  "advanced": {
+    "custom_checkpoints": [],
+    "max_reorg_depth": 100,
+    "strict_mode": false,
+    "max_block_size_override": 0,
+    "enable_rbf": true
+  }
+}

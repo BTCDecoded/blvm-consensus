@@ -1,6 +1,6 @@
 #![no_main]
-use consensus_proof::pow::check_proof_of_work;
-use consensus_proof::BlockHeader;
+use blvm_consensus::pow::check_proof_of_work;
+use blvm_consensus::BlockHeader;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -118,7 +118,7 @@ fuzz_target!(|data: &[u8]| {
 
         if headers.len() >= 2 {
             // Use pow module directly for get_next_work_required
-            use consensus_proof::pow::get_next_work_required;
+            use blvm_consensus::pow::get_next_work_required;
             let current_header = &headers[0];
             // Should never panic - test robustness
             let _result = get_next_work_required(current_header, &headers);

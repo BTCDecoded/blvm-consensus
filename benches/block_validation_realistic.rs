@@ -53,7 +53,7 @@ fn create_realistic_test_block(num_txs: usize) -> Block {
                 },
                 TransactionOutput {
                     value: 5_000_000, // 0.05 BTC
-                    script_pubkey: vec![0x51; 25],
+                    script_pubkey: vec![0x51; 25].into(),
                 },
             ]
             .into(),
@@ -77,9 +77,13 @@ fn create_realistic_test_block(num_txs: usize) -> Block {
 fn benchmark_connect_block_realistic(c: &mut Criterion) {
     let block = create_realistic_test_block(100); // 100 transactions (more realistic)
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
-    let ctx = block::BlockValidationContext::for_network(Network::Mainnet);
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
     c.bench_function("connect_block_realistic_100tx", |b| {
         b.iter(|| {
             let _result = connect_block(
@@ -97,9 +101,13 @@ fn benchmark_connect_block_realistic(c: &mut Criterion) {
 fn benchmark_connect_block_realistic_1000tx(c: &mut Criterion) {
     let block = create_realistic_test_block(1000); // 1000 transactions (reference benchmark)
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
+    let witnesses: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .map(|tx| vec![Vec::new(); tx.inputs.len()])
+        .collect();
 
-    let ctx = block::BlockValidationContext::for_network(Network::Mainnet);
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
     c.bench_function("connect_block_realistic_1000tx", |b| {
         b.iter(|| {
             let _result = connect_block(

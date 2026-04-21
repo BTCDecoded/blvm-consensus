@@ -29,11 +29,12 @@
 //!
 //! let transaction = Transaction {
 //!     version: 1,
-//!     inputs: vec![],
+//!     inputs: vec![].into(),
 //!     outputs: vec![TransactionOutput {
 //!         value: 1000,
 //!         script_pubkey: vec![0x51],
-//!     }],
+//!     }]
+//!     .into(),
 //!     lock_time: 0,
 //! };
 //! let result = check_transaction(&transaction).unwrap();
@@ -80,6 +81,10 @@ pub mod orange_paper_constants {
     pub use crate::constants::{C, H, L_ELEMENT, L_OPS, L_SCRIPT, L_STACK, M_MAX, R, S_MAX, W_MAX};
 }
 
+/// Spec-lock / property-test helpers only — not a supported production API.
+/// Functions in this module `panic!` or `unimplemented!` when called outside their
+/// intended spec-validation context. Do **not** call from production code.
+#[doc(hidden)]
 pub mod orange_paper_property_helpers;
 
 pub mod config;
@@ -167,14 +172,12 @@ impl ConsensusProof {
             block.transactions.iter().map(|_| Vec::new()).collect();
         let network_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or(std::time::Duration::ZERO)
             .as_secs();
-        let context = block::BlockValidationContext::from_connect_block_ibd_args(
+        let context = block::block_validation_context_for_connect_ibd(
             None::<&[types::BlockHeader]>,
             network_time,
             types::Network::Mainnet,
-            None,
-            None,
         );
         let (result, new_utxo_set, _undo_log) =
             block::connect_block(block, &witnesses, utxo_set, height, &context)?;

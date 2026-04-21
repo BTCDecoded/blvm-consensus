@@ -1,7 +1,7 @@
 #![no_main]
 use blvm_consensus::block::{connect_block, BlockValidationContext};
 use blvm_consensus::pow::check_proof_of_work;
-use blvm_consensus::types::{Block, BlockHeader, Hash, Network, TimeContext, Transaction, TransactionInput, TransactionOutput, UtxoSet};
+use blvm_consensus::types::{Block, BlockHeader, Network, TimeContext, Transaction, TransactionInput, TransactionOutput, UtxoSet};
 use blvm_consensus::witness::Witness;
 use libfuzzer_sys::fuzz_target;
 
@@ -70,16 +70,16 @@ fuzz_target!(|data: &[u8]| {
                 data.get(85).copied().unwrap_or(0),
                 data.get(86).copied().unwrap_or(0),
                 data.get(87).copied().unwrap_or(0),
-            ])
+            ]) as u64
         } else {
             0
         },
     };
 
     // Test 2: Proof of Work validation
-    let _pow_result = check_proof_of_work(&header, Network::Mainnet);
-    let _pow_result_testnet = check_proof_of_work(&header, Network::Testnet);
-    let _pow_result_regtest = check_proof_of_work(&header, Network::Regtest);
+    let _pow_result = check_proof_of_work(&header);
+    let _pow_result_testnet = check_proof_of_work(&header);
+    let _pow_result_regtest = check_proof_of_work(&header);
 
     // Test 3: Header validation through block connection
     // Build minimal block with header
@@ -92,18 +92,23 @@ fuzz_target!(|data: &[u8]| {
             },
             script_sig: vec![0x00, 0x00].into(), // Minimal coinbase scriptSig
             sequence: 0xffffffff,
-        }],
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000, // 50 BTC
             script_pubkey: vec![].into(),
-        }],
+        }]
+        .into(),
         lock_time: 0,
     };
 
     let block = Block {
         header: header.clone(),
-        transactions: vec![coinbase_tx].into(),
+        transactions: vec![coinbase_tx].into_boxed_slice(),
     };
+
+    let empty_utxo_set = UtxoSet::default();
+    let witnesses: Vec<Vec<Witness>> = vec![vec![]; block.transactions.len()];
 
     // Test with different networks
     let networks = [Network::Mainnet, Network::Testnet, Network::Regtest];
@@ -118,9 +123,6 @@ fuzz_target!(|data: &[u8]| {
             };
 
             // Test block connection (which validates header internally)
-            let empty_utxo_set = UtxoSet::default();
-            let witnesses = vec![Witness::from(vec![])];
-
             let ctx_with_time = BlockValidationContext::from_time_context_and_network(
                 Some(time_context.clone()),
                 network,

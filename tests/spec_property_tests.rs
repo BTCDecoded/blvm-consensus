@@ -30,7 +30,8 @@ fn prop_segwit_transaction_serialization_round_trip() {
 #[test]
 fn prop_block_header_serialization_round_trip() {
     use blvm_consensus::types::BlockHeader;
-    proptest!(|(v in any::<i32>(), prev in prop::array::uniform32(any::<u8>()), mr in prop::array::uniform32(any::<u8>()), ts in 0u64..u64::MAX, bits in any::<u32>(), nonce in any::<u32>())| {
+    // Header wire format uses i32 version and u32 timestamp/bits/nonce (see serialize_block_header).
+    proptest!(|(v in any::<i32>().prop_map(i64::from), prev in prop::array::uniform32(any::<u8>()), mr in prop::array::uniform32(any::<u8>()), ts in 0u64..=u32::MAX as u64, bits in 0u64..=u32::MAX as u64, nonce in 0u64..=u32::MAX as u64)| {
         let header = BlockHeader { version: v, prev_block_hash: prev, merkle_root: mr, timestamp: ts, bits, nonce };
         let bytes = blvm_consensus::serialization::serialize_block_header(&header);
         let header2 = blvm_consensus::serialization::deserialize_block_header(&bytes).unwrap();

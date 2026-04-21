@@ -1,10 +1,12 @@
 #![no_main]
-use consensus_proof::segwit::calculate_transaction_weight;
-use consensus_proof::serialization::block::{deserialize_block_header, serialize_block_header};
-use consensus_proof::serialization::transaction::{deserialize_transaction, serialize_transaction};
-use consensus_proof::serialization::varint::{decode_varint, encode_varint};
-use consensus_proof::transaction::check_transaction;
-use consensus_proof::{BlockHeader, Transaction};
+use std::io::Cursor;
+
+use blvm_consensus::segwit::calculate_transaction_weight;
+use blvm_consensus::serialization::block::{deserialize_block_header, serialize_block_header};
+use blvm_consensus::serialization::transaction::{deserialize_transaction, serialize_transaction};
+use blvm_consensus::serialization::varint::{decode_varint, encode_varint};
+use blvm_consensus::transaction::check_transaction;
+use blvm_consensus::{BlockHeader, Transaction};
 use libfuzzer_sys::fuzz_target;
 
 /// Differential fuzzing target for internal consistency testing
@@ -34,7 +36,7 @@ fuzz_target!(|data: &[u8]| {
                 match (&validation1, &validation2) {
                     (Ok(v1), Ok(v2)) => {
                         // Both validations succeeded - check if results match
-                        use consensus_proof::ValidationResult;
+                        use blvm_consensus::ValidationResult;
                         match (v1, v2) {
                             (ValidationResult::Valid, ValidationResult::Valid) => {
                                 // Both valid - good
@@ -124,6 +126,20 @@ fuzz_target!(|data: &[u8]| {
                 let encoded2 = encode_varint(value1);
                 assert_eq!(encoded, encoded2, "VarInt encoding must be deterministic");
             }
+
+            // Consensus (primitives) vs protocol `read_varint` must agree on accepted encodings.
+            let mut cur = Cursor::new(data);
+            match blvm_protocol::varint::read_varint(&mut cur) {
+                Ok(value_p) => {
+                    assert_eq!(value1, value_p, "consensus vs protocol varint value");
+                    assert_eq!(
+                        consumed1,
+                        cur.position() as usize,
+                        "consensus vs protocol varint consumed length"
+                    );
+                }
+                Err(_) => panic!("protocol varint rejected input consensus accepted"),
+            }
         }
     }
 
@@ -164,7 +180,7 @@ fuzz_target!(|data: &[u8]| {
                 // Results should match
                 match (&result1, &result2) {
                     (Ok(v1), Ok(v2)) => {
-                        use consensus_proof::ValidationResult;
+                        use blvm_consensus::ValidationResult;
                         match (v1, v2) {
                             (ValidationResult::Valid, ValidationResult::Valid) => {
                                 // Both valid

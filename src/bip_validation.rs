@@ -157,7 +157,7 @@ pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActiv
 /// activation, e.g. from BIP9 version bits). When `None`, uses per-network constants
 /// (`BIP54_ACTIVATION_*`). This allows the node to run BIP54 when miners are signalling
 /// without configuring a fixed activation height.
-#[spec_locked("5.4.9")]
+#[spec_locked("5.4")]
 pub fn is_bip54_active_at(
     height: Natural,
     network: crate::types::Network,
@@ -180,7 +180,7 @@ pub fn is_bip54_active_at(
 /// BIP54 activation height. For activation derived from miner signalling (version bits),
 /// use `connect_block_ibd` with `bip54_activation_override` set from
 /// `blvm_consensus::version_bits::activation_height_from_headers` (e.g. with `version_bits::bip54_deployment_mainnet()`).
-#[spec_locked("5.4.9")]
+#[spec_locked("5.4")]
 pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool {
     is_bip54_active_at(height, network, None)
 }
@@ -188,10 +188,10 @@ pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool 
 /// BIP54: Coinbase nLockTime and nSequence (Consensus Cleanup).
 ///
 /// After BIP54 activation, coinbase must have lock_time == height - 13 and sequence != 0xffff_ffff.
-#[spec_locked("5.4.9")]
+#[spec_locked("5.4")]
 pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
     let required_lock_time = height.saturating_sub(13);
-    if (coinbase.lock_time as u64) != required_lock_time {
+    if coinbase.lock_time != required_lock_time {
         return false;
     }
     if coinbase.inputs.is_empty() {

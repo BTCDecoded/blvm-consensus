@@ -118,11 +118,11 @@ fn test_script_transaction_integration() {
     // 1. Create transaction with specific script
     let mut tx = create_test_tx(1000, None, None, None);
     tx.inputs[0].script_sig = vec![0x51]; // OP_1
-    tx.outputs[0].script_pubkey = vec![0x51].into(); // OP_1
+    tx.outputs[0].script_pubkey = vec![0x51]; // OP_1
 
     // 2. Create UTXO with matching script
     let mut utxo_set = UtxoSet::default();
-    let outpoint = tx.inputs[0].prevout.clone();
+    let outpoint = tx.inputs[0].prevout;
     let utxo = UTXO {
         value: 10000,
         script_pubkey: vec![0x51].into(), // OP_1
@@ -356,7 +356,7 @@ fn create_valid_block() -> Block {
             }],
             outputs: tx_outputs![TransactionOutput {
                 value: 50 * blvm_consensus::orange_paper_constants::C as i64, // Initial subsidy = 50 BTC
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }],
             lock_time: 0,
         }]

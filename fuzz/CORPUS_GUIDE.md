@@ -97,7 +97,7 @@ RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz run transaction_validation f
 
 ## Sources for Corpus Data
 
-- **Bitcoin Core test vectors**: `/home/user/src/bitcoin/test/functional/data/util/`
+- **Upstream JSON vectors**: `/home/user/src/bitcoin/test/functional/data/util/`
   - The `init_corpus.sh` script automatically extracts test vectors if available
   - Set `BITCOIN_CORE_TEST_DIR` environment variable to specify custom path
   - Includes: transaction samples, script patterns, multisig examples, RBF examples
@@ -105,9 +105,9 @@ RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz run transaction_validation f
 - **Testnet data**: Use testnet for more diverse patterns
 - **Historical blocks**: Include blocks from different eras (pre/post SegWit, Taproot, etc.)
 
-## Bitcoin Core Test Vectors
+## Upstream JSON vectors
 
-The corpus initialization script automatically includes Bitcoin Core test vectors if available:
+The corpus initialization script automatically includes Upstream JSON vectors if available:
 - Transaction samples (P2PKH, P2SH, SegWit)
 - Script execution patterns
 - Serialization examples

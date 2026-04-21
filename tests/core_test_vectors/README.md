@@ -1,10 +1,10 @@
-# Bitcoin Core Test Vector Integration
+# Reference JSON vector Integration
 
-This directory contains integration code for running Bitcoin Core's test vectors to verify consensus correctness.
+This directory contains integration code for running reference JSON vectors to verify consensus correctness.
 
 ## Overview
 
-Bitcoin Core maintains comprehensive test vectors in JSON format that cover:
+The reference `bitcoin/bitcoin` tree maintains comprehensive test vectors in JSON format that cover:
 - Transaction validation (`tx_valid.json`, `tx_invalid.json`)
 - Script execution (`script_valid.json`, `script_invalid.json`)
 - Block validation (`block_valid.json`, `block_invalid.json`)
@@ -15,7 +15,7 @@ These test vectors represent decades of consensus bug fixes and edge cases disco
 
 ### 1. Download Core Test Vectors
 
-Test vectors are located in Bitcoin Core's repository:
+Test vectors are located in the upstream repository:
 ```
 https://github.com/bitcoin/bitcoin/tree/master/src/test/data
 ```

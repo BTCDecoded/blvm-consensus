@@ -10,29 +10,28 @@ mod connect;
 mod header;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
-pub(crate) use script_cache::{
-    calculate_base_script_flags_for_block, calculate_script_flags_for_block_with_base,
-};
+pub(crate) use script_cache::calculate_base_script_flags_for_block;
+#[cfg(not(feature = "production"))]
+pub(crate) use script_cache::calculate_script_flags_for_block_with_base;
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
 };
 
 use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::bip113::get_median_time_past;
-use crate::constants::*;
-use crate::economic::get_block_subsidy;
-use crate::error::{ConsensusError, Result};
-use crate::opcodes::*;
-#[cfg(feature = "profile")]
-use crate::profile_log;
-use crate::segwit::{validate_witness_commitment, Witness};
-use crate::transaction::{check_transaction, is_coinbase};
+use crate::error::Result;
+use crate::segwit::Witness;
 use crate::types::*;
-use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
-use crate::witness::is_witness_empty;
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
+
+#[cfg(test)]
+use crate::constants::*;
+#[cfg(test)]
+use crate::opcodes::*;
+#[cfg(test)]
+use crate::transaction::{check_transaction, is_coinbase};
 
 // Rayon is used conditionally in the code, imported where needed
 
@@ -280,14 +279,25 @@ impl BlockValidationContext {
 
     /// Build context for a network only (no headers, network_time 0, no BIP54). For tests and simple callers.
     pub fn for_network(network: crate::types::Network) -> Self {
-        Self::from_connect_block_ibd_args(
-            None::<&[crate::types::BlockHeader]>,
-            0,
-            network,
-            None,
-            None,
-        )
+        block_validation_context_for_connect_ibd(None::<&[BlockHeader]>, 0, network)
     }
+}
+
+/// Forwards to [`BlockValidationContext::from_connect_block_ibd_args`] with BIP54 activation override
+/// and boundary timestamps set to `None`.
+#[inline]
+pub fn block_validation_context_for_connect_ibd<H: AsRef<BlockHeader>>(
+    recent_headers: Option<&[H]>,
+    network_time: u64,
+    network: Network,
+) -> BlockValidationContext {
+    BlockValidationContext::from_connect_block_ibd_args(
+        recent_headers,
+        network_time,
+        network,
+        None,
+        None,
+    )
 }
 
 impl IsForkActive for BlockValidationContext {
@@ -321,10 +331,19 @@ mod tx_id_pool {
     }
 }
 
+/// Compute `{ Hash(tx) : tx ∈ block.transactions }` for ComputeMerkleRoot (Orange Paper §8.4.1).
+///
+/// **Spec reference:** sequential `calculate_tx_id` only (no `rayon`, no `&mut Vec`, no `cfg` in the
+/// body). blvm-spec-lock Z3 translates this for determinism/`ensures`. Optimized paths in
+/// [`compute_block_tx_ids_into`] are tested to match this result.
+#[spec_locked("8.4.1")]
+pub fn compute_block_tx_ids_spec(block: &Block) -> Vec<Hash> {
+    block.transactions.iter().map(calculate_tx_id).collect()
+}
+
 /// Compute transaction IDs for a block (extracted for reuse).
 /// Produces {Hash(tx) : tx ∈ block.transactions} for ComputeMerkleRoot input (Orange Paper 8.4.1).
 /// Public so node layer can compute once and share between collect_gaps and connect_block_ibd (#21).
-#[spec_locked("8.4.1")]
 pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
     out.clear();
     out.reserve(block.transactions.len());
@@ -361,11 +380,67 @@ pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
     }
 }
 
-#[spec_locked("8.4.1")]
 pub fn compute_block_tx_ids(block: &Block) -> Vec<Hash> {
     let mut v = Vec::new();
     compute_block_tx_ids_into(block, &mut v);
     v
+}
+
+/// Optimized paths (`rayon` / pooled hash) must agree with [`compute_block_tx_ids_spec`] (§8.4.1).
+#[test]
+fn compute_block_tx_ids_spec_matches_optimized_paths() {
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x03, 0x01, 0x00, 0x00],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let tx2 = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1u8; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 10_000,
+            script_pubkey: vec![0x51].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1,
+            bits: 0x207fffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase, tx2].into_boxed_slice(),
+    };
+    assert_eq!(
+        compute_block_tx_ids_spec(&block),
+        compute_block_tx_ids(&block),
+        "§8.4.1 spec reference must match compute_block_tx_ids / compute_block_tx_ids_into"
+    );
 }
 
 #[test]

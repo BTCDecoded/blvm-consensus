@@ -6,8 +6,8 @@
 //! blocks depend on. For full BIP152 fuzzing (shortids, prefilled txs, etc.),
 //! see blvm-node/fuzz/ when available.
 
-use consensus_proof::block::connect_block;
-use consensus_proof::{Block, BlockHeader, Hash, Transaction, TransactionOutput, UtxoSet};
+use blvm_consensus::block::connect_block;
+use blvm_consensus::{Block, BlockHeader, Transaction, TransactionOutput, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -70,17 +70,19 @@ fuzz_target!(|data: &[u8]| {
         header,
         transactions: vec![Transaction {
             version: 1,
-            inputs: vec![], // Coinbase
+            inputs: vec![].into(), // Coinbase
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x51], // OP_1
-            }],
+                script_pubkey: vec![0x51].into(), // OP_1
+            }]
+            .into(),
             lock_time: 0,
-        }],
+        }]
+        .into_boxed_slice(),
     };
 
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Vec<consensus_proof::Witness>> = block
+    let witnesses: Vec<Vec<blvm_consensus::Witness>> = block
         .transactions
         .iter()
         .map(|tx| (0..tx.inputs.len()).map(|_| vec![]).collect())
@@ -88,6 +90,8 @@ fuzz_target!(|data: &[u8]| {
 
     // Test block connection - should never panic
     // This exercises the same code paths that compact blocks use
-    let ctx = block::BlockValidationContext::for_network(consensus_proof::types::Network::Mainnet);
+    let ctx = blvm_consensus::block::BlockValidationContext::for_network(
+        blvm_consensus::types::Network::Mainnet,
+    );
     let _result = connect_block(&block, &witnesses, utxo_set, 0, &ctx);
 });

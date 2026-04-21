@@ -6,7 +6,7 @@ This directory contains all test data used by blvm-consensus tests.
 
 ```
 test_data/
-├── core_vectors/          # Bitcoin Core test vectors
+├── core_vectors/          # Reference JSON vectors
 │   ├── transactions/      # Transaction test vectors (tx_valid.json, tx_invalid.json)
 │   ├── scripts/           # Script test vectors (if available)
 │   └── blocks/            # Block test vectors (if available)
@@ -24,9 +24,9 @@ test_data/
 
 ## Test Data Sources
 
-### Bitcoin Core Test Vectors
+### Reference JSON vectors
 
-**Source**: Bitcoin Core repository  
+**Source**: upstream `bitcoin/bitcoin`  
 **Location**: `https://github.com/bitcoin/bitcoin/tree/master/src/test/data`  
 **Files**:
 - `tx_valid.json` - Valid transaction test cases
@@ -40,7 +40,7 @@ test_data/
 
 ### Mainnet Blocks
 
-**Source**: Blockstream API or Bitcoin Core RPC  
+**Source**: Blockstream API or reference RPC  
 **Location**: Downloaded from `https://blockstream.info/api/block/{hash}/raw`  
 **Format**: Hex-encoded Bitcoin wire format  
 **Heights**: Key consensus-era blocks (genesis, SegWit activation, Taproot activation, etc.)
@@ -51,7 +51,7 @@ test_data/
 
 ### UTXO Set Checkpoints
 
-**Source**: Generated from historical block replay or Bitcoin Core RPC  
+**Source**: Generated from historical block replay or reference RPC  
 **Format**: JSON files with height, UTXO set hash, and block hash  
 **Usage**: Used by `tests/integration/historical_replay.rs` for UTXO set verification.
 
@@ -134,7 +134,7 @@ rm -rf tests/test_data/mainnet_blocks/*.bin
 
 ### When to Update
 
-- **Core test vectors**: When Bitcoin Core adds new test cases
+- **Core test vectors**: When upstream adds new test cases
 - **Mainnet blocks**: When new consensus-era heights are needed
 - **Checkpoints**: When UTXO set verification is added at new heights
 

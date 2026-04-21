@@ -179,7 +179,7 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
     // 8. Double SHA256: SHA256(SHA256(preimage))
     // Security: Use SHA256 which is cryptographically secure and constant-time
     let hash1 = Sha256::digest(&preimage);
-    let hash2 = Sha256::digest(&hash1);
+    let hash2 = Sha256::digest(hash1);
 
     // Convert to Hash type (32 bytes)
     let mut template_hash = [0u8; 32];

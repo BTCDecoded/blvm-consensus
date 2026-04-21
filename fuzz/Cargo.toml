@@ -9,17 +9,24 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-blvm-consensus = { path = "..", features = ["utxo-commitments"] }
-blvm-protocol = { path = "../blvm-protocol", features = ["utxo-commitments"] }
-# Alias for fuzz targets still using old crate name
-consensus_proof = { path = "..", features = ["utxo-commitments"], package = "blvm-consensus" }
+blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
+blvm-protocol = { path = "../../blvm-protocol", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
+
+# Fuzz crate is built standalone; pin sibling crates to this workspace (same as blvm-consensus root).
+[patch.crates-io]
+blvm-primitives = { path = "../../blvm-primitives" }
+blvm-secp256k1 = { path = "../../blvm-secp256k1" }
+blvm-muhash = { path = "../../blvm-muhash" }
 
 # Prevent warnings in generated code
 [profile.release]
 opt-level = 3
-
+# cargo-fuzz injects -Cdebug-assertions; without this, overflow-checked + panics on
+# adversarial inputs and libFuzzer exits 77. Fuzz targets use release overflow semantics.
+debug-assertions = false
+overflow-checks = false
 
 [[bin]]
 name = "transaction_validation"
@@ -185,6 +192,272 @@ bench = false
 [[bin]]
 name = "sequence_locks_validation"
 path = "fuzz_targets/sequence_locks_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_sighash_legacy"
+path = "fuzz_targets/tx_sighash_legacy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_sighash_bip143"
+path = "fuzz_targets/tx_sighash_bip143.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_sighash_taproot_keypath"
+path = "fuzz_targets/tx_sighash_taproot_keypath.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_sighash_tapscript"
+path = "fuzz_targets/tx_sighash_tapscript.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tx_sighash_batch"
+path = "fuzz_targets/tx_sighash_batch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_verify_ecdsa"
+path = "fuzz_targets/crypto_verify_ecdsa.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_verify_ecdsa_direct"
+path = "fuzz_targets/crypto_verify_ecdsa_direct.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_verify_schnorr"
+path = "fuzz_targets/crypto_verify_schnorr.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_verify_schnorr_batch"
+path = "fuzz_targets/crypto_verify_schnorr_batch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_tap_leaf_hash"
+path = "fuzz_targets/crypto_tap_leaf_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_tap_branch_hash"
+path = "fuzz_targets/crypto_tap_branch_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_tap_sighash_hash"
+path = "fuzz_targets/crypto_tap_sighash_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypto_taproot_output_key"
+path = "fuzz_targets/crypto_taproot_output_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "locktime_decode"
+path = "fuzz_targets/locktime_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "locktime_bip65"
+path = "fuzz_targets/locktime_bip65.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "locktime_sequence"
+path = "fuzz_targets/locktime_sequence.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "locktime_sequence_fields"
+path = "fuzz_targets/locktime_sequence_fields.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sigop_count_script"
+path = "fuzz_targets/sigop_count_script.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sigop_count_tapscript"
+path = "fuzz_targets/sigop_count_tapscript.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sigop_is_p2sh"
+path = "fuzz_targets/sigop_is_p2sh.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sigop_legacy_count_tx"
+path = "fuzz_targets/sigop_legacy_count_tx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "witness_scriptpubkey"
+path = "fuzz_targets/witness_scriptpubkey.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "witness_structure_validation"
+path = "fuzz_targets/witness_structure_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "taproot_tweak"
+path = "fuzz_targets/taproot_tweak.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "taproot_witness_parse"
+path = "fuzz_targets/taproot_witness_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "optimizations_batch_hash"
+path = "fuzz_targets/optimizations_batch_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "optimizations_memory_layout"
+path = "fuzz_targets/optimizations_memory_layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "version_bits_activation"
+path = "fuzz_targets/version_bits_activation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_p2sh_push_only"
+path = "fuzz_targets/script_p2sh_push_only.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_eval_segwit_flags"
+path = "fuzz_targets/script_eval_segwit_flags.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "script_verify_witness_stack"
+path = "fuzz_targets/script_verify_witness_stack.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip113_median_time"
+path = "fuzz_targets/bip113_median_time.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip119_ctv"
+path = "fuzz_targets/bip119_ctv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip_check_bip34"
+path = "fuzz_targets/bip_check_bip34.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip_check_bip54"
+path = "fuzz_targets/bip_check_bip54.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip_check_bip66"
+path = "fuzz_targets/bip_check_bip66.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip_check_bip90"
+path = "fuzz_targets/bip_check_bip90.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip_check_bip147"
+path = "fuzz_targets/bip_check_bip147.rs"
 test = false
 doc = false
 bench = false

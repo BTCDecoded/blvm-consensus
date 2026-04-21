@@ -52,22 +52,45 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
 ///
 /// Calculate the total Bitcoin supply at a given height.
 /// This is the sum of all block subsidies up to that height.
+///
+/// Subsidy is constant on each halving epoch \([k×H, (k+1)×H)\) for `k < 64`, so we sum
+/// `count × (INITIAL_SUBSIDY >> k)` per epoch in **O(64)** instead of iterating every block.
+/// (Naive `0..=height` is unusable for heights in the tens of millions used in tests.)
 #[spec_locked("6.2")]
 pub fn total_supply(height: Natural) -> Integer {
+    let end = height;
+    let h = HALVING_INTERVAL;
     let mut total = 0i64;
 
-    for h in 0..=height {
-        let subsidy = get_block_subsidy(h);
-        // Use checked arithmetic to prevent overflow
-        total = total.checked_add(subsidy).unwrap_or_else(|| {
-            // If overflow occurs, clamp to MAX_MONEY
-            debug_assert!(false, "Total supply calculation overflow at height {h}");
-            MAX_MONEY
-        });
-
-        // Early exit if we've reached max money
-        if total >= MAX_MONEY {
+    for k in 0u64..64 {
+        let period_start = k.saturating_mul(h);
+        if period_start > end {
             break;
+        }
+        let subsidy = INITIAL_SUBSIDY >> k;
+        let period_end = (k + 1).saturating_mul(h).saturating_sub(1);
+        let overlap_hi = end.min(period_end);
+        let count = overlap_hi
+            .checked_sub(period_start)
+            .map(|d| d + 1)
+            .expect("overlap_hi >= period_start when period_start <= end");
+
+        let contrib = match (count as i64).checked_mul(subsidy) {
+            Some(c) => c,
+            None => {
+                debug_assert!(false, "Total supply contribution overflow at epoch {k}");
+                return MAX_MONEY;
+            }
+        };
+        total = match total.checked_add(contrib) {
+            Some(t) => t,
+            None => {
+                debug_assert!(false, "Total supply sum overflow at epoch {k}");
+                return MAX_MONEY;
+            }
+        };
+        if total >= MAX_MONEY {
+            return MAX_MONEY;
         }
     }
 
@@ -112,6 +135,12 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
                 .ok_or_else(|| ConsensusError::EconomicValidation("Output value overflow".into()))
         })
         .map_err(|e| ConsensusError::EconomicValidation(Cow::Owned(e.to_string())))?;
+
+    if total_output < 0 {
+        return Err(ConsensusError::EconomicValidation(
+            "Negative total output value".into(),
+        ));
+    }
 
     // Note: We use inline error here because it's EconomicValidation, not TransactionValidation
     // The helper function returns TransactionValidation, so we keep inline for type consistency
@@ -273,6 +302,47 @@ mod property_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reference: original definition (O(height); use only for small heights in tests).
+    fn naive_total_supply(end: u64) -> i64 {
+        let mut total = 0i64;
+        for h in 0..=end {
+            let subsidy = get_block_subsidy(h);
+            total = total.checked_add(subsidy).unwrap_or_else(|| {
+                debug_assert!(false, "overflow");
+                MAX_MONEY
+            });
+            if total >= MAX_MONEY {
+                break;
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn total_supply_fast_matches_naive_reference() {
+        for end in [
+            0u64,
+            1,
+            2,
+            1000,
+            HALVING_INTERVAL - 1,
+            HALVING_INTERVAL,
+            HALVING_INTERVAL + 1,
+            2 * HALVING_INTERVAL - 1,
+            500_000,
+        ] {
+            assert_eq!(total_supply(end), naive_total_supply(end), "end={end}");
+        }
+        // Beyond subsidy emission, additional blocks add 0; multi-million height would be
+        // infeasible for the naive reference loop.
+        let after_last_reward = HALVING_INTERVAL * 64 - 1;
+        assert_eq!(
+            total_supply(after_last_reward + 1_000_000),
+            total_supply(after_last_reward),
+            "heights after 64×H−1 should not increase supply"
+        );
+    }
 
     #[test]
     fn test_get_block_subsidy_genesis() {

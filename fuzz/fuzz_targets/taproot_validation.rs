@@ -108,7 +108,7 @@ fuzz_target!(|data: &[u8]| {
 
             // Value (8 bytes)
             let value = if offset + 8 <= data.len() {
-                u64::from_le_bytes([
+                i64::from_le_bytes([
                     data[offset],
                     data[offset + 1],
                     data[offset + 2],
@@ -132,8 +132,8 @@ fuzz_target!(|data: &[u8]| {
         // Build minimal transaction
         let tx = Transaction {
             version,
-            inputs: vec![], // Empty inputs for simplicity
-            outputs,
+            inputs: vec![].into(),
+            outputs: outputs.into(),
             lock_time: 0,
         };
 
@@ -187,7 +187,7 @@ fuzz_target!(|data: &[u8]| {
                         data[offset + 1],
                         data[offset + 2],
                         data[offset + 3],
-                    ]) as u64
+                    ])
                 } else {
                     0
                 };
@@ -207,7 +207,7 @@ fuzz_target!(|data: &[u8]| {
         let mut prevouts = Vec::new();
         if offset + 41 <= data.len() {
             let value = if offset + 8 <= data.len() {
-                u64::from_le_bytes([
+                i64::from_le_bytes([
                     data[offset],
                     data[offset + 1],
                     data[offset + 2],
@@ -237,8 +237,8 @@ fuzz_target!(|data: &[u8]| {
 
         let tx = Transaction {
             version,
-            inputs,
-            outputs: vec![],
+            inputs: inputs.into(),
+            outputs: vec![].into(),
             lock_time: 0,
         };
 
@@ -256,10 +256,18 @@ fuzz_target!(|data: &[u8]| {
 
         // Test signature hash computation
         if !prevouts.is_empty() && input_index < tx.inputs.len() {
+            let n = tx.inputs.len();
+            let prevout_values: Vec<i64> = (0..n)
+                .map(|i| prevouts[i % prevouts.len()].value)
+                .collect();
+            let prevout_script_pubkeys: Vec<&[u8]> = (0..n)
+                .map(|i| prevouts[i % prevouts.len()].script_pubkey.as_slice())
+                .collect();
             let _sig_hash_result = compute_taproot_signature_hash(
                 &tx,
                 input_index,
-                &prevouts,
+                &prevout_values,
+                &prevout_script_pubkeys,
                 sighash_type,
             );
         }

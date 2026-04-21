@@ -1,7 +1,7 @@
 #![no_main]
-use consensus_proof::constants::{HALVING_INTERVAL, MAX_MONEY};
-use consensus_proof::economic::{calculate_fee, get_block_subsidy, total_supply};
-use consensus_proof::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
+use blvm_consensus::constants::{HALVING_INTERVAL, MAX_MONEY};
+use blvm_consensus::economic::{calculate_fee, get_block_subsidy, total_supply};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -91,7 +91,7 @@ fuzz_target!(|data: &[u8]| {
                     data[offset + 1],
                     data[offset + 2],
                     data[offset + 3],
-                ]) as u64;
+                ]);
                 offset += 4;
                 idx
             } else {
@@ -100,7 +100,7 @@ fuzz_target!(|data: &[u8]| {
 
             inputs.push(TransactionInput {
                 prevout: OutPoint { hash, index },
-                script_sig: vec![],
+                script_sig: vec![].into(),
                 sequence: 0xffffffff,
             });
         }
@@ -128,14 +128,14 @@ fuzz_target!(|data: &[u8]| {
 
             outputs.push(TransactionOutput {
                 value: bounded_value,
-                script_pubkey: vec![],
+                script_pubkey: vec![].into(),
             });
         }
 
         let tx = Transaction {
             version: 1,
-            inputs,
-            outputs,
+            inputs: inputs.into(),
+            outputs: outputs.into(),
             lock_time: 0,
         };
 
@@ -144,11 +144,13 @@ fuzz_target!(|data: &[u8]| {
         for input in &tx.inputs {
             utxo_set.insert(
                 input.prevout.clone(),
-                consensus_proof::UTXO {
+                blvm_consensus::UTXO {
                     value: 1000000, // 0.01 BTC
-                    script_pubkey: vec![],
+                    script_pubkey: vec![].into(),
                     height: 0,
-                },
+                    is_coinbase: false,
+                }
+                .into(),
             );
         }
 

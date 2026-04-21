@@ -6,6 +6,7 @@
 #[cfg(any(test, feature = "property-tests"))]
 use proptest::prelude::*;
 
+#[cfg(any(test, feature = "property-tests"))]
 use crate::segwit::Witness;
 use crate::types::{
     BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
@@ -57,7 +58,8 @@ fn transaction_with_input_count_strategy(input_count: usize) -> impl Strategy<Va
 #[cfg(any(test, feature = "property-tests"))]
 /// Strategy yielding Transaction for legacy (non-SegWit) round-trip tests.
 pub fn transaction_strategy() -> impl Strategy<Value = Transaction> {
-    (0..10usize, 0..10usize).prop_map(|(input_count, output_count)| {
+    // Wire round-trip matches Bitcoin serialization: at least one vin (vout may be empty).
+    (1..10usize, 0..10usize).prop_map(|(input_count, output_count)| {
         let inputs: Vec<TransactionInput> = (0..input_count)
             .map(|i| TransactionInput {
                 prevout: OutPoint {
@@ -103,7 +105,7 @@ pub fn create_coinbase_tx(value: i64) -> Transaction {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x03, 0x01, 0x00, 0x00], // 4 bytes (valid: 2–100)
@@ -112,7 +114,7 @@ pub fn create_coinbase_tx(value: i64) -> Transaction {
         .into(),
         outputs: vec![TransactionOutput {
             value,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -125,7 +127,7 @@ pub fn create_test_utxo_set_two_outputs() -> UtxoSet {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint {
-            hash: [1; 32].into(),
+            hash: [1; 32],
             index: 0,
         },
         std::sync::Arc::new(UTXO {
@@ -137,7 +139,7 @@ pub fn create_test_utxo_set_two_outputs() -> UtxoSet {
     );
     utxo_set.insert(
         OutPoint {
-            hash: [2; 32].into(),
+            hash: [2; 32],
             index: 0,
         },
         std::sync::Arc::new(UTXO {

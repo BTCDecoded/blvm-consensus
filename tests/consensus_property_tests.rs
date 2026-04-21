@@ -1395,8 +1395,8 @@ proptest! {
     /// Invariant: Witness weight calculation is correct
     ///
     /// Mathematical specification (BIP141):
-    /// ∀ base_size, witness_size ∈ ℕ:
-    ///   weight = 4 * base_size + witness_size
+    /// ∀ base_size, witness_size ∈ ℕ (total_size = base_size + witness_size):
+    ///   weight = 3 × base_size + total_size = 4 × base_size + witness_size
     ///   - weight >= base_size (always)
     ///   - weight >= witness_size (always)
     #[test]
@@ -1406,14 +1406,14 @@ proptest! {
     ) {
         use blvm_consensus::witness;
 
+        let total_size = base_size + witness_size;
         let weight = witness::calculate_transaction_weight_segwit(
             base_size as u64,
-            (base_size + witness_size) as u64
+            total_size as u64
         );
 
-        // Weight = 4 * base_size + total_size
-        // Where total_size = base_size + witness_size
-        let expected_weight = 4 * base_size + (base_size + witness_size);
+        // BIP141: Weight = 3 * base_size + total_size (= 4 * base_size + witness_size)
+        let expected_weight = 3 * base_size + total_size;
 
         prop_assert_eq!(weight, expected_weight,
             "Weight calculation: base_size={}, witness_size={}, expected={}, actual={}",

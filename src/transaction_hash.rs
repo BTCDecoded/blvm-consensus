@@ -65,7 +65,7 @@ pub type SighashMidstateCache =
 #[cfg(feature = "production")]
 thread_local! {
     static SIGHASH_MIDSTATE_CACHE: RefCell<HashBrownMap<SighashCacheKey, [u8; 32], FxBuildHasher>> =
-        RefCell::new(HashBrownMap::with_hasher(FxBuildHasher));
+        const { RefCell::new(HashBrownMap::with_hasher(FxBuildHasher)) };
 }
 
 #[cfg(feature = "production")]
@@ -228,12 +228,12 @@ fn is_cacheable_sighash_pattern(
         let ni = tx.inputs.len();
         let no = tx.outputs.len();
         (ni == 1 && (1..=4).contains(&no))
-            || (ni >= 1 && ni <= 4 && no == 1)
+            || ((1..=4).contains(&ni) && no == 1)
             || (ni == 2 && no == 2)
             || (ni == 1 && no == 1)
     } else if base == 0x02 {
         // SIGHASH_NONE: no outputs
-        tx.inputs.len() >= 1 && tx.inputs.len() <= 4
+        !tx.inputs.is_empty() && tx.inputs.len() <= 4
     } else if base == 0x03 {
         // SIGHASH_SINGLE: output at input index
         input_index < tx.outputs.len() && tx.inputs.len() <= 4
@@ -290,7 +290,7 @@ pub fn compute_legacy_sighash_nocache(
     }
 
     let mut h = Sha256::new();
-    h.update(&(tx.version as u32).to_le_bytes());
+    h.update((tx.version as u32).to_le_bytes());
 
     let n_inputs = if anyone_can_pay { 1 } else { tx.inputs.len() };
     update_varint(&mut h, n_inputs as u64);
@@ -298,20 +298,20 @@ pub fn compute_legacy_sighash_nocache(
     for i in 0..n_inputs {
         let actual_i = if anyone_can_pay { input_index } else { i };
         let input = &tx.inputs[actual_i];
-        h.update(&input.prevout.hash);
-        h.update(&input.prevout.index.to_le_bytes());
+        h.update(input.prevout.hash);
+        h.update(input.prevout.index.to_le_bytes());
 
         if actual_i == input_index {
             update_varint(&mut h, script_code.len() as u64);
             h.update(script_code);
         } else {
-            h.update(&[0u8]);
+            h.update([0u8]);
         }
 
         if actual_i != input_index && (hash_single || hash_none) {
-            h.update(&0u32.to_le_bytes());
+            h.update(0u32.to_le_bytes());
         } else {
-            h.update(&(input.sequence as u32).to_le_bytes());
+            h.update((input.sequence as u32).to_le_bytes());
         }
     }
 
@@ -326,21 +326,21 @@ pub fn compute_legacy_sighash_nocache(
 
     for i in 0..n_outputs {
         if hash_single && i != input_index {
-            h.update(&(-1i64).to_le_bytes());
-            h.update(&[0u8]);
+            h.update((-1i64).to_le_bytes());
+            h.update([0u8]);
         } else {
             let output = &tx.outputs[i];
-            h.update(&output.value.to_le_bytes());
+            h.update(output.value.to_le_bytes());
             update_varint(&mut h, output.script_pubkey.len() as u64);
-            h.update(&output.script_pubkey);
+            h.update(output.script_pubkey.as_slice());
         }
     }
 
-    h.update(&(tx.lock_time as u32).to_le_bytes());
-    h.update(&sighash_u32.to_le_bytes());
+    h.update((tx.lock_time as u32).to_le_bytes());
+    h.update(sighash_u32.to_le_bytes());
 
     let first_hash = h.finalize();
-    let second_hash = Sha256::digest(&first_hash);
+    let second_hash = Sha256::digest(first_hash);
     let mut result = [0u8; 32];
     result.copy_from_slice(&second_hash);
     result
@@ -352,16 +352,16 @@ pub fn compute_legacy_sighash_nocache(
 fn update_varint(hasher: &mut sha2::Sha256, value: u64) {
     use sha2::Digest;
     if value < 0xfd {
-        hasher.update(&[value as u8]);
+        hasher.update([value as u8]);
     } else if value <= 0xffff {
-        hasher.update(&[0xfd]);
-        hasher.update(&(value as u16).to_le_bytes());
+        hasher.update([0xfd]);
+        hasher.update((value as u16).to_le_bytes());
     } else if value <= 0xffffffff {
-        hasher.update(&[0xfe]);
-        hasher.update(&(value as u32).to_le_bytes());
+        hasher.update([0xfe]);
+        hasher.update((value as u32).to_le_bytes());
     } else {
-        hasher.update(&[0xff]);
-        hasher.update(&value.to_le_bytes());
+        hasher.update([0xff]);
+        hasher.update(value.to_le_bytes());
     }
 }
 
@@ -466,7 +466,7 @@ pub fn compute_legacy_sighash_buffered(
         buf.extend_from_slice(&sighash_u32.to_le_bytes());
 
         let first_hash = Sha256::digest(buf.as_slice());
-        let second_hash = Sha256::digest(&first_hash);
+        let second_hash = Sha256::digest(first_hash);
         let mut result = [0u8; 32];
         result.copy_from_slice(&second_hash);
         result
@@ -523,16 +523,16 @@ pub fn compute_sighashes_batch(
 
     // Forward midstates: state after version + varint(n) + blank_input_0 + ... + blank_input_{j-1}
     let mut running = Sha256::new();
-    running.update(&(tx.version as u32).to_le_bytes());
+    running.update((tx.version as u32).to_le_bytes());
     update_varint(&mut running, n as u64);
 
     let mut midstates: Vec<Sha256> = Vec::with_capacity(n);
     for j in 0..n {
         midstates.push(running.clone());
-        running.update(&tx.inputs[j].prevout.hash);
-        running.update(&tx.inputs[j].prevout.index.to_le_bytes());
-        running.update(&[0u8]);
-        running.update(&(tx.inputs[j].sequence as u32).to_le_bytes());
+        running.update(tx.inputs[j].prevout.hash);
+        running.update(tx.inputs[j].prevout.index.to_le_bytes());
+        running.update([0u8]);
+        running.update((tx.inputs[j].sequence as u32).to_le_bytes());
     }
 
     let sighash_u32_le = 0x01u32.to_le_bytes();
@@ -541,26 +541,26 @@ pub fn compute_sighashes_batch(
         let mut h = midstates[i].clone();
 
         // Input i with script_code
-        h.update(&tx.inputs[i].prevout.hash);
-        h.update(&tx.inputs[i].prevout.index.to_le_bytes());
+        h.update(tx.inputs[i].prevout.hash);
+        h.update(tx.inputs[i].prevout.index.to_le_bytes());
         update_varint(&mut h, script_codes[i].len() as u64);
         h.update(script_codes[i]);
-        h.update(&(tx.inputs[i].sequence as u32).to_le_bytes());
+        h.update((tx.inputs[i].sequence as u32).to_le_bytes());
 
         // Remaining blank inputs i+1..N-1
         for j in (i + 1)..n {
-            h.update(&tx.inputs[j].prevout.hash);
-            h.update(&tx.inputs[j].prevout.index.to_le_bytes());
-            h.update(&[0u8]);
-            h.update(&(tx.inputs[j].sequence as u32).to_le_bytes());
+            h.update(tx.inputs[j].prevout.hash);
+            h.update(tx.inputs[j].prevout.index.to_le_bytes());
+            h.update([0u8]);
+            h.update((tx.inputs[j].sequence as u32).to_le_bytes());
         }
 
         // Outputs + locktime + sighash_type
-        h.update(&outputs_buf);
-        h.update(&sighash_u32_le);
+        h.update(outputs_buf.as_slice());
+        h.update(sighash_u32_le);
 
         let first_hash = h.finalize();
-        let second_hash = Sha256::digest(&first_hash);
+        let second_hash = Sha256::digest(first_hash);
         let mut result = [0u8; 32];
         result.copy_from_slice(&second_hash);
         results.push(result);
@@ -938,12 +938,12 @@ fn build_preimage_1in1out_sighash_all(
         preimage.push(1); // n_inputs
         preimage.extend_from_slice(&input.prevout.hash);
         preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
-        write_varint_to_vec(&mut *preimage, code.len() as u64);
+        write_varint_to_vec(&mut preimage, code.len() as u64);
         preimage.extend_from_slice(code);
         preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
         preimage.push(1); // n_outputs
         preimage.extend_from_slice(&output.value.to_le_bytes());
-        write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+        write_varint_to_vec(&mut preimage, output.script_pubkey.len() as u64);
         preimage.extend_from_slice(&output.script_pubkey);
         preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
         preimage.extend_from_slice(&sighash_byte.to_le_bytes());
@@ -980,13 +980,13 @@ fn build_preimage_1in_nout_sighash_all(
         preimage.push(1); // n_inputs
         preimage.extend_from_slice(&input.prevout.hash);
         preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
-        write_varint_to_vec(&mut *preimage, code.len() as u64);
+        write_varint_to_vec(&mut preimage, code.len() as u64);
         preimage.extend_from_slice(code);
         preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
-        write_varint_to_vec(&mut *preimage, tx.outputs.len() as u64);
+        write_varint_to_vec(&mut preimage, tx.outputs.len() as u64);
         for output in &tx.outputs {
             preimage.extend_from_slice(&output.value.to_le_bytes());
-            write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+            write_varint_to_vec(&mut preimage, output.script_pubkey.len() as u64);
             preimage.extend_from_slice(&output.script_pubkey);
         }
         preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
@@ -1024,8 +1024,7 @@ fn build_preimage_2in1out_sighash_all(
         }
         preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
         preimage.push(2);
-        for i in 0..2 {
-            let inp = &tx.inputs[i];
+        for (i, inp) in tx.inputs.iter().enumerate().take(2) {
             let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
                 let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
                 (c.len(), c)
@@ -1034,13 +1033,13 @@ fn build_preimage_2in1out_sighash_all(
             };
             preimage.extend_from_slice(&inp.prevout.hash);
             preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
-            write_varint_to_vec(&mut *preimage, script_len as u64);
+            write_varint_to_vec(&mut preimage, script_len as u64);
             preimage.extend_from_slice(script_slice);
             preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
         }
         preimage.push(1);
         preimage.extend_from_slice(&output.value.to_le_bytes());
-        write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+        write_varint_to_vec(&mut preimage, output.script_pubkey.len() as u64);
         preimage.extend_from_slice(&output.script_pubkey);
         preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
         preimage.extend_from_slice(&sighash_byte.to_le_bytes());
@@ -1078,8 +1077,7 @@ fn build_preimage_2in2out_sighash_all(
         }
         preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
         preimage.push(2);
-        for i in 0..2 {
-            let inp = &tx.inputs[i];
+        for (i, inp) in tx.inputs.iter().enumerate().take(2) {
             let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
                 let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
                 (c.len(), c)
@@ -1088,14 +1086,14 @@ fn build_preimage_2in2out_sighash_all(
             };
             preimage.extend_from_slice(&inp.prevout.hash);
             preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
-            write_varint_to_vec(&mut *preimage, script_len as u64);
+            write_varint_to_vec(&mut preimage, script_len as u64);
             preimage.extend_from_slice(script_slice);
             preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
         }
-        write_varint_to_vec(&mut *preimage, 2);
+        write_varint_to_vec(&mut preimage, 2);
         for output in &tx.outputs {
             preimage.extend_from_slice(&output.value.to_le_bytes());
-            write_varint_to_vec(&mut *preimage, output.script_pubkey.len() as u64);
+            write_varint_to_vec(&mut preimage, output.script_pubkey.len() as u64);
             preimage.extend_from_slice(&output.script_pubkey);
         }
         preimage.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
@@ -1383,11 +1381,11 @@ pub fn batch_compute_legacy_sighashes(
         // Merge: fill result in spec order
         let mut result = vec![[0u8; 32]; specs.len()];
         let mut batch_idx = 0;
-        for i in 0..specs.len() {
+        for (i, slot) in result.iter_mut().enumerate() {
             if fixed_indices.contains(&i) {
-                result[i] = SIGHASH_SINGLE_INVALID;
+                *slot = SIGHASH_SINGLE_INVALID;
             } else {
-                result[i] = batch_hashes[batch_idx];
+                *slot = batch_hashes[batch_idx];
                 batch_idx += 1;
             }
         }
@@ -1494,11 +1492,11 @@ impl Bip143PrecomputedHashes {
                 double_sha256(&data)
             });
 
-            return Self {
+            Self {
                 hash_prevouts,
                 hash_sequence,
                 hash_outputs,
-            };
+            }
         }
 
         #[cfg(not(feature = "production"))]
@@ -1695,7 +1693,7 @@ fn build_bip143_preimage(
                     output_data.reserve(cap);
                 }
                 output_data.extend_from_slice(&output.value.to_le_bytes());
-                write_varint_to_vec(&mut *output_data, output.script_pubkey.len() as u64);
+                write_varint_to_vec(&mut output_data, output.script_pubkey.len() as u64);
                 output_data.extend_from_slice(&output.script_pubkey);
                 double_sha256(&output_data)
             });
