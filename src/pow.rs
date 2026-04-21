@@ -132,8 +132,11 @@ fn get_next_work_required_internal(
     // Expand previous block's bits to full U256 target
     let old_target = expand_target(previous_bits)?;
 
-    // Runtime assertion: Old target must be positive
-    debug_assert!(!old_target.is_zero(), "Old target must be non-zero");
+    if old_target.is_zero() {
+        return Err(ConsensusError::InvalidProofOfWork(
+            "Previous block target is zero (invalid compact bits)".into(),
+        ));
+    }
 
     // Multiply target by clamped_timespan (integer multiplication).
     // Regtest minimum-difficulty nBits (0x207fffff) expands to a very large U256; multiplying
@@ -155,11 +158,11 @@ fn get_next_work_required_internal(
     // Divide by expected_time (integer division)
     let new_target = multiplied_target.div_u64(expected_time);
 
-    // Runtime assertion: New target must be positive
-    debug_assert!(
-        !new_target.is_zero(),
-        "New target must be non-zero after division"
-    );
+    if new_target.is_zero() {
+        return Err(ConsensusError::InvalidProofOfWork(
+            "Difficulty adjustment produced zero expanded target".into(),
+        ));
+    }
 
     // Compress back to compact bits format
     let new_bits = compress_target(&new_target)?;

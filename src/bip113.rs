@@ -175,10 +175,7 @@ mod tests {
 
     #[test]
     fn test_median_time_even_branch_large_timestamps_no_overflow() {
-        let headers = [
-            create_header(u64::MAX - 1),
-            create_header(u64::MAX),
-        ];
+        let headers = [create_header(u64::MAX - 1), create_header(u64::MAX)];
         assert_eq!(get_median_time_past(&headers), u64::MAX - 1);
     }
 

@@ -18,7 +18,8 @@ fuzz/corpus/
 ├── pow_validation/
 ├── economic_validation/
 ├── serialization/
-└── script_opcodes/
+├── script_opcodes/
+└── bip66_validation/
 ```
 
 ## Adding Corpus Seeds

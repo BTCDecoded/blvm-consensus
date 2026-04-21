@@ -400,8 +400,6 @@ jobs:
     needs: [setup]
     runs-on: [self-hosted, Linux, X64, builds]
     timeout-minutes: 60
-    outputs:
-      runner: ${{ steps.stash.outputs.runner }}
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
@@ -486,22 +484,22 @@ jobs:
         with:
           operation: save
 
-      # Shard jobs must run on the same runner so /tmp is shared.
-      # Emit runner.name so the fuzz matrix can pin itself here.
+      # Shard jobs read this path on the runner filesystem (no GitHub artifact upload).
+      # Requires fuzz-build and all fuzz matrix jobs to run on hosts that share this path
+      # (same machine or NFS-mounted /tmp).
       - name: Stash fuzz target for shard jobs
-        id: stash
         run: |
           STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
           rm -rf "$STASH"
           mkdir -p "$STASH"
           cp -a fuzz/target "$STASH/"
-          echo "runner=${{ runner.name }}" >> "$GITHUB_OUTPUT"
 
   fuzz:
     name: Fuzz (shard ${{ matrix.shard }}/8)
     needs: [setup, fuzz-build]
-    runs-on: ${{ needs.fuzz-build.outputs.runner }}
-    # Sequential fuzz runs only (210s cap each); binaries on shared /tmp of fuzz-build runner
+    # Self-hosted `runs-on` matches labels only, not runner.name — do not pin by name here.
+    runs-on: [self-hosted, Linux, X64, builds]
+    # Sequential fuzz runs only (210s cap each); binaries copied from fuzz-build stash on disk
     timeout-minutes: 60
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
@@ -533,7 +531,7 @@ jobs:
         run: |
           STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
           if [ ! -d "$STASH/target" ]; then
-            echo "Expected $STASH/target from fuzz-build on this runner (${{ needs.fuzz-build.outputs.runner }})"
+            echo "Expected $STASH/target from fuzz-build (same GITHUB_RUN_ID, shared /tmp on runner pool)"
             exit 1
           fi
           rm -rf fuzz/target

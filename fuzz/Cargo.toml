@@ -12,6 +12,7 @@ cargo-fuzz = true
 blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
 blvm-protocol = { path = "../../blvm-protocol", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 
 # Fuzz crate is built standalone; pin sibling crates to this workspace (same as blvm-consensus root).
 [patch.crates-io]
@@ -156,6 +157,41 @@ bench = false
 [[bin]]
 name = "transaction_output_validation"
 path = "fuzz_targets/transaction_output_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bip66_validation"
+path = "fuzz_targets/bip66_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sighash_computation"
+path = "fuzz_targets/sighash_computation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "witness_validation"
+path = "fuzz_targets/witness_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sigop_validation"
+path = "fuzz_targets/sigop_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sequence_locks_validation"
+path = "fuzz_targets/sequence_locks_validation.rs"
 test = false
 doc = false
 bench = false
