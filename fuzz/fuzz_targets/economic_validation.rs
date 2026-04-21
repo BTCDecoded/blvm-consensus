@@ -123,8 +123,8 @@ fuzz_target!(|data: &[u8]| {
             ]);
             offset += 8;
 
-            // Bound value to reasonable range
-            let bounded_value = value.abs() % (MAX_MONEY as i64);
+            // Bound value to reasonable range (saturating_abs: i64::MIN.abs() overflows)
+            let bounded_value = value.saturating_abs() % (MAX_MONEY as i64);
 
             outputs.push(TransactionOutput {
                 value: bounded_value,

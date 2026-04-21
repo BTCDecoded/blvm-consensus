@@ -87,7 +87,8 @@ pub fn activation_height_from_headers<H: AsRef<BlockHeader>>(
     // period_index p = (current_height - 1) / 2016; activation = (p + 2) * 2016.
     let period_end = current_height.saturating_sub(1);
     let period_index = period_end / LOCK_IN_PERIOD as u64;
-    let activation_height = (period_index + 2) * LOCK_IN_PERIOD as u64;
+    // For `current_height` near u64::MAX, `(period_index + 2) * 2016` can overflow u64.
+    let activation_height = (period_index + 2).checked_mul(LOCK_IN_PERIOD as u64)?;
 
     Some(activation_height)
 }
@@ -176,5 +177,16 @@ mod tests {
             !crate::bip_validation::is_bip54_active_at(4031, crate::types::Network::Mainnet, act),
             "override height must not activate BIP54 before that height"
         );
+    }
+
+    #[test]
+    fn huge_current_height_does_not_panic() {
+        let dep = Bip9Deployment {
+            bit: 0,
+            start_time: 0,
+            timeout: u64::MAX,
+        };
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1)).collect();
+        assert!(activation_height_from_headers(&headers, u64::MAX, 1, &dep).is_none());
     }
 }
