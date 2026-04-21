@@ -1,6 +1,6 @@
 [package]
 name = "blvm-consensus"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 authors = ["Bitcoin Commons Team"]
 description = "Bitcoin Commons BLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
@@ -249,5 +249,3 @@ codegen-units = 16  # Faster compilation
 # secp256k1: crates.io 0.28 only. blvm-secp256k1 is default backend via feature. NO secp256k1-fork.
 
 # Monorepo: use sibling primitives so config types stay in sync before crates.io publish.
-[patch.crates-io]
-blvm-primitives = { path = "../blvm-primitives" }
