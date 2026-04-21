@@ -92,7 +92,12 @@ pub fn calculate_sequence_locks(
             continue;
         }
 
-        let coin_height = prev_heights[i] as i64;
+        // Must not use `as i64`: large u64 values wrap to negative i64 and break invariants.
+        let coin_height = i64::try_from(prev_heights[i]).map_err(|_| {
+            crate::error::ConsensusError::ConsensusRuleViolation(
+                "prev_height does not fit in i64 for sequence lock calculation".into(),
+            )
+        })?;
 
         // Check locktime type (bit 22)
         if extract_sequence_type_flag(input.sequence as u32) {
@@ -102,7 +107,11 @@ pub fn calculate_sequence_locks(
                 // Calculate median time-past for the block prior to coin_height
                 // For simplicity, we'll use the most recent header's median time-past
                 // In a full implementation, we'd need to look up the actual block
-                get_median_time_past(headers) as i64
+                i64::try_from(get_median_time_past(headers)).map_err(|_| {
+                    crate::error::ConsensusError::ConsensusRuleViolation(
+                        "median time-past does not fit in i64 for sequence lock calculation".into(),
+                    )
+                })?
             } else {
                 // No headers available - can't calculate time-based lock
                 // This is acceptable for some contexts (e.g., mempool validation)
@@ -155,12 +164,6 @@ pub fn calculate_sequence_locks(
             debug_assert!(
                 locktime_value >= 0,
                 "Locktime value ({locktime_value}) must be non-negative"
-            );
-
-            // Runtime assertion: Coin height must be non-negative
-            debug_assert!(
-                coin_height >= 0,
-                "Coin height ({coin_height}) must be non-negative"
             );
 
             // Calculate minimum height: coin_height + locktime_value - 1
@@ -309,6 +312,31 @@ mod tests {
         // Should require height 1000 + 100 - 1 = 1099
         assert_eq!(result.0, 1099);
         assert_eq!(result.1, -1); // No time constraint
+    }
+
+    #[test]
+    fn test_prev_height_overflowing_i64_returns_err() {
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0,
+                },
+                script_sig: vec![],
+                sequence: 10,
+            }]
+            .into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        };
+        let prev_heights = vec![(i64::MAX as u64).saturating_add(1)];
+        let err = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, None)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::ConsensusError::ConsensusRuleViolation(_)
+        ));
     }
 
     #[test]
