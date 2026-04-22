@@ -376,8 +376,8 @@ ots verify proof-artifacts.tar.gz.ots
 - [blvm-spec-lock](https://github.com/BTCDecoded/blvm-spec-lock)
 - [Proptest Documentation](https://docs.rs/proptest/)
 - [OpenTimestamps Protocol](https://opentimestamps.org/)
-- [BTCDecoded Governance](../governance/GOVERNANCE.md)
-- [Orange Paper](../blvm-spec/THE_ORANGE_PAPER.md)
+- [BTCDecoded Governance](https://github.com/BTCDecoded/governance/blob/main/GOVERNANCE.md)
+- [Orange Paper (blvm-spec)](https://github.com/BTCDecoded/blvm-spec)
 
 
 

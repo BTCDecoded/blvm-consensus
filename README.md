@@ -2,7 +2,7 @@
 
 Pure mathematical implementation of Bitcoin consensus rules from the Orange Paper with formal verification.
 
-> **📚 Comprehensive Documentation**: See [blvm-docs](../blvm-docs/) for complete system documentation.  
+> **📚 Comprehensive Documentation**: See [docs.thebitcoincommons.org](https://docs.thebitcoincommons.org/) (source repo: [blvm-docs](https://github.com/BTCDecoded/blvm-docs)).  
 > **For verified system status**: See [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) in the BTCDecoded organization repository.
 
 [![crates.io](https://img.shields.io/crates/v/blvm-consensus.svg)](https://crates.io/crates/blvm-consensus)
@@ -231,7 +231,7 @@ Orange Paper (Math Spec) → #[spec_locked] → Implementation → Bitcoin Conse
 - **Spec-lock** on `#[spec_locked]` functions against the Orange Paper
 - **Property tests**, integration tests, and optional Bolero-backed tests
 - **Runtime assertions** on selected paths (see feature flags and [PROOF_LIMITATIONS.md](docs/PROOF_LIMITATIONS.md))
-- **Coverage-guided fuzzing** ([blvm-docs: fuzzing](https://github.com/BTCDecoded/blvm-docs/blob/main/src/development/fuzzing.md); harnesses under `fuzz/`)
+- **Coverage-guided fuzzing** ([Fuzzing (BLVM docs)](https://docs.thebitcoincommons.org/development/fuzzing.html); harnesses under `fuzz/`)
 
 ## Orange Paper Compliance
 

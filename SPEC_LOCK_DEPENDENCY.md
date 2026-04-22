@@ -9,14 +9,14 @@ This document explains how `blvm-consensus` resolves the `blvm-spec-lock` depend
    - CI strips `[patch.crates-io]` so resolution matches published crates
 
 2. **Local development**: Optional path override
-   - Create `.cargo/config.toml` (not committed) with `[patch.crates-io]` pointing at `../blvm-spec-lock`
+   - Create `.cargo/config.toml` (not committed) with `[patch.crates-io]` pointing at a local clone of [blvm-spec-lock](https://github.com/BTCDecoded/blvm-spec-lock) (e.g. sibling directory `../blvm-spec-lock`)
    - See `.cargo/config.toml.example` if present
 
 ## `cargo-spec-lock` CLI (verification)
 
 Formal verification runs **`cargo-spec-lock verify`** (Z3-backed when built with `--features z3`).
 
-- **CI** (`.github/workflows/ci.yml`, Verify job): clones **blvm-spec** with `uses: BTCDecoded/rust-ci/setup-blvm-spec@main`, then installs the tool from crates.io:
+- **CI** (`.github/workflows/ci.yml`, Verify job): clones **[blvm-spec](https://github.com/BTCDecoded/blvm-spec)** next to the crate with `uses: BTCDecoded/rust-ci/setup-blvm-spec@main`, then installs the tool from crates.io:
 
   `cargo install blvm-spec-lock --locked --features z3`
 
@@ -28,7 +28,13 @@ Formal verification runs **`cargo-spec-lock verify`** (Z3-backed when built with
 
 ### Cargo.toml
 
-The library dependency points to crates.io; optional `[patch.crates-io]` in a local config overrides for monorepo work.
+The library dependency points to crates.io; optional `[patch.crates-io]` in a local config overrides when you use path overrides during development.
+
+### Where the Orange Paper markdown lives
+
+Canonical spec repository: **[github.com/BTCDecoded/blvm-spec](https://github.com/BTCDecoded/blvm-spec)** (`PROTOCOL.md`, `ARCHITECTURE.md`, `THE_ORANGE_PAPER.md`).
+
+**There is no copy of the spec inside `blvm-consensus`.** At `#[spec_locked]` expansion, `blvm-spec-lock` looks for **`../blvm-spec/PROTOCOL.md`** and **`../blvm-spec/ARCHITECTURE.md`** (or **`THE_ORANGE_PAPER.md`** there) relative to this crate’s `CARGO_MANIFEST_DIR`, or uses **`SPEC_LOCK_SPEC_PATH`** if set. Clone **blvm-spec** as a **sibling** of **blvm-consensus** (so `../blvm-spec` exists), or point **`SPEC_LOCK_SPEC_PATH`** at those files.
 
 ### Notes
 

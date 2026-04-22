@@ -75,5 +75,5 @@ Fuzz tests generate random inputs to find bugs.
 
 ## References
 
-- [blvm-spec-lock](../../blvm-spec-lock/SPEC_LOCK_COVERAGE.md)
+- [blvm-spec-lock `SPEC_LOCK_COVERAGE.md`](https://github.com/BTCDecoded/blvm-spec-lock/blob/main/SPEC_LOCK_COVERAGE.md)
 - [Orange Paper](https://github.com/BTCDecoded/blvm-spec) - Bitcoin consensus specification
