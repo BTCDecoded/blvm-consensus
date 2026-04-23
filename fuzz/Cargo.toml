@@ -9,16 +9,15 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
+# Fuzz the in-tree crate; other blvm-* deps match published crates (same ranges as blvm-consensus root).
 blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
-blvm-protocol = { path = "../../blvm-protocol", features = ["utxo-commitments"] }
+blvm-protocol = { version = ">=0.1, <1", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 
-# Fuzz crate is built standalone; pin sibling crates to this workspace (same as blvm-consensus root).
+# `blvm-protocol` (crates.io) depends on `blvm-consensus`; patch keeps one in-tree consensus crate.
 [patch.crates-io]
-blvm-primitives = { path = "../../blvm-primitives" }
-blvm-secp256k1 = { path = "../../blvm-secp256k1" }
-blvm-muhash = { path = "../../blvm-muhash" }
+blvm-consensus = { path = ".." }
 
 # Prevent warnings in generated code
 [profile.release]

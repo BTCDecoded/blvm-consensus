@@ -413,36 +413,6 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
 
-      - name: Checkout blvm-protocol (sibling for fuzz path deps)
-        uses: actions/checkout@v4
-        with:
-          repository: BTCDecoded/blvm-protocol
-          path: _temp-blvm-protocol
-      - name: Checkout blvm-primitives (sibling for fuzz [patch.crates-io])
-        uses: actions/checkout@v4
-        with:
-          repository: BTCDecoded/blvm-primitives
-          path: _temp-blvm-primitives
-      - name: Checkout blvm-secp256k1 (sibling for fuzz [patch.crates-io])
-        uses: actions/checkout@v4
-        with:
-          repository: BTCDecoded/blvm-secp256k1
-          path: _temp-blvm-secp256k1
-      - name: Checkout blvm-muhash (sibling for fuzz [patch.crates-io])
-        uses: actions/checkout@v4
-        with:
-          repository: BTCDecoded/blvm-muhash
-          path: _temp-blvm-muhash
-      - name: Move sibling crates next to repo root
-        run: |
-          for name in blvm-protocol blvm-primitives blvm-secp256k1 blvm-muhash; do
-            if [ -d "../${name}" ]; then rm -rf "../${name}"; fi
-          done
-          mv _temp-blvm-protocol ../blvm-protocol
-          mv _temp-blvm-primitives ../blvm-primitives
-          mv _temp-blvm-secp256k1 ../blvm-secp256k1
-          mv _temp-blvm-muhash ../blvm-muhash
-
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
@@ -517,9 +487,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Shards only execute prebuilt libFuzzer binaries from fuzz-build (no Cargo/rustup).
-      # `cargo fuzz run` was re-invoking Cargo, re-locking deps, and resolving blvm-consensus
-      # from crates.io after strip-patch — breaking spec_locked. Parallel install-rust also
-      # races on ~/.cargo/bin/rustup across matrix jobs on a shared self-hosted runner.
+      # Avoid `cargo fuzz run` here: it re-invokes Cargo and races rustup on shared runners.
 
       - name: Initialize corpus dirs
         working-directory: fuzz
