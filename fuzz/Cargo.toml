@@ -9,13 +9,13 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-# Fuzz the in-tree crate; other blvm-* deps match published crates (same ranges as blvm-consensus root).
+# Fuzz the in-tree crate; blvm-protocol uses the same version range as published crates.
+# [patch.crates-io] is for local dev; CI strip-patch removes it so protocol pulls consensus from crates.io.
 blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
 blvm-protocol = { version = ">=0.1, <1", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 
-# `blvm-protocol` (crates.io) depends on `blvm-consensus`; patch keeps one in-tree consensus crate.
 [patch.crates-io]
 blvm-consensus = { path = ".." }
 
