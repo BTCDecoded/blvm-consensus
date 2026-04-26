@@ -81,8 +81,7 @@ cargo +nightly fuzz run transaction_validation -- -merge=1 fuzz/corpus/transacti
 # Run with existing corpus
 cargo +nightly fuzz run transaction_validation fuzz/corpus/transaction_validation
 
-# Run all targets with test runner
-python3 fuzz/test_runner.py fuzz/corpus/
+# Run many targets / long campaigns: see fuzz/README.md (run_campaigns.sh)
 
 # Run with sanitizers
 RUSTFLAGS="-Zsanitizer=address" cargo +nightly fuzz run transaction_validation fuzz/corpus/transaction_validation

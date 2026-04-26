@@ -27,8 +27,8 @@ cargo +nightly fuzz run transaction_validation fuzz/corpus/transaction_validatio
 # Run all targets (24 hours each, background)
 ./run_campaigns.sh --background
 
-# Run with test runner (parallel execution)
-python3 test_runner.py fuzz/corpus/ --parallel
+# List harnesses / run another target (names match fuzz/Cargo.toml [[bin]])
+cargo +nightly fuzz list
 ```
 
 ### 3. Build with Sanitizers
@@ -62,21 +62,9 @@ python3 test_runner.py fuzz/corpus/ --parallel
 ./run_campaigns.sh --background
 ```
 
-### Using Test Runner
+### Many targets / parallel campaigns
 
-```bash
-# Run all targets sequentially
-python3 test_runner.py fuzz/corpus/
-
-# Run specific targets
-python3 test_runner.py fuzz/corpus/ transaction_validation block_validation
-
-# Run with sanitizers
-python3 test_runner.py fuzz/corpus/ --sanitizer asan --max-time 86400
-
-# Run in parallel mode
-python3 test_runner.py fuzz/corpus/ --parallel --jobs 4
-```
+Use `./run_campaigns.sh` (see above) or run each harness yourself with `cargo +nightly fuzz run <name> …`. There is no separate Python driver; **cargo-fuzz** is the supported interface.
 
 ## Sanitizers
 

@@ -41,15 +41,6 @@ list_test_data() {
         echo "  ❌ Directory not found"
     fi
     
-    if [ -d "$TEST_DATA_DIR/core_vectors/scripts" ]; then
-        COUNT=$(find "$TEST_DATA_DIR/core_vectors/scripts" -name "*.json" 2>/dev/null | wc -l)
-        if [ "$COUNT" -gt 0 ]; then
-            echo "  ✅ Scripts: $COUNT files"
-        else
-            echo "  ⚠️  No script vectors found"
-        fi
-    fi
-    
     echo ""
     
     # Mainnet blocks
@@ -172,11 +163,6 @@ clean_test_data() {
     if [ -d "$TEST_DATA_DIR/core_vectors/transactions" ]; then
         rm -f "$TEST_DATA_DIR/core_vectors/transactions"/*.json
         echo "✅ Removed Core transaction vectors"
-    fi
-    
-    if [ -d "$TEST_DATA_DIR/core_vectors/scripts" ]; then
-        rm -f "$TEST_DATA_DIR/core_vectors/scripts"/*.json
-        echo "✅ Removed Core script vectors"
     fi
     
     # Remove mainnet blocks

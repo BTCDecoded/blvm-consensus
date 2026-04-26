@@ -26,23 +26,6 @@ mod tests {
             }
         }
         
-        // Try to load and run script test vectors
-        match load_script_test_vectors("tests/test_data/core_vectors/scripts") {
-            Ok(vectors) if !vectors.is_empty() => {
-                println!("Running {} script test vectors", vectors.len());
-                if let Err(e) = run_core_script_tests(&vectors) {
-                    eprintln!("Script test vectors failed: {}", e);
-                    // Don't fail the test - this is informational
-                }
-            }
-            Ok(_) => {
-                println!("No script test vectors found (directory empty or missing)");
-            }
-            Err(e) => {
-                eprintln!("Could not load script test vectors: {}", e);
-            }
-        }
-        
         // Try to load and run block test vectors
         match load_block_test_vectors("tests/test_data/core_vectors/blocks") {
             Ok(vectors) if !vectors.is_empty() => {

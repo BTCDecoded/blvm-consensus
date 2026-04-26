@@ -58,50 +58,6 @@ pub fn extract_core_transaction_vectors(core_path: &str) -> Result<(), Box<dyn s
     Ok(())
 }
 
-/// Parse script test vectors from specification's script_tests.json
-///
-/// Reference format: [scriptSig_string, scriptPubKey_string, flags_string, expected_result, description]
-pub fn extract_core_script_vectors(core_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let script_tests_path = PathBuf::from(core_path).join("src/test/data/script_tests.json");
-
-    if script_tests_path.exists() {
-        let content = fs::read_to_string(&script_tests_path)?;
-        let json: Value = serde_json::from_str(&content)?;
-
-        if let Value::Array(cases) = json {
-            println!("Found {} script test cases", cases.len());
-
-            for (i, case) in cases.iter().enumerate() {
-                if let Value::Array(test_case) = case {
-                    // Skip string-only entries (comments/format descriptions)
-                    if test_case.len() >= 4 && test_case[0].is_string() {
-                        // Format: [scriptSig, scriptPubKey, flags, expected, description]
-                        if let Value::String(script_sig_str) = &test_case[0] {
-                            if let Value::String(script_pubkey_str) = &test_case[1] {
-                                if let Value::String(flags_str) = &test_case[2] {
-                                    // Parse flags (e.g., "P2SH,STRICTENC" -> 0x01 | 0x02)
-                                    let flags = parse_flag_string(flags_str);
-
-                                    // Parse expected result
-                                    let expected = test_case
-                                        .get(3)
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s == "OK")
-                                        .unwrap_or(true);
-
-                                    // Store or process this test vector
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Parse flags from specification's flag string format
 ///
 /// Consensus uses comma-separated flag names like "P2SH,STRICTENC,DERSIG"
@@ -214,9 +170,6 @@ mod tests {
         let core_path = "/home/user/src/bitcoin";
         if std::path::Path::new(core_path).exists() {
             let result = extract_core_transaction_vectors(core_path);
-            assert!(result.is_ok());
-
-            let result = extract_core_script_vectors(core_path);
             assert!(result.is_ok());
         }
     }

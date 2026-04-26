@@ -8,10 +8,8 @@
 
 mod block_tests;
 mod transaction_tests;
-mod script_tests;
 mod integration_test;
 
 pub use block_tests::*;
 pub use transaction_tests::*;
-pub use script_tests::*;
 

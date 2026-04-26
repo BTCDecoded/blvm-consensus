@@ -4,10 +4,11 @@ This directory contains integration code for running reference JSON vectors to v
 
 ## Overview
 
-The reference `bitcoin/bitcoin` tree maintains comprehensive test vectors in JSON format that cover:
-- Transaction validation (`tx_valid.json`, `tx_invalid.json`)
-- Script execution (`script_valid.json`, `script_invalid.json`)
-- Block validation (`block_valid.json`, `block_invalid.json`)
+The reference `bitcoin/bitcoin` tree ships JSON for **transactions** (`tx_valid.json`, `tx_invalid.json`) under `src/test/data/`. This crate wires those into `transaction_tests.rs`.
+
+**Block** JSON vectors are **not** published by Core the same way; `block_tests.rs` only runs cases if you supply your own `block_valid.json` / `block_invalid.json` locally (this repo does not commit them).
+
+Script consensus is covered by in-tree Rust tests (for example `tests/unit/script_tests.rs`), not by committed Core JSON in this crate.
 
 These test vectors represent decades of consensus bug fixes and edge cases discovered through real-world usage.
 
@@ -23,7 +24,8 @@ https://github.com/bitcoin/bitcoin/tree/master/src/test/data
 You can download them directly:
 ```bash
 # Create test data directory
-mkdir -p tests/test_data/core_vectors/{transactions,scripts,blocks}
+mkdir -p tests/test_data/core_vectors/transactions
+# Optional: mkdir -p tests/test_data/core_vectors/blocks   # only if you add custom block_*.json
 
 # Download test vectors
 curl -o tests/test_data/core_vectors/transactions/tx_valid.json \
@@ -31,12 +33,6 @@ curl -o tests/test_data/core_vectors/transactions/tx_valid.json \
 
 curl -o tests/test_data/core_vectors/transactions/tx_invalid.json \
   https://raw.githubusercontent.com/bitcoin/bitcoin/master/src/test/data/tx_invalid.json
-
-curl -o tests/test_data/core_vectors/scripts/script_valid.json \
-  https://raw.githubusercontent.com/bitcoin/bitcoin/master/src/test/data/script_valid.json
-
-curl -o tests/test_data/core_vectors/scripts/script_invalid.json \
-  https://raw.githubusercontent.com/bitcoin/bitcoin/master/src/test/data/script_invalid.json
 ```
 
 ### 2. Run Tests
@@ -44,9 +40,6 @@ curl -o tests/test_data/core_vectors/scripts/script_invalid.json \
 ```bash
 # Run transaction test vectors
 cargo test --test core_test_vectors::transaction_tests
-
-# Run script test vectors
-cargo test --test core_test_vectors::script_tests
 
 # Run block test vectors
 cargo test --test core_test_vectors::block_tests
@@ -63,18 +56,6 @@ Example:
 [
   ["0100000001...", "0x0001", "Standard transaction"],
   ["0100000002...", "0x0001", "P2SH transaction"]
-]
-```
-
-### Script Test Vectors
-
-Format: `[[scriptSig_hex, scriptPubKey_hex, flags, expected, description], ...]`
-
-Example:
-```json
-[
-  ["51", "51", "0x0001", true, "OP_1 OP_1 OP_EQUAL"],
-  ["00", "ac", "0x0001", false, "Invalid signature"]
 ]
 ```
 

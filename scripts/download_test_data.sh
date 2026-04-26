@@ -23,7 +23,6 @@ TEST_DATA_DIR="$PROJECT_ROOT/tests/test_data"
 
 # Create test data directory structure
 mkdir -p "$TEST_DATA_DIR/core_vectors/transactions"
-mkdir -p "$TEST_DATA_DIR/core_vectors/scripts"
 mkdir -p "$TEST_DATA_DIR/core_vectors/blocks"
 mkdir -p "$TEST_DATA_DIR/mainnet_blocks"
 mkdir -p "$TEST_DATA_DIR/checkpoints"

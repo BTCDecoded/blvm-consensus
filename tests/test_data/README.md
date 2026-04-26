@@ -7,9 +7,8 @@ This directory contains all test data used by blvm-consensus tests.
 ```
 test_data/
 ├── core_vectors/          # Reference JSON vectors
-│   ├── transactions/      # Transaction test vectors (tx_valid.json, tx_invalid.json)
-│   ├── scripts/           # Script test vectors (if available)
-│   └── blocks/            # Block test vectors (if available)
+│   ├── transactions/      # Transaction test vectors (tx_valid.json, tx_invalid.json from Core)
+│   └── blocks/            # Optional: only if you add local block_*.json (not from upstream Core)
 ├── ibd_failure_height_*/  # Optional IBD repro dumps (see `tests/block_ibd_repro.rs`)
 │   ├── info.txt           # Committed: human-readable height / error summary
 │   └── *.bin              # Gitignored: block.bin, utxo_set.bin, witnesses.bin (large)
@@ -31,10 +30,8 @@ test_data/
 **Files**:
 - `tx_valid.json` - Valid transaction test cases
 - `tx_invalid.json` - Invalid transaction test cases
-- `script_valid.json` - Valid script test cases (if available)
-- `script_invalid.json` - Invalid script test cases (if available)
 
-**Usage**: Used by `tests/core_test_vectors/` for consensus validation testing.
+**Usage**: Used by `tests/core_test_vectors/` for transaction/block JSON vector integration. Script rules are tested in `tests/unit/script_tests.rs` and related Rust tests.
 
 **Download**: Run `./scripts/download_test_data.sh --core-vectors`
 

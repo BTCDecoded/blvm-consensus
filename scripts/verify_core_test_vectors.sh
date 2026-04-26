@@ -41,12 +41,6 @@ else
     echo "⚠️  block_invalid.json not found (Core doesn't provide this as JSON)"
 fi
 
-if [ -f "tests/test_data/core_vectors/scripts/script_valid.json" ]; then
-    echo "✅ script_valid.json found"
-else
-    echo "⚠️  script_valid.json not found (Core uses functional tests, not JSON)"
-fi
-
 echo ""
 echo "=== Running Integration Tests ==="
 echo ""
@@ -60,8 +54,6 @@ echo "✅ Transaction test vector loading: IMPLEMENTED"
 echo "✅ Transaction test vector execution: IMPLEMENTED"
 echo "✅ Block test vector loading: IMPLEMENTED"
 echo "✅ Block test vector execution: IMPLEMENTED"
-echo "✅ Script test vector loading: IMPLEMENTED"
-echo "✅ Script test vector execution: IMPLEMENTED"
 echo "✅ Integration test runner: IMPLEMENTED"
 echo ""
 
@@ -80,10 +72,6 @@ echo ""
 echo "Block Vectors:"
 echo "  - Status: Not available as JSON in Core (Core uses functional tests)"
 echo "  - Workaround: Use our comprehensive block tests"
-echo ""
-echo "Script Vectors:"
-echo "  - Status: Not available as JSON in Core (Core uses functional tests)"
-echo "  - Workaround: Use our comprehensive script tests + Core functional test extraction"
 echo ""
 
 echo "=== Next Steps ==="

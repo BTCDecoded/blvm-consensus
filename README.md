@@ -1,9 +1,11 @@
-# Bitcoin Commons Consensus Proof
+# Bitcoin Commons: Consensus Implementation
 
-Pure mathematical implementation of Bitcoin consensus rules from the Orange Paper with formal verification.
+Orange Paper–aligned Bitcoin consensus in Rust: deterministic validation, **`#[spec_locked]`** checks with **blvm-spec-lock**, and broad coverage (unit, integration, property, fuzz).
 
-> **📚 Comprehensive Documentation**: See [docs.thebitcoincommons.org](https://docs.thebitcoincommons.org/) (source repo: [blvm-docs](https://github.com/BTCDecoded/blvm-docs)).  
-> **For verified system status**: See [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) in the BTCDecoded organization repository.
+**Crate:** [`blvm-consensus`](https://crates.io/crates/blvm-consensus) · [docs.rs](https://docs.rs/blvm-consensus)
+
+> **Documentation:** [docs.thebitcoincommons.org](https://docs.thebitcoincommons.org/) · Sources: [blvm-docs](https://github.com/BTCDecoded/blvm-docs).  
+> **Ecosystem status:** [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) (BTCDecoded org).
 
 [![crates.io](https://img.shields.io/crates/v/blvm-consensus.svg)](https://crates.io/crates/blvm-consensus)
 [![docs.rs](https://docs.rs/blvm-consensus/badge.svg)](https://docs.rs/blvm-consensus)
@@ -13,8 +15,6 @@ Pure mathematical implementation of Bitcoin consensus rules from the Orange Pape
 [![Verification Status](https://github.com/BTCDecoded/blvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/verify.yml)
 [![blvm-spec-lock Verification](https://img.shields.io/badge/blvm--spec--lock-Verified-green)](https://github.com/BTCDecoded/blvm-spec-lock)
 [![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
-
-Provides pure, side-effect-free functions implementing Orange Paper mathematical specifications. Serves as the mathematical foundation for Bitcoin consensus validation with formal verification ensuring mathematical correctness.
 
 ## Architecture Position
 
@@ -93,8 +93,9 @@ Implements mathematical verification of Bitcoin consensus rules using:
 # Run all tests and verification
 cargo test --all-features
 
-# Run property tests only
-cargo test --test property_tests
+# Example: property-heavy integration targets (see tests/*.rs)
+cargo test --test consensus_property_tests
+cargo test --test orange_paper_property_tests
 ```
 
 ### Verification Status
@@ -130,10 +131,10 @@ BIP66 and BIP147 are enforced during script verification, which is called for al
 
 ```toml
 [dependencies]
-blvm-consensus = "0.1.6"
+blvm-consensus = "0.1"
 ```
 
-(Adjust the version to match the latest release on crates.io.)
+(`0.1` matches any **0.1.**z on crates.io; use `=` + a full version if you need a locked patch for reproducibility.)
 
 All consensus-critical dependencies are pinned to exact versions:
 

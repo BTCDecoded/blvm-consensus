@@ -13,7 +13,6 @@ echo "Extracting Bitcoin Core test vectors from: $BITCOIN_CORE_PATH"
 
 # Create test data directories
 mkdir -p "$TEST_DATA_DIR/transactions"
-mkdir -p "$TEST_DATA_DIR/scripts"
 mkdir -p "$TEST_DATA_DIR/blocks"
 
 # Extract transaction test vectors
@@ -32,18 +31,6 @@ if [ -f "$BITCOIN_CORE_PATH/src/test/data/tx_invalid.json" ]; then
 else
     echo "⚠ tx_invalid.json not found"
 fi
-
-# Extract script test vectors
-if [ -f "$BITCOIN_CORE_PATH/src/test/data/script_tests.json" ]; then
-    echo "Copying script_tests.json..."
-    cp "$BITCOIN_CORE_PATH/src/test/data/script_tests.json" "$TEST_DATA_DIR/scripts/"
-    echo "✓ Copied script_tests.json"
-else
-    echo "⚠ script_tests.json not found"
-fi
-
-# Note: Core doesn't have separate script_valid.json/script_invalid.json
-# script_tests.json contains both valid and invalid test cases
 
 # Extract block test vectors (if available)
 # Core doesn't have standard block_valid.json/block_invalid.json files

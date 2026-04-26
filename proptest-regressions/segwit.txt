@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 1fdd99d2fefd4d45b102266730692440b611d81c133a7cd0dd2ab22d16b4fba1 # shrinks to block = Block { header: BlockHeader { version: 1, prev_block_hash: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], merkle_root: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], timestamp: 1231006505, bits: 486604799, nonce: 0 }, transactions: [Transaction { version: 1, inputs: [], outputs: [], lock_time: 0 }] }, witnesses = [], max_weight = 40

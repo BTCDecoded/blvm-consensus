@@ -32,12 +32,6 @@ Test data is organized into three main categories:
 - **Content**: Invalid transaction test cases with rejection reasons
 - **Usage**: Used by `tests/core_test_vectors/transaction_tests.rs`
 
-#### Script Test Vectors
-- **Files**: `script_valid.json`, `script_invalid.json`
-- **Status**: Not available as standalone JSON files
-- **Note**: The reference client uses functional tests for scripts, not JSON vectors
-- **Alternative**: Use our comprehensive script tests in `tests/unit/script_tests.rs`
-
 #### Block Test Vectors
 - **Files**: `block_valid.json`, `block_invalid.json`
 - **Status**: Not available as standalone JSON files
