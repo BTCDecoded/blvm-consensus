@@ -12,8 +12,6 @@ Orange Paper–aligned Bitcoin consensus in Rust: deterministic validation, **`#
 [![CI](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-[![Verification Status](https://github.com/BTCDecoded/blvm-consensus/workflows/Verify%20Consensus%20(Formal%20Verification)/badge.svg)](https://github.com/BTCDecoded/blvm-consensus/actions/workflows/verify.yml)
-[![blvm-spec-lock Verification](https://img.shields.io/badge/blvm--spec--lock-Verified-green)](https://github.com/BTCDecoded/blvm-spec-lock)
 [![Property Tests](https://img.shields.io/badge/Proptest-Covered-blue)](https://docs.rs/proptest/)
 
 ## Architecture Position
