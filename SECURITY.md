@@ -37,7 +37,7 @@ If you discover a security vulnerability in blvm-consensus, please report it imm
 
 ### How to Report
 
-**Email:** security@btcdecoded.org  
+**Email:** security@thebitcoincommons.org  
 **Subject:** [SECURITY] blvm-consensus vulnerability
 
 Include the following information:
@@ -125,7 +125,7 @@ Security updates will be:
 
 ### Contact Information
 
-- **Security Team:** security@btcdecoded.org
+- **Security Team:** security@thebitcoincommons.org
 - **General Inquiries:** info@btcdecoded.org
 - **Website:** https://btcdecoded.org
 
