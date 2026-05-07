@@ -403,7 +403,6 @@ impl ConsensusProof {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::transaction::check_transaction;
     use crate::types::Transaction;
 

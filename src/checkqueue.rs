@@ -99,6 +99,8 @@ struct QueueState {
     n_todo: usize,
     n_total: usize,
     n_idle: usize,
+    /// Total checks submitted in the current block session; used to pre-size the result Vec in `complete()`.
+    n_submitted: usize,
     error_result: Option<ConsensusError>,
     request_stop: bool,
     session: Option<Arc<BlockSessionContext>>,
@@ -126,6 +128,7 @@ impl ScriptCheckQueue {
             n_todo: 0,
             n_total: 0,
             n_idle: 0,
+            n_submitted: 0,
             error_result: None,
             request_stop: false,
             session: None,
@@ -442,6 +445,7 @@ impl ScriptCheckQueue {
         guard.session = Some(Arc::new(session));
         guard.checks.clear();
         guard.n_todo = 0;
+        guard.n_submitted = 0;
         guard.error_result = None;
     }
 
@@ -455,6 +459,7 @@ impl ScriptCheckQueue {
             let mut guard = self.state.lock().unwrap();
             guard.checks.extend(checks);
             guard.n_todo += n;
+            guard.n_submitted += n;
         }
         if n == 1 {
             self.worker_cv.notify_one();
@@ -473,6 +478,7 @@ impl ScriptCheckQueue {
             let mut guard = self.state.lock().unwrap();
             guard.checks.extend(checks.iter().cloned());
             guard.n_todo += n;
+            guard.n_submitted += n;
         }
         if n == 1 {
             self.worker_cv.notify_one();
@@ -527,11 +533,13 @@ impl ScriptCheckQueue {
                 loop {
                     if guard.n_todo == 0 {
                         guard.n_total -= 1;
+                        let n_expected = guard.n_submitted;
+                        guard.n_submitted = 0;
                         let results = guard
                             .session
                             .as_ref()
                             .map(|s| {
-                                let mut out = Vec::with_capacity(512);
+                                let mut out = Vec::with_capacity(n_expected.max(64));
                                 while let Some(batch) = s.results.pop() {
                                     out.extend(batch);
                                 }

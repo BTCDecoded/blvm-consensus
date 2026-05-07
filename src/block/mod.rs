@@ -27,11 +27,9 @@ use blvm_spec_lock::spec_locked;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 #[cfg(test)]
-use crate::constants::*;
-#[cfg(test)]
 use crate::opcodes::*;
 #[cfg(test)]
-use crate::transaction::{check_transaction, is_coinbase};
+use crate::transaction::is_coinbase;
 
 // Rayon is used conditionally in the code, imported where needed
 
@@ -344,27 +342,19 @@ pub fn compute_block_tx_ids_spec(block: &Block) -> Vec<Hash> {
 /// Compute transaction IDs for a block (extracted for reuse).
 /// Produces {Hash(tx) : tx ∈ block.transactions} for ComputeMerkleRoot input (Orange Paper 8.4.1).
 /// Public so node layer can compute once and share between collect_gaps and connect_block_ibd (#21).
+///
+/// Tx-id computation is **always serial**. The previous `par_iter` path looked
+/// fast in isolation but was disastrous in the IBD pipeline: the coordinator + N validation
+/// workers each push hashing work into the shared rayon pool, oversubscribing the CPU and
+/// stalling worker threads at ≪10% utilisation while the rayon pool burns ~5 cores spinning
+/// on coordination overhead. Serial double-SHA256 over ~3000 short txs is ~500 µs/block —
+/// well below the BPS budget — and the freed cores translate directly into block-level
+/// parallelism (per-block work stays on one thread; cross-block work is N-way).
 pub fn compute_block_tx_ids_into(block: &Block, out: &mut Vec<Hash>) {
     out.clear();
     out.reserve(block.transactions.len());
-    #[cfg(all(feature = "production", feature = "rayon"))]
-    {
-        use rayon::prelude::*;
-        assert!(
-            block.transactions.len() <= 25_000,
-            "Transaction count {} must be reasonable for batch processing",
-            block.transactions.len()
-        );
-        let chunk: Vec<Hash> = block
-            .transactions
-            .as_ref()
-            .par_iter()
-            .map(tx_id_pool::compute_tx_id_with_pool)
-            .collect();
-        out.extend(chunk);
-    }
 
-    #[cfg(all(feature = "production", not(feature = "rayon")))]
+    #[cfg(feature = "production")]
     {
         out.extend(
             block

@@ -307,20 +307,18 @@ pub mod simd_vectorization {
             }
         }
 
-        // Fallback: Multi-core parallelization using Rayon. Each worker gets OptimizedSha256.
-        use rayon::prelude::*;
-
-        inputs
-            .par_chunks(chunk_size())
-            .map(|chunk| {
-                let hasher = OptimizedSha256::new();
-                chunk
-                    .iter()
-                    .map(|input| hasher.hash(input))
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect()
+        // Fallback: serial chunked processing. The previous `par_chunks` rayon path was
+        // disastrous in IBD: N validation workers × per-block calls × shared rayon pool =
+        // catastrophic oversubscription. SHA-NI single-thread is fast enough; cross-block
+        // parallelism (worker pool) is the only level we want.
+        let hasher = OptimizedSha256::new();
+        let mut results = Vec::with_capacity(inputs.len());
+        for chunk in inputs.chunks(chunk_size()) {
+            for input in chunk {
+                results.push(hasher.hash(input));
+            }
+        }
+        results
     }
 
     /// Batch double SHA256: Compute SHA256(SHA256(x)) for multiple inputs
@@ -376,21 +374,17 @@ pub mod simd_vectorization {
             return results;
         }
 
-        // Large batches: parallelized processing using Rayon
-        // Each worker gets SHA-NI via OptimizedSha256 (runtime detection)
-        use rayon::prelude::*;
-
-        inputs
-            .par_chunks(chunk_size())
-            .map(|chunk| {
-                let hasher = OptimizedSha256::new();
-                chunk
-                    .iter()
-                    .map(|input| super::CacheAlignedHash::new(hasher.hash256(input)))
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect()
+        // Serial chunked processing — see `batch_sha256` for rationale (rayon oversubscribes
+        // the pool when N IBD workers each push hashing batches; SHA-NI keeps the per-worker
+        // path fast on its own thread).
+        let hasher = OptimizedSha256::new();
+        let mut results = Vec::with_capacity(inputs.len());
+        for chunk in inputs.chunks(chunk_size()) {
+            for input in chunk {
+                results.push(super::CacheAlignedHash::new(hasher.hash256(input)));
+            }
+        }
+        results
     }
 
     /// Batch RIPEMD160: Compute RIPEMD160 for multiple inputs
@@ -432,25 +426,19 @@ pub mod simd_vectorization {
             return results;
         }
 
-        // Large batches: parallelized processing
-        // Rayon is enabled via the 'production' feature
-        use rayon::prelude::*;
-
-        inputs
-            .par_chunks(chunk_size())
-            .map(|chunk| {
-                chunk
-                    .iter()
-                    .map(|input| {
-                        let hash = Ripemd160::digest(input);
-                        let mut result = [0u8; 20];
-                        result.copy_from_slice(&hash);
-                        result
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect()
+        // Serial chunked processing — same rationale as `batch_sha256`: cross-block
+        // parallelism is provided by the IBD worker pool; rayon par_chunks here
+        // oversubscribes the global pool when N workers each call this per-block.
+        let mut results = Vec::with_capacity(inputs.len());
+        for chunk in inputs.chunks(chunk_size()) {
+            for input in chunk {
+                let hash = Ripemd160::digest(input);
+                let mut result = [0u8; 20];
+                result.copy_from_slice(&hash);
+                results.push(result);
+            }
+        }
+        results
     }
 
     /// Batch HASH160: Compute RIPEMD160(SHA256(x)) for multiple inputs
@@ -498,26 +486,19 @@ pub mod simd_vectorization {
             return results;
         }
 
-        // Large batches: parallelized processing. Each worker gets OptimizedSha256.
-        use rayon::prelude::*;
-
-        inputs
-            .par_chunks(chunk_size())
-            .map(|chunk| {
-                let hasher = OptimizedSha256::new();
-                chunk
-                    .iter()
-                    .map(|input| {
-                        let sha256_hash: [u8; 32] = hasher.hash(input);
-                        let ripemd160_hash = Ripemd160::digest(sha256_hash);
-                        let mut result = [0u8; 20];
-                        result.copy_from_slice(&ripemd160_hash);
-                        result
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect()
+        // Serial chunked processing — see `batch_sha256` for rationale.
+        let hasher = OptimizedSha256::new();
+        let mut results = Vec::with_capacity(inputs.len());
+        for chunk in inputs.chunks(chunk_size()) {
+            for input in chunk {
+                let sha256_hash: [u8; 32] = hasher.hash(input);
+                let ripemd160_hash = Ripemd160::digest(sha256_hash);
+                let mut result = [0u8; 20];
+                result.copy_from_slice(&ripemd160_hash);
+                results.push(result);
+            }
+        }
+        results
     }
 }
 

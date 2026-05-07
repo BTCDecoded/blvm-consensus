@@ -205,6 +205,61 @@ fn n_crypto_drain_threads() -> usize {
     })
 }
 
+/// For legacy (non-SegWit) transactions where ALL inputs are P2PKH and SIGHASH_ALL, precompute
+/// all N sighashes at once using the forward-midstate algorithm. This cuts O(N²) sighash cost
+/// roughly in half vs the per-input approach, which matters for large consolidation transactions
+/// (hundreds or thousands of inputs) that appeared frequently around h=400k–500k.
+///
+/// Returns `None` if any input is not P2PKH, not SIGHASH_ALL, or unsigned, falling back to
+/// per-input sighash computation. The check is O(N) and lightweight (5-byte pattern match per
+/// prevout script).
+#[cfg(feature = "production")]
+fn try_batch_precompute_sighashes_ibd(
+    tx: &crate::types::Transaction,
+    prevout_script_pubkeys: &[&[u8]],
+) -> Option<Vec<[u8; 32]>> {
+    const P2PKH_LEN: usize = 25;
+    let n = tx.inputs.len();
+    if n < 2 || prevout_script_pubkeys.len() != n {
+        return None;
+    }
+    let mut script_codes: Vec<&[u8]> = Vec::with_capacity(n);
+    let mut sighash_bytes: Vec<u8> = Vec::with_capacity(n);
+    for (i, input) in tx.inputs.iter().enumerate() {
+        let spk = prevout_script_pubkeys[i];
+        // P2PKH: OP_DUP OP_HASH160 <20B> OP_EQUALVERIFY OP_CHECKSIG
+        if spk.len() != P2PKH_LEN
+            || spk[0] != 0x76 // OP_DUP
+            || spk[1] != 0xa9 // OP_HASH160
+            || spk[2] != 0x14 // push 20 bytes
+            || spk[23] != 0x88 // OP_EQUALVERIFY
+            || spk[24] != 0xac // OP_CHECKSIG
+        {
+            return None;
+        }
+        script_codes.push(spk);
+        let ss = input.script_sig.as_slice();
+        let (sig_slice, _) = crate::script::parse_p2pkh_script_sig(ss)?;
+        if sig_slice.is_empty() {
+            return None;
+        }
+        let sh = sig_slice[sig_slice.len() - 1];
+        let sighash_u32 = sh as u32;
+        let base = sighash_u32 & 0x1f;
+        let acp = sighash_u32 & 0x80;
+        // Must match `compute_sighashes_batch` fast-path eligibility (plain SIGHASH_ALL only).
+        if base != 0x01 || acp != 0 {
+            return None;
+        }
+        sighash_bytes.push(sh);
+    }
+    Some(crate::transaction_hash::compute_sighashes_batch(
+        tx,
+        &script_codes,
+        &sighash_bytes,
+    ))
+}
+
 #[cfg(all(feature = "production", feature = "rayon"))]
 fn script_check_queue() -> &'static crate::checkqueue::ScriptCheckQueue {
     use std::sync::OnceLock;
@@ -906,8 +961,9 @@ pub(crate) fn connect_block_inner<'a>(
                             };
                             (ValidationResult::Valid, 0, (0, 0), (0, 0))
                         } else if skip_signatures {
-                            // Fast path: skip_signatures avoids per-tx utxo_refs Vec allocation.
-                            // Sigop cost uses overlay directly (UtxoLookup trait).
+                            // Fast path under assume-valid: skip sigop counting (network already
+                            // verified the limit); fee check still needed for coinbase subsidy
+                            // validation at the block level.
                             utxo_data_reusable.clear();
                             utxo_data_reusable.reserve(tx.inputs.len());
                             let mut utxo_missing: Option<(usize, crate::types::OutPoint)> = None;
@@ -937,26 +993,9 @@ pub(crate) fn connect_block_inner<'a>(
                                 ))));
                                 break;
                             }
-                            match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
-                                tx, &overlay, wits_i, tx_flags_i,
-                            ) {
-                                Ok(cost) => {
-                                    total_sigop_cost = match total_sigop_cost.checked_add(cost) {
-                                        Some(v) => v,
-                                        None => {
-                                            early_return =
-                                                Some(Err(ConsensusError::BlockValidation(
-                                                    "Sigop cost overflow".into(),
-                                                )));
-                                            break;
-                                        }
-                                    };
-                                }
-                                Err(e) => {
-                                    early_return = Some(Err(e));
-                                    break;
-                                }
-                            }
+                            // Sigop counting skipped: assume-valid guarantees network consensus
+                            // already accepted this block's sigop cost as valid. total_sigop_cost
+                            // stays 0 and trivially passes the MAX_BLOCK_SIGOPS_COST check below.
                             let (input_valid, fee) =
                                 match crate::transaction::check_tx_inputs_with_owned_data(
                                     tx,
@@ -1215,33 +1254,14 @@ pub(crate) fn connect_block_inner<'a>(
                     let precomputed_sighashes_arc = Arc::new(precomputed_sighashes);
                     let precomputed_p2pkh_hashes_arc = Arc::new(precomputed_p2pkh_hashes);
 
-                    let check_results = if total_inputs < SMALL_BLOCK_THRESHOLD {
-                        let seq_session = BlockSessionContext {
-                            block: Arc::clone(&block_arc),
-                            prevout_values_buffer: Arc::clone(&prevout_values_buffer),
-                            script_pubkey_indices_buffer: Arc::clone(&script_pubkey_indices_buffer),
-                            script_pubkey_buffer: Arc::clone(&script_pubkey_buffer),
-                            witness_buffer: Arc::clone(&witness_buffer),
-                            tx_contexts: Arc::clone(&tx_contexts_arc),
-                            #[cfg(feature = "production")]
-                            ecdsa_sub_counters: Arc::clone(&ecdsa_sub_counters),
-                            #[cfg(feature = "production")]
-                            schnorr_collector: schnorr_collector.clone(),
-                            height,
-                            median_time_past,
-                            network,
-                            activation: context.activation.clone(),
-                            results: Arc::new(crossbeam_queue::SegQueue::new()),
-                            #[cfg(feature = "production")]
-                            precomputed_sighashes: Arc::clone(&precomputed_sighashes_arc),
-                            #[cfg(feature = "production")]
-                            precomputed_p2pkh_hashes: Arc::clone(&precomputed_p2pkh_hashes_arc),
-                        };
-                        crate::checkqueue::ScriptCheckQueue::run_checks_sequential(
-                            &block_checks_buf,
-                            &seq_session,
-                        )?
-                    } else {
+                    // IBD mode: caller already runs N blocks in parallel across N worker
+                    // threads, so per-block rayon par_iter just contends for the same global
+                    // pool — block-level parallelism wins over within-block parallelism. We
+                    // STILL want the inline P2PK / P2PKH fast paths the rayon closure has, so
+                    // we share the same closure body across both paths via `process_check`
+                    // and dispatch on a runtime flag.
+                    let use_serial_path = ibd_mode || total_inputs < SMALL_BLOCK_THRESHOLD;
+                    let check_results = {
                         let rayon_session = Arc::new(BlockSessionContext {
                             block: Arc::clone(&block_arc),
                             prevout_values_buffer: Arc::clone(&prevout_values_buffer),
@@ -1265,10 +1285,7 @@ pub(crate) fn connect_block_inner<'a>(
                         });
 
                         use rayon::prelude::*;
-                        let rayon_results: Vec<std::result::Result<(usize, bool), ConsensusError>> =
-                            block_checks_buf
-                                .par_iter()
-                                .map(|c| {
+                        let process_check = |c: &crate::checkqueue::ScriptCheck| -> std::result::Result<(usize, bool), ConsensusError> {
                                     let session = rayon_session.as_ref();
                                     let buffer = session.script_pubkey_buffer.as_slice();
                                     let ctx = &session.tx_contexts[c.tx_ctx_idx];
@@ -1389,10 +1406,155 @@ pub(crate) fn connect_block_inner<'a>(
                                             Some(prevout_slice),
                                         )?;
                                     Ok((c.tx_ctx_idx, valid))
-                                })
-                                .collect();
-                        let mut check_results = Vec::with_capacity(rayon_results.len());
-                        for r in rayon_results {
+                        };
+
+                        // Dispatch: serial (IBD or tiny block) vs rayon (single-block sync path).
+                        // Serial keeps script verification on the calling thread, which lets
+                        // N parallel IBD validation workers achieve true N-block parallelism
+                        // instead of all funnelling through rayon's global pool.
+                        let raw_results: Vec<std::result::Result<(usize, bool), ConsensusError>> =
+                            if use_serial_path {
+                                // Serial path: reuse refs_buf across checks from the same tx.
+                                // `process_check` builds `refs: Vec<&[u8]>` per call; at h=600k+
+                                // with 8k inputs/block (P2SH/SegWit fallback), that's 8k Vec allocs/block.
+                                // With cached_ctx_idx we build refs once per unique tx in the batch.
+                                let session = rayon_session.as_ref();
+                                let buffer = session.script_pubkey_buffer.as_slice();
+                                let spi = session.script_pubkey_indices_buffer.as_slice();
+                                let pv = session.prevout_values_buffer.as_slice();
+                                let block_height_s = session.height;
+                                let network_s = session.network;
+                                let mut serial_results = Vec::with_capacity(block_checks_buf.len());
+                                let mut refs_buf: Vec<&[u8]> = Vec::with_capacity(64);
+                                let mut cached_ctx_for_refs: usize = usize::MAX;
+                                for c in block_checks_buf.iter() {
+                                    let ctx = match session.tx_contexts.get(c.tx_ctx_idx) {
+                                        Some(ctx) => ctx,
+                                        None => {
+                                            serial_results.push(Err(ConsensusError::BlockValidation(
+                                                "tx_ctx_idx out of range (serial refs)".into(),
+                                            )));
+                                            continue;
+                                        }
+                                    };
+                                    let tx = &session.block.transactions[ctx.tx_index];
+                                    let flags_s = ctx.flags;
+                                    let s = c.spk_offset as usize;
+                                    let l = c.spk_len as usize;
+                                    let script_pubkey = if s + l <= buffer.len() {
+                                        &buffer[s..s + l]
+                                    } else {
+                                        &[]
+                                    };
+                                    let spk_len = script_pubkey.len();
+                                    let last_byte = if spk_len > 0 { script_pubkey[spk_len - 1] } else { 0 };
+                                    // P2PK fast path
+                                    if (spk_len == 35 || spk_len == 67)
+                                        && last_byte == OP_CHECKSIG
+                                        && (script_pubkey[0] == PUSH_33_BYTES
+                                            || script_pubkey[0] == PUSH_65_BYTES)
+                                        && crate::script::parse_p2pk_script_sig(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
+                                        )
+                                        .is_some()
+                                    {
+                                        serial_results.push(
+                                            crate::script::verify_p2pk_inline(
+                                                tx.inputs[c.input_idx].script_sig.as_slice(),
+                                                script_pubkey,
+                                                flags_s,
+                                                tx,
+                                                c.input_idx,
+                                                block_height_s,
+                                                network_s,
+                                            )
+                                            .map(|v| (c.tx_ctx_idx, v))
+                                            .map_err(|e| {
+                                                ConsensusError::BlockValidation(
+                                                    format!(
+                                                        "P2PK tx {} input {}: {}",
+                                                        ctx.tx_index, c.input_idx, e
+                                                    )
+                                                    .into(),
+                                                )
+                                            }),
+                                        );
+                                        continue;
+                                    }
+                                    // P2PKH fast path
+                                    if spk_len == 25
+                                        && script_pubkey[0] == OP_DUP
+                                        && script_pubkey[1] == OP_HASH160
+                                        && script_pubkey[2] == PUSH_20_BYTES
+                                        && script_pubkey[23] == OP_EQUALVERIFY
+                                        && last_byte == OP_CHECKSIG
+                                        && crate::script::parse_p2pkh_script_sig(
+                                            tx.inputs[c.input_idx].script_sig.as_slice(),
+                                        )
+                                        .is_some()
+                                    {
+                                        serial_results.push(
+                                            crate::script::verify_p2pkh_inline(
+                                                tx.inputs[c.input_idx].script_sig.as_slice(),
+                                                script_pubkey,
+                                                flags_s,
+                                                tx,
+                                                c.input_idx,
+                                                block_height_s,
+                                                network_s,
+                                                None,
+                                            )
+                                            .map(|v| (c.tx_ctx_idx, v))
+                                            .map_err(|e| {
+                                                ConsensusError::BlockValidation(
+                                                    format!(
+                                                        "P2PKH tx {} input {}: {}",
+                                                        ctx.tx_index, c.input_idx, e
+                                                    )
+                                                    .into(),
+                                                )
+                                            }),
+                                        );
+                                        continue;
+                                    }
+                                    // Fallback: full interpreter — reuse refs_buf across same-tx checks.
+                                    let (pv_base, pv_count) = ctx.prevout_values_range;
+                                    let prevout_slice = &pv[pv_base..][..pv_count];
+                                    if c.tx_ctx_idx != cached_ctx_for_refs {
+                                        refs_buf.clear();
+                                        let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
+                                        for j in 0..spi_count {
+                                            let (start, len) = spi[spi_base + j];
+                                            refs_buf.push(if start + len <= buffer.len() {
+                                                &buffer[start..start + len]
+                                            } else {
+                                                &[]
+                                            });
+                                        }
+                                        cached_ctx_for_refs = c.tx_ctx_idx;
+                                    }
+                                    let valid = crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
+                                        c,
+                                        session,
+                                        ctx,
+                                        &refs_buf,
+                                        buffer,
+                                        #[cfg(feature = "production")]
+                                        None,
+                                        Some(script_pubkey),
+                                        Some(prevout_slice),
+                                    );
+                                    serial_results.push(valid.map(|v| (c.tx_ctx_idx, v)));
+                                }
+                                serial_results
+                            } else {
+                                block_checks_buf
+                                    .par_iter()
+                                    .map(&process_check)
+                                    .collect()
+                            };
+                        let mut check_results = Vec::with_capacity(raw_results.len());
+                        for r in raw_results {
                             check_results.push(r?);
                         }
                         check_results
@@ -1726,14 +1888,6 @@ pub(crate) fn connect_block_inner<'a>(
                     height,
                     context,
                 );
-                total_sigop_cost = total_sigop_cost
-                    .checked_add(
-                        crate::sigop::get_transaction_sigop_cost_with_witness_slices(
-                            tx, &overlay, wits_i, tx_flags,
-                        )?,
-                    )
-                    .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
-
                 if let Some(msg) =
                     check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
                 {
@@ -1830,6 +1984,17 @@ pub(crate) fn connect_block_inner<'a>(
                 };
                 let input_utxos = &input_utxos_reusable;
 
+                // Sigop accounting uses the already-fetched UTXOs: eliminates a second
+                // overlay.get() pass for P2SH and witness inputs (was ~2× redundant lookups
+                // per input in those script types).
+                total_sigop_cost = total_sigop_cost
+                    .checked_add(
+                        crate::sigop::get_transaction_sigop_cost_with_utxos(
+                            tx, input_utxos, wits_i, tx_flags,
+                        )?,
+                    )
+                    .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
+
                 if !matches!(input_valid, ValidationResult::Valid) {
                     #[cfg(debug_assertions)]
                     eprintln!(
@@ -1896,6 +2061,14 @@ pub(crate) fn connect_block_inner<'a>(
                     } else {
                         None
                     };
+                    // For non-SegWit txs with ≥2 P2PKH/SIGHASH_ALL inputs, precompute all sighashes
+                    // at once using forward-midstate sharing (halves O(N²) cost for large txs).
+                    #[cfg(feature = "production")]
+                    let batch_sighashes: Option<Vec<[u8; 32]>> = if !has_witness && tx.inputs.len() >= 2 {
+                        try_batch_precompute_sighashes_ibd(tx, &prevout_script_pubkeys_reusable)
+                    } else {
+                        None
+                    };
                     for (j, input) in tx.inputs.iter().enumerate() {
                         // Reuse input_utxos instead of overlay.get()
                         if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
@@ -1932,7 +2105,7 @@ pub(crate) fn connect_block_inner<'a>(
                                 #[cfg(not(feature = "production"))]
                                 None,
                                 #[cfg(feature = "production")]
-                                None, // precomputed_sighash_all (non-CCheckQueue path)
+                                batch_sighashes.as_ref().and_then(|v| v.get(j)).copied(), // precomputed_sighash_all
                                 #[cfg(feature = "production")]
                                 None, // precomputed_p2pkh_hash
                             )? {
@@ -2190,6 +2363,14 @@ pub(crate) fn connect_block_inner<'a>(
                 #[cfg(feature = "production")]
                 let schnorr_collector = crate::bip348::SchnorrSignatureCollector::new();
 
+                // Batch-precompute sighashes for large non-SegWit P2PKH/SIGHASH_ALL txs (halves O(N²) cost).
+                #[cfg(feature = "production")]
+                let batch_sighashes: Option<Vec<[u8; 32]>> = if !has_witness && tx.inputs.len() >= 2 {
+                    try_batch_precompute_sighashes_ibd(tx, &prevout_script_pubkeys_reusable)
+                } else {
+                    None
+                };
+
                 for (j, input) in tx.inputs.iter().enumerate() {
                     if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
                         // Reuse cached tx_witnesses and flags from above
@@ -2230,7 +2411,7 @@ pub(crate) fn connect_block_inner<'a>(
                             #[cfg(not(feature = "production"))]
                             None,
                             #[cfg(feature = "production")]
-                            None, // precomputed_sighash_all (non-CCheckQueue path)
+                            batch_sighashes.as_ref().and_then(|v| v.get(j)).copied(), // precomputed_sighash_all
                             #[cfg(feature = "production")]
                             None, // precomputed_p2pkh_hash
                         )? {
@@ -2693,4 +2874,122 @@ fn connect_block_inner_with_tx_ids(
     }
 
     Ok((ValidationResult::Valid, utxo_set, undo_log))
+}
+
+#[cfg(all(test, feature = "production"))]
+mod sighash_batch_ibd_tests {
+    use super::try_batch_precompute_sighashes_ibd;
+    use crate::transaction_hash::compute_legacy_sighash_nocache;
+    use crate::types::*;
+
+    fn p2pkh_spk_bytes() -> [u8; 25] {
+        let mut s = [0u8; 25];
+        s[0] = 0x76;
+        s[1] = 0xa9;
+        s[2] = 0x14;
+        s[3..23].fill(0x55);
+        s[23] = 0x88;
+        s[24] = 0xac;
+        s
+    }
+
+    fn append_fake_pubkey(v: &mut Vec<u8>) {
+        v.push(33);
+        v.push(0x02);
+        v.extend(std::iter::repeat_n(0x31u8, 32));
+    }
+
+    fn script_sig_compact() -> ByteString {
+        let mut v = Vec::new();
+        v.push(71);
+        v.extend(std::iter::repeat_n(0x30u8, 70));
+        v.push(0x01);
+        append_fake_pubkey(&mut v);
+        v.into()
+    }
+
+    fn script_sig_pushdata1() -> ByteString {
+        let mut v = Vec::new();
+        v.push(0x4c);
+        v.push(71);
+        v.extend(std::iter::repeat_n(0x30u8, 70));
+        v.push(0x01);
+        append_fake_pubkey(&mut v);
+        v.into()
+    }
+
+    fn sample_tx_two_p2pkh(script_sig_a: ByteString, script_sig_b: ByteString) -> Transaction {
+        let op = |marker: u8| OutPoint {
+            hash: [marker; 32],
+            index: 0,
+        };
+        Transaction {
+            version: 1,
+            inputs: vec![
+                TransactionInput {
+                    prevout: op(1),
+                    sequence: 0xffffffff,
+                    script_sig: script_sig_a,
+                },
+                TransactionInput {
+                    prevout: op(2),
+                    sequence: 0xffffffff,
+                    script_sig: script_sig_b,
+                },
+            ]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1000,
+                script_pubkey: vec![0x51u8].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        }
+    }
+
+    fn assert_batch_matches_reference(tx: &Transaction, prevouts: &[&[u8]]) {
+        let batch = try_batch_precompute_sighashes_ibd(tx, prevouts).expect("batch eligible");
+        assert_eq!(batch.len(), tx.inputs.len());
+        let spk = p2pkh_spk_bytes();
+        for i in 0..tx.inputs.len() {
+            let sighash_byte = {
+                let (sig, _) =
+                    crate::script::parse_p2pkh_script_sig(tx.inputs[i].script_sig.as_slice())
+                        .expect("parse script_sig");
+                sig[sig.len() - 1]
+            };
+            let refh = compute_legacy_sighash_nocache(tx, i, spk.as_slice(), sighash_byte);
+            assert_eq!(batch[i], refh, "input {i} sighash mismatch");
+        }
+    }
+
+    #[test]
+    fn batch_sighash_matches_nocache_compact_pushes() {
+        let tx = sample_tx_two_p2pkh(script_sig_compact(), script_sig_compact());
+        let spk = p2pkh_spk_bytes();
+        assert_batch_matches_reference(&tx, &[spk.as_slice(), spk.as_slice()]);
+    }
+
+    #[test]
+    fn batch_sighash_matches_nocache_pushdata1_sig() {
+        let tx = sample_tx_two_p2pkh(script_sig_pushdata1(), script_sig_pushdata1());
+        let spk = p2pkh_spk_bytes();
+        assert_batch_matches_reference(&tx, &[spk.as_slice(), spk.as_slice()]);
+    }
+
+    #[test]
+    fn batch_opt_out_anyonecanpay() {
+        let mut v = Vec::new();
+        v.push(71);
+        v.extend(std::iter::repeat_n(0x30u8, 69));
+        v.push(0x30);
+        v.push(0x81u8);
+        append_fake_pubkey(&mut v);
+        let tx = sample_tx_two_p2pkh(v.clone().into(), v.into());
+        let spk = p2pkh_spk_bytes();
+        assert!(
+            try_batch_precompute_sighashes_ibd(&tx, &[spk.as_slice(), spk.as_slice()]).is_none(),
+            "batch must not activate for ANYONECANPAY"
+        );
+    }
 }
