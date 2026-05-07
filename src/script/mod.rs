@@ -31,8 +31,6 @@ use crate::types::*;
 use blvm_spec_lock::spec_locked;
 use digest::Digest;
 use ripemd::Ripemd160;
-#[cfg(any(not(feature = "production"), test))]
-use secp256k1::Secp256k1;
 
 // LLVM-like optimizations
 #[cfg(feature = "production")]
@@ -1333,7 +1331,7 @@ fn try_verify_p2sh_multisig_fast_path(
 
         #[cfg(not(feature = "production"))]
         let is_valid = {
-            let secp = Secp256k1::new();
+            let secp = signature::new_secp();
             signature::verify_signature(
                 &secp,
                 pubkey_bytes,
@@ -1466,7 +1464,7 @@ fn try_verify_bare_multisig_fast_path(
 
         #[cfg(not(feature = "production"))]
         let is_valid = {
-            let secp = Secp256k1::new();
+            let secp = signature::new_secp();
             signature::verify_signature(
                 &secp,
                 pubkey_bytes,
@@ -4762,6 +4760,16 @@ pub(crate) fn find_and_delete<'a>(script: &'a [u8], pattern: &[u8]) -> std::borr
     if pattern.is_empty() {
         return std::borrow::Cow::Borrowed(script);
     }
+    if pattern.len() > script.len() {
+        return std::borrow::Cow::Borrowed(script);
+    }
+    // Fast pre-scan: if pattern doesn't appear anywhere in the raw bytes, it can't appear
+    // at any opcode boundary either — skip the full walk and the Vec allocation entirely.
+    // `windows()` is O(N) and avoids ~100B-4KB Vec allocation + full script copy on the
+    // overwhelmingly common case (CHECKSIG before codeseparator = never matches).
+    if !script.windows(pattern.len()).any(|w| w == pattern) {
+        return std::borrow::Cow::Borrowed(script);
+    }
     let end = script.len();
     let mut n_found = 0usize;
     let mut result = Vec::new();
@@ -5014,7 +5022,7 @@ fn execute_opcode_with_context_full(
 
                 #[cfg(not(feature = "production"))]
                 let is_valid = {
-                    let secp = Secp256k1::new();
+                    let secp = signature::new_secp();
                     signature::verify_signature(
                         &secp,
                         &pubkey_bytes,
@@ -5126,7 +5134,7 @@ fn execute_opcode_with_context_full(
 
                 #[cfg(not(feature = "production"))]
                 let is_valid = {
-                    let secp = Secp256k1::new();
+                    let secp = signature::new_secp();
                     signature::verify_signature(
                         &secp,
                         &pubkey_bytes,
@@ -5535,7 +5543,7 @@ fn execute_opcode_with_context_full(
 
                     #[cfg(not(feature = "production"))]
                     let is_valid = {
-                        let secp = Secp256k1::new();
+                        let secp = signature::new_secp();
                         signature::verify_signature(
                             &secp,
                             pubkey_bytes,
@@ -5593,7 +5601,7 @@ fn execute_opcode_with_context_full(
                         #[cfg(feature = "production")]
                         sighash_cache,
                     )?;
-                    let secp = Secp256k1::new();
+                    let secp = signature::new_secp();
                     let is_valid = signature::verify_signature(
                         &secp,
                         pubkey_bytes,
@@ -6874,7 +6882,7 @@ mod tests {
 
     #[test]
     fn test_verify_signature_invalid_pubkey() {
-        let secp = Secp256k1::new();
+        let secp = signature::new_secp();
         let invalid_pubkey = vec![0x00]; // Invalid pubkey
         let signature = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00]; // Valid DER signature
         let dummy_hash = [0u8; 32];
@@ -6893,7 +6901,7 @@ mod tests {
 
     #[test]
     fn test_verify_signature_invalid_signature() {
-        let secp = Secp256k1::new();
+        let secp = signature::new_secp();
         let pubkey = vec![
             0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce,
             0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81,

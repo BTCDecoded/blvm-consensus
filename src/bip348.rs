@@ -30,8 +30,7 @@
 use crate::crypto::OptimizedSha256;
 use crate::error::{ConsensusError, Result};
 use blvm_spec_lock::spec_locked;
-#[cfg(all(feature = "production", feature = "rayon"))]
-use rayon::prelude::*;
+#[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
 use secp256k1::{schnorr::Signature, Message, XOnlyPublicKey};
 #[cfg(feature = "production")]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -342,33 +341,45 @@ pub fn verify_signature_from_stack(
         }
 
         // Immediate verification (fallback when no collector)
-        // Parse x-only public key (32 bytes)
-        let pubkey_xonly = match XOnlyPublicKey::from_slice(pubkey) {
-            Ok(pk) => pk,
-            Err(_) => return Ok(false), // Invalid pubkey format
-        };
-
-        // Parse Schnorr signature (64 bytes)
-        let sig = match Signature::from_slice(signature) {
-            Ok(s) => s,
-            Err(_) => return Ok(false), // Invalid signature format
-        };
-
-        // Create message from bytes
-        // BIP 340: Message is NOT hashed (accepts any size)
-        // But secp256k1 requires 32 bytes, so we hash with SHA256
-        // Uses OptimizedSha256 (SHA-NI when available) for faster hashing
         let message_hash = OptimizedSha256::new().hash(message);
-        let msg = Message::from_digest_slice(&message_hash)
-            .map_err(|_| ConsensusError::InvalidSignature("Invalid message".into()))?;
 
-        // Verify using backend (libsecp256k1 or blvm-secp256k1)
-        let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
-        Ok(crate::secp256k1_backend::verify_schnorr(
-            &sig.serialize(),
-            &message_hash,
-            &pk_bytes,
-        )?)
+        #[cfg(feature = "blvm-secp256k1")]
+        {
+            let sig_arr: [u8; 64] = match signature.try_into() {
+                Ok(a) => a,
+                Err(_) => return Ok(false),
+            };
+            let pk_arr: [u8; 32] = match pubkey.try_into() {
+                Ok(a) => a,
+                Err(_) => return Ok(false),
+            };
+            return crate::secp256k1_backend::verify_schnorr(&sig_arr, &message_hash, &pk_arr);
+        }
+
+        #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
+        {
+            // Parse x-only public key (32 bytes)
+            let pubkey_xonly = match XOnlyPublicKey::from_slice(pubkey) {
+                Ok(pk) => pk,
+                Err(_) => return Ok(false),
+            };
+            // Parse Schnorr signature (64 bytes)
+            let sig = match Signature::from_slice(signature) {
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let _msg = Message::from_digest_slice(&message_hash)
+                .map_err(|_| ConsensusError::InvalidSignature("Invalid message".into()))?;
+            let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
+            return Ok(crate::secp256k1_backend::verify_schnorr(
+                &sig.serialize(),
+                &message_hash,
+                &pk_bytes,
+            )?);
+        }
+
+        #[allow(unreachable_code)]
+        Ok(false)
     } else {
         // BIP-348: Unknown pubkey type - succeeds as if valid
         Ok(true)
@@ -430,32 +441,36 @@ pub fn batch_verify_signatures_from_stack(
     }
 
     // Parse all signatures and pubkeys
-    let mut sigs = Vec::new();
-    let mut pubkeys = Vec::new();
+    let mut sigs_bytes: Vec<[u8; 64]> = Vec::new();
+    let mut pubkeys_bytes: Vec<[u8; 32]> = Vec::new();
     let mut msgs: Vec<[u8; 32]> = Vec::new();
 
     for (idx, message, pubkey, signature) in &valid_tasks {
-        // Parse x-only public key
-        let pubkey_xonly = match XOnlyPublicKey::from_slice(pubkey) {
-            Ok(pk) => pk,
-            Err(_) => {
+        // Validate x-only public key (32 bytes already checked; validate curve point)
+        #[cfg(feature = "blvm-secp256k1")]
+        {
+            // blvm-secp256k1's schnorr verifier validates the point internally; just copy bytes.
+            let _pk: &[u8] = pubkey;  // length already validated above
+        }
+        #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
+        {
+            if XOnlyPublicKey::from_slice(pubkey).is_err() {
                 results[*idx] = false;
                 continue;
             }
-        };
+        }
 
-        // Parse Schnorr signature
-        let sig = match Signature::from_slice(signature) {
-            Ok(s) => s,
-            Err(_) => {
+        // Validate Schnorr signature (64 bytes already checked)
+        #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
+        {
+            if Signature::from_slice(signature).is_err() {
                 results[*idx] = false;
                 continue;
             }
-        };
+        }
 
         // Handle message: Tapscript uses 32-byte sighash directly, CSFS hashes arbitrary messages
         let digest: [u8; 32] = if message.len() == 32 {
-            // Already 32 bytes (Tapscript sighash) - use directly
             let mut d = [0u8; 32];
             d.copy_from_slice(message);
             d
@@ -464,55 +479,26 @@ pub fn batch_verify_signatures_from_stack(
             OptimizedSha256::new().hash(message)
         };
 
-        sigs.push(sig);
-        pubkeys.push(pubkey_xonly);
+        let mut sig_arr = [0u8; 64];
+        sig_arr.copy_from_slice(signature);
+        let mut pk_arr = [0u8; 32];
+        pk_arr.copy_from_slice(pubkey);
+        sigs_bytes.push(sig_arr);
+        pubkeys_bytes.push(pk_arr);
         msgs.push(digest);
     }
 
-    if sigs.is_empty() {
+    if sigs_bytes.is_empty() {
         return Ok(results);
     }
 
-    let sigs_bytes: Vec<[u8; 64]> = sigs.iter().map(|s| s.serialize()).collect();
-    let pubkeys_bytes: Vec<[u8; 32]> = pubkeys.iter().map(|p| p.serialize()).collect();
     let msg_refs: Vec<&[u8]> = msgs.iter().map(|m| m.as_slice()).collect();
 
-    let perf = &crate::config::get_consensus_config_ref().performance;
-    let chunk_threshold =
-        blvm_primitives::ibd_tuning::chunk_threshold_config_or_hardware(perf.ibd_chunk_threshold);
-    let min_chunk =
-        blvm_primitives::ibd_tuning::min_chunk_size_config_or_hardware(perf.ibd_min_chunk_size);
-    let n = sigs.len();
-
-    #[cfg(all(feature = "production", feature = "rayon"))]
-    let batch_bools: Vec<bool> = {
-        if n <= chunk_threshold {
-            crate::secp256k1_backend::verify_schnorr_batch(&sigs_bytes, &msg_refs, &pubkeys_bytes)?
-        } else {
-            let num_threads = rayon::current_num_threads();
-            let max_parallel = (n / 128).max(1);
-            let num_chunks = num_threads.min(max_parallel).max(1);
-            let chunk_ranges =
-                blvm_primitives::ibd_tuning::compute_chunk_ranges(n, num_chunks, min_chunk);
-            let chunk_results: Vec<Result<Vec<bool>>> = chunk_ranges
-                .into_par_iter()
-                .map(|(start, end)| {
-                    crate::secp256k1_backend::verify_schnorr_batch(
-                        &sigs_bytes[start..end],
-                        &msg_refs[start..end],
-                        &pubkeys_bytes[start..end],
-                    )
-                })
-                .collect();
-            let mut batch_bools = Vec::with_capacity(n);
-            for r in chunk_results {
-                batch_bools.extend(r?);
-            }
-            batch_bools
-        }
-    };
-
-    #[cfg(not(all(feature = "production", feature = "rayon")))]
+    // Serial verification. The previous chunked rayon path
+    // oversubscribed the global pool when N IBD workers each pushed Schnorr batches
+    // per-block. The secp256k1 backend's own batch verification is already SIMD-aware
+    // and runs on the calling worker thread; cross-block parallelism is provided by
+    // the IBD validation worker pool.
     let batch_bools: Vec<bool> =
         crate::secp256k1_backend::verify_schnorr_batch(&sigs_bytes, &msg_refs, &pubkeys_bytes)?;
 
@@ -565,21 +551,37 @@ pub fn verify_tapscript_schnorr_signature(
     }
 
     // Immediate verification (fallback when no collector)
-    // Parse x-only public key (32 bytes)
-    let pubkey_xonly = match XOnlyPublicKey::from_slice(pubkey) {
-        Ok(pk) => pk,
-        Err(_) => return Ok(false), // Invalid pubkey format
-    };
+    #[cfg(feature = "blvm-secp256k1")]
+    {
+        let sig_arr: [u8; 64] = match signature.try_into() {
+            Ok(a) => a,
+            Err(_) => return Ok(false),
+        };
+        let pk_arr: [u8; 32] = match pubkey.try_into() {
+            Ok(a) => a,
+            Err(_) => return Ok(false),
+        };
+        return crate::secp256k1_backend::verify_schnorr(&sig_arr, sighash, &pk_arr);
+    }
 
-    // Parse Schnorr signature (64 bytes)
-    let sig = match Signature::from_slice(signature) {
-        Ok(s) => s,
-        Err(_) => return Ok(false), // Invalid signature format
-    };
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
+    {
+        // Parse x-only public key (32 bytes)
+        let pubkey_xonly = match XOnlyPublicKey::from_slice(pubkey) {
+            Ok(pk) => pk,
+            Err(_) => return Ok(false),
+        };
+        // Parse Schnorr signature (64 bytes)
+        let sig = match Signature::from_slice(signature) {
+            Ok(s) => s,
+            Err(_) => return Ok(false),
+        };
+        let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
+        return crate::secp256k1_backend::verify_schnorr(&sig.serialize(), sighash, &pk_bytes);
+    }
 
-    // Verify using backend (libsecp256k1 or blvm-secp256k1)
-    let pk_bytes: [u8; 32] = pubkey_xonly.serialize();
-    crate::secp256k1_backend::verify_schnorr(&sig.serialize(), sighash, &pk_bytes)
+    #[allow(unreachable_code)]
+    Ok(false)
 }
 
 #[cfg(test)]

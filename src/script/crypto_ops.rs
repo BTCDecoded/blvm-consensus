@@ -8,8 +8,6 @@ use crate::opcodes::{OP_HASH160, OP_HASH256};
 use crate::types::Network;
 use digest::Digest;
 use ripemd::Ripemd160;
-#[cfg(not(feature = "production"))]
-use secp256k1::Secp256k1;
 use sha1::Sha1;
 
 use super::signature;
@@ -222,7 +220,7 @@ pub(crate) fn op_checksig_simple(stack: &mut Vec<StackElement>, flags: u32) -> R
 
     #[cfg(not(feature = "production"))]
     let result = {
-        let secp = Secp256k1::new();
+        let secp = signature::new_secp();
         signature::verify_signature(
             &secp,
             &pubkey_bytes,
@@ -274,7 +272,7 @@ pub(crate) fn op_checksigverify_simple(stack: &mut Vec<StackElement>, flags: u32
 
     #[cfg(not(feature = "production"))]
     let result = {
-        let secp = Secp256k1::new();
+        let secp = signature::new_secp();
         signature::verify_signature(
             &secp,
             &pubkey_bytes,
