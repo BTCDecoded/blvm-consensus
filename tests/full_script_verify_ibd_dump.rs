@@ -50,7 +50,7 @@ fn load_dump(
     )?))?;
     let witnesses: Vec<Vec<Witness>> = bincode::deserialize_from(std::io::BufReader::new(
         std::fs::File::open(dir.join("witnesses.bin"))?,
-    )?)?;
+    ))?;
     let raw: std::collections::HashMap<OutPoint, UTXO> = bincode::deserialize_from(
         std::io::BufReader::new(std::fs::File::open(dir.join("utxo_set.bin"))?),
     )?;

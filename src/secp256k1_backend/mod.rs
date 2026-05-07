@@ -23,8 +23,11 @@ pub fn verify_ecdsa(
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_ecdsa(msg_hash, sig_compact, pubkey_compressed);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::verify_ecdsa(msg_hash, sig_compact, pubkey_compressed);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
 }
 
 /// Schnorr verify: returns true if BIP 340 signature is valid.
@@ -32,8 +35,11 @@ pub fn verify_schnorr(sig: &[u8; 64], msg: &[u8], pubkey: &[u8; 32]) -> Result<b
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_schnorr(sig, msg, pubkey);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::verify_schnorr(sig, msg, pubkey);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
 }
 
 /// Schnorr batch verify: returns Vec<bool> with one result per signature.
@@ -46,8 +52,11 @@ pub fn verify_schnorr_batch(
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_schnorr_batch(sigs, msgs, pubkeys);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::verify_schnorr_batch(sigs, msgs, pubkeys);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
 }
 
 /// Direct ECDSA verify from DER sig bytes + pubkey bytes + msg hash.
@@ -76,8 +85,11 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::taproot_output_key(internal_pubkey, merkle_root);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::taproot_output_key(internal_pubkey, merkle_root);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
 }
 
 /// BIP 341 TapLeaf hash: tag "TapLeaf", data = leaf_version || compact_size(script_len) || script.
@@ -85,8 +97,11 @@ pub fn tap_leaf_hash(leaf_version: u8, script: &[u8]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_leaf_hash(leaf_version, script);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::tap_leaf_hash(leaf_version, script);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    [0u8; 32]
 }
 
 /// BIP 341 TapBranch hash: tag "TapBranch", data = left || right (caller must sort lexicographically).
@@ -94,8 +109,11 @@ pub fn tap_branch_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_branch_hash(left, right);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::tap_branch_hash(left, right);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    [0u8; 32]
 }
 
 /// BIP 341 TapSighash: tag "TapSighash", hashes 0x00 || SigMsg for Taproot verification.
@@ -103,6 +121,9 @@ pub fn tap_sighash_hash(data: &[u8]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_sighash_hash(data);
 
-    #[cfg(feature = "secp256k1-fallback")]
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     return secp256k1_impl::tap_sighash_hash(data);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    [0u8; 32]
 }
