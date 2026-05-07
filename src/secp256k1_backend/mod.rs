@@ -5,6 +5,7 @@
 //! with production). When not enabled, falls back to libsecp256k1 with per-signature verification.
 //! API surface is identical across backends.
 
+#[cfg(feature = "secp256k1-fallback")]
 mod secp256k1_impl;
 
 #[cfg(feature = "blvm-secp256k1")]
@@ -22,7 +23,7 @@ pub fn verify_ecdsa(
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_ecdsa(msg_hash, sig_compact, pubkey_compressed);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::verify_ecdsa(msg_hash, sig_compact, pubkey_compressed);
 }
 
@@ -31,7 +32,7 @@ pub fn verify_schnorr(sig: &[u8; 64], msg: &[u8], pubkey: &[u8; 32]) -> Result<b
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_schnorr(sig, msg, pubkey);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::verify_schnorr(sig, msg, pubkey);
 }
 
@@ -45,7 +46,7 @@ pub fn verify_schnorr_batch(
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::verify_schnorr_batch(sigs, msgs, pubkeys);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::verify_schnorr_batch(sigs, msgs, pubkeys);
 }
 
@@ -75,7 +76,7 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_impl::taproot_output_key(internal_pubkey, merkle_root);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::taproot_output_key(internal_pubkey, merkle_root);
 }
 
@@ -84,7 +85,7 @@ pub fn tap_leaf_hash(leaf_version: u8, script: &[u8]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_leaf_hash(leaf_version, script);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::tap_leaf_hash(leaf_version, script);
 }
 
@@ -93,7 +94,7 @@ pub fn tap_branch_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_branch_hash(left, right);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::tap_branch_hash(left, right);
 }
 
@@ -102,6 +103,6 @@ pub fn tap_sighash_hash(data: &[u8]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]
     return blvm_secp256k1::taproot::tap_sighash_hash(data);
 
-    #[cfg(not(feature = "blvm-secp256k1"))]
+    #[cfg(feature = "secp256k1-fallback")]
     return secp256k1_impl::tap_sighash_hash(data);
 }

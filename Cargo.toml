@@ -1,6 +1,6 @@
 [package]
 name = "blvm-consensus"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 authors = ["Bitcoin Commons Team"]
 description = "Bitcoin Commons BLVM: Direct mathematical implementation of Bitcoin consensus rules from the Orange Paper"
@@ -23,8 +23,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 smallvec = { version = "1.11", optional = true, features = ["serde", "const_generics"] }
 
 # Consensus-critical cryptography - EXACT VERSIONS
-# Default: blvm-secp256k1 (batch verification). Fallback: crates.io secp256k1 0.28 (libsecp256k1). NO secp256k1-fork.
-secp256k1 = { version = "0.28", default-features = true }
+# Default backend: blvm-secp256k1 (batch Schnorr, BIP-341 correct TapTweak, no FFI).
+# Fallback: enable the "secp256k1-fallback" feature to use crates.io secp256k1 0.28 (libsecp256k1 FFI).
+# Both deps are optional so only one is compiled at a time. NO secp256k1-fork.
+secp256k1 = { version = "0.28", optional = true }
 # blvm-secp256k1: pure Rust, BIP 341 correct TapTweak (use for Taproot path)
 blvm-secp256k1 = { version = ">=0.1, <1", optional = true }
 # Enable SIMD optimizations for hashing
@@ -73,7 +75,10 @@ proptest = { version = "=1.5.0", optional = true }
 
 
 [dev-dependencies]
-blvm-muhash = { version = ">=0.1, <1" }
+# Integration tests (`tests/*.rs`) deserialize dumps with bincode (same pin as dependencies).
+bincode = "=1.3.3"
+# Must match blvm-node: running-state API lives in 0.1.6+ (publish `blvm-muhash` before node CI w/o path patch).
+blvm-muhash = { version = ">=0.1.6, <1" }
 # UTXO commitments tests live in blvm-protocol (protocol → consensus only; no dev-dep cycle).
 # Formal verification tools - EXACT VERSIONS for reproducibility
 proptest = "=1.5.0"
@@ -156,6 +161,10 @@ csfs = []
 # Use blvm-secp256k1 for Taproot tweak (correct BIP 341 tagged hash)
 # When disabled, uses crates.io secp256k1 (plain SHA256 - non-BIP341)
 blvm-secp256k1 = ["dep:blvm-secp256k1"]
+
+# Fallback crypto backend: crates.io secp256k1 0.28 (libsecp256k1 FFI, no batch Schnorr).
+# Use when blvm-secp256k1 is not desired. Mutually exclusive with blvm-secp256k1.
+secp256k1-fallback = ["dep:secp256k1"]
 
 
 [dependencies.lru]
@@ -246,6 +255,6 @@ lto = "thin"  # Faster than "fat" for iterative benchmarking
 codegen-units = 16  # Faster compilation
 
 # blvm-spec-lock: crates.io by default; optional [patch.crates-io] for local spec-lock work
-# secp256k1: crates.io 0.28 only. blvm-secp256k1 is default backend via feature. NO secp256k1-fork.
+# secp256k1: optional, activated only via "secp256k1-fallback" feature. blvm-secp256k1 is default backend. NO secp256k1-fork.
 
 # Monorepo: use sibling primitives so config types stay in sync before crates.io publish.
