@@ -62,8 +62,12 @@ fn test_transaction_value_little_endian() {
 
     let serialized = serialize_transaction(&tx);
 
-    // Find value bytes: version(4) + varint(input_count=0, 1 byte) + varint(output_count=1, 1 byte) = 6 bytes
-    let value_start = 6;
+    // Find value bytes. When inputs are empty and outputs are non-empty, the serializer emits
+    // extended framing (dummy 0x00 + flag 0x01) after the version to avoid ambiguity with the
+    // SegWit marker+flag that a witness-aware parser would misread. Layout:
+    //   version(4) + dummy(1=0x00) + flag(1=0x01) + input_count(1=0x00) + output_count(1=0x01)
+    // = 8 bytes before the value (not 6).
+    let value_start = 8;
 
     // Verify little-endian encoding by checking actual bytes
     // The value is cast to u64 before serialization, so we check the u64 representation
