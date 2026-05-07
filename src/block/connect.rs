@@ -233,7 +233,8 @@ fn try_batch_precompute_sighashes_ibd(
             || spk[1] != 0xa9 // OP_HASH160
             || spk[2] != 0x14 // push 20 bytes
             || spk[23] != 0x88 // OP_EQUALVERIFY
-            || spk[24] != 0xac // OP_CHECKSIG
+            || spk[24] != 0xac
+        // OP_CHECKSIG
         {
             return None;
         }
@@ -1285,127 +1286,129 @@ pub(crate) fn connect_block_inner<'a>(
                         });
 
                         use rayon::prelude::*;
-                        let process_check = |c: &crate::checkqueue::ScriptCheck| -> std::result::Result<(usize, bool), ConsensusError> {
-                                    let session = rayon_session.as_ref();
-                                    let buffer = session.script_pubkey_buffer.as_slice();
-                                    let ctx = &session.tx_contexts[c.tx_ctx_idx];
-                                    let tx = &session.block.transactions[ctx.tx_index];
-                                    let flags = ctx.flags;
-                                    let height = session.height;
-                                    let network = session.network;
-                                    let s = c.spk_offset as usize;
-                                    let l = c.spk_len as usize;
-                                    let script_pubkey = if s + l <= buffer.len() {
-                                        &buffer[s..s + l]
+                        let process_check = |c: &crate::checkqueue::ScriptCheck| -> std::result::Result<
+                            (usize, bool),
+                            ConsensusError,
+                        > {
+                            let session = rayon_session.as_ref();
+                            let buffer = session.script_pubkey_buffer.as_slice();
+                            let ctx = &session.tx_contexts[c.tx_ctx_idx];
+                            let tx = &session.block.transactions[ctx.tx_index];
+                            let flags = ctx.flags;
+                            let height = session.height;
+                            let network = session.network;
+                            let s = c.spk_offset as usize;
+                            let l = c.spk_len as usize;
+                            let script_pubkey = if s + l <= buffer.len() {
+                                &buffer[s..s + l]
+                            } else {
+                                &[]
+                            };
+
+                            let spk_len = script_pubkey.len();
+                            let last_byte = if spk_len > 0 {
+                                script_pubkey[spk_len - 1]
+                            } else {
+                                0
+                            };
+
+                            // P2PK fast path: <pubkey> OP_CHECKSIG (35 or 67 bytes)
+                            // Gate: script_sig must parse as exactly <sig> (1 push).
+                            if (spk_len == 35 || spk_len == 67)
+                                && last_byte == OP_CHECKSIG
+                                && (script_pubkey[0] == PUSH_33_BYTES
+                                    || script_pubkey[0] == PUSH_65_BYTES)
+                                && crate::script::parse_p2pk_script_sig(
+                                    tx.inputs[c.input_idx].script_sig.as_slice(),
+                                )
+                                .is_some()
+                            {
+                                return crate::script::verify_p2pk_inline(
+                                    tx.inputs[c.input_idx].script_sig.as_slice(),
+                                    script_pubkey,
+                                    flags,
+                                    tx,
+                                    c.input_idx,
+                                    height,
+                                    network,
+                                )
+                                .map(|v| (c.tx_ctx_idx, v))
+                                .map_err(|e| {
+                                    ConsensusError::BlockValidation(
+                                        format!(
+                                            "P2PK tx {} input {}: {}",
+                                            ctx.tx_index, c.input_idx, e
+                                        )
+                                        .into(),
+                                    )
+                                });
+                            }
+
+                            // P2PKH fast path: OP_DUP OP_HASH160 <20> ... OP_EQUALVERIFY OP_CHECKSIG
+                            // Gate: script_sig must parse as exactly <sig> <pubkey> (2 pushes).
+                            // Non-standard script_sigs (e.g. OP_0 <sig> <pubkey>) fall through to
+                            // the full interpreter which handles them correctly.
+                            if spk_len == 25
+                                && script_pubkey[0] == OP_DUP
+                                && script_pubkey[1] == OP_HASH160
+                                && script_pubkey[2] == PUSH_20_BYTES
+                                && script_pubkey[23] == OP_EQUALVERIFY
+                                && last_byte == OP_CHECKSIG
+                                && crate::script::parse_p2pkh_script_sig(
+                                    tx.inputs[c.input_idx].script_sig.as_slice(),
+                                )
+                                .is_some()
+                            {
+                                return crate::script::verify_p2pkh_inline(
+                                    tx.inputs[c.input_idx].script_sig.as_slice(),
+                                    script_pubkey,
+                                    flags,
+                                    tx,
+                                    c.input_idx,
+                                    height,
+                                    network,
+                                    None,
+                                )
+                                .map(|v| (c.tx_ctx_idx, v))
+                                .map_err(|e| {
+                                    ConsensusError::BlockValidation(
+                                        format!(
+                                            "P2PKH tx {} input {}: {}",
+                                            ctx.tx_index, c.input_idx, e
+                                        )
+                                        .into(),
+                                    )
+                                });
+                            }
+
+                            // Fallback: full interpreter path
+                            let pv = session.prevout_values_buffer.as_slice();
+                            let spi = session.script_pubkey_indices_buffer.as_slice();
+                            let (pv_base, pv_count) = ctx.prevout_values_range;
+                            let prevout_slice = &pv[pv_base..][..pv_count];
+                            let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
+                            let refs: Vec<&[u8]> = (0..spi_count)
+                                .map(|j| {
+                                    let (start, len) = spi[spi_base + j];
+                                    if start + len <= buffer.len() {
+                                        &buffer[start..start + len]
                                     } else {
                                         &[]
-                                    };
-
-                                    let spk_len = script_pubkey.len();
-                                    let last_byte = if spk_len > 0 {
-                                        script_pubkey[spk_len - 1]
-                                    } else {
-                                        0
-                                    };
-
-                                    // P2PK fast path: <pubkey> OP_CHECKSIG (35 or 67 bytes)
-                                    // Gate: script_sig must parse as exactly <sig> (1 push).
-                                    if (spk_len == 35 || spk_len == 67)
-                                        && last_byte == OP_CHECKSIG
-                                        && (script_pubkey[0] == PUSH_33_BYTES
-                                            || script_pubkey[0] == PUSH_65_BYTES)
-                                        && crate::script::parse_p2pk_script_sig(
-                                            tx.inputs[c.input_idx].script_sig.as_slice(),
-                                        )
-                                        .is_some()
-                                    {
-                                        return crate::script::verify_p2pk_inline(
-                                            tx.inputs[c.input_idx].script_sig.as_slice(),
-                                            script_pubkey,
-                                            flags,
-                                            tx,
-                                            c.input_idx,
-                                            height,
-                                            network,
-                                        )
-                                        .map(|v| (c.tx_ctx_idx, v))
-                                        .map_err(|e| {
-                                            ConsensusError::BlockValidation(
-                                                format!(
-                                                    "P2PK tx {} input {}: {}",
-                                                    ctx.tx_index, c.input_idx, e
-                                                )
-                                                .into(),
-                                            )
-                                        });
                                     }
-
-                                    // P2PKH fast path: OP_DUP OP_HASH160 <20> ... OP_EQUALVERIFY OP_CHECKSIG
-                                    // Gate: script_sig must parse as exactly <sig> <pubkey> (2 pushes).
-                                    // Non-standard script_sigs (e.g. OP_0 <sig> <pubkey>) fall through to
-                                    // the full interpreter which handles them correctly.
-                                    if spk_len == 25
-                                        && script_pubkey[0] == OP_DUP
-                                        && script_pubkey[1] == OP_HASH160
-                                        && script_pubkey[2] == PUSH_20_BYTES
-                                        && script_pubkey[23] == OP_EQUALVERIFY
-                                        && last_byte == OP_CHECKSIG
-                                        && crate::script::parse_p2pkh_script_sig(
-                                            tx.inputs[c.input_idx].script_sig.as_slice(),
-                                        )
-                                        .is_some()
-                                    {
-                                        return crate::script::verify_p2pkh_inline(
-                                            tx.inputs[c.input_idx].script_sig.as_slice(),
-                                            script_pubkey,
-                                            flags,
-                                            tx,
-                                            c.input_idx,
-                                            height,
-                                            network,
-                                            None,
-                                        )
-                                        .map(|v| (c.tx_ctx_idx, v))
-                                        .map_err(|e| {
-                                            ConsensusError::BlockValidation(
-                                                format!(
-                                                    "P2PKH tx {} input {}: {}",
-                                                    ctx.tx_index, c.input_idx, e
-                                                )
-                                                .into(),
-                                            )
-                                        });
-                                    }
-
-                                    // Fallback: full interpreter path
-                                    let pv = session.prevout_values_buffer.as_slice();
-                                    let spi = session.script_pubkey_indices_buffer.as_slice();
-                                    let (pv_base, pv_count) = ctx.prevout_values_range;
-                                    let prevout_slice = &pv[pv_base..][..pv_count];
-                                    let (spi_base, spi_count) = ctx.script_pubkey_indices_range;
-                                    let refs: Vec<&[u8]> = (0..spi_count)
-                                        .map(|j| {
-                                            let (start, len) = spi[spi_base + j];
-                                            if start + len <= buffer.len() {
-                                                &buffer[start..start + len]
-                                            } else {
-                                                &[]
-                                            }
-                                        })
-                                        .collect();
-                                    let valid =
-                                        crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
-                                            c,
-                                            session,
-                                            ctx,
-                                            &refs,
-                                            buffer,
-                                            #[cfg(feature = "production")]
-                                            None,
-                                            Some(script_pubkey),
-                                            Some(prevout_slice),
-                                        )?;
-                                    Ok((c.tx_ctx_idx, valid))
+                                })
+                                .collect();
+                            let valid = crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
+                                c,
+                                session,
+                                ctx,
+                                &refs,
+                                buffer,
+                                #[cfg(feature = "production")]
+                                None,
+                                Some(script_pubkey),
+                                Some(prevout_slice),
+                            )?;
+                            Ok((c.tx_ctx_idx, valid))
                         };
 
                         // Dispatch: serial (IBD or tiny block) vs rayon (single-block sync path).
@@ -1431,9 +1434,11 @@ pub(crate) fn connect_block_inner<'a>(
                                     let ctx = match session.tx_contexts.get(c.tx_ctx_idx) {
                                         Some(ctx) => ctx,
                                         None => {
-                                            serial_results.push(Err(ConsensusError::BlockValidation(
-                                                "tx_ctx_idx out of range (serial refs)".into(),
-                                            )));
+                                            serial_results.push(Err(
+                                                ConsensusError::BlockValidation(
+                                                    "tx_ctx_idx out of range (serial refs)".into(),
+                                                ),
+                                            ));
                                             continue;
                                         }
                                     };
@@ -1447,7 +1452,11 @@ pub(crate) fn connect_block_inner<'a>(
                                         &[]
                                     };
                                     let spk_len = script_pubkey.len();
-                                    let last_byte = if spk_len > 0 { script_pubkey[spk_len - 1] } else { 0 };
+                                    let last_byte = if spk_len > 0 {
+                                        script_pubkey[spk_len - 1]
+                                    } else {
+                                        0
+                                    };
                                     // P2PK fast path
                                     if (spk_len == 35 || spk_len == 67)
                                         && last_byte == OP_CHECKSIG
@@ -1469,15 +1478,17 @@ pub(crate) fn connect_block_inner<'a>(
                                                 network_s,
                                             )
                                             .map(|v| (c.tx_ctx_idx, v))
-                                            .map_err(|e| {
-                                                ConsensusError::BlockValidation(
-                                                    format!(
-                                                        "P2PK tx {} input {}: {}",
-                                                        ctx.tx_index, c.input_idx, e
+                                            .map_err(
+                                                |e| {
+                                                    ConsensusError::BlockValidation(
+                                                        format!(
+                                                            "P2PK tx {} input {}: {}",
+                                                            ctx.tx_index, c.input_idx, e
+                                                        )
+                                                        .into(),
                                                     )
-                                                    .into(),
-                                                )
-                                            }),
+                                                },
+                                            ),
                                         );
                                         continue;
                                     }
@@ -1505,15 +1516,17 @@ pub(crate) fn connect_block_inner<'a>(
                                                 None,
                                             )
                                             .map(|v| (c.tx_ctx_idx, v))
-                                            .map_err(|e| {
-                                                ConsensusError::BlockValidation(
-                                                    format!(
-                                                        "P2PKH tx {} input {}: {}",
-                                                        ctx.tx_index, c.input_idx, e
+                                            .map_err(
+                                                |e| {
+                                                    ConsensusError::BlockValidation(
+                                                        format!(
+                                                            "P2PKH tx {} input {}: {}",
+                                                            ctx.tx_index, c.input_idx, e
+                                                        )
+                                                        .into(),
                                                     )
-                                                    .into(),
-                                                )
-                                            }),
+                                                },
+                                            ),
                                         );
                                         continue;
                                     }
@@ -1533,25 +1546,23 @@ pub(crate) fn connect_block_inner<'a>(
                                         }
                                         cached_ctx_for_refs = c.tx_ctx_idx;
                                     }
-                                    let valid = crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
-                                        c,
-                                        session,
-                                        ctx,
-                                        &refs_buf,
-                                        buffer,
-                                        #[cfg(feature = "production")]
-                                        None,
-                                        Some(script_pubkey),
-                                        Some(prevout_slice),
-                                    );
+                                    let valid =
+                                        crate::checkqueue::ScriptCheckQueue::run_check_with_refs(
+                                            c,
+                                            session,
+                                            ctx,
+                                            &refs_buf,
+                                            buffer,
+                                            #[cfg(feature = "production")]
+                                            None,
+                                            Some(script_pubkey),
+                                            Some(prevout_slice),
+                                        );
                                     serial_results.push(valid.map(|v| (c.tx_ctx_idx, v)));
                                 }
                                 serial_results
                             } else {
-                                block_checks_buf
-                                    .par_iter()
-                                    .map(&process_check)
-                                    .collect()
+                                block_checks_buf.par_iter().map(&process_check).collect()
                             };
                         let mut check_results = Vec::with_capacity(raw_results.len());
                         for r in raw_results {
@@ -1988,11 +1999,12 @@ pub(crate) fn connect_block_inner<'a>(
                 // overlay.get() pass for P2SH and witness inputs (was ~2× redundant lookups
                 // per input in those script types).
                 total_sigop_cost = total_sigop_cost
-                    .checked_add(
-                        crate::sigop::get_transaction_sigop_cost_with_utxos(
-                            tx, input_utxos, wits_i, tx_flags,
-                        )?,
-                    )
+                    .checked_add(crate::sigop::get_transaction_sigop_cost_with_utxos(
+                        tx,
+                        input_utxos,
+                        wits_i,
+                        tx_flags,
+                    )?)
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
                 if !matches!(input_valid, ValidationResult::Valid) {
@@ -2064,11 +2076,12 @@ pub(crate) fn connect_block_inner<'a>(
                     // For non-SegWit txs with ≥2 P2PKH/SIGHASH_ALL inputs, precompute all sighashes
                     // at once using forward-midstate sharing (halves O(N²) cost for large txs).
                     #[cfg(feature = "production")]
-                    let batch_sighashes: Option<Vec<[u8; 32]>> = if !has_witness && tx.inputs.len() >= 2 {
-                        try_batch_precompute_sighashes_ibd(tx, &prevout_script_pubkeys_reusable)
-                    } else {
-                        None
-                    };
+                    let batch_sighashes: Option<Vec<[u8; 32]>> =
+                        if !has_witness && tx.inputs.len() >= 2 {
+                            try_batch_precompute_sighashes_ibd(tx, &prevout_script_pubkeys_reusable)
+                        } else {
+                            None
+                        };
                     for (j, input) in tx.inputs.iter().enumerate() {
                         // Reuse input_utxos instead of overlay.get()
                         if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
@@ -2365,7 +2378,8 @@ pub(crate) fn connect_block_inner<'a>(
 
                 // Batch-precompute sighashes for large non-SegWit P2PKH/SIGHASH_ALL txs (halves O(N²) cost).
                 #[cfg(feature = "production")]
-                let batch_sighashes: Option<Vec<[u8; 32]>> = if !has_witness && tx.inputs.len() >= 2 {
+                let batch_sighashes: Option<Vec<[u8; 32]>> = if !has_witness && tx.inputs.len() >= 2
+                {
                     try_batch_precompute_sighashes_ibd(tx, &prevout_script_pubkeys_reusable)
                 } else {
                     None

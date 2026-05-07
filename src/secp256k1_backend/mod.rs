@@ -27,7 +27,9 @@ pub fn verify_ecdsa(
     return secp256k1_impl::verify_ecdsa(msg_hash, sig_compact, pubkey_compressed);
 
     #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
-    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
+    Err(crate::error::ConsensusError::BlockValidation(
+        "no crypto backend enabled".into(),
+    ))
 }
 
 /// Schnorr verify: returns true if BIP 340 signature is valid.
@@ -39,7 +41,9 @@ pub fn verify_schnorr(sig: &[u8; 64], msg: &[u8], pubkey: &[u8; 32]) -> Result<b
     return secp256k1_impl::verify_schnorr(sig, msg, pubkey);
 
     #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
-    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
+    Err(crate::error::ConsensusError::BlockValidation(
+        "no crypto backend enabled".into(),
+    ))
 }
 
 /// Schnorr batch verify: returns Vec<bool> with one result per signature.
@@ -56,7 +60,9 @@ pub fn verify_schnorr_batch(
     return secp256k1_impl::verify_schnorr_batch(sigs, msgs, pubkeys);
 
     #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
-    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
+    Err(crate::error::ConsensusError::BlockValidation(
+        "no crypto backend enabled".into(),
+    ))
 }
 
 /// Direct ECDSA verify from DER sig bytes + pubkey bytes + msg hash.
@@ -89,7 +95,9 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     return secp256k1_impl::taproot_output_key(internal_pubkey, merkle_root);
 
     #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
-    Err(crate::error::ConsensusError::BlockValidation("no crypto backend enabled".into()))
+    Err(crate::error::ConsensusError::BlockValidation(
+        "no crypto backend enabled".into(),
+    ))
 }
 
 /// BIP 341 TapLeaf hash: tag "TapLeaf", data = leaf_version || compact_size(script_len) || script.

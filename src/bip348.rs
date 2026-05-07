@@ -450,7 +450,7 @@ pub fn batch_verify_signatures_from_stack(
         #[cfg(feature = "blvm-secp256k1")]
         {
             // blvm-secp256k1's schnorr verifier validates the point internally; just copy bytes.
-            let _pk: &[u8] = pubkey;  // length already validated above
+            let _pk: &[u8] = pubkey; // length already validated above
         }
         #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
         {

@@ -131,8 +131,8 @@ fn block_ibd_repro() {
                 .unwrap_or(false);
             // Flags for mainnet h=481824: P2SH|DERSIG|NULLDUMMY|CLTV|CSV|(WITNESS if has_witness)
             // 0x01=P2SH 0x04=DERSIG 0x10=NULLDUMMY 0x200=CLTV 0x400=CSV 0x800=WITNESS
-            let flags: u32 = 0x01 | 0x04 | 0x10 | 0x200 | 0x400
-                | if has_witness { 0x800 } else { 0 };
+            let flags: u32 =
+                0x01 | 0x04 | 0x10 | 0x200 | 0x400 | if has_witness { 0x800 } else { 0 };
             let prevout_values: Vec<i64> = tx
                 .inputs
                 .iter()
@@ -190,7 +190,11 @@ fn block_ibd_repro() {
                         &input.script_sig[..input.script_sig.len().min(40)]
                     );
                     if let Some(w) = witness {
-                        eprintln!("    witness: {} items, len={:?}", w.len(), w.iter().map(|x| x.len()).collect::<Vec<_>>());
+                        eprintln!(
+                            "    witness: {} items, len={:?}",
+                            w.len(),
+                            w.iter().map(|x| x.len()).collect::<Vec<_>>()
+                        );
                     }
                     eprintln!("    prevout_value={}, flags=0x{:x}", utxo.value, flags);
                 }
@@ -235,16 +239,28 @@ fn block_ibd_repro() {
     }
     // (txid search removed - diagnostics no longer needed)
     // Check witness array alignment around tx 562
-    eprintln!("--- Witness array check (block.txs={}, witnesses.len={}) ---", block.transactions.len(), witnesses.len());
+    eprintln!(
+        "--- Witness array check (block.txs={}, witnesses.len={}) ---",
+        block.transactions.len(),
+        witnesses.len()
+    );
     for tx_idx in 559..=565usize {
         if let (Some(tx), Some(w)) = (block.transactions.get(tx_idx), witnesses.get(tx_idx)) {
             let nonempty_wits = w.iter().filter(|x| !x.is_empty()).count();
             let n_inputs = tx.inputs.len();
-            eprintln!("  tx {tx_idx}: {n_inputs} inputs, {}/{} nonempty witnesses", nonempty_wits, w.len());
+            eprintln!(
+                "  tx {tx_idx}: {n_inputs} inputs, {}/{} nonempty witnesses",
+                nonempty_wits,
+                w.len()
+            );
             if nonempty_wits > 0 {
                 for (ii, ws) in w.iter().enumerate().take(3) {
                     if !ws.is_empty() {
-                        eprintln!("    input {ii}: witness {} items, sizes={:?}", ws.len(), ws.iter().map(|x| x.len()).collect::<Vec<_>>());
+                        eprintln!(
+                            "    input {ii}: witness {} items, sizes={:?}",
+                            ws.len(),
+                            ws.iter().map(|x| x.len()).collect::<Vec<_>>()
+                        );
                     }
                 }
             }
@@ -252,7 +268,11 @@ fn block_ibd_repro() {
     }
     // Find and print tx 562 inputs to identify the failing script type
     if let Some(tx_562) = block.transactions.get(562) {
-        eprintln!("--- tx 562 has {} inputs, {} outputs ---", tx_562.inputs.len(), tx_562.outputs.len());
+        eprintln!(
+            "--- tx 562 has {} inputs, {} outputs ---",
+            tx_562.inputs.len(),
+            tx_562.outputs.len()
+        );
         for (inp_idx, input) in tx_562.inputs.iter().enumerate() {
             let prevout_txid = hex::encode(&input.prevout.hash);
             let witness_data = witnesses.get(562).and_then(|w| w.get(inp_idx));
@@ -267,23 +287,40 @@ fn block_ibd_repro() {
                 has_wit,
             );
             if !input.script_sig.is_empty() {
-                eprintln!("    script_sig({} bytes): {:02x?}", input.script_sig.len(), &input.script_sig[..input.script_sig.len().min(50)]);
+                eprintln!(
+                    "    script_sig({} bytes): {:02x?}",
+                    input.script_sig.len(),
+                    &input.script_sig[..input.script_sig.len().min(50)]
+                );
             }
             if let Some(w) = witness_data {
                 if !w.is_empty() {
-                    eprintln!("    witness ({} items): sizes={:?}", w.len(), w.iter().map(|x| x.len()).collect::<Vec<_>>());
+                    eprintln!(
+                        "    witness ({} items): sizes={:?}",
+                        w.len(),
+                        w.iter().map(|x| x.len()).collect::<Vec<_>>()
+                    );
                     for (wi, item) in w.iter().enumerate() {
                         eprintln!("      [{}]: {:02x?}", wi, &item[..item.len().min(70)]);
                     }
                 }
             }
             if let Some(utxo) = utxo_set.get(&input.prevout) {
-                eprintln!("    spk({} bytes): {:02x?} value={}", utxo.script_pubkey.len(), &utxo.script_pubkey[..utxo.script_pubkey.len().min(35)], utxo.value);
+                eprintln!(
+                    "    spk({} bytes): {:02x?} value={}",
+                    utxo.script_pubkey.len(),
+                    &utxo.script_pubkey[..utxo.script_pubkey.len().min(35)],
+                    utxo.value
+                );
             }
         }
         // Also print tx 562 outputs
         for (out_idx, output) in tx_562.outputs.iter().enumerate() {
-            eprintln!("  output {out_idx}: value={} spk={:02x?}", output.value, &output.script_pubkey[..output.script_pubkey.len().min(35)]);
+            eprintln!(
+                "  output {out_idx}: value={} spk={:02x?}",
+                output.value,
+                &output.script_pubkey[..output.script_pubkey.len().min(35)]
+            );
         }
     }
     eprintln!("--- Individual verification complete, now running connect_block_ibd ---");

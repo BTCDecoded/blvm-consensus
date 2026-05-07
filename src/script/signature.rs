@@ -30,9 +30,13 @@ pub(crate) struct SecpCtx;
 /// Construct a fresh context.
 pub(crate) fn new_secp() -> SecpCtx {
     #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
-    { secp256k1::Secp256k1::new() }
+    {
+        secp256k1::Secp256k1::new()
+    }
     #[cfg(not(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1"))))]
-    { SecpCtx }
+    {
+        SecpCtx
+    }
 }
 
 #[cfg(feature = "production")]
@@ -119,16 +123,14 @@ pub(crate) fn verify_signature(
 
     #[cfg(feature = "blvm-secp256k1")]
     {
-        return Ok(
-            blvm_secp256k1::ecdsa::verify_ecdsa_direct(
-                der_sig,
-                pubkey_bytes,
-                sighash,
-                strict_der,
-                enforce_low_s,
-            )
-            .unwrap_or(false),
-        );
+        return Ok(blvm_secp256k1::ecdsa::verify_ecdsa_direct(
+            der_sig,
+            pubkey_bytes,
+            sighash,
+            strict_der,
+            enforce_low_s,
+        )
+        .unwrap_or(false));
     }
 
     #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
