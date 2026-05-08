@@ -304,6 +304,18 @@ jobs:
 
       - name: Setup blvm-spec (PROTOCOL.md + ARCHITECTURE.md for verification)
         uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
+      - name: Record spec revision
+        run: |
+          SPEC_SHA_DISPATCH="${{ github.event.client_payload.source_sha }}"
+          SPEC_VERSION_DISPATCH="${{ github.event.client_payload.version }}"
+          echo "📋 Spec revision for this verify run:"
+          echo "  source_sha (dispatch): ${SPEC_SHA_DISPATCH:-<not a dispatch event>}"
+          echo "  version (dispatch):    ${SPEC_VERSION_DISPATCH:-<not a dispatch event>}"
+          if [ -f "../blvm-spec/SPEC_META.json" ]; then
+            echo "  SPEC_META.json (local checkout):"
+            cat ../blvm-spec/SPEC_META.json
+          fi
       
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -1148,6 +1160,11 @@ jobs:
             DEBUG_ASSERTIONS="true"
           fi
           
+          # Record spec revision from upstream dispatch payload (blvm-spec trigger-chain)
+          SPEC_SHA="${{ github.event.client_payload.source_sha }}"
+          SPEC_VERSION="${{ github.event.client_payload.version }}"
+          SPEC_CONTENT_SHA256="${{ github.event.client_payload.content_sha256 }}"
+
           # Extract spec-lock data from artifacts
           SPEC_LOCK_VERIFIED="false"
           SPEC_LOCK_CONSENSUS_FUNCS="0"
@@ -1180,8 +1197,14 @@ jobs:
           echo "rustc_version=$RUSTC_VERSION" >> $GITHUB_OUTPUT
           echo "cargo_version=$CARGO_VERSION" >> $GITHUB_OUTPUT
           echo "cargo_lock_hash=$CARGO_LOCK_HASH" >> $GITHUB_OUTPUT
+          echo "spec_sha=${SPEC_SHA}" >> $GITHUB_OUTPUT
+          echo "spec_version=${SPEC_VERSION}" >> $GITHUB_OUTPUT
+          echo "spec_content_sha256=${SPEC_CONTENT_SHA256}" >> $GITHUB_OUTPUT
           
           echo "📋 Build Metadata:"
+          echo "  Spec SHA: ${SPEC_SHA:-<not from dispatch>}"
+          echo "  Spec version: ${SPEC_VERSION:-<not from dispatch>}"
+          echo "  Spec content SHA-256: ${SPEC_CONTENT_SHA256:-<not from dispatch>}"
           echo "  Spec-lock verified: $SPEC_LOCK_VERIFIED"
           echo "  Spec-lock functions: $SPEC_LOCK_CONSENSUS_FUNCS"
           echo "  Spec-lock output hash: $SPEC_LOCK_OUTPUT_HASH"
@@ -1197,6 +1220,9 @@ jobs:
           # Create metadata JSON file for artifact storage
           cat > build-metadata.json << EOF
           {
+            "spec_sha": "${{ steps.metadata.outputs.spec_sha }}",
+            "spec_version": "${{ steps.metadata.outputs.spec_version }}",
+            "spec_content_sha256": "${{ steps.metadata.outputs.spec_content_sha256 }}",
             "spec_lock_verified": ${{ steps.metadata.outputs.spec_lock_verified == 'true' && 'true' || 'false' }},
             "spec_lock_consensus_functions": ${{ steps.metadata.outputs.spec_lock_consensus_functions }},
             "spec_lock_output_hash": "${{ steps.metadata.outputs.spec_lock_output_hash }}",
