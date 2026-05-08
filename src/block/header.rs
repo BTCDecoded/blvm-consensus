@@ -53,7 +53,7 @@ use blvm_spec_lock::spec_locked;
 ///   If `Some`, also enforces H04 (timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME)
 ///   and H05 (timestamp ≥ median_time_past).
 #[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
-#[spec_locked("5.3")]
+#[spec_locked("5.3.1", "ValidBlockHeader")]
 #[inline]
 pub(crate) fn validate_block_header(
     header: &BlockHeader,
