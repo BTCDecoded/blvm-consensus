@@ -10,7 +10,7 @@ use crate::transaction::is_coinbase;
 use crate::types::{Hash, Natural, OutPoint, Transaction, UtxoSet, UTXO};
 use blvm_spec_lock::spec_locked;
 
-/// ApplyTransaction (Orange Paper 5.3.1)
+/// ApplyTransaction (Orange Paper 5.3.2)
 ///
 /// For transaction tx and UTXO set us:
 /// 1. If tx is coinbase: us' = us ∪ {(tx.id, i) ↦ tx.outputs\[i\] : i ∈ \[0, |tx.outputs|)}
@@ -21,7 +21,7 @@ use blvm_spec_lock::spec_locked;
 /// For batch operations, use `apply_transaction_with_id` instead.
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
-#[spec_locked("5.3.1")]
+#[spec_locked("5.3.2")]
 #[track_caller]
 pub fn apply_transaction(
     tx: &Transaction,
@@ -40,7 +40,7 @@ pub fn apply_transaction(
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
 /// When `bip30_index` is Some, updates it for coinbase add/remove (O(1) BIP30 checks).
-#[spec_locked("5.3.1")]
+#[spec_locked("5.3.2")]
 pub(crate) fn apply_transaction_with_id(
     tx: &Transaction,
     tx_id: Hash,

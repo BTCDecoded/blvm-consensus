@@ -1,12 +1,24 @@
-//! Block header validation (Orange Paper Section 5.3).
+//! Block header validation (Orange Paper Section 5.3, §5.3.1).
 //!
-//! Single place for header rules; easier to add BIP54 timewarp and version checks.
+//! Single place for structural and time header rules. Part of a larger validation pipeline.
 //!
-//! ## Scope
+//! ## What this module checks (H01, H03–H06 of §5.3.1)
 //!
-//! This module checks **structural / field** rules and **time** rules when a [`TimeContext`] is
-//! supplied. **Proof-of-work** (hash vs compact target) is **not** validated here — use
-//! [`crate::pow::check_proof_of_work`] / chain connection paths that combine PoW with context.
+//! - **H01** — version ≥ 1 (floor; version 0 is rejected unconditionally)
+//! - **H03** — timestamp ≠ 0
+//! - **H04** — timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME (requires [`TimeContext`])
+//! - **H05** — timestamp ≥ median_time_past / BIP113 MTP (requires [`TimeContext`])
+//! - **H06** — bits ≠ 0
+//! - merkle_root ≠ all-zeros (structural sanity only; full merkle verification is in ConnectBlock)
+//!
+//! ## What this module does NOT check
+//!
+//! - **H02** — height-dependent version minimums (version ≥ 2/3/4 after BIP34/66/65): see
+//!   [`crate::bip_validation::check_bip90`], called by `connect_block_inner`.
+//! - **H07** — proof of work (hash vs compact target): see [`crate::pow::check_proof_of_work`].
+//! - **H08** — parent hash linkage: enforced by the node chain layer, not `blvm-consensus`.
+//!
+//! Callers connecting a block must invoke all three to satisfy `ValidBlockHeader` in full.
 //!
 //! ## Refactor / audit notes (coordinate with `blvm-spec-lock` before changing shape)
 //!
@@ -14,26 +26,32 @@
 //!   with `assert!` below — that only adds panic risk if someone reorders code.
 //! - The tautological `assert!(result || !result)` (below) is **on purpose**: formal verification /
 //!   spec-lock tooling hooks here. Do not delete without verifier sign-off.
-//! - **Version `0`** is rejected by `version < 1`.
-//! - **Merkle root** is `[u8; 32]`; an extra length check would be redundant.
+//! - **Version `0`** is rejected by `version < 1` (H01). Version 1 is valid before BIP34 and
+//!   invalid after it — that boundary is enforced by `check_bip90` (H02), not here.
+//! - **Merkle root** field is checked for all-zeros only (structural guard). Cryptographic
+//!   verification of the merkle root against block transactions happens in `connect_block_inner`.
 
 use crate::error::Result;
 use crate::types::{BlockHeader, TimeContext};
 use blvm_spec_lock::spec_locked;
 
-/// Validate block header fields and optional BIP113-style time rules.
+/// Validate block header structural and time rules (H01, H03–H06 of §5.3.1).
 ///
-/// Returns `Ok(true)` if all checks pass, `Ok(false)` if the header is invalid for these rules.
-/// Does **not** run proof-of-work; see [`crate::pow::check_proof_of_work`].
+/// Returns `Ok(true)` if all checks pass, `Ok(false)` if any check fails.
+///
+/// This is one component of `ValidBlockHeader`. Callers connecting a block must also invoke:
+/// - [`crate::bip_validation::check_bip90`] — H02: height-dependent version minimums
+/// - [`crate::pow::check_proof_of_work`] — H07: hash vs compact target
+///
+/// Parent hash linkage (H08) is enforced by the node layer.
 ///
 /// # Arguments
 ///
 /// * `header` - Block header to validate
-/// * `time_context` - Optional time context for timestamp validation (BIP113)
-///   If None, only basic timestamp checks are performed (non-zero).
-///   If Some, full timestamp validation is performed:
-///   - Rejects blocks with timestamps > network_time + MAX_FUTURE_BLOCK_TIME
-///   - Rejects blocks with timestamps < median_time_past
+/// * `time_context` - Optional time context for timestamp validation (BIP113).
+///   If `None`, only H01/H03/H06 (version, non-zero timestamp, bits) are enforced.
+///   If `Some`, also enforces H04 (timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME)
+///   and H05 (timestamp ≥ median_time_past).
 #[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
 #[spec_locked("5.3")]
 #[inline]
