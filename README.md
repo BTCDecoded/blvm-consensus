@@ -134,21 +134,9 @@ blvm-consensus = "0.1"
 
 (`0.1` matches any **0.1.**z on crates.io; use `=` + a full version if you need a locked patch for reproducibility.)
 
-All consensus-critical dependencies are pinned to exact versions:
+**Dependency constraints** follow the canonical [`Cargo.toml`](https://github.com/BTCDecoded/blvm-consensus/blob/main/Cargo.toml): many **blvm-*** crates use **pre-1.0 ranges** on crates.io; **third-party** crates use **`=`** pins only where the manifest does. Do not treat this README as a second copy of the lockfile—open the manifest (and lockfile if your checkout has one) for the exact graph.
 
-```toml
-# Consensus-critical cryptography - EXACT VERSIONS
-secp256k1 = "=0.28.2"
-sha2 = "=0.10.9"
-ripemd = "=0.1.3"
-bitcoin_hashes = "=0.11.0"
-
-# Non-consensus-critical utilities - COMPATIBLE VERSIONS
-serde = { version = "~1.0", features = ["derive"] }
-serde_json = "~1.0"
-anyhow = "~1.0"
-thiserror = "~1.0"
-```
+**Requirements**: satisfy **`rust-version`** in **`Cargo.toml`** (currently **1.83+**).
 
 ## Performance Optimizations
 
@@ -170,8 +158,6 @@ PGO works by:
 1. Building with instrumentation to collect execution profiles
 2. Running benchmarks to generate profile data
 3. Rebuilding with profile data to optimize hot paths
-
-**Requirements**: Rust 1.70+ (LLVM 15+)
 
 ### Production Build
 
