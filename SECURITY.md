@@ -7,7 +7,7 @@ This document covers repo-specific security boundaries. See the [BTCDecoded Secu
 All consensus-critical cryptographic dependencies are pinned to exact versions for supply chain security:
 
 - **Consensus-critical cryptography**: Exact versions (`=`) for `secp256k1`, `ripemd`, `bitcoin_hashes`
-- **Non-consensus utilities**: Exact versions for supply chain security (`serde`, `serde_json`, `anyhow`, `thiserror`)
+- **Non-consensus utilities**: Exact versions for supply chain security (`serde`, `hex`); test-only tools (`bincode`, `serde_json`, etc.) use matching pins under `[dev-dependencies]`
 - **Formal verification tools**: Exact versions for reproducibility (`proptest`, `blvm-spec-lock`)
 
 **Rationale**: Consensus-critical code must be deterministic and reproducible. Exact version pinning prevents:
