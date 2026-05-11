@@ -427,6 +427,13 @@ jobs:
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
 
+      # Ensure the spec is present and up-to-date before building blvm-consensus.
+      # The #[spec_locked] proc-macro reads ../blvm-spec at compile time; without this
+      # step the fuzz build can pick up a stale spec from a previous job on the same
+      # self-hosted runner and fail if a section ID added since that clone doesn't exist.
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
