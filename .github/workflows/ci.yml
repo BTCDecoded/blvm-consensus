@@ -94,6 +94,10 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
@@ -159,6 +163,10 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
@@ -230,6 +238,10 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
         with:
@@ -582,6 +594,9 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
