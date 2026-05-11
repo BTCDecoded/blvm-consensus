@@ -1,0 +1,17 @@
+name: Consensus checkout
+description: >
+  Checkout + strip [patch.crates-io] + refresh blvm-spec.
+  Every job that compiles blvm-consensus must use this action so that
+  the #[spec_locked] proc-macro always sees a current spec on
+  self-hosted runners where the workspace directory persists.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: Strip [patch.crates-io] for crates.io-only CI
+      uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+    - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+      uses: BTCDecoded/rust-ci/setup-blvm-spec@main

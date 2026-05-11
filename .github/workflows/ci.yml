@@ -89,14 +89,8 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
-      
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -158,14 +152,8 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
-      
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -233,14 +221,8 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_docs]'))
     steps:
-      - uses: actions/checkout@v4
-      
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -308,14 +290,8 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_verify]'))
     steps:
-      - uses: actions/checkout@v4
-      
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      - name: Setup blvm-spec (PROTOCOL.md + ARCHITECTURE.md for verification)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Record spec revision
         run: |
@@ -434,17 +410,8 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_fuzz]'))
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      # Ensure the spec is present and up-to-date before building blvm-consensus.
-      # The #[spec_locked] proc-macro reads ../blvm-spec at compile time; without this
-      # step the fuzz build can pick up a stale spec from a previous job on the same
-      # self-hosted runner and fail if a section ID added since that clone doesn't exist.
-      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -589,14 +556,8 @@ jobs:
         ((needs.fuzz-build.result == 'success' && needs.fuzz.result == 'success') ||
          (needs.fuzz-build.result == 'skipped' && needs.fuzz.result == 'skipped')))
     steps:
-      - uses: actions/checkout@v4
-      
-
-      - name: Strip [patch.crates-io] for crates.io-only CI
-        uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
-
-      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
-        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+      - name: Checkout
+        uses: ./.github/actions/consensus-checkout
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -663,6 +624,9 @@ jobs:
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
+
+      - name: Setup blvm-spec (for #[spec_locked] proc-macro)
+        uses: BTCDecoded/rust-ci/setup-blvm-spec@main
 
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
