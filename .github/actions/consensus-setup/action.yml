@@ -16,3 +16,17 @@ runs:
 
     - name: Setup blvm-spec (for #[spec_locked] proc-macro)
       uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
+    - name: Force-refresh blvm-spec to HEAD on persistent runners
+      shell: bash
+      run: |
+        # Self-hosted runners persist the workspace between jobs/runs.
+        # setup-blvm-spec@main may clone once and not update the working tree on
+        # subsequent runs, leaving the proc-macro with a stale spec (missing new
+        # sections like §5.3.2).  Force a fetch+checkout so the working tree always
+        # matches origin/main before any cargo compilation step.
+        if [ -d "../blvm-spec/.git" ]; then
+          git -C ../blvm-spec fetch --depth=1 origin main 2>&1 || true
+          git -C ../blvm-spec checkout FETCH_HEAD 2>&1 || true
+          echo "blvm-spec HEAD: $(git -C ../blvm-spec rev-parse --short HEAD)"
+        fi
