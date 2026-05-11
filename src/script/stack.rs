@@ -8,7 +8,7 @@ use crate::types::*;
 #[cfg(feature = "production")]
 use smallvec::SmallVec;
 
-/// Stack element: inline up to 80 bytes when production (sigs, pubkeys, hashes), else Vec<u8>.
+/// Stack element: inline up to 80 bytes when production (sigs, pubkeys, hashes), else `Vec<u8>`.
 #[cfg(feature = "production")]
 pub type StackElement = SmallVec<[u8; 80]>;
 #[cfg(not(feature = "production"))]

@@ -71,7 +71,7 @@ pub struct BlockSessionContext {
     pub script_pubkey_indices_buffer: Arc<Vec<(usize, usize)>>,
     /// Block-level buffer for all prevout script_pubkeys; (start, len) from script_pubkey_indices_buffer index into this.
     pub script_pubkey_buffer: Arc<Vec<u8>>,
-    /// Block-level witness data; workers index via session.witness_buffer[ctx.tx_index][input_idx].
+    /// Block-level witness data; workers index via `session.witness_buffer[ctx.tx_index][input_idx]`.
     pub witness_buffer: Arc<Vec<Vec<Witness>>>,
     pub tx_contexts: Arc<Vec<TxScriptContext>>,
     #[cfg(feature = "production")]

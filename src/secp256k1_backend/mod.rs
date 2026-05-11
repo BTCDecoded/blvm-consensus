@@ -46,7 +46,7 @@ pub fn verify_schnorr(sig: &[u8; 64], msg: &[u8], pubkey: &[u8; 32]) -> Result<b
     ))
 }
 
-/// Schnorr batch verify: returns Vec<bool> with one result per signature.
+/// Schnorr batch verify: returns `Vec<bool>` with one result per signature.
 /// Uses blvm-secp256k1 batch API when available; otherwise per-sig loop via libsecp256k1.
 pub fn verify_schnorr_batch(
     sigs: &[[u8; 64]],

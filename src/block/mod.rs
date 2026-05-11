@@ -35,7 +35,7 @@ use crate::transaction::is_coinbase;
 
 /// Overlay delta for disk sync. Returned by connect_block_ibd when BLVM_USE_OVERLAY_DELTA=1.
 /// Node converts to SyncBatch and calls apply_sync_batch instead of sync_block_to_batch.
-/// Arc<UTXO> in additions avoids clone in apply_sync_batch hot path.
+/// `Arc<UTXO>` in additions avoids clone in apply_sync_batch hot path.
 ///
 /// Single struct definition; production uses faster hashers (FxHashMap/FxHashSet).
 #[derive(Debug, Clone)]
@@ -316,7 +316,7 @@ mod tx_id_pool {
         ));
     }
 
-    /// Fused serialize+hash using thread-local buffer. Avoids Vec<Vec<u8>> allocation.
+    /// Fused serialize+hash using thread-local buffer. Avoids `Vec<Vec<u8>>` allocation.
     pub fn compute_tx_id_with_pool(tx: &Transaction) -> Hash {
         use crate::crypto::OptimizedSha256;
         use crate::serialization::transaction::serialize_transaction_into;

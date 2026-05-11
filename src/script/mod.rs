@@ -10,7 +10,7 @@
 //! - Secp256k1 context reuse (thread-local, zero-cost abstraction)
 //! - Script result caching (production feature only, maintains correctness)
 //! - Hash operation result caching (OP_HASH160, OP_HASH256)
-//! - Stack pooling (thread-local pool of pre-allocated Vec<StackElement>)
+//! - Stack pooling (thread-local pool of pre-allocated `Vec<StackElement>`)
 //! - Memory allocation optimizations
 
 mod arithmetic;
@@ -792,7 +792,7 @@ pub fn verify_script_with_context(
 ///
 /// This version accepts prevout values and script_pubkeys as separate slices to avoid
 /// unnecessary cloning of script_pubkey data.
-/// P2PK fast-path. Bare pay-to-pubkey: scriptPubKey = <pubkey> OP_CHECKSIG, scriptSig = <sig>.
+/// P2PK fast-path. Bare pay-to-pubkey: scriptPubKey is `pubkey` + OP_CHECKSIG, scriptSig is `sig`.
 /// Common in early blocks (coinbase outputs). Returns Some(Ok(bool)) if handled; None to fall back.
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
@@ -1224,7 +1224,7 @@ pub fn verify_p2pk_inline(
     .unwrap_or(false))
 }
 
-/// P2SH-multisig fast path: when redeem script matches OP_m <pubkeys> OP_n OP_CHECKMULTISIG,
+/// P2SH-multisig fast path: when redeem script matches `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`,
 /// verify each (sig, pubkey, sighash) inline via ecdsa::verify(), avoiding the interpreter.
 /// Returns Some(Ok(true/false)) if we handled it, None to fall through to interpreter.
 #[allow(clippy::too_many_arguments)]
@@ -1370,8 +1370,8 @@ fn try_verify_p2sh_multisig_fast_path(
     Some(Ok(valid_sigs >= m))
 }
 
-/// Bare multisig fast path: scriptPubKey is OP_n <pubkeys> OP_m OP_CHECKMULTISIG directly.
-/// No P2SH wrapper; scriptSig is [dummy, sig_1, ..., sig_m]. Same verification as P2SH multisig.
+/// Bare multisig fast path: scriptPubKey is `OP_n <pubkeys> OP_m OP_CHECKMULTISIG` directly.
+/// No P2SH wrapper; scriptSig is \[dummy, sig_1, ..., sig_m\]. Same verification as P2SH multisig.
 #[allow(clippy::too_many_arguments)]
 fn try_verify_bare_multisig_fast_path(
     script_sig: &ByteString,
@@ -1842,7 +1842,7 @@ fn try_verify_p2wpkh_fast_path(
     Some(is_valid)
 }
 
-/// P2WPKH-in-P2SH (nested SegWit). ScriptPubKey P2SH, scriptSig = [redeem], redeem = OP_0 <20-byte-hash>, witness = [sig, pubkey].
+/// P2WPKH-in-P2SH (nested SegWit). ScriptPubKey P2SH, scriptSig = \[redeem\], redeem = OP_0 + 20-byte pubkey hash, witness = \[sig, pubkey\].
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
 fn try_verify_p2wpkh_in_p2sh_fast_path(
@@ -4467,11 +4467,10 @@ pub(crate) fn parse_p2sh_p2pkh_for_precompute(script_sig: &[u8]) -> Option<(u8, 
     Some((sig[sig.len() - 1], redeem))
 }
 
-/// Zero-allocation parser for P2PKH scriptSig: exactly two data pushes [signature, pubkey].
+/// Zero-allocation parser for P2PKH scriptSig: exactly two data pushes (`signature`, then `pubkey`).
 /// Returns (sig_slice, pubkey_slice) borrowing into script_sig, or None if invalid.
-#[inline(always)]
-/// Parse P2PKH scriptSig as <sig> <pubkey>. Returns (sig, pubkey) or None if invalid.
 /// Pub(crate) for batch sighash precompute in block.rs.
+#[inline(always)]
 pub(crate) fn parse_p2pkh_script_sig(script_sig: &[u8]) -> Option<(&[u8], &[u8])> {
     let mut i = 0;
     let (adv1, s_start, s_end) = parse_one_data_push(script_sig, i)?;
@@ -4623,7 +4622,7 @@ fn parse_p2sh_script_sig_pushes(script_sig: &[u8]) -> Option<Vec<StackElement>> 
     parse_script_sig_push_only(script_sig)
 }
 
-/// Parse redeem script as OP_n <pubkeys> OP_m OP_CHECKMULTISIG.
+/// Parse redeem script as `OP_n <pubkeys> OP_m OP_CHECKMULTISIG`.
 /// Format: first byte OP_1..OP_16 = n, then n pubkeys (33 or 65 bytes each),
 /// then OP_1..OP_16 = m, then 0xae (OP_CHECKMULTISIG).
 /// Returns (m, n, pubkey_slices) or None if format doesn't match.
@@ -4694,7 +4693,7 @@ fn script_num_from_opcode(opcode: u8) -> i64 {
     }
 }
 
-/// Serialize data as a Bitcoin push operation: <push_opcode> <data>
+/// Serialize data as a Bitcoin push operation: `push_opcode` followed by `data` bytes.
 /// This creates the byte pattern that FindAndDelete searches for.
 /// Push data to script (BIP62 encoding rules).
 pub(crate) fn serialize_push_data(data: &[u8]) -> Vec<u8> {
@@ -6033,7 +6032,7 @@ fn execute_opcode_with_context_full(
     }
 }
 
-/// Rare opcode dispatch (#[cold] so hot path stays compact).
+/// Rare opcode dispatch (`#[cold]` so hot path stays compact).
 #[cold]
 fn execute_opcode_cold(opcode: u8, stack: &mut Vec<StackElement>, flags: u32) -> Result<bool> {
     execute_opcode(opcode, stack, flags, SigVersion::Base)

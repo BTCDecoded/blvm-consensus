@@ -344,7 +344,7 @@ pub fn check_bip66(
 ///
 /// Implements IsValidSignatureEncoding (BIP66 strict DER) exactly.
 /// BIP66 requires strict DER encoding with specific rules:
-/// - Format: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]
+/// - Format: `0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]`
 /// - No leading zeros in R or S (unless needed to prevent negative interpretation)
 /// - Minimal length encoding
 fn is_strict_der(signature: &[u8]) -> Result<bool> {
@@ -579,7 +579,7 @@ pub fn check_bip147(
 /// It must be empty (OP_0 = 0x00) after activation.
 ///
 /// Stack layout for OP_CHECKMULTISIG:
-/// [dummy] [sig1] [sig2] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]
+/// `[dummy] [sig1] [sig2] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]`
 ///
 /// The dummy element is the last element pushed before OP_CHECKMULTISIG executes.
 /// We check if it's OP_0 (empty).

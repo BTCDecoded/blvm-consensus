@@ -7,7 +7,7 @@
 //!
 //! **Context**: Tapscript only (leaf version 0xc0)
 //!
-//! Specification: https://raw.githubusercontent.com/bitcoin/bips/master/bip-0348.md
+//! Specification: <https://raw.githubusercontent.com/bitcoin/bips/master/bip-0348.md>
 //!
 //! ## Overview
 //!

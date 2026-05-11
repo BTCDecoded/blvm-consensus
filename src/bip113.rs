@@ -3,7 +3,7 @@
 //! Implements median time-past calculation for block timestamps.
 //! Used for CLTV (BIP65) timestamp validation and time-based relative locktime (BIP68).
 //!
-//! Specification: https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki
+//! Specification: <https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki>
 //!
 //! The median time-past is calculated from the timestamps of the last 11 blocks,
 //! providing a more stable time reference that prevents time-warp attacks.
