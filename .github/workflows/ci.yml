@@ -508,12 +508,19 @@ jobs:
       - name: Restore fuzz target from shared stash
         run: |
           STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
+          echo "Runner hostname: $(hostname)"
+          echo "Run ID: ${GITHUB_RUN_ID}"
+          echo "Stash path: $STASH"
           if [ ! -d "$STASH/target" ]; then
-            echo "Expected $STASH/target from fuzz-build (same GITHUB_RUN_ID, shared /tmp on runner pool)"
+            echo "❌ Stash missing — fuzz-build must run on the same machine (shared /tmp)."
+            echo "   Contents of /tmp/gh-fuzz-blvm-consensus/ (if any):"
+            ls /tmp/gh-fuzz-blvm-consensus/ 2>/dev/null || echo "   (empty or absent)"
             exit 1
           fi
+          echo "✅ Stash found. Restoring fuzz binaries..."
           rm -rf fuzz/target
           cp -a "$STASH/target" fuzz/target
+          echo "Binaries available: $(ls fuzz/target/x86_64-unknown-linux-gnu/release/ | grep -v '\.' | wc -l)"
 
       - name: Run libFuzzer binaries (TARGETS.md shard)
         working-directory: fuzz
@@ -533,7 +540,9 @@ jobs:
             echo "=== shard $shard/$shards: $t ==="
             bin="$PWD/target/x86_64-unknown-linux-gnu/release/$t"
             if [ ! -x "$bin" ]; then
-              echo "missing executable $bin"
+              echo "❌ Missing executable: $bin"
+              echo "   Available binaries in release/:"
+              ls "$PWD/target/x86_64-unknown-linux-gnu/release/" | grep -v '\.' || true
               exit 1
             fi
             timeout 210 "$bin" "corpus/$t" -- \
@@ -639,6 +648,14 @@ jobs:
 
       - name: Setup blvm-spec (for #[spec_locked] proc-macro)
         uses: BTCDecoded/rust-ci/setup-blvm-spec@main
+
+      - name: Force-refresh blvm-spec to HEAD on persistent runners
+        run: |
+          if [ -d "../blvm-spec/.git" ]; then
+            git -C ../blvm-spec fetch --depth=1 origin main 2>&1 || true
+            git -C ../blvm-spec checkout FETCH_HEAD 2>&1 || true
+            echo "blvm-spec HEAD: $(git -C ../blvm-spec rev-parse --short HEAD)"
+          fi
 
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
