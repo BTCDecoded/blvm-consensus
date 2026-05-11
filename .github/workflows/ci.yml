@@ -89,8 +89,10 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -152,8 +154,10 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -221,8 +225,10 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_docs]'))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -290,8 +296,10 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_verify]'))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Record spec revision
         run: |
@@ -410,8 +418,10 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_fuzz]'))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
@@ -556,8 +566,10 @@ jobs:
         ((needs.fuzz-build.result == 'success' && needs.fuzz.result == 'success') ||
          (needs.fuzz-build.result == 'skipped' && needs.fuzz.result == 'skipped')))
     steps:
-      - name: Checkout
-        uses: ./.github/actions/consensus-checkout
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: ./.github/actions/consensus-setup
 
       - name: Cache
         uses: BTCDecoded/rust-ci/runner-cargo-cache@main
