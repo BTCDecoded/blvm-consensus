@@ -405,11 +405,11 @@ jobs:
           }
           echo "✅ MIRI checks passed"
 
-  fuzz-build:
-    name: Fuzz (build once)
+  fuzz:
+    name: Fuzz
     needs: [setup]
     runs-on: [self-hosted, Linux, X64, builds]
-    timeout-minutes: 60
+    timeout-minutes: 30
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
@@ -450,64 +450,12 @@ jobs:
           chmod +x init_corpus.sh
           ./init_corpus.sh
 
-      # Do not set RUSTFLAGS here: cargo-fuzz already injects sancov + ASAN; duplicating
-      # -Cpasses=sancov-module breaks the link step (sancov ctors discarded with --gc-sections).
-      - name: Build all fuzz binaries (once per workflow)
+      # cargo-fuzz injects sancov + ASAN; do not set RUSTFLAGS here.
+      - name: Build fuzz binaries
         working-directory: fuzz
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           cargo +nightly fuzz build
-
-      - name: Save Cargo cache
-        if: always()
-        uses: BTCDecoded/rust-ci/runner-cargo-cache@main
-        with:
-          operation: save
-
-      # Shard jobs read this path on the runner filesystem (no GitHub artifact upload).
-      # Requires fuzz-build and all fuzz matrix jobs to run on hosts that share this path
-      # (same machine or NFS-mounted /tmp).
-      - name: Stash fuzz target for shard jobs
-        run: |
-          STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
-          rm -rf "$STASH"
-          mkdir -p "$STASH"
-          cp -a fuzz/target "$STASH/"
-
-  fuzz:
-    name: Fuzz (all targets, parallel)
-    needs: [setup, fuzz-build]
-    runs-on: [self-hosted, Linux, X64, builds]
-    timeout-minutes: 30
-    if: |
-      (github.event_name != 'push' || github.event.head_commit == null || 
-       (!contains(github.event.head_commit.message, '[skip ci]') &&
-        !contains(github.event.head_commit.message, '[ci skip]') &&
-        !contains(github.event.head_commit.message, '[no ci]'))) &&
-      (github.event_name != 'push' || github.event.head_commit == null || 
-       !contains(github.event.head_commit.message, '[skip_fuzz]'))
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Initialize corpus dirs
-        working-directory: fuzz
-        run: |
-          chmod +x init_corpus.sh
-          ./init_corpus.sh
-
-      - name: Restore fuzz target from stash or workspace
-        run: |
-          if [ -d "fuzz/target" ]; then
-            echo "✅ fuzz/target present in workspace (single-runner path)."
-          else
-            STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
-            if [ ! -d "$STASH/target" ]; then
-              echo "❌ fuzz/target missing from workspace and stash ($STASH/target not found)."
-              exit 1
-            fi
-            cp -a "$STASH/target" fuzz/target
-            echo "✅ fuzz/target restored from stash."
-          fi
 
       - name: Run all libFuzzer binaries in parallel
         working-directory: fuzz
@@ -533,9 +481,15 @@ jobs:
           rm -f "$RUNSCRIPT"
           exit $EXIT
 
+      - name: Save Cargo cache
+        if: always()
+        uses: BTCDecoded/rust-ci/runner-cargo-cache@main
+        with:
+          operation: save
+
   build:
     name: Build
-    needs: [setup, test, clippy, fmt, docs, security, verify, fuzz-build, fuzz]
+    needs: [setup, test, clippy, fmt, docs, security, verify, fuzz]
     runs-on: [self-hosted, Linux, X64, builds]
     env:
       # Use release-fast for PRs, branches — full release only for push to main
@@ -554,8 +508,7 @@ jobs:
         (needs.fmt.result == 'success' || needs.fmt.result == 'skipped') &&
         (needs.docs.result == 'success' || needs.docs.result == 'skipped') &&
         (needs.security.result == 'success' || needs.security.result == 'skipped') &&
-        ((needs.fuzz-build.result == 'success' && needs.fuzz.result == 'success') ||
-         (needs.fuzz-build.result == 'skipped' && needs.fuzz.result == 'skipped')))
+        (needs.fuzz.result == 'success' || needs.fuzz.result == 'skipped'))
     steps:
       - uses: actions/checkout@v4
 
@@ -597,7 +550,7 @@ jobs:
 
   release:
     name: Release
-    needs: [build, test, verify, fuzz-build, fuzz]
+    needs: [build, test, verify, fuzz]
     runs-on: [self-hosted, Linux, X64, builds]
     if: |
       always() &&
@@ -611,8 +564,7 @@ jobs:
         !contains(github.event.head_commit.message, '[skip release]'))) &&
       ((needs.test.result == 'success' || needs.test.result == 'skipped') &&
         (needs.verify.result == 'success' || needs.verify.result == 'skipped') &&
-        ((needs.fuzz-build.result == 'success' && needs.fuzz.result == 'success') ||
-         (needs.fuzz-build.result == 'skipped' && needs.fuzz.result == 'skipped')))
+        (needs.fuzz.result == 'success' || needs.fuzz.result == 'skipped'))
     permissions:
       contents: write
       id-token: write
