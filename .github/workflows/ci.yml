@@ -1216,7 +1216,7 @@ jobs:
       - name: Trigger downstream build chain
         # Fire after a successful publish so downstream repos (blvm-protocol, blvm-node, …)
         # pick up the new crates.io version and run their own CI against it.
-        if: steps.publish.outputs.published == 'true' && secrets.REPO_ACCESS_TOKEN != ''
+        if: ${{ steps.publish.outputs.published == 'true' && secrets.REPO_ACCESS_TOKEN != '' }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           for REPO in BTCDecoded/blvm-protocol BTCDecoded/blvm-node; do
