@@ -475,12 +475,10 @@ jobs:
           cp -a fuzz/target "$STASH/"
 
   fuzz:
-    name: Fuzz (shard ${{ matrix.shard }}/8)
+    name: Fuzz (all targets, parallel)
     needs: [setup, fuzz-build]
-    # Self-hosted `runs-on` matches labels only, not runner.name — do not pin by name here.
     runs-on: [self-hosted, Linux, X64, builds]
-    # Sequential fuzz runs only (210s cap each); binaries copied from fuzz-build stash on disk
-    timeout-minutes: 60
+    timeout-minutes: 30
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
@@ -488,16 +486,8 @@ jobs:
         !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_fuzz]'))
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
-
-      # Shards only execute prebuilt libFuzzer binaries from fuzz-build (no Cargo/rustup).
-      # Avoid `cargo fuzz run` here: it re-invokes Cargo and races rustup on shared runners.
 
       - name: Initialize corpus dirs
         working-directory: fuzz
@@ -505,51 +495,43 @@ jobs:
           chmod +x init_corpus.sh
           ./init_corpus.sh
 
-      - name: Restore fuzz target from shared stash
+      - name: Restore fuzz target from stash or workspace
         run: |
-          STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
-          echo "Runner hostname: $(hostname)"
-          echo "Run ID: ${GITHUB_RUN_ID}"
-          echo "Stash path: $STASH"
-          if [ ! -d "$STASH/target" ]; then
-            echo "❌ Stash missing — fuzz-build must run on the same machine (shared /tmp)."
-            echo "   Contents of /tmp/gh-fuzz-blvm-consensus/ (if any):"
-            ls /tmp/gh-fuzz-blvm-consensus/ 2>/dev/null || echo "   (empty or absent)"
-            exit 1
+          if [ -d "fuzz/target" ]; then
+            echo "✅ fuzz/target present in workspace (single-runner path)."
+          else
+            STASH="/tmp/gh-fuzz-blvm-consensus/${GITHUB_RUN_ID}"
+            if [ ! -d "$STASH/target" ]; then
+              echo "❌ fuzz/target missing from workspace and stash ($STASH/target not found)."
+              exit 1
+            fi
+            cp -a "$STASH/target" fuzz/target
+            echo "✅ fuzz/target restored from stash."
           fi
-          echo "✅ Stash found. Restoring fuzz binaries..."
-          rm -rf fuzz/target
-          cp -a "$STASH/target" fuzz/target
-          echo "Binaries available: $(ls fuzz/target/x86_64-unknown-linux-gnu/release/ | grep -v '\.' | wc -l)"
 
-      - name: Run libFuzzer binaries (TARGETS.md shard)
+      - name: Run all libFuzzer binaries in parallel
         working-directory: fuzz
         env:
           ASAN_OPTIONS: detect_odr_violation=0
         run: |
           mapfile -t bins < <(grep -v '^#' TARGETS.md | grep -v '^$' || true)
-          shard=${{ matrix.shard }}
-          shards=8
-          idx=0
-          for t in "${bins[@]}"; do
-            if (( idx % shards != shard )); then
-              ((idx++)) || true
-              continue
-            fi
-            ((idx++)) || true
-            echo "=== shard $shard/$shards: $t ==="
-            bin="$PWD/target/x86_64-unknown-linux-gnu/release/$t"
-            if [ ! -x "$bin" ]; then
-              echo "❌ Missing executable: $bin"
-              echo "   Available binaries in release/:"
-              ls "$PWD/target/x86_64-unknown-linux-gnu/release/" | grep -v '\.' || true
-              exit 1
-            fi
-            timeout 210 "$bin" "corpus/$t" -- \
-              -max_total_time=120 \
-              -timeout=10 \
-              -max_len=100000
-          done
+          JOBS=$(nproc)
+          echo "Running ${#bins[@]} fuzz targets across $JOBS cores in parallel"
+          RUNSCRIPT=$(mktemp /tmp/fuzz-run-XXXXXX.sh)
+          cat > "$RUNSCRIPT" << 'SCRIPT'
+          #!/usr/bin/env bash
+          t=$1
+          bin="$PWD/target/x86_64-unknown-linux-gnu/release/$t"
+          if [ ! -x "$bin" ]; then echo "❌ missing: $bin"; exit 1; fi
+          echo "▶ $t"
+          timeout 210 "$bin" "corpus/$t" -- -max_total_time=60 -timeout=10 -max_len=100000 2>&1 | tail -3
+          echo "✓ $t"
+          SCRIPT
+          chmod +x "$RUNSCRIPT"
+          printf '%s\n' "${bins[@]}" | xargs -P"$JOBS" -I{} bash "$RUNSCRIPT" {}
+          EXIT=$?
+          rm -f "$RUNSCRIPT"
+          exit $EXIT
 
   build:
     name: Build
