@@ -21,6 +21,48 @@ fn make_fee_calculation_underflow_error() -> ConsensusError {
     ConsensusError::TransactionValidation("Fee calculation underflow".into())
 }
 
+/// Sum all output values with checked overflow arithmetic.
+///
+/// Shared by `check_tx_inputs_with_utxos` and `check_tx_inputs_with_owned_data`
+/// to avoid duplicating the fold/checked-add/error-mapping pattern.
+#[inline]
+fn sum_output_values(outputs: &[TransactionOutput]) -> Result<i64> {
+    outputs
+        .iter()
+        .try_fold(0i64, |acc, output| {
+            assert!(
+                output.value >= 0,
+                "Output value {} must be non-negative",
+                output.value
+            );
+            acc.checked_add(output.value)
+                .ok_or_else(|| ConsensusError::TransactionValidation("Output value overflow".into()))
+        })
+        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))
+}
+
+/// Short-circuits validation for trivially invalid (empty non-coinbase) or coinbase transactions.
+///
+/// Returns `Some(Ok(...))` when the caller should return immediately, `None` to continue.
+/// Eliminates the identical guard block repeated at the top of every `check_tx_inputs_*` variant.
+#[inline]
+fn coinbase_or_empty_short_circuit(
+    tx: &Transaction,
+) -> Option<Result<(ValidationResult, Integer)>> {
+    if tx.inputs.is_empty() && !is_coinbase(tx) {
+        return Some(Ok((
+            ValidationResult::Invalid(
+                "Transaction must have inputs unless it's a coinbase".to_string(),
+            ),
+            0,
+        )));
+    }
+    if is_coinbase(tx) {
+        return Some(Ok((ValidationResult::Valid, 0)));
+    }
+    None
+}
+
 /// Fast-path early-exit checks for transaction validation
 ///
 /// Performs quick checks before expensive validation operations.
@@ -363,16 +405,8 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
     height: Natural,
     pre_collected_utxos: Option<&[Option<&UTXO>]>,
 ) -> Result<(ValidationResult, Integer)> {
-    // Precondition checks: Validate function inputs
-    // Note: We check this condition and return Invalid rather than asserting,
-    // to allow tests to verify the validation logic properly
-    if tx.inputs.is_empty() && !is_coinbase(tx) {
-        return Ok((
-            ValidationResult::Invalid(
-                "Transaction must have inputs unless it's a coinbase".to_string(),
-            ),
-            0,
-        ));
+    if let Some(result) = coinbase_or_empty_short_circuit(tx) {
+        return result;
     }
     assert!(
         height <= i64::MAX as u64,
@@ -383,16 +417,6 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
         "UTXO set size {} exceeds maximum",
         utxo_set.len()
     );
-
-    // Check if this is a coinbase transaction
-    if is_coinbase(tx) {
-        // Postcondition assertion: Coinbase fee must be zero
-        #[allow(clippy::eq_op)]
-        {
-            // Coinbase fee must be zero (tautology for formal verification)
-        }
-        return Ok((ValidationResult::Valid, 0));
-    }
 
     // Check that non-coinbase inputs don't have null prevouts (Orange Paper Section 5.1, rule 6)
     // ∀i ∈ ins: ¬i.prevout.IsNull()
@@ -548,29 +572,12 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
         }
     }
 
-    // Use checked sum to prevent overflow when summing outputs
-    let total_output_value: i64 = tx
-        .outputs
-        .iter()
-        .try_fold(0i64, |acc, output| {
-            // Invariant assertion: Output value must be non-negative
-            assert!(
-                output.value >= 0,
-                "Output value {} must be non-negative",
-                output.value
-            );
-            acc.checked_add(output.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation("Output value overflow".into())
-            })
-        })
-        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
+    let total_output_value = sum_output_values(&tx.outputs)?;
 
-    // Invariant assertion: Total output value must be non-negative
     assert!(
         total_output_value >= 0,
         "Total output value {total_output_value} must be non-negative"
     );
-    // Check that output total doesn't exceed MAX_MONEY
     assert!(
         total_output_value <= MAX_MONEY,
         "Total output value {total_output_value} must not exceed MAX_MONEY"
@@ -618,16 +625,8 @@ pub fn check_tx_inputs_with_owned_data(
     height: Natural,
     utxo_data: &[Option<(i64, bool, u64)>],
 ) -> Result<(ValidationResult, Integer)> {
-    if tx.inputs.is_empty() && !is_coinbase(tx) {
-        return Ok((
-            ValidationResult::Invalid(
-                "Transaction must have inputs unless it's a coinbase".to_string(),
-            ),
-            0,
-        ));
-    }
-    if is_coinbase(tx) {
-        return Ok((ValidationResult::Valid, 0));
+    if let Some(result) = coinbase_or_empty_short_circuit(tx) {
+        return result;
     }
     if utxo_data.len() != tx.inputs.len() {
         return Ok((
@@ -670,15 +669,7 @@ pub fn check_tx_inputs_with_owned_data(
             ));
         }
     }
-    let total_output_value: i64 = tx
-        .outputs
-        .iter()
-        .try_fold(0i64, |acc, output| {
-            acc.checked_add(output.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation("Output value overflow".into())
-            })
-        })
-        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))?;
+    let total_output_value = sum_output_values(&tx.outputs)?;
     if total_output_value > MAX_MONEY {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -843,6 +834,22 @@ pub(crate) mod transaction_proptest {
                 is_coinbase,
             })
     }
+
+    /// Minimal single-input transaction with one output of the given value.
+    /// Used by `prop_output_value_bounds` to avoid inline Transaction boilerplate.
+    pub fn make_tx_single_output(value: i64) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput { value, script_pubkey: vec![] }].into(),
+            lock_time: 0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -977,32 +984,16 @@ mod property_tests {
         fn prop_output_value_bounds(
             value in 0i64..(MAX_MONEY + 1000)
         ) {
-            let tx = Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0 },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value,
-                    script_pubkey: vec![],
-                }].into(),
-                lock_time: 0,
-            };
-
+            use super::transaction_proptest::make_tx_single_output;
+            let tx = make_tx_single_output(value);
             let result = check_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
 
-            // Value bounds property
             if !(0..=MAX_MONEY).contains(&value) {
                 prop_assert!(matches!(result, ValidationResult::Invalid(_)),
                     "Transactions with invalid output values must be invalid");
             } else {
-                // Valid values should pass other checks too
-                if !tx.inputs.is_empty() && !tx.outputs.is_empty() {
-                    prop_assert!(matches!(result, ValidationResult::Valid),
-                        "Transactions with valid output values should be valid");
-                }
+                prop_assert!(matches!(result, ValidationResult::Valid),
+                    "Transactions with valid output values should be valid");
             }
         }
     }
@@ -1012,52 +1003,65 @@ mod property_tests {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_check_transaction_valid() {
-        let tx = Transaction {
+    // ============================================================================
+    // TEST BUILDERS
+    // ============================================================================
+
+    fn make_input(hash: [u8; 32], index: u32) -> TransactionInput {
+        TransactionInput {
+            prevout: OutPoint { hash, index },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }
+    }
+
+    fn make_output(value: i64) -> TransactionOutput {
+        TransactionOutput {
+            value,
+            script_pubkey: vec![].into(),
+        }
+    }
+
+    /// Minimal valid non-coinbase transaction with one input (hash=0, index=0).
+    fn make_simple_tx(value: i64) -> Transaction {
+        Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
+            inputs: vec![make_input([0; 32], 0)].into(),
+            outputs: vec![make_output(value)].into(),
+            lock_time: 0,
+        }
+    }
+
+    /// N unique inputs with distinct hashes (hash bytes 0-3 encode `i` as little-endian u32).
+    fn make_n_inputs(n: usize) -> Vec<TransactionInput> {
+        (0..n)
+            .map(|i| {
+                let mut hash = [0u8; 32];
+                hash[..4].copy_from_slice(&(i as u32).to_le_bytes());
+                make_input(hash, i as u32)
+            })
+            .collect()
+    }
+
+    /// N outputs each with the given value.
+    fn make_n_outputs(n: usize, value: i64) -> Vec<TransactionOutput> {
+        (0..n).map(|_| make_output(value)).collect()
+    }
+
+    /// N inputs with large `script_sig` bytes (for size-limit tests).
+    fn make_n_large_inputs(n: usize, script_size: usize) -> Vec<TransactionInput> {
+        (0..n)
+            .map(|i| TransactionInput {
+                prevout: OutPoint { hash: { let mut h = [0u8; 32]; h[..4].copy_from_slice(&(i as u32).to_le_bytes()); h }, index: 0 },
+                script_sig: vec![0u8; script_size],
                 sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert_eq!(check_transaction(&tx).unwrap(), ValidationResult::Valid);
+            })
+            .collect()
     }
 
-    #[test]
-    fn test_check_transaction_empty_inputs() {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert!(matches!(
-            check_transaction(&tx).unwrap(),
-            ValidationResult::Invalid(_)
-        ));
-    }
-
-    #[test]
-    fn test_check_tx_inputs_coinbase() {
-        let tx = Transaction {
+    /// Coinbase transaction (null prevout, index=0xffffffff).
+    fn make_coinbase_tx(value: i64) -> Transaction {
+        Transaction {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
@@ -1068,17 +1072,41 @@ mod tests {
                 sequence: 0xffffffff,
             }]
             .into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000, // 50 BTC
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
+            outputs: vec![make_output(value)].into(),
+            lock_time: 0,
+        }
+    }
+
+    // ============================================================================
+    // TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_check_transaction_valid() {
+        assert_eq!(
+            check_transaction(&make_simple_tx(1000)).unwrap(),
+            ValidationResult::Valid
+        );
+    }
+
+    #[test]
+    fn test_check_transaction_empty_inputs() {
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![].into(),
+            outputs: vec![make_output(1000)].into(),
             lock_time: 0,
         };
+        assert!(matches!(
+            check_transaction(&tx).unwrap(),
+            ValidationResult::Invalid(_)
+        ));
+    }
 
+    #[test]
+    fn test_check_tx_inputs_coinbase() {
         let utxo_set = UtxoSet::default();
-        let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-
+        let (result, fee) = check_tx_inputs(&make_coinbase_tx(5_000_000_000), &utxo_set, 0).unwrap();
         assert_eq!(result, ValidationResult::Valid);
         assert_eq!(fee, 0);
     }
@@ -1091,19 +1119,10 @@ mod tests {
     fn test_check_transaction_empty_outputs() {
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
+            inputs: vec![make_input([0; 32], 0)].into(),
             outputs: vec![].into(),
             lock_time: 0,
         };
-
         assert!(matches!(
             check_transaction(&tx).unwrap(),
             ValidationResult::Invalid(_)
@@ -1112,107 +1131,37 @@ mod tests {
 
     #[test]
     fn test_check_transaction_invalid_output_value_negative() {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: -1, // Invalid negative value
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
         assert!(matches!(
-            check_transaction(&tx).unwrap(),
+            check_transaction(&make_simple_tx(-1)).unwrap(),
             ValidationResult::Invalid(_)
         ));
     }
 
     #[test]
     fn test_check_transaction_invalid_output_value_too_large() {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: MAX_MONEY + 1, // Invalid value exceeding max
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
         assert!(matches!(
-            check_transaction(&tx).unwrap(),
+            check_transaction(&make_simple_tx(MAX_MONEY + 1)).unwrap(),
             ValidationResult::Invalid(_)
         ));
     }
 
     #[test]
     fn test_check_transaction_max_output_value() {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: MAX_MONEY, // Valid max value
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
-            lock_time: 0,
-        };
-
-        assert_eq!(check_transaction(&tx).unwrap(), ValidationResult::Valid);
+        assert_eq!(
+            check_transaction(&make_simple_tx(MAX_MONEY)).unwrap(),
+            ValidationResult::Valid
+        );
     }
 
     #[test]
     fn test_check_transaction_too_many_inputs() {
-        let mut inputs = Vec::new();
-        for i in 0..=MAX_INPUTS {
-            inputs.push(TransactionInput {
-                prevout: OutPoint {
-                    hash: [i as u8; 32],
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            });
-        }
-
+        // MAX_INPUTS + 1 inputs → must be rejected
         let tx = Transaction {
             version: 1,
-            inputs: inputs.into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
+            inputs: make_n_inputs(MAX_INPUTS + 1).into(),
+            outputs: vec![make_output(1000)].into(),
             lock_time: 0,
         };
-
         assert!(matches!(
             check_transaction(&tx).unwrap(),
             ValidationResult::Invalid(_)
@@ -1221,67 +1170,25 @@ mod tests {
 
     #[test]
     fn test_check_transaction_max_inputs() {
-        // Use a reasonable number of inputs that fits within the block weight limit.
-        // Each input ≈ 41 bytes stripped. Weight limit = 4,000,000. Max stripped = 1,000,000.
-        // Max inputs ≈ 1,000,000 / 41 ≈ 24,390. Use 20,000 to stay safe.
-        let num_inputs = 20_000;
-        let mut inputs = Vec::new();
-        for i in 0..num_inputs {
-            let mut hash = [0u8; 32];
-            // Use unique hash for each input to avoid duplicates
-            hash[0] = (i & 0xff) as u8;
-            hash[1] = ((i >> 8) & 0xff) as u8;
-            hash[2] = ((i >> 16) & 0xff) as u8;
-            hash[3] = ((i >> 24) & 0xff) as u8;
-            inputs.push(TransactionInput {
-                prevout: OutPoint {
-                    hash,
-                    index: i as u32,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            });
-        }
-
+        // 20_000 unique inputs — fits within the 1 MB stripped-size limit
+        // (each ≈ 41 bytes; 20_000 × 41 ≈ 820 kB < 1 MB)
         let tx = Transaction {
             version: 1,
-            inputs: inputs.into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
+            inputs: make_n_inputs(20_000).into(),
+            outputs: vec![make_output(1000)].into(),
             lock_time: 0,
         };
-
         assert_eq!(check_transaction(&tx).unwrap(), ValidationResult::Valid);
     }
 
     #[test]
     fn test_check_transaction_too_many_outputs() {
-        let mut outputs = Vec::new();
-        for _ in 0..=MAX_OUTPUTS {
-            outputs.push(TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            });
-        }
-
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: outputs.into(),
+            inputs: vec![make_input([0; 32], 0)].into(),
+            outputs: make_n_outputs(MAX_OUTPUTS + 1, 1000).into(),
             lock_time: 0,
         };
-
         assert!(matches!(
             check_transaction(&tx).unwrap(),
             ValidationResult::Invalid(_)
@@ -1290,383 +1197,153 @@ mod tests {
 
     #[test]
     fn test_check_transaction_max_outputs() {
-        let mut outputs = Vec::new();
-        for _ in 0..MAX_OUTPUTS {
-            outputs.push(TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            });
-        }
-
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: outputs.into(),
+            inputs: vec![make_input([0; 32], 0)].into(),
+            outputs: make_n_outputs(MAX_OUTPUTS, 1000).into(),
             lock_time: 0,
         };
-
         assert_eq!(check_transaction(&tx).unwrap(), ValidationResult::Valid);
     }
 
     #[test]
     fn test_check_transaction_too_large() {
-        // Create a transaction that will exceed MAX_BLOCK_WEIGHT / WITNESS_SCALE_FACTOR
-        // MAX_BLOCK_WEIGHT is 4,000,000, so MAX_TX_SIZE is effectively 1,000,000 bytes
-        // calculate_transaction_size now uses actual serialization, so we need to create
-        // a transaction with large scripts to exceed the size limit while staying within input limits
-        use crate::constants::MAX_INPUTS;
-        let mut inputs = Vec::new();
-        // Use MAX_INPUTS inputs with large scripts to exceed size limit
-        // Each input: 32 (hash) + 4 (index) + varint(script_len) + script + 4 (sequence)
-        // With 1000 inputs and ~1000 byte scripts each, we get ~1MB+ transaction
-        for i in 0..MAX_INPUTS {
-            inputs.push(TransactionInput {
-                prevout: OutPoint {
-                    hash: [i as u8; 32],
-                    index: 0,
-                },
-                script_sig: vec![0u8; 1000], // Large script to increase size (1000 bytes each)
-                sequence: 0xffffffff,
-            });
-        }
-
+        // MAX_INPUTS inputs each with a 1 kB script_sig pushes the stripped size
+        // past 1 MB (MAX_BLOCK_WEIGHT / WITNESS_SCALE_FACTOR).
         let tx = Transaction {
             version: 1,
-            inputs: inputs.into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
+            inputs: make_n_large_inputs(MAX_INPUTS, 1000).into(),
+            outputs: vec![make_output(1000)].into(),
             lock_time: 0,
         };
-
         assert!(matches!(
             check_transaction(&tx).unwrap(),
             ValidationResult::Invalid(_)
         ));
     }
 
+    fn make_utxo_set(entries: &[([u8; 32], u32, i64)]) -> UtxoSet {
+        let mut utxo_set = UtxoSet::default();
+        for &(hash, index, value) in entries {
+            utxo_set.insert(
+                OutPoint { hash, index },
+                std::sync::Arc::new(UTXO {
+                    value,
+                    script_pubkey: vec![].into(),
+                    height: 0,
+                    is_coinbase: false,
+                }),
+            );
+        }
+        utxo_set
+    }
+
     #[test]
     fn test_check_tx_inputs_regular_transaction() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add UTXO to the set
-        let outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let utxo = UTXO {
-            value: 1000000000, // 10 BTC
-            script_pubkey: vec![].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
-
+        let utxo_set = make_utxo_set(&[([1; 32], 0, 1_000_000_000)]);
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 900000000, // 9 BTC output
-                script_pubkey: vec![],
-            }]
-            .into(),
+            inputs: vec![make_input([1; 32], 0)].into(),
+            outputs: vec![make_output(900_000_000)].into(),
             lock_time: 0,
         };
-
         let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-
         assert_eq!(result, ValidationResult::Valid);
-        assert_eq!(fee, 100000000); // 1 BTC fee
+        assert_eq!(fee, 100_000_000);
     }
 
     #[test]
     fn test_check_tx_inputs_missing_utxo() {
-        let utxo_set = UtxoSet::default(); // Empty UTXO set
-
+        let utxo_set = UtxoSet::default();
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 100000000,
-                script_pubkey: vec![],
-            }]
-            .into(),
+            inputs: vec![make_input([1; 32], 0)].into(),
+            outputs: vec![make_output(100_000_000)].into(),
             lock_time: 0,
         };
-
         let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-
         assert!(matches!(result, ValidationResult::Invalid(_)));
         assert_eq!(fee, 0);
     }
 
     #[test]
     fn test_check_tx_inputs_insufficient_funds() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add UTXO with insufficient value
-        let outpoint = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let utxo = UTXO {
-            value: 100000000, // 1 BTC
-            script_pubkey: vec![].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
-
+        let utxo_set = make_utxo_set(&[([1; 32], 0, 100_000_000)]);
         let tx = Transaction {
             version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 200000000, // 2 BTC output (more than input)
-                script_pubkey: vec![],
-            }]
-            .into(),
+            inputs: vec![make_input([1; 32], 0)].into(),
+            outputs: vec![make_output(200_000_000)].into(),
             lock_time: 0,
         };
-
         let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-
         assert!(matches!(result, ValidationResult::Invalid(_)));
         assert_eq!(fee, 0);
     }
 
     #[test]
     fn test_check_tx_inputs_multiple_inputs() {
-        let mut utxo_set = UtxoSet::default();
-
-        // Add two UTXOs
-        let outpoint1 = OutPoint {
-            hash: [1; 32],
-            index: 0,
-        };
-        let utxo1 = UTXO {
-            value: 500000000, // 5 BTC
-            script_pubkey: vec![].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
-
-        let outpoint2 = OutPoint {
-            hash: [2; 32],
-            index: 0,
-        };
-        let utxo2 = UTXO {
-            value: 300000000, // 3 BTC
-            script_pubkey: vec![].into(),
-            height: 0,
-            is_coinbase: false,
-        };
-        utxo_set.insert(outpoint2, std::sync::Arc::new(utxo2));
-
+        let utxo_set = make_utxo_set(&[([1; 32], 0, 500_000_000), ([2; 32], 0, 300_000_000)]);
         let tx = Transaction {
             version: 1,
-            inputs: vec![
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32].into(),
-                        index: 0,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [2; 32],
-                        index: 0,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-            ]
-            .into(),
-            outputs: vec![TransactionOutput {
-                value: 700000000, // 7 BTC output
-                script_pubkey: vec![].into(),
-            }]
-            .into(),
+            inputs: vec![make_input([1; 32], 0), make_input([2; 32], 0)].into(),
+            outputs: vec![make_output(700_000_000)].into(),
             lock_time: 0,
         };
-
         let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-
         assert_eq!(result, ValidationResult::Valid);
-        assert_eq!(fee, 100000000); // 1 BTC fee (8 BTC input - 7 BTC output)
+        assert_eq!(fee, 100_000_000); // 8 BTC in - 7 BTC out
+    }
+
+    fn bare_tx(inputs: Vec<TransactionInput>) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: inputs.into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        }
     }
 
     #[test]
     fn test_is_coinbase_edge_cases() {
-        // Valid coinbase
-        let valid_coinbase = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        assert!(is_coinbase(&valid_coinbase));
-
-        // Wrong hash
-        let wrong_hash = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [1; 32].into(),
-                    index: 0xffffffff,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        assert!(!is_coinbase(&wrong_hash));
-
-        // Wrong index
-        let wrong_index = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint {
-                    hash: [0; 32].into(),
-                    index: 0,
-                },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }]
-            .into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        assert!(!is_coinbase(&wrong_index));
-
-        // Multiple inputs
-        let multiple_inputs = Transaction {
-            version: 1,
-            inputs: vec![
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [0; 32].into(),
-                        index: 0xffffffff,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-                TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32],
-                        index: 0,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                },
-            ]
-            .into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        assert!(!is_coinbase(&multiple_inputs));
-
-        // No inputs
-        let no_inputs = Transaction {
-            version: 1,
-            inputs: vec![].into(),
-            outputs: vec![].into(),
-            lock_time: 0,
-        };
-        assert!(!is_coinbase(&no_inputs));
+        assert!(is_coinbase(&bare_tx(vec![make_input([0; 32], 0xffffffff)])));
+        assert!(!is_coinbase(&bare_tx(vec![make_input([1; 32], 0xffffffff)]))); // wrong hash
+        assert!(!is_coinbase(&bare_tx(vec![make_input([0; 32], 0)]))); // wrong index
+        assert!(!is_coinbase(&bare_tx(vec![
+            make_input([0; 32], 0xffffffff),
+            make_input([1; 32], 0),
+        ]))); // multiple inputs
+        assert!(!is_coinbase(&bare_tx(vec![]))); // no inputs
     }
 
     #[test]
     fn test_calculate_transaction_size() {
+        // 4 (version) + 1 (input_count) +
+        // 2 × (32 + 4 + 1 + 3 + 4)  [hash + index + script_len varint + script + sequence] +
+        // 1 (output_count) +
+        // 2 × (8 + 1 + 3)            [value + script_len varint + script] +
+        // 4 (lock_time) = 122
         let tx = Transaction {
             version: 1,
             inputs: vec![
                 TransactionInput {
-                    prevout: OutPoint {
-                        hash: [0; 32].into(),
-                        index: 0,
-                    },
+                    prevout: OutPoint { hash: [0; 32].into(), index: 0 },
                     script_sig: vec![1, 2, 3],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32],
-                        index: 1,
-                    },
+                    prevout: OutPoint { hash: [1; 32], index: 1 },
                     script_sig: vec![4, 5, 6],
                     sequence: 0xffffffff,
                 },
             ]
             .into(),
             outputs: vec![
-                TransactionOutput {
-                    value: 1000,
-                    script_pubkey: vec![7, 8, 9].into(),
-                },
-                TransactionOutput {
-                    value: 2000,
-                    script_pubkey: vec![10, 11, 12],
-                },
+                TransactionOutput { value: 1000, script_pubkey: vec![7, 8, 9].into() },
+                TransactionOutput { value: 2000, script_pubkey: vec![10, 11, 12] },
             ]
             .into(),
             lock_time: 12345,
         };
-
-        let size = calculate_transaction_size(&tx);
-        // Expected actual serialized size:
-        // 4 (version) + 1 (input_count varint) +
-        // 2 * (32 + 4 + 1 + 3 + 4) (inputs: hash + index + script_len_varint + script + sequence) +
-        // 1 (output_count varint) +
-        // 2 * (8 + 1 + 3) (outputs: value + script_len_varint + script) +
-        // 4 (lock_time) = 4 + 1 + 88 + 1 + 24 + 4 = 122
-        // This matches actual serialization (not simplified calculation)
-        assert_eq!(size, 122);
+        assert_eq!(calculate_transaction_size(&tx), 122);
     }
 }
