@@ -90,10 +90,17 @@ pub mod prefetch {
 
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
-    pub unsafe fn prefetch_read(_ptr: *const i8) {
-        // std::arch::aarch64::_prefetch was only stabilised in Rust 1.87
-        // (issue #117217).  The crate MSRV is 1.83, so we use a no-op here;
-        // the hint is purely advisory and omitting it has no correctness impact.
+    pub unsafe fn prefetch_read(ptr: *const i8) {
+        // std::arch::aarch64::_prefetch requires the unstable
+        // `stdarch_aarch64_prefetch` feature (issue #117217) and is not yet
+        // available on stable Rust.  Use inline asm instead: `core::arch::asm!`
+        // is stable since 1.59 and emits the identical PRFM instruction.
+        // PRFM PLDL1KEEP = Prefetch for Load, L1, temporal (≡ _prefetch hint T0).
+        core::arch::asm!(
+            "prfm pldl1keep, [{addr}]",
+            addr = in(reg) ptr,
+            options(nostack, readonly, preserves_flags)
+        );
     }
 
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
