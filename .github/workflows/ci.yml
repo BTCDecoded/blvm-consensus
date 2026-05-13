@@ -1216,8 +1216,14 @@ jobs:
       - name: Trigger downstream build chain
         # Fire after a successful publish so downstream repos (blvm-protocol, blvm-node, …)
         # pick up the new crates.io version and run their own CI against it.
-        if: ${{ steps.publish.outputs.published == 'true' && secrets.REPO_ACCESS_TOKEN != '' }}
+        # Note: secrets context is not valid in if: expressions; token presence
+        # is checked inside the script via the REPO_ACCESS_TOKEN env var instead.
+        if: ${{ steps.publish.outputs.published == 'true' }}
         run: |
+          if [ -z "${REPO_ACCESS_TOKEN}" ]; then
+            echo "REPO_ACCESS_TOKEN not set — skipping downstream dispatch"
+            exit 0
+          fi
           VERSION="${{ steps.version.outputs.version }}"
           for REPO in BTCDecoded/blvm-protocol BTCDecoded/blvm-node; do
             echo "Triggering build-chain on ${REPO} for blvm-consensus v${VERSION}..."
