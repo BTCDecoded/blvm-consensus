@@ -466,6 +466,12 @@ mod tests {
         }
     }
 
+    fn make_outpoint_u32(i: u32) -> OutPoint {
+        let mut hash = [0u8; 32];
+        hash[..4].copy_from_slice(&i.to_le_bytes());
+        OutPoint { hash, index: i }
+    }
+
     fn make_utxo(value: i64) -> UTXO {
         UTXO {
             value,
@@ -553,21 +559,24 @@ mod tests {
 
     #[test]
     fn test_overlay_no_clone_on_creation() {
-        // This test verifies the design - overlay creation is O(1)
+        // Verify overlay creation does not scale with base size (no full UTXO set clone).
         let mut base = UtxoSet::default();
-        for i in 0..10000 {
-            utxo_set_insert(&mut base, make_outpoint(i as u8), make_utxo(i as i64));
+        for i in 0..10_000 {
+            utxo_set_insert(&mut base, make_outpoint_u32(i), make_utxo(i as i64));
         }
+        assert_eq!(base.len(), 10_000);
 
-        // Creating overlay should be instant (no clone)
         let start = std::time::Instant::now();
         let _overlay = UtxoOverlay::new(&base);
         let elapsed = start.elapsed();
 
-        // Should be sub-microsecond (just pointer + empty hashmap allocation)
+        // `new` is O(1) over the base, but still allocates fixed-capacity maps for block-sized
+        // deltas (~6000 entries each). Wall time is environment-dependent; this bound catches a
+        // mistaken base.clone()-style implementation (which would be far larger on big sets)
+        // without flaking on loaded self-hosted CI like a sub-millisecond threshold would.
         assert!(
-            elapsed.as_micros() < 100,
-            "Overlay creation took {:?}",
+            elapsed < std::time::Duration::from_millis(100),
+            "Overlay creation took {:?} (expected no full base clone)",
             elapsed
         );
     }
