@@ -9,10 +9,10 @@ use crate::opcodes::*;
 use crate::segwit::{is_segwit_transaction, Witness};
 use crate::transaction::is_coinbase;
 use crate::types::*;
-use crate::witness::is_witness_empty;
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::sync::LazyLock;
 
 use super::BlockValidationContext;
 
@@ -22,7 +22,7 @@ use super::BlockValidationContext;
 
 /// Base script flags for a block from activation context.
 /// Call once per block, then use `calculate_script_flags_for_block` or `add_per_tx_script_flags`.
-#[spec_locked("5.2.5")]
+#[spec_locked("5.2.5", "CalculateScriptFlags")]
 #[inline]
 pub(crate) fn calculate_base_script_flags_for_block(
     height: u64,
@@ -70,7 +70,7 @@ pub fn calculate_base_script_flags_for_block_network(
 }
 
 /// Per-tx script flags (SegWit + Taproot). Add to base flags from `calculate_base_script_flags_for_block`.
-#[spec_locked("5.2.5")]
+#[spec_locked("5.2.5", "CalculateScriptFlags")]
 #[inline]
 fn add_per_tx_script_flags(
     base_flags: u32,
@@ -101,7 +101,7 @@ fn add_per_tx_script_flags(
 }
 
 /// Calculate script verification flags for a transaction in a block (with activation context).
-#[spec_locked("5.2.5")]
+#[spec_locked("5.2.5", "CalculateScriptFlags")]
 pub(crate) fn calculate_script_flags_for_block(
     tx: &Transaction,
     has_witness: bool,
@@ -113,7 +113,7 @@ pub(crate) fn calculate_script_flags_for_block(
 }
 
 /// Convenience: script flags from (height, network) when no context is available (e.g. mempool, bench tools).
-#[spec_locked("5.2.5")]
+#[spec_locked("5.2.5", "CalculateScriptFlags")]
 pub fn calculate_script_flags_for_block_network(
     tx: &Transaction,
     has_witness: bool,
@@ -125,7 +125,7 @@ pub fn calculate_script_flags_for_block_network(
 }
 
 /// Calculate script verification flags for a transaction in a block (with precomputed base flags).
-#[spec_locked("5.2.5")]
+#[spec_locked("5.2.5", "CalculateScriptFlags")]
 #[inline]
 pub(crate) fn calculate_script_flags_for_block_with_base(
     tx: &Transaction,
@@ -135,6 +135,115 @@ pub(crate) fn calculate_script_flags_for_block_with_base(
     activation: &impl IsForkActive,
 ) -> u32 {
     add_per_tx_script_flags(base_flags, tx, has_witness, height, activation)
+}
+
+// ---------------------------------------------------------------------------
+// §5.2.6 Script flag exceptions (Orange Paper; table from Bitcoin Core chainparams)
+// ---------------------------------------------------------------------------
+
+/// RPC / explorer 64-hex block id → canonical digest order used by `hash256(serialize(header))` here.
+fn block_hash_from_rpc_hex(hex_str: &str) -> Hash {
+    let mut bytes = hex::decode(hex_str).expect("valid 64-char block hash hex");
+    assert_eq!(bytes.len(), 32);
+    bytes.reverse();
+    bytes.try_into().expect("length 32")
+}
+
+/// BIP16 exception block (mainnet). `SCRIPT_VERIFY_NONE` in Core.
+static MAINNET_SCRIPT_FLAG_EXCEPTION_BIP16: LazyLock<Hash> = LazyLock::new(|| {
+    block_hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
+});
+/// Taproot exception block (mainnet). `SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS` in Core.
+static MAINNET_SCRIPT_FLAG_EXCEPTION_TAPROOT: LazyLock<Hash> = LazyLock::new(|| {
+    block_hash_from_rpc_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
+});
+/// BIP16 exception block (testnet3). `SCRIPT_VERIFY_NONE` in Core.
+static TESTNET_SCRIPT_FLAG_EXCEPTION_BIP16: LazyLock<Hash> = LazyLock::new(|| {
+    block_hash_from_rpc_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
+});
+
+/// Consensus script-flag override for `block_hash` on `network`, if any (partial map entry).
+///
+/// Bitcoin Core: `Consensus::Params::script_flag_exceptions` (`src/kernel/chainparams.cpp`).
+#[spec_locked("5.2.6", "ScriptFlagExceptions")]
+pub fn script_flag_exceptions_lookup(block_hash: &Hash, network: Network) -> Option<u32> {
+    match network {
+        Network::Mainnet => {
+            if block_hash == &*MAINNET_SCRIPT_FLAG_EXCEPTION_BIP16 {
+                Some(0)
+            } else if block_hash == &*MAINNET_SCRIPT_FLAG_EXCEPTION_TAPROOT {
+                Some(0x01 | 0x800) // SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS
+            } else {
+                None
+            }
+        }
+        Network::Testnet => {
+            if block_hash == &*TESTNET_SCRIPT_FLAG_EXCEPTION_BIP16 {
+                Some(0)
+            } else {
+                None
+            }
+        }
+        Network::Regtest => None,
+    }
+}
+
+/// Bitcoin Core `GetBlockScriptFlags` (`validation.cpp`): start from `SCRIPT_VERIFY_P2SH |
+/// SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT`, replace with the script-flag exception entry
+/// when present, then OR buried deployments (BIP66, BIP65, CSV, BIP147-at-SegWit). Same **block-level**
+/// bitmask is passed to script checks for every non-coinbase transaction.
+///
+/// This is **not** the Orange Paper §5.2.6 piecewise `GetBlockScriptFlags` (exception vs per-tx
+/// `CalculateScriptFlags`); use [`get_block_script_flags`] for that formulation. `connect_block`
+/// uses this function for **mainnet consensus parity** with Bitcoin Core.
+pub fn get_block_script_verify_flags_core(
+    block_hash: &Hash,
+    height: u64,
+    activation: &impl IsForkActive,
+    network: Network,
+) -> u32 {
+    let mut flags = 0x01u32 | 0x800 | 0x8000; // P2SH | WITNESS | TAPROOT
+    if let Some(v) = script_flag_exceptions_lookup(block_hash, network) {
+        flags = v;
+    }
+    if activation.is_fork_active(ForkId::Bip66, height) {
+        flags |= 0x04; // SCRIPT_VERIFY_DERSIG
+    }
+    if activation.is_fork_active(ForkId::Bip65, height) {
+        flags |= 0x200; // CHECKLOCKTIMEVERIFY
+    }
+    if activation.is_fork_active(ForkId::Bip112, height) {
+        flags |= 0x400; // CHECKSEQUENCEVERIFY
+    }
+    if activation.is_fork_active(ForkId::Bip147, height) {
+        flags |= 0x10; // NULLDUMMY (Core: `DEPLOYMENT_SEGWIT`)
+    }
+    #[cfg(feature = "ctv")]
+    if activation.is_fork_active(ForkId::Ctv, height) {
+        flags |= 0x80000000;
+    }
+    flags
+}
+
+/// Orange Paper §5.2.6: exception table wins when defined; otherwise per-tx `CalculateScriptFlags`.
+///
+/// **Note:** Bitcoin Core’s `GetBlockScriptFlags` (`validation.cpp`) starts from a default mask, applies
+/// this exception table, then ORs buried deployments (BIP66, BIP65, CSV, BIP147). **`connect_block`**
+/// uses [`get_block_script_verify_flags_core`] for that Core behavior; this function remains the
+/// Orange Paper §5.2.6 piecewise spec.
+#[spec_locked("5.2.6", "GetBlockScriptFlags")]
+pub fn get_block_script_flags(
+    block_hash: &Hash,
+    tx: &Transaction,
+    has_witness: bool,
+    height: u64,
+    network: Network,
+) -> u32 {
+    if let Some(flags) = script_flag_exceptions_lookup(block_hash, network) {
+        flags
+    } else {
+        calculate_script_flags_for_block_network(tx, has_witness, height, network)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -149,26 +258,23 @@ pub(super) fn insert_script_exec_cache_for_block(
     height: u64,
     context: &BlockValidationContext,
 ) {
-    let base_script_flags = calculate_base_script_flags_for_block(height, context);
+    let block_hash = crate::crypto::OptimizedSha256::new().hash256(
+        &crate::serialization::block::serialize_block_header(&block.header),
+    );
+    let block_script_verify_flags =
+        get_block_script_verify_flags_core(&block_hash, height, context, context.network);
     for (i, tx) in block.transactions.iter().enumerate() {
         if is_coinbase(tx) {
             continue;
         }
         let wits = witnesses.get(i).map(|w| w.as_slice()).unwrap_or(&[]);
-        let has_witness = wits.iter().any(|wit| !is_witness_empty(wit));
-        let flags = calculate_script_flags_for_block_with_base(
-            tx,
-            has_witness,
-            base_script_flags,
-            height,
-            context,
-        );
         let witnesses_vec: Vec<_> = if wits.len() == tx.inputs.len() {
             wits.to_vec()
         } else {
             (0..tx.inputs.len()).map(|_| Vec::new()).collect()
         };
-        let key = crate::script_exec_cache::compute_key(tx, &witnesses_vec, flags);
+        let key =
+            crate::script_exec_cache::compute_key(tx, &witnesses_vec, block_script_verify_flags);
         crate::script_exec_cache::insert(&key);
     }
 }
@@ -334,5 +440,135 @@ pub(super) fn compute_bip143_and_precomp(
             }
         }
         (None, precomp)
+    }
+}
+
+#[cfg(test)]
+mod script_flag_exceptions_tests {
+    use super::{
+        calculate_script_flags_for_block_network, get_block_script_flags,
+        get_block_script_verify_flags_core, script_flag_exceptions_lookup,
+    };
+    use crate::activation::ForkActivationTable;
+    use crate::crypto::OptimizedSha256;
+    use crate::serialization::block::{deserialize_block_header, serialize_block_header};
+    use crate::types::{Network, Transaction};
+
+    fn hash_from_rpc_hex(hex_str: &str) -> [u8; 32] {
+        let mut bytes = hex::decode(hex_str).unwrap();
+        assert_eq!(bytes.len(), 32);
+        bytes.reverse();
+        bytes.try_into().unwrap()
+    }
+
+    #[test]
+    fn mainnet_bip16_exception_zero() {
+        let h =
+            hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22");
+        assert_eq!(script_flag_exceptions_lookup(&h, Network::Mainnet), Some(0));
+    }
+
+    #[test]
+    fn mainnet_taproot_exception_p2sh_witness() {
+        let h =
+            hash_from_rpc_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad");
+        assert_eq!(
+            script_flag_exceptions_lookup(&h, Network::Mainnet),
+            Some(0x01 | 0x800)
+        );
+    }
+
+    #[test]
+    fn testnet_bip16_exception_zero() {
+        let h =
+            hash_from_rpc_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105");
+        assert_eq!(script_flag_exceptions_lookup(&h, Network::Testnet), Some(0));
+        assert_eq!(script_flag_exceptions_lookup(&h, Network::Mainnet), None);
+    }
+
+    #[test]
+    fn regtest_has_no_exceptions() {
+        let h =
+            hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22");
+        assert_eq!(script_flag_exceptions_lookup(&h, Network::Regtest), None);
+    }
+
+    #[test]
+    fn get_block_script_flags_uses_exception() {
+        let h =
+            hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22");
+        let tx = Transaction {
+            version: 1,
+            inputs: Default::default(),
+            outputs: Default::default(),
+            lock_time: 0,
+        };
+        let flags = get_block_script_flags(&h, &tx, false, 1_000_000, Network::Mainnet);
+        assert_eq!(flags, 0);
+    }
+
+    #[test]
+    fn get_block_script_flags_falls_back_to_calculate() {
+        let h = [7u8; 32];
+        let tx = Transaction {
+            version: 1,
+            inputs: Default::default(),
+            outputs: Default::default(),
+            lock_time: 0,
+        };
+        assert_eq!(
+            get_block_script_flags(&h, &tx, false, 100, Network::Mainnet),
+            calculate_script_flags_for_block_network(&tx, false, 100, Network::Mainnet),
+        );
+    }
+
+    #[test]
+    fn genesis_rpc_hex_matches_hash256_of_header() {
+        let genesis_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c010100000001000000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
+        let bytes = hex::decode(genesis_block_hex).unwrap();
+        let header = deserialize_block_header(&bytes[..80]).unwrap();
+        let digest = OptimizedSha256::new().hash256(&serialize_block_header(&header));
+        let expected =
+            hash_from_rpc_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f");
+        assert_eq!(digest, expected);
+    }
+
+    #[test]
+    fn core_block_flags_non_exception_includes_p2sh_witness_taproot_and_deployments() {
+        let table = ForkActivationTable::from_network(Network::Mainnet);
+        let h = [0xabu8; 32];
+        let flags = get_block_script_verify_flags_core(&h, 800_000, &table, Network::Mainnet);
+        assert_eq!(flags & 0x8801, 0x8801, "P2SH | WITNESS | TAPROOT baseline");
+        assert_ne!(flags & 0x04, 0, "DERSIG");
+        assert_ne!(flags & 0x200, 0, "CLTV");
+        assert_ne!(flags & 0x400, 0, "CSV");
+        assert_ne!(flags & 0x10, 0, "NULLDUMMY");
+    }
+
+    #[test]
+    fn core_block_flags_bip16_exception_orrs_buried_deployments() {
+        let table = ForkActivationTable::from_network(Network::Mainnet);
+        let h =
+            hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22");
+        assert_eq!(script_flag_exceptions_lookup(&h, Network::Mainnet), Some(0));
+        let flags = get_block_script_verify_flags_core(&h, 800_000, &table, Network::Mainnet);
+        let deployment_mask = 0x04 | 0x200 | 0x400 | 0x10;
+        assert_eq!(flags & 0x8801, 0);
+        assert_eq!(flags & deployment_mask, deployment_mask);
+        assert_eq!(flags & 0x800, 0);
+        assert_eq!(flags & 0x8000, 0);
+        assert_eq!(flags & 0x01, 0);
+    }
+
+    #[test]
+    fn core_block_flags_taproot_exception_orrs_deployments() {
+        let table = ForkActivationTable::from_network(Network::Mainnet);
+        let h =
+            hash_from_rpc_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad");
+        let flags = get_block_script_verify_flags_core(&h, 800_000, &table, Network::Mainnet);
+        assert_eq!(flags & 0x8801, 0x801);
+        assert_eq!(flags & 0x8000, 0);
+        assert_ne!(flags & 0x800, 0);
+        assert_ne!(flags & 0x04, 0);
     }
 }

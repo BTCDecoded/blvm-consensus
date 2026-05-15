@@ -21,12 +21,11 @@ use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
 use crate::witness::is_witness_empty;
 use std::borrow::Cow;
 
-#[cfg(not(feature = "production"))]
-use super::calculate_script_flags_for_block_with_base;
 #[cfg(feature = "production")]
 use super::script_cache;
 use super::{
-    apply, calculate_base_script_flags_for_block, header, BlockValidationContext, UtxoDelta,
+    apply, header, script_cache::get_block_script_verify_flags_core, BlockValidationContext,
+    UtxoDelta,
 };
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -654,12 +653,14 @@ pub(crate) fn connect_block_inner<'a>(
         }
     }
 
-    // Pre-compute base script flags once per block from activation context
-    let base_script_flags = calculate_base_script_flags_for_block(height, context);
+    // Pre-compute block script verify flags (Bitcoin Core GetBlockScriptFlags): one mask for all txs.
+    let serialized_header = crate::serialization::block::serialize_block_header(&block.header);
+    let block_hash: Hash = crate::crypto::OptimizedSha256::new().hash256(&serialized_header);
+    let block_script_verify_flags =
+        get_block_script_verify_flags_core(&block_hash, height, context, context.network);
 
     // Cache fork activation at block level — avoids per-tx table lookup
     let segwit_active = context.is_fork_active(ForkId::SegWit, height);
-    let taproot_active = segwit_active && context.is_fork_active(ForkId::Taproot, height);
 
     // Pre-compute overlay capacities once (used by all validation paths)
     let estimated_outputs: usize = block.transactions.iter().map(|tx| tx.outputs.len()).sum();
@@ -916,27 +917,7 @@ pub(crate) fn connect_block_inner<'a>(
                         && wits_i
                             .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
                             .unwrap_or(false);
-                    let tx_flags_i = if !segwit_active {
-                        base_script_flags
-                    } else {
-                        let mut flags = base_script_flags;
-                        if has_wit_i || crate::segwit::is_segwit_transaction(tx) {
-                            flags |= 0x800;
-                        }
-                        if taproot_active {
-                            for output in &tx.outputs {
-                                let script = &output.script_pubkey;
-                                if script.len() == TAPROOT_SCRIPT_LENGTH
-                                    && script[0] == OP_1
-                                    && script[1] == PUSH_32_BYTES
-                                {
-                                    flags |= 0x8000;
-                                    break;
-                                }
-                            }
-                        }
-                        flags
-                    };
+                    let tx_flags_i = block_script_verify_flags;
 
                     let (input_valid, fee, prevout_values_range, script_pubkey_indices_range) =
                         if is_coinbase(tx) {
@@ -1889,16 +1870,7 @@ pub(crate) fn connect_block_inner<'a>(
             for (i, tx) in block.transactions.iter().enumerate() {
                 // Accumulate sigop for this tx (non-rayon path; overlay has prev txs)
                 let wits_i = witnesses.get(i).map(|w| w.as_slice());
-                let has_wit = wits_i
-                    .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
-                    .unwrap_or(false);
-                let tx_flags = calculate_script_flags_for_block_with_base(
-                    tx,
-                    has_wit,
-                    base_script_flags,
-                    height,
-                    context,
-                );
+                let tx_flags = block_script_verify_flags;
                 if let Some(msg) =
                     check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
                 {
@@ -2053,13 +2025,7 @@ pub(crate) fn connect_block_inner<'a>(
                     let has_witness = tx_witnesses
                         .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
                         .unwrap_or(false);
-                    let flags = calculate_script_flags_for_block_with_base(
-                        tx,
-                        has_witness,
-                        base_script_flags,
-                        height,
-                        context,
-                    );
+                    let flags = block_script_verify_flags;
                     let median_time_past = time_context
                         .map(|ctx| ctx.median_time_past)
                         .filter(|&mtp| mtp > 0);
@@ -2183,16 +2149,7 @@ pub(crate) fn connect_block_inner<'a>(
             for j in last_sigop_index..block.transactions.len() {
                 let tx_j = &block.transactions[j];
                 let wits_j = witnesses.get(j).map(|w| w.as_slice());
-                let has_wit = wits_j
-                    .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
-                    .unwrap_or(false);
-                let tx_flags = calculate_script_flags_for_block_with_base(
-                    tx_j,
-                    has_wit,
-                    base_script_flags,
-                    height,
-                    context,
-                );
+                let tx_flags = block_script_verify_flags;
                 total_sigop_cost = total_sigop_cost
                     .checked_add(
                         crate::sigop::get_transaction_sigop_cost_with_witness_slices(
@@ -2251,16 +2208,7 @@ pub(crate) fn connect_block_inner<'a>(
         for (i, tx) in block.transactions.iter().enumerate() {
             // Accumulate sigop for this tx (non-production path; overlay has prev txs)
             let wits_i = witnesses.get(i).map(|w| w.as_slice());
-            let has_wit = wits_i
-                .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
-                .unwrap_or(false);
-            let tx_flags = calculate_script_flags_for_block_with_base(
-                tx,
-                has_wit,
-                base_script_flags,
-                height,
-                context,
-            );
+            let tx_flags = block_script_verify_flags;
             total_sigop_cost = total_sigop_cost
                 .checked_add(
                     crate::sigop::get_transaction_sigop_cost_with_witness_slices(
@@ -2351,13 +2299,7 @@ pub(crate) fn connect_block_inner<'a>(
                 let has_witness = tx_witnesses
                     .map(|w| w.iter().any(|wit| !is_witness_empty(wit)))
                     .unwrap_or(false);
-                let flags = calculate_script_flags_for_block_with_base(
-                    tx,
-                    has_witness,
-                    base_script_flags,
-                    height,
-                    context,
-                );
+                let flags = block_script_verify_flags;
                 let median_time_past = time_context
                     .map(|ctx| ctx.median_time_past)
                     .filter(|&mtp| mtp > 0);

@@ -97,5 +97,9 @@ tests/test_data/**/*.bin
 .cache/
 *.pid
 
+# Local-only spec-lock wrappers (use `cargo spec-lock verify`; see SPEC_LOCK_DEPENDENCY.md)
+scripts/spec-lock-verify.sh
+scripts/*.spec-lock.local.sh
+
 # Local Cargo configuration (for local development only)
 .cargo/config.toml

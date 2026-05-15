@@ -34,7 +34,7 @@ const WITNESS_SCALE_FACTOR: u64 = 4;
 ///
 /// # Returns
 /// Number of sigops in the script
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "CountSigOpsInScript")]
 pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
     let mut count = 0u32;
     let mut last_opcode: Option<u8> = None;
@@ -119,7 +119,7 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
 /// Used for **per-tapscript validation weight** during script execution. This must **not** be folded
 /// into block `MAX_BLOCK_SIGOPS_COST`: Bitcoin Core `WitnessSigOps` only counts witness **v0**; v1
 /// (Taproot) contributes **0** to that total.
-#[spec_locked("11.2.8")]
+#[spec_locked("11.2.8", "CountTapscriptSigOps")]
 pub fn count_tapscript_sigops(script: &ByteString) -> u32 {
     let mut count = 0u32;
     let mut i = 0;
@@ -164,10 +164,7 @@ pub fn count_tapscript_sigops(script: &ByteString) -> u32 {
     count
 }
 
-/// Check if a script is P2SH (Pay-to-Script-Hash) — Orange Paper 5.2.1 IsP2SH
-///
-/// P2SH scripts have the format: OP_HASH160 (0xa9) <20-byte-hash> OP_EQUAL (0x87)
-#[spec_locked("5.2.1")]
+/// Orange Paper 5.2.1: P2SH scriptPubKey pattern (consensus `IsP2SH`-style predicate).
 pub fn is_pay_to_script_hash(script: &[u8]) -> bool {
     script.len() == 23
         && script[0] == OP_HASH160  // OP_HASH160
@@ -180,7 +177,6 @@ pub fn is_pay_to_script_hash(script: &[u8]) -> bool {
 /// For P2SH, the scriptSig pushes the redeem script. We need to extract
 /// the last push data item from scriptSig.
 /// Orange Paper 5.2.1: P2SH scriptSig must contain only pushes; last push = redeem script.
-#[spec_locked("5.2.1")]
 fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteString> {
     let mut i = 0;
     let mut last_data: Option<ByteString> = None;
@@ -254,7 +250,7 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
 ///
 /// # Returns
 /// Total number of legacy sigops
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetLegacySigOpCount")]
 pub fn get_legacy_sigop_count(tx: &Transaction) -> u32 {
     let mut count = 0u32;
 
@@ -283,7 +279,7 @@ pub fn get_legacy_sigop_count(tx: &Transaction) -> u32 {
 ///
 /// # Returns
 /// Total number of P2SH sigops
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetP2SHSigOpCount")]
 pub fn get_p2sh_sigop_count<U: UtxoLookup>(tx: &Transaction, utxo_lookup: &U) -> Result<u32> {
     // Coinbase transactions have no P2SH sigops
     use crate::transaction::is_coinbase;
@@ -324,7 +320,7 @@ pub fn get_p2sh_sigop_count<U: UtxoLookup>(tx: &Transaction, utxo_lookup: &U) ->
 ///
 /// # Returns
 /// Number of witness sigops
-#[spec_locked("11.1")]
+#[spec_locked("11.1", "CountWitnessSigOps")]
 pub(crate) fn count_witness_sigops<U: UtxoLookup>(
     tx: &Transaction,
     witnesses: &[Witness],
@@ -383,7 +379,7 @@ pub(crate) fn count_witness_sigops<U: UtxoLookup>(
 
 /// Legacy sigop count with accurate OP_CHECKMULTISIG (OP_1..OP_16 = 1..16, else 20).
 /// Used for BIP54 per-tx 2500 limit to match Core's GetSigOpCount(fAccurate=true).
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetLegacySigOpCount")]
 pub fn get_legacy_sigop_count_accurate(tx: &Transaction) -> u32 {
     let mut count = 0u32;
     for input in &tx.inputs {
@@ -446,7 +442,7 @@ pub fn get_transaction_sigop_count_for_bip54<U: UtxoLookup>(
 ///
 /// # Returns
 /// Total sigop cost
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetTransactionSigOpCost")]
 pub fn get_transaction_sigop_cost<U: UtxoLookup>(
     tx: &Transaction,
     utxo_lookup: &U,
@@ -459,7 +455,7 @@ pub fn get_transaction_sigop_cost<U: UtxoLookup>(
 
 /// Same as get_transaction_sigop_cost but accepts pre-fetched UTXOs in input order.
 /// Avoids redundant overlay lookups when caller already has UTXO data.
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetTransactionSigOpCost")]
 pub fn get_transaction_sigop_cost_with_utxos(
     tx: &Transaction,
     utxos: &[Option<&UTXO>],
@@ -531,7 +527,7 @@ pub fn get_transaction_sigop_cost_with_utxos(
 
 /// Same as get_transaction_sigop_cost but accepts per-input witness slices directly.
 /// Avoids flattening witness data in block validation hot path.
-#[spec_locked("5.2.2")]
+#[spec_locked("5.2.2", "GetTransactionSigOpCost")]
 pub fn get_transaction_sigop_cost_with_witness_slices<U: UtxoLookup>(
     tx: &Transaction,
     utxo_lookup: &U,

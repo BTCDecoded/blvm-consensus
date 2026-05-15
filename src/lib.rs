@@ -140,7 +140,7 @@ impl ConsensusProof {
     }
 
     /// Validate a transaction according to consensus rules
-    #[spec_locked("5.1")]
+    #[spec_locked("5.1", "CheckTransaction")]
     pub fn validate_transaction(
         &self,
         tx: &types::Transaction,
@@ -149,7 +149,7 @@ impl ConsensusProof {
     }
 
     /// Validate transaction inputs against UTXO set
-    #[spec_locked("5.1")]
+    #[spec_locked("5.1", "CheckTxInputs")]
     pub fn validate_tx_inputs(
         &self,
         tx: &types::Transaction,
@@ -160,7 +160,7 @@ impl ConsensusProof {
     }
 
     /// Validate a complete block
-    #[spec_locked("5.3")]
+    #[spec_locked("5.3", "ConnectBlock")]
     pub fn validate_block(
         &self,
         block: &types::Block,
@@ -185,7 +185,7 @@ impl ConsensusProof {
     }
 
     /// Validate a complete block with witness data and time context
-    #[spec_locked("5.3")]
+    #[spec_locked("5.3", "ConnectBlock")]
     pub fn validate_block_with_time_context(
         &self,
         block: &types::Block,
@@ -206,7 +206,7 @@ impl ConsensusProof {
     }
 
     /// Verify script execution
-    #[spec_locked("5.2")]
+    #[spec_locked("5.2", "VerifyScript")]
     pub fn verify_script(
         &self,
         script_sig: &types::ByteString,
@@ -218,25 +218,25 @@ impl ConsensusProof {
     }
 
     /// Check proof of work
-    #[spec_locked("7.2")]
+    #[spec_locked("7.2", "CheckProofOfWork")]
     pub fn check_proof_of_work(&self, header: &types::BlockHeader) -> error::Result<bool> {
         pow::check_proof_of_work(header)
     }
 
     /// Get block subsidy for height
-    #[spec_locked("6.1")]
+    #[spec_locked("6.1", "GetBlockSubsidy")]
     pub fn get_block_subsidy(&self, height: types::Natural) -> types::Integer {
         economic::get_block_subsidy(height)
     }
 
     /// Calculate total supply at height
-    #[spec_locked("6.2")]
+    #[spec_locked("6.2", "TotalSupply")]
     pub fn total_supply(&self, height: types::Natural) -> types::Integer {
         economic::total_supply(height)
     }
 
     /// Get next work required for difficulty adjustment
-    #[spec_locked("7.1")]
+    #[spec_locked("7.1", "GetNextWorkRequired")]
     pub fn get_next_work_required(
         &self,
         current_header: &types::BlockHeader,
@@ -246,7 +246,7 @@ impl ConsensusProof {
     }
 
     /// Accept transaction to memory pool
-    #[spec_locked("9.1")]
+    #[spec_locked("9.1", "AcceptToMemoryPool")]
     pub fn accept_to_memory_pool(
         &self,
         tx: &types::Transaction,
@@ -259,13 +259,13 @@ impl ConsensusProof {
     }
 
     /// Check if transaction is standard
-    #[spec_locked("9.2")]
+    #[spec_locked("9.2", "IsStandardTx")]
     pub fn is_standard_tx(&self, tx: &types::Transaction) -> error::Result<bool> {
         mempool::is_standard_tx(tx)
     }
 
     /// Check if transaction can replace existing one (RBF)
-    #[spec_locked("9.3")]
+    #[spec_locked("9.3", "ReplacementChecks")]
     pub fn replacement_checks(
         &self,
         new_tx: &types::Transaction,
@@ -278,7 +278,7 @@ impl ConsensusProof {
 
     /// Create new block from mempool transactions
     #[allow(clippy::too_many_arguments)]
-    #[spec_locked("12.1")]
+    #[spec_locked("12.1", "CreateNewBlock")]
     pub fn create_new_block(
         &self,
         utxo_set: &types::UtxoSet,
@@ -301,7 +301,7 @@ impl ConsensusProof {
     }
 
     /// Mine a block by finding valid nonce
-    #[spec_locked("12.3")]
+    #[spec_locked("12.3", "MineBlock")]
     pub fn mine_block(
         &self,
         block: types::Block,
@@ -312,7 +312,7 @@ impl ConsensusProof {
 
     /// Create block template for mining
     #[allow(clippy::too_many_arguments)]
-    #[spec_locked("12.1")]
+    #[spec_locked("12.4", "BlockTemplate")]
     pub fn create_block_template(
         &self,
         utxo_set: &types::UtxoSet,
@@ -354,7 +354,7 @@ impl ConsensusProof {
     }
 
     /// Check if reorganization is beneficial
-    #[spec_locked("11.3")]
+    #[spec_locked("11.3", "ShouldReorganize")]
     pub fn should_reorganize(
         &self,
         new_chain: &[types::Block],
@@ -364,7 +364,7 @@ impl ConsensusProof {
     }
 
     /// Calculate transaction weight for SegWit
-    #[spec_locked("11.1.1")]
+    #[spec_locked("11.1.1", "CalculateTransactionWeight")]
     pub fn calculate_transaction_weight(
         &self,
         tx: &types::Transaction,
@@ -374,7 +374,7 @@ impl ConsensusProof {
     }
 
     /// Validate SegWit block
-    #[spec_locked("11.1.7")]
+    #[spec_locked("11.1.7", "ValidateSegWitBlock")]
     pub fn validate_segwit_block(
         &self,
         block: &types::Block,
@@ -385,7 +385,7 @@ impl ConsensusProof {
     }
 
     /// Validate Taproot transaction
-    #[spec_locked("11.2.5")]
+    #[spec_locked("11.2.5", "ValidateTaprootTransaction")]
     pub fn validate_taproot_transaction(
         &self,
         tx: &types::Transaction,
@@ -395,7 +395,7 @@ impl ConsensusProof {
     }
 
     /// Check if transaction output is Taproot
-    #[spec_locked("11.2.1")]
+    #[spec_locked("11.2.1", "IsTaprootOutput")]
     pub fn is_taproot_output(&self, output: &types::TransactionOutput) -> bool {
         taproot::is_taproot_output(output)
     }

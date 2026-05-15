@@ -7,7 +7,6 @@
 
 use crate::error::Result;
 use crate::types::Natural;
-use blvm_spec_lock::spec_locked;
 
 use super::SigVersion;
 
@@ -205,7 +204,6 @@ pub fn verify_pre_extracted_ecdsa(
 }
 
 #[cfg(feature = "production")]
-#[spec_locked("5.2")]
 pub fn batch_verify_signatures(
     verification_tasks: &[(&[u8], &[u8], [u8; 32])],
     flags: u32,

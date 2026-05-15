@@ -27,7 +27,7 @@ pub enum WitnessVersion {
 ///
 /// BIP141: Witness must be a vector of byte strings (stack elements).
 /// Each element can be up to MAX_SCRIPT_ELEMENT_SIZE bytes.
-#[spec_locked("11.1.2")]
+#[spec_locked("11.1.2", "ValidateSegWitWitnessStructure")]
 pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
     // Check each witness element size
     // BIP141: Each witness element can be up to 520 bytes (MAX_SCRIPT_ELEMENT_SIZE)
@@ -46,7 +46,7 @@ pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
 /// BIP341: Taproot witness structure depends on spending path:
 /// - Key path: single signature (64 bytes)
 /// - Script path: script, control block (33 + 32n bytes), and witness items
-#[spec_locked("11.2")]
+#[spec_locked("11.2.4", "ValidateTaprootWitnessStructure")]
 pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: bool) -> Result<bool> {
     if witness.is_empty() {
         return Ok(false);
@@ -87,7 +87,7 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
 /// BIP141: Weight(tx) = 3 × BaseSize(tx) + TotalSize(tx)
 /// BaseSize: Transaction size without witness data
 /// TotalSize: Transaction size with witness data
-#[spec_locked("11.1.1")]
+#[spec_locked("11.1.1", "CalculateTransactionWeight")]
 pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natural) -> Natural {
     3 * base_size + total_size
 }
@@ -99,7 +99,7 @@ pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natur
 ///
 /// Mathematical specification:
 /// - vsize = ⌈weight / 4⌉
-#[spec_locked("11.1.1")]
+#[spec_locked("11.1.1", "WeightToVSize")]
 pub fn weight_to_vsize(weight: Natural) -> Natural {
     let result = weight.div_ceil(4);
 
@@ -128,7 +128,7 @@ pub fn weight_to_vsize(weight: Natural) -> Natural {
 ///
 /// Shared function for extracting and validating witness version
 /// from SegWit v0 (OP_0 <witness-program>) or Taproot v1 (OP_1 <witness-program>)
-#[spec_locked("11.1.3")]
+#[spec_locked("11.1.3", "ExtractWitnessVersion")]
 pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
     if script.is_empty() {
         return None;
@@ -148,7 +148,7 @@ pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
 ///
 /// Format: [version_opcode, push_opcode, program_bytes]
 /// Returns: program_bytes (without push opcode)
-#[spec_locked("11.1.3")]
+#[spec_locked("11.1.3", "ExtractWitnessProgram")]
 pub fn extract_witness_program(
     script: &ByteString,
     _version: WitnessVersion,
@@ -177,7 +177,7 @@ pub fn extract_witness_program(
 ///
 /// BIP141: SegWit v0 programs are 20 or 32 bytes (P2WPKH or P2WSH)
 /// BIP341: Taproot v1 programs are 32 bytes (P2TR)
-#[spec_locked("11.1.3")]
+#[spec_locked("11.1.3", "ValidateWitnessProgramLength")]
 pub fn validate_witness_program_length(program: &ByteString, version: WitnessVersion) -> bool {
     use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
 
@@ -194,7 +194,7 @@ pub fn validate_witness_program_length(program: &ByteString, version: WitnessVer
 }
 
 /// Check if witness is empty (non-witness transaction)
-#[spec_locked("11.1.2")]
+#[spec_locked("11.1.2", "IsWitnessEmpty")]
 pub fn is_witness_empty(witness: &Witness) -> bool {
     witness.is_empty() || witness.iter().all(|elem| elem.is_empty())
 }

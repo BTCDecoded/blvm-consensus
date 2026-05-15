@@ -22,7 +22,7 @@ pub use crate::witness::Witness;
 
 /// Calculate transaction weight for SegWit
 /// Weight(tx) = 4 × |Serialize(tx ∖ witness)| + |Serialize(tx)|
-#[spec_locked("11.1.1")]
+#[spec_locked("11.1.1", "CalculateTransactionWeight")]
 pub fn calculate_transaction_weight(
     tx: &Transaction,
     witness: Option<&Witness>,
@@ -44,7 +44,6 @@ pub fn calculate_transaction_weight(
 /// Simplified consensus-facing estimate (version + inputs + outputs + lock_time). Split into
 /// bounded `usize` steps then a single cast so blvm-spec-lock Z3 can verify `ensures` without
 /// timing out on one huge arithmetic expression.
-#[spec_locked("11.1.1")]
 fn calculate_base_size(tx: &Transaction) -> Natural {
     const VERSION_AND_LOCKTIME: usize = 4 + 4;
     const PER_INPUT: usize = 32 + 4 + 1 + 4;
@@ -57,7 +56,6 @@ fn calculate_base_size(tx: &Transaction) -> Natural {
 }
 
 /// Calculate total size (transaction with witness data)
-#[spec_locked("11.1.1")]
 fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural {
     let base_size = calculate_base_size(tx);
 
@@ -71,7 +69,7 @@ fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural 
 
 /// Compute witness merkle root for block
 /// WitnessRoot = ComputeMerkleRoot({Hash(tx.witness) : tx ∈ block.transactions})
-#[spec_locked("11.1.4")]
+#[spec_locked("11.1.4", "ComputeWitnessMerkleRoot")]
 pub fn compute_witness_merkle_root(block: &Block, witnesses: &[Witness]) -> Result<Hash> {
     if block.transactions.is_empty() {
         return Err(crate::error::ConsensusError::ConsensusRuleViolation(
@@ -105,7 +103,7 @@ fn sha256d_bytes(data: &[u8]) -> Hash {
 
 /// Hash witness data
 /// Orange Paper 11.1: Hash(tx.witness) for witness merkle commitment
-#[spec_locked("11.1")]
+#[spec_locked("11.1", "HashWitness")]
 fn hash_witness(witness: &Witness) -> Hash {
     let mut hasher = sha256d::Hash::engine();
     for element in witness {
@@ -120,7 +118,6 @@ fn hash_witness(witness: &Witness) -> Hash {
 /// Hash witness from nested structure (Vec<Witness> per tx) without allocating.
 /// Each tx's witness is the concatenation of its input stacks for merkle commitment.
 /// Orange Paper 11.1.4: Hash(tx.witness) for witness merkle commitment
-#[spec_locked("11.1.4")]
 fn hash_witness_from_nested(tx_witnesses: &[Witness]) -> Hash {
     let mut hasher = sha256d::Hash::engine();
     for witness_stack in tx_witnesses {
@@ -148,7 +145,7 @@ fn hash_witness_from_nested(tx_witnesses: &[Witness]) -> Hash {
 /// non-SegWit transactions, causing every non-SegWit tx to map to the same hash.
 /// In a block with many non-SegWit txs (e.g. block 481824), adjacent pairs of these
 /// identical hashes trigger the CVE-2012-2459 mutation check and abort falsely.
-#[spec_locked("11.1.4")]
+#[spec_locked("11.1.4", "ComputeWitnessMerkleRoot")]
 pub fn compute_witness_merkle_root_from_nested(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -212,7 +209,7 @@ fn compute_merkle_root(hashes: &[Hash]) -> Result<Hash> {
 ///
 /// The OP_RETURN output format is:
 ///   OP_RETURN 0x24 0xaa21a9ed <commitment_hash:32>
-#[spec_locked("11.1.5")]
+#[spec_locked("11.1.5", "ValidateWitnessCommitment")]
 pub fn validate_witness_commitment(
     coinbase_tx: &Transaction,
     witness_merkle_root: &Hash,
@@ -271,7 +268,6 @@ pub fn validate_witness_commitment(
 ///   script[1] = 0x24 (push 36 bytes)
 ///   script[2..6] = 0xaa21a9ed (BIP141 magic prefix)
 ///   script[6..38] = commitment hash (32 bytes)
-#[spec_locked("11.1.5")]
 pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
     const MAGIC: [u8; 4] = [0xaa, 0x21, 0xa9, 0xed];
     if script.len() >= 38 && script[0] == OP_RETURN && script[1] == 0x24 && script[2..6] == MAGIC {
@@ -283,7 +279,7 @@ pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
 }
 
 /// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs
-#[spec_locked("11.1.6")]
+#[spec_locked("11.1.6", "IsSegWitTransaction")]
 pub fn is_segwit_transaction(tx: &Transaction) -> bool {
     use crate::witness::{
         extract_witness_program, extract_witness_version, validate_witness_program_length,
@@ -301,7 +297,7 @@ pub fn is_segwit_transaction(tx: &Transaction) -> bool {
 }
 
 /// Calculate block weight for SegWit blocks
-#[spec_locked("11.1.1")]
+#[spec_locked("11.1.1", "CalculateBlockWeight")]
 pub fn calculate_block_weight(block: &Block, witnesses: &[Witness]) -> Result<Natural> {
     let mut total_weight = 0;
 
@@ -322,7 +318,7 @@ pub fn calculate_block_weight(block: &Block, witnesses: &[Witness]) -> Result<Na
 /// Accepts `&[Vec<Witness>]` where each `Vec<Witness>` is one tx's input witness stacks.
 /// Avoids allocating the flattened structure in the hot block validation path.
 /// Orange Paper 11.1.1: Weight(tx) = 4 × BaseSize + TotalSize
-#[spec_locked("11.1.1")]
+#[spec_locked("11.1.1", "CalculateBlockWeight")]
 #[inline]
 pub fn calculate_block_weight_from_nested(
     block: &Block,
@@ -348,7 +344,7 @@ pub fn calculate_block_weight_from_nested(
 }
 
 /// Validate SegWit block
-#[spec_locked("11.1.7")]
+#[spec_locked("11.1.7", "ValidateSegWitBlock")]
 pub fn validate_segwit_block(
     block: &Block,
     witnesses: &[Witness],

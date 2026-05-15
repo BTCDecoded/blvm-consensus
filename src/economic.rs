@@ -16,7 +16,7 @@ use std::borrow::Cow;
 /// - h = block height
 /// - H = HALVING_INTERVAL (210,000)
 /// - C = SATOSHIS_PER_BTC (10^8)
-#[spec_locked("6.1")]
+#[spec_locked("6.1", "GetBlockSubsidy")]
 #[blvm_spec_lock::requires(height >= 0)]
 #[blvm_spec_lock::ensures(result >= 0)]
 #[blvm_spec_lock::ensures(result <= INITIAL_SUBSIDY)]
@@ -56,7 +56,7 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
 /// Subsidy is constant on each halving epoch \([k×H, (k+1)×H)\) for `k < 64`, so we sum
 /// `count × (INITIAL_SUBSIDY >> k)` per epoch in **O(64)** instead of iterating every block.
 /// (Naive `0..=height` is unusable for heights in the tens of millions used in tests.)
-#[spec_locked("6.2")]
+#[spec_locked("6.2", "TotalSupply")]
 pub fn total_supply(height: Natural) -> Integer {
     let end = height;
     let h = HALVING_INTERVAL;
@@ -107,7 +107,7 @@ pub fn total_supply(height: Natural) -> Integer {
 /// Calculate transaction fee
 ///
 /// Fee = sum of input values - sum of output values
-#[spec_locked("6.5")]
+#[spec_locked("6.5", "CalculateFee")]
 pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     if is_coinbase(tx) {
         return Ok(0);
@@ -171,7 +171,7 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
 /// Validate economic constraints
 ///
 /// Check that the total supply doesn't exceed the maximum money supply
-#[spec_locked("6.3")]
+#[spec_locked("6.3", "ValidateSupplyLimit")]
 pub fn validate_supply_limit(height: Natural) -> Result<bool> {
     let current_supply = total_supply(height);
     Ok(current_supply <= MAX_MONEY)

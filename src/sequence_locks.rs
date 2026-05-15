@@ -54,7 +54,7 @@ const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 /// Pair (min_height, min_time) that must be satisfied:
 /// - min_height: Minimum block height (or -1 if no height constraint)
 /// - min_time: Minimum block time (or -1 if no time constraint)
-#[spec_locked("5.5")]
+#[spec_locked("5.5", "CalculateSequenceLocks")]
 pub fn calculate_sequence_locks(
     tx: &Transaction,
     flags: u32,
@@ -203,7 +203,7 @@ pub fn calculate_sequence_locks(
 ///
 /// # Returns
 /// true if locks are satisfied, false otherwise
-#[spec_locked("5.5")]
+#[spec_locked("5.5", "EvaluateSequenceLocks")]
 pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i64, i64)) -> bool {
     let (min_height, min_time) = lock_pair;
 
@@ -246,7 +246,6 @@ pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i
 ///
 /// # Returns
 /// true if sequence locks are satisfied, false otherwise
-#[spec_locked("5.5")]
 pub fn sequence_locks(
     tx: &Transaction,
     flags: u32,

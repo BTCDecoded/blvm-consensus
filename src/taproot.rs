@@ -20,7 +20,7 @@ use crate::opcodes::OP_1;
 pub const TAPROOT_SCRIPT_PREFIX: u8 = OP_1;
 
 /// Validate Taproot output script
-#[spec_locked("11.2.1")]
+#[spec_locked("11.2.1", "ValidateTaprootScript")]
 pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
     use crate::constants::TAPROOT_SCRIPT_LENGTH;
 
@@ -38,7 +38,7 @@ pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
 }
 
 /// Extract Taproot output key from script
-#[spec_locked("11.2.1")]
+#[spec_locked("11.2.1", "ExtractTaprootOutputKey")]
 pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]>> {
     if !validate_taproot_script(script)? {
         return Ok(None);
@@ -54,13 +54,13 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
 ///
 /// With `blvm-secp256k1` feature: uses BIP 341 tagged hash (correct).
 /// Without: uses libsecp256k1 with plain SHA256 (legacy, non-BIP341).
-#[spec_locked("11.2.2")]
+#[spec_locked("11.2.2", "ComputeTaprootTweak")]
 pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
     crate::secp256k1_backend::taproot_output_key(internal_pubkey, merkle_root)
 }
 
 /// Validate Taproot key aggregation
-#[spec_locked("11.2.2")]
+#[spec_locked("11.2.2", "ValidateTaprootKeyAggregation")]
 pub fn validate_taproot_key_aggregation(
     internal_pubkey: &[u8; 32],
     merkle_root: &Hash,
@@ -71,7 +71,7 @@ pub fn validate_taproot_key_aggregation(
 }
 
 /// Validate Taproot script path spending
-#[spec_locked("11.2.3")]
+#[spec_locked("11.2.3", "ValidateTaprootScriptPath")]
 pub fn validate_taproot_script_path(
     script: &ByteString,
     merkle_proof: &[Hash],
@@ -86,7 +86,7 @@ pub fn validate_taproot_script_path(
 }
 
 /// Validate Taproot script path spending with explicit leaf version.
-#[spec_locked("11.2.3")]
+#[spec_locked("11.2.3", "ValidateTaprootScriptPath")]
 pub fn validate_taproot_script_path_with_leaf_version(
     script: &ByteString,
     merkle_proof: &[Hash],
@@ -98,7 +98,7 @@ pub fn validate_taproot_script_path_with_leaf_version(
 }
 
 /// Compute merkle root for script path using BIP 341 TapLeaf/TapBranch tagged hashes.
-#[spec_locked("11.2.3")]
+#[spec_locked("11.2.3", "ComputeScriptMerkleRoot")]
 pub fn compute_script_merkle_root(
     script: &ByteString,
     proof: &[Hash],
@@ -131,7 +131,6 @@ pub struct TaprootControlBlock {
 /// Witness format: [stack_items..., script, annex?, control_block]
 /// Annex: optional, last element before control block, must start with 0x50.
 /// Control block: leaf_version (1) + internal_pubkey (32) + merkle_proof (32*n).
-#[spec_locked("11.2.4")]
 pub fn parse_taproot_script_path_witness(
     witness: &Witness,
     output_key: &[u8; 32],
@@ -188,13 +187,13 @@ pub fn parse_taproot_script_path_witness(
 }
 
 /// Check if transaction output is Taproot
-#[spec_locked("11.2.1")]
+#[spec_locked("11.2.1", "IsTaprootOutput")]
 pub fn is_taproot_output(output: &TransactionOutput) -> bool {
     validate_taproot_script(&output.script_pubkey).unwrap_or(false)
 }
 
 /// Validate Taproot transaction
-#[spec_locked("11.2.5")]
+#[spec_locked("11.2.5", "ValidateTaprootTransaction")]
 pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>) -> Result<bool> {
     // Check if any output is Taproot
     for output in &tx.outputs {
@@ -221,7 +220,7 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
 
 /// Compute Taproot signature hash following BIP 341 specification.
 /// Uses TaggedHash("TapSighash", 0x00 || SigMsg(...)) per BIP 341.
-#[spec_locked("11.2.6")]
+#[spec_locked("11.2.6", "ComputeTaprootSignatureHash")]
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
     input_index: usize,
@@ -270,7 +269,7 @@ pub fn compute_taproot_signature_hash(
 
 /// Compute Tapscript signature hash per BIP 342.
 /// Same base SigMsg as key-path, with ext = codesep_pos (4) || key_version (1) || tapleaf_hash (32).
-#[spec_locked("11.2.7")]
+#[spec_locked("11.2.7", "ComputeTapscriptSignatureHash")]
 pub fn compute_tapscript_signature_hash(
     tx: &Transaction,
     input_index: usize,

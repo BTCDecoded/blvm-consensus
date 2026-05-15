@@ -10,11 +10,9 @@ mod connect;
 mod header;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
-pub(crate) use script_cache::calculate_base_script_flags_for_block;
-#[cfg(not(feature = "production"))]
-pub(crate) use script_cache::calculate_script_flags_for_block_with_base;
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
+    get_block_script_flags, get_block_script_verify_flags_core, script_flag_exceptions_lookup,
 };
 
 use crate::activation::{ForkActivationTable, IsForkActive};
@@ -134,7 +132,7 @@ pub fn get_assume_valid_height() -> u64 {
 ///   `BlockValidationContext::from_connect_block_ibd_args`, `from_time_context_and_network`, or `for_network`.
 #[track_caller]
 /// ConnectBlock: Validate and apply a block to the UTXO set.
-#[spec_locked("5.3")]
+#[spec_locked("5.3", "ConnectBlock")]
 pub fn connect_block(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -165,7 +163,7 @@ pub fn connect_block(
 /// * `bip30_index` - Optional index for O(1) BIP30 duplicate-coinbase check.
 /// * `precomputed_tx_ids` - Optional pre-computed tx IDs; when `Some`, skips hashing in consensus
 ///   and returns those IDs as `Cow::Borrowed` (no per-block `Vec` clone).
-#[spec_locked("5.3")]
+#[spec_locked("5.3", "ConnectBlock")]
 pub fn connect_block_ibd<'a>(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -203,7 +201,6 @@ pub fn connect_block_ibd<'a>(
 /// # Consensus Engine Purity
 /// This function does NOT call `SystemTime::now()`. The `network_time` parameter
 /// must be provided by the node layer, ensuring the consensus engine remains pure.
-#[spec_locked("5.5")]
 fn build_time_context<H: AsRef<BlockHeader>>(
     recent_headers: Option<&[H]>,
     network_time: u64,
@@ -334,7 +331,7 @@ mod tx_id_pool {
 /// **Spec reference:** sequential `calculate_tx_id` only (no `rayon`, no `&mut Vec`, no `cfg` in the
 /// body). blvm-spec-lock Z3 translates this for determinism/`ensures`. Optimized paths in
 /// [`compute_block_tx_ids_into`] are tested to match this result.
-#[spec_locked("8.4.1")]
+#[spec_locked("8.4.1", "ComputeMerkleRoot")]
 pub fn compute_block_tx_ids_spec(block: &Block) -> Vec<Hash> {
     block.transactions.iter().map(calculate_tx_id).collect()
 }

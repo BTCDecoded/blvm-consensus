@@ -30,7 +30,7 @@ use sha2::{Digest, Sha256};
 /// - prev[prev.len()-1] is the last block before the adjustment (use its bits)
 ///
 /// Note: `current_header` parameter is kept for API compatibility but not used in calculation
-#[spec_locked("7.1")]
+#[spec_locked("7.1", "GetNextWorkRequired")]
 pub fn get_next_work_required(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
@@ -49,7 +49,6 @@ pub fn get_next_work_required(
 ///
 /// **Compatibility Warning**: Do NOT use this for Bitcoin mainnet/testnet as it will
 /// cause consensus divergence. This is only safe for isolated networks like regtest.
-#[spec_locked("7.1")]
 pub fn get_next_work_required_corrected(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
@@ -194,7 +193,7 @@ fn get_next_work_required_internal(
 ///
 /// Check if the block header satisfies the proof of work requirement.
 /// Formula: SHA256(SHA256(header)) < ExpandTarget(header.bits)
-#[spec_locked("7.2")]
+#[spec_locked("7.2", "CheckProofOfWork")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
@@ -229,8 +228,8 @@ pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
 /// # Returns
 /// Vector of tuples (is_valid, computed_hash) for each header. Hash is None for invalid headers.
 /// Order matches input headers.
+#[spec_locked("7.2", "CheckProofOfWork")]
 #[cfg(feature = "production")]
-#[spec_locked("7.2")]
 pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, Option<Hash>)>> {
     use crate::optimizations::simd_vectorization;
 
@@ -586,7 +585,6 @@ impl Ord for U256 {
 ///
 /// Used by getblockchaininfo, getmininginfo RPC for display. Formula: difficulty = MAX_TARGET / target
 /// where MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000 (genesis).
-#[spec_locked("7.1")]
 pub fn difficulty_from_bits(bits: Natural) -> Result<f64> {
     let target = expand_target(bits)?;
     if target.is_zero() {
@@ -634,7 +632,7 @@ pub fn difficulty_from_bits(bits: Natural) -> Result<f64> {
 ///
 /// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-#[spec_locked("7.1")]
+#[spec_locked("7.1", "ExpandTarget")]
 pub fn expand_target(bits: Natural) -> Result<U256> {
     // SetCompact implementation:
     // int nSize = nCompact >> 24;
@@ -715,7 +713,6 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
 ///
 /// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-#[spec_locked("7.1")]
 fn compress_target(target: &U256) -> Result<Natural> {
     // Handle zero target
     if target.is_zero() {

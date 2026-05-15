@@ -99,7 +99,7 @@ use sha2::{Digest, Sha256};
 /// - Transaction has no inputs
 /// - Transaction has no outputs
 /// - Serialization fails
-#[spec_locked("5.4.6")]
+#[spec_locked("5.4.6", "BIP119Check")]
 pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<Hash> {
     // Validate inputs
     if input_index >= tx.inputs.len() {
@@ -201,7 +201,7 @@ pub fn calculate_template_hash(tx: &Transaction, input_index: usize) -> Result<H
 /// # Returns
 ///
 /// `true` if template hash matches, `false` otherwise
-#[spec_locked("5.4.6")]
+#[spec_locked("5.4.6", "BIP119Check")]
 pub fn validate_template_hash(
     tx: &Transaction,
     input_index: usize,
@@ -231,7 +231,7 @@ pub fn validate_template_hash(
 /// # Returns
 ///
 /// The template hash if found, `None` otherwise
-#[spec_locked("5.4.6")]
+#[spec_locked("5.4.6", "BIP119Check")]
 pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
     // Look for OP_CHECKTEMPLATEVERIFY - OP_NOP4
     use crate::opcodes::OP_CHECKTEMPLATEVERIFY;
@@ -257,7 +257,7 @@ pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
 /// # Returns
 ///
 /// `true` if script contains OP_CHECKTEMPLATEVERIFY (0xba)
-#[spec_locked("5.4.6")]
+#[spec_locked("5.4.6", "BIP119Check")]
 pub fn is_ctv_script(script: &[u8]) -> bool {
     use crate::opcodes::OP_CHECKTEMPLATEVERIFY;
     script.contains(&OP_CHECKTEMPLATEVERIFY) // OP_CHECKTEMPLATEVERIFY (OP_NOP4)

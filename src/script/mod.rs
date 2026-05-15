@@ -363,7 +363,7 @@ pub enum SigVersion {
 ///
 /// In production mode, stacks should be obtained from pool using get_pooled_stack()
 /// for optimal performance. This function works with any Vec<StackElement>.
-#[spec_locked("5.2")]
+#[spec_locked("5.2", "EvalScript")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn eval_script(
@@ -623,7 +623,7 @@ fn eval_script_inner(
 /// 4. Return final stack has exactly one true value
 ///
 /// Performance: Pre-allocates stack capacity, caches verification results in production mode
-#[spec_locked("5.2")]
+#[spec_locked("5.2", "VerifyScript")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_script(
@@ -728,7 +728,7 @@ pub fn verify_script(
 ///
 /// This version includes the full transaction context needed for proper
 /// ECDSA signature verification with correct sighash calculation.
-#[spec_locked("5.2")]
+#[spec_locked("5.2", "VerifyScript")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 #[allow(clippy::too_many_arguments)]
@@ -774,26 +774,12 @@ pub fn verify_script_with_context(
     )
 }
 
-/// VerifyScript with full context including block height, median time-past, and network
-///
-/// This version includes block height, median time-past, and network needed for proper
-/// BIP65 (CLTV), BIP112 (CSV), BIP66 (Strict DER), and BIP147 (NULLDUMMY) validation.
-///
-/// # Arguments
-///
-/// * `block_height` - Optional current block height (required for block-height CLTV, BIP66, BIP147)
-/// * `median_time_past` - Optional median time-past (required for timestamp CLTV per BIP113)
-/// * `network` - Network type (required for BIP66 and BIP147 activation heights)
-#[spec_locked("5.2")]
-#[allow(clippy::too_many_arguments)]
-#[cfg_attr(feature = "production", inline(always))]
-#[cfg_attr(not(feature = "production"), inline)]
-/// VerifyScript with full context - optimized version using parallel slices
-///
-/// This version accepts prevout values and script_pubkeys as separate slices to avoid
-/// unnecessary cloning of script_pubkey data.
 /// P2PK fast-path. Bare pay-to-pubkey: scriptPubKey is `pubkey` + OP_CHECKSIG, scriptSig is `sig`.
 /// Common in early blocks (coinbase outputs). Returns Some(Ok(bool)) if handled; None to fall back.
+/// Uses full transaction context (height, network) for BIP66 / signature validation.
+///
+/// For the Orange Paper **`VerifyScript`** contract (scriptSig + scriptPubKey + witness + flags),
+/// see [`verify_script`], [`verify_script_with_context`], and [`verify_script_with_context_full`].
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
 pub fn try_verify_p2pk_fast_path(
@@ -2316,7 +2302,7 @@ fn try_verify_p2tr_keypath_fast_path(
     Some(result)
 }
 
-#[spec_locked("5.2")]
+#[spec_locked("5.2", "VerifyScript")]
 pub fn verify_script_with_context_full(
     script_sig: &ByteString,
     script_pubkey: &[u8],
@@ -3711,7 +3697,7 @@ fn eval_script_with_context_full_inner(
 /// Decode a CScriptNum from byte representation.
 /// Bitcoin's variable-length signed integer encoding (little-endian, sign bit in MSB of last byte).
 /// CScriptNum::set_vch() — BIP62 numeric encoding.
-#[spec_locked("5.4.5")]
+#[spec_locked("5.4.5", "DecodeCScriptNum")]
 #[cfg(feature = "production")]
 #[inline(always)]
 pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
@@ -4546,7 +4532,7 @@ fn parse_one_data_push(script: &[u8], i: usize) -> Option<(usize, usize, usize)>
 
 /// P2SH Push-Only Validation (Orange Paper 5.2.1).
 /// Returns true if script_sig contains only push opcodes (valid), false otherwise (invalid).
-#[spec_locked("5.2.1")]
+#[spec_locked("5.2.1", "P2SHPushOnlyCheck")]
 pub fn p2sh_push_only_check(script_sig: &[u8]) -> bool {
     parse_script_sig_push_only(script_sig).is_some()
 }
@@ -4753,7 +4739,7 @@ fn script_get_op_advance(script: &[u8], pc: usize) -> Option<usize> {
 /// Do/while loop: flush `[pc2, pc)`, delete consecutive raw occurrences of `pattern` from `pc`,
 /// then advance `pc` one opcode via GetOp-style sizing. The inner delete loop can leave `pc`
 /// misaligned; the next "opcode" is parsed from that byte (same as Core).
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "FindAndDelete")]
 #[inline]
 pub(crate) fn find_and_delete<'a>(script: &'a [u8], pattern: &[u8]) -> std::borrow::Cow<'a, [u8]> {
     if pattern.is_empty() {

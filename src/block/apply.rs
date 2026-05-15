@@ -21,7 +21,7 @@ use blvm_spec_lock::spec_locked;
 /// For batch operations, use `apply_transaction_with_id` instead.
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
-#[spec_locked("5.3.2")]
+#[spec_locked("5.3.2", "ApplyTransaction")]
 #[track_caller]
 pub fn apply_transaction(
     tx: &Transaction,
@@ -40,7 +40,7 @@ pub fn apply_transaction(
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
 /// When `bip30_index` is Some, updates it for coinbase add/remove (O(1) BIP30 checks).
-#[spec_locked("5.3.2")]
+#[spec_locked("5.3.2", "ApplyTransaction")]
 pub(crate) fn apply_transaction_with_id(
     tx: &Transaction,
     tx_id: Hash,
@@ -259,7 +259,7 @@ pub(crate) fn apply_transaction_with_id(
 ///
 /// For batch operations, use serialize_transaction + batch_double_sha256 instead.
 #[inline(always)]
-#[spec_locked("5.1")]
+#[spec_locked("5.1", "CalculateTxId")]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     use crate::crypto::OptimizedSha256;
     use crate::serialization::transaction::serialize_transaction;

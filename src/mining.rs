@@ -18,7 +18,7 @@ use crate::transaction::is_coinbase;
 /// 3. Calculate merkle root
 /// 4. Create block header with appropriate difficulty
 /// 5. Return new block
-#[spec_locked("12.1")]
+#[spec_locked("12.1", "CreateNewBlock")]
 pub fn create_new_block(
     utxo_set: &UtxoSet,
     mempool_txs: &[Transaction],
@@ -48,7 +48,7 @@ pub fn create_new_block(
 /// adjusted network time instead of relying on `SystemTime::now()` inside
 /// consensus code.
 #[allow(clippy::too_many_arguments)]
-#[spec_locked("12.1")]
+#[spec_locked("12.1", "CreateNewBlock")]
 pub fn create_new_block_with_time(
     utxo_set: &UtxoSet,
     mempool_txs: &[Transaction],
@@ -132,7 +132,7 @@ pub fn create_new_block_with_time(
 /// 2. Check if resulting hash meets difficulty target
 /// 3. Return mined block or failure
 #[track_caller] // Better error messages showing caller location
-#[spec_locked("12.3")]
+#[spec_locked("12.3", "MineBlock")]
 pub fn mine_block(mut block: Block, max_attempts: Natural) -> Result<(Block, MiningResult)> {
     for nonce in 0..max_attempts {
         block.header.nonce = nonce;
@@ -163,7 +163,7 @@ pub struct BlockTemplate {
 }
 
 /// Create a block template for mining
-#[spec_locked("12.4")]
+#[spec_locked("12.4", "BlockTemplate")]
 pub fn create_block_template(
     utxo_set: &UtxoSet,
     mempool_txs: &[Transaction],
@@ -226,7 +226,7 @@ pub enum MiningResult {
 /// Orange Paper 12.2: Coinbase transaction structure.
 /// BIP54: When BIP54 is active, coinbase must have nLockTime = height - 13 and nSequence != 0xffff_ffff.
 /// This implementation sets those so that blocks are valid under BIP54 when activated.
-#[spec_locked("12.2")]
+#[spec_locked("12.2", "CreateCoinbaseTransaction")]
 fn create_coinbase_transaction(
     height: Natural,
     subsidy: Integer,
@@ -260,7 +260,7 @@ fn create_coinbase_transaction(
 #[track_caller] // Better error messages showing caller location
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
-#[spec_locked("8.4.1")]
+#[spec_locked("8.4.1", "ComputeMerkleRoot")]
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -390,7 +390,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 /// Returns `Err` if `tx_ids` is empty **or** if a CVE-2012-2459 mutation is detected
 /// (duplicate adjacent hashes at any merkle level). Use [`compute_merkle_root_and_mutated`]
 /// when you need the root regardless of mutation (matches Bitcoin Core `ComputeMerkleRoot`).
-#[spec_locked("8.4.1")]
+#[spec_locked("8.4.1", "ComputeMerkleRoot")]
 pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
     let (root, mutated) = compute_merkle_root_and_mutated(tx_ids)?;
     if mutated {
@@ -405,7 +405,7 @@ pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
 /// Matches Bitcoin Core's `ComputeMerkleRoot(leaves, &mutated)` — always returns a root.
 /// Callers decide policy: `CheckBlock` rejects mutated blocks; `ConnectBlock` may skip
 /// the check for already-accepted blocks.
-#[spec_locked("8.4.1")]
+#[spec_locked("8.4.1", "ComputeMerkleRoot")]
 pub fn compute_merkle_root_and_mutated(tx_ids: &[Hash]) -> Result<(Hash, bool)> {
     if tx_ids.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -420,7 +420,7 @@ pub fn compute_merkle_root_and_mutated(tx_ids: &[Hash]) -> Result<(Hash, bool)> 
 /// Stack-allocates the 64-byte pair buffer to avoid heap allocation per node.
 /// Orange Paper 8.4.1: ComputeMerkleRoot pair-and-hash construction.
 /// Returns `(root, mutated)` — caller decides policy on mutation.
-#[spec_locked("8.4.1")]
+#[spec_locked("8.4.1", "ComputeMerkleRoot")]
 fn merkle_tree_from_hashes(hashes: &mut Vec<Hash>) -> Result<(Hash, bool)> {
     let mut mutated = false;
 
@@ -542,9 +542,7 @@ fn encode_varint(value: u64) -> Vec<u8> {
     }
 }
 
-/// Calculate block hash using proper Bitcoin header serialization
 /// Orange Paper 7.2: Block hash = SHA256d(header) for PoW validation
-#[spec_locked("7.2")]
 fn calculate_block_hash(header: &BlockHeader) -> Hash {
     let mut data = Vec::new();
 
@@ -588,7 +586,6 @@ fn double_sha256_hash(data: &[u8]) -> Hash {
 
 /// Expand target from compact format (simplified)
 /// Orange Paper 7.1: Difficulty bits → target for PoW comparison
-#[spec_locked("7.1")]
 fn expand_target(bits: Natural) -> Result<u128> {
     let exponent = (bits >> 24) as u8;
     let mantissa = bits & 0x00ffffff;

@@ -328,8 +328,28 @@ jobs:
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
 
       - name: Install blvm-spec-lock (with Z3 for full contract verification)
-        # Pin CLI to a tested release; bump when publishing a newer blvm-spec-lock.
-        run: cargo install blvm-spec-lock --version 0.1.8 --locked --features z3
+        # Resolves to latest published 0.1.x (floor matches library dep); see SPEC_LOCK_DEPENDENCY.md.
+        run: cargo install blvm-spec-lock --version '>=0.1.3, <0.2' --locked --features z3
+      
+      - name: Run blvm-spec-lock check-drift
+        run: |
+          echo "📎 Running blvm-spec-lock check-drift (parseable Orange Paper contracts)..."
+          SPEC_ARGS="--crate-path ."
+          if [ -f "../blvm-spec/PROTOCOL.md" ] && [ -f "../blvm-spec/ARCHITECTURE.md" ]; then
+            SPEC_ARGS="$SPEC_ARGS --spec-path ../blvm-spec/PROTOCOL.md ../blvm-spec/ARCHITECTURE.md"
+          elif [ -f "../blvm-spec/THE_ORANGE_PAPER.md" ]; then
+            SPEC_ARGS="$SPEC_ARGS --spec-path ../blvm-spec/THE_ORANGE_PAPER.md"
+          else
+            echo "❌ No spec found at ../blvm-spec"
+            exit 1
+          fi
+          cargo-spec-lock check-drift $SPEC_ARGS 2>&1 | tee spec_lock_drift.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ blvm-spec-lock check-drift failed"
+            exit $EXIT_CODE
+          fi
+          echo "✅ blvm-spec-lock check-drift passed"
       
       - name: Run blvm-spec-lock verify
         run: |
@@ -347,6 +367,7 @@ jobs:
           fi
           # Strict mode: SPEC_LOCK_STRICT=1 works with cargo-spec-lock builds that lack `--strict` on the CLI.
           export SPEC_LOCK_STRICT=1
+          export SPEC_LOCK_Z3_TIMEOUT_SECS="${SPEC_LOCK_Z3_TIMEOUT_SECS:-120}"
           # Shared runners can be slow; generous Z3 timeout avoids flaky UNKNOWN/failed ensures.
           cargo-spec-lock verify $SPEC_ARGS --timeout 120 2>&1 | tee spec_lock_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
@@ -356,6 +377,31 @@ jobs:
           fi
           echo "✅ blvm-spec-lock verification passed"
       
+      - name: Spec-lock coverage (JSON, trending)
+        continue-on-error: true
+        run: |
+          COV_ARGS="--crate-path . --format json"
+          if [ -f "../blvm-spec/PROTOCOL.md" ] && [ -f "../blvm-spec/ARCHITECTURE.md" ]; then
+            COV_ARGS="$COV_ARGS --spec-path ../blvm-spec/PROTOCOL.md ../blvm-spec/ARCHITECTURE.md"
+          elif [ -f "../blvm-spec/THE_ORANGE_PAPER.md" ]; then
+            COV_ARGS="$COV_ARGS --spec-path ../blvm-spec/THE_ORANGE_PAPER.md"
+          else
+            echo "⚠️ Skipping spec-lock coverage (no spec next to crate)"
+            exit 0
+          fi
+          cargo-spec-lock coverage $COV_ARGS | tee spec_lock_coverage.json
+          echo "✅ spec-lock coverage JSON written (non-blocking)"
+      
+      - name: Upload spec-lock coverage JSON
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: spec-lock-coverage-json
+          path: spec_lock_coverage.json
+          if-no-files-found: ignore
+          retention-days: 90
+      
       - name: Create spec-lock attestation data
         run: |
           CONSENSUS_FUNCS=$(grep -c "Status: PASSED" spec_lock_output.txt 2>/dev/null || echo "0")
@@ -364,13 +410,31 @@ jobs:
           HASH=$(sha256sum spec_lock_output.txt | cut -d' ' -f1)
           echo "spec_lock_output_hash=$HASH" >> $GITHUB_ENV
           echo "📋 Spec-lock: consensus=$CONSENSUS_FUNCS functions verified"
+
+          SPEC_LOCK_TOOL_VERSION="$(cargo-spec-lock --version 2>/dev/null | awk '{print $2}' || echo unknown)"
+          SPEC_LOCK_SPEC_REVISION="unknown"
+          if [ -d "../blvm-spec/.git" ]; then
+            SPEC_LOCK_SPEC_REVISION="$(git -C ../blvm-spec rev-parse HEAD 2>/dev/null || echo unknown)"
+          fi
+          SPEC_META_JSON_VERSION=""
+          if [ -f "../blvm-spec/SPEC_META.json" ] && command -v jq >/dev/null 2>&1; then
+            SPEC_META_JSON_VERSION="$(jq -r '.version // empty' ../blvm-spec/SPEC_META.json 2>/dev/null || true)"
+          fi
+          {
+            echo "spec_lock_tool_version=${SPEC_LOCK_TOOL_VERSION}"
+            echo "spec_lock_spec_git_sha=${SPEC_LOCK_SPEC_REVISION}"
+            echo "spec_meta_json_version=${SPEC_META_JSON_VERSION}"
+          } > spec_lock_verify_meta.env
+          echo "  Tool: cargo-spec-lock ${SPEC_LOCK_TOOL_VERSION}, spec HEAD: ${SPEC_LOCK_SPEC_REVISION}"
       
       - name: Upload spec-lock output for attestation
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: spec-lock-attestation-data
-          path: spec_lock_output.txt
+          path: |
+            spec_lock_output.txt
+            spec_lock_verify_meta.env
           retention-days: 90
       
       - name: Run property tests with all features
@@ -1138,10 +1202,26 @@ jobs:
             UNIT_TESTS_HASH=$(sha256sum attestation-data/test_output.txt | cut -d' ' -f1)
           fi
           
+          SPEC_META_JSON_VERSION=""
+          SPEC_LOCK_TOOL_VERSION=""
+          SPEC_LOCK_SPEC_GIT_SHA=""
+          if [ -f "attestation-data/spec_lock_verify_meta.env" ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . "attestation-data/spec_lock_verify_meta.env"
+            set +a
+            SPEC_META_JSON_VERSION="${spec_meta_json_version:-}"
+            SPEC_LOCK_TOOL_VERSION="${spec_lock_tool_version:-}"
+            SPEC_LOCK_SPEC_GIT_SHA="${spec_lock_spec_git_sha:-}"
+          fi
+
           # Output all metadata
           echo "spec_lock_verified=$SPEC_LOCK_VERIFIED" >> $GITHUB_OUTPUT
           echo "spec_lock_consensus_functions=$SPEC_LOCK_CONSENSUS_FUNCS" >> $GITHUB_OUTPUT
           echo "spec_lock_output_hash=$SPEC_LOCK_OUTPUT_HASH" >> $GITHUB_OUTPUT
+          echo "spec_lock_tool_version=$SPEC_LOCK_TOOL_VERSION" >> $GITHUB_OUTPUT
+          echo "spec_lock_spec_git_sha=$SPEC_LOCK_SPEC_GIT_SHA" >> $GITHUB_OUTPUT
+          echo "spec_meta_json_version=$SPEC_META_JSON_VERSION" >> $GITHUB_OUTPUT
           echo "test_coverage_percent=$TEST_COVERAGE_PCT" >> $GITHUB_OUTPUT
           echo "unit_tests_hash=$UNIT_TESTS_HASH" >> $GITHUB_OUTPUT
           echo "debug_assertions_enabled=$DEBUG_ASSERTIONS" >> $GITHUB_OUTPUT
@@ -1159,6 +1239,9 @@ jobs:
           echo "  Spec-lock verified: $SPEC_LOCK_VERIFIED"
           echo "  Spec-lock functions: $SPEC_LOCK_CONSENSUS_FUNCS"
           echo "  Spec-lock output hash: $SPEC_LOCK_OUTPUT_HASH"
+          echo "  Spec-lock tool version: ${SPEC_LOCK_TOOL_VERSION:-<no artifact>}"
+          echo "  Spec checkout SHA (verify job): ${SPEC_LOCK_SPEC_GIT_SHA:-<no artifact>}"
+          echo "  SPEC_META.json version: ${SPEC_META_JSON_VERSION:-<empty>}"
           echo "  Test coverage: ${TEST_COVERAGE_PCT}%"
           echo "  Unit tests hash: $UNIT_TESTS_HASH"
           echo "  Debug assertions: $DEBUG_ASSERTIONS"
@@ -1177,6 +1260,9 @@ jobs:
             "spec_lock_verified": ${{ steps.metadata.outputs.spec_lock_verified == 'true' && 'true' || 'false' }},
             "spec_lock_consensus_functions": ${{ steps.metadata.outputs.spec_lock_consensus_functions }},
             "spec_lock_output_hash": "${{ steps.metadata.outputs.spec_lock_output_hash }}",
+            "spec_lock_tool_version": "${{ steps.metadata.outputs.spec_lock_tool_version }}",
+            "spec_lock_spec_git_sha": "${{ steps.metadata.outputs.spec_lock_spec_git_sha }}",
+            "spec_meta_json_version": "${{ steps.metadata.outputs.spec_meta_json_version }}",
             "test_coverage_percent": ${{ steps.metadata.outputs.test_coverage_percent }},
             "unit_tests_hash": "${{ steps.metadata.outputs.unit_tests_hash }}",
             "debug_assertions_enabled": ${{ steps.metadata.outputs.debug_assertions_enabled == 'true' && 'true' || 'false' }},

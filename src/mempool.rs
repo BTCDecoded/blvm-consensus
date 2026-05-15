@@ -29,7 +29,7 @@ use std::collections::HashSet;
 /// * `mempool` - Current mempool state
 /// * `height` - Current block height
 /// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
-#[spec_locked("9.1")]
+#[spec_locked("9.1", "AcceptToMemoryPool")]
 pub fn accept_to_memory_pool(
     tx: &Transaction,
     witnesses: Option<&[Witness]>,
@@ -244,7 +244,7 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
 /// 2. Script size limits
 /// 3. Standard script types
 /// 4. Fee rate requirements
-#[spec_locked("9.2")]
+#[spec_locked("9.2", "IsStandardTx")]
 pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
@@ -311,7 +311,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 /// 3. New transaction pays absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
 /// 4. New transaction conflicts with existing: tx_2 spends at least one input from tx_1
 /// 5. No new unconfirmed dependencies: All inputs of tx_2 are confirmed or from tx_1
-#[spec_locked("9.3")]
+#[spec_locked("9.3", "ReplacementChecks")]
 pub fn replacement_checks(
     new_tx: &Transaction,
     existing_tx: &Transaction,
@@ -526,7 +526,6 @@ pub enum MempoolResult {
 /// # Ok(())
 /// # }
 /// ```
-#[spec_locked("9.1")]
 pub fn update_mempool_after_block(
     mempool: &mut Mempool,
     block: &crate::types::Block,
@@ -566,7 +565,6 @@ pub fn update_mempool_after_block(
 /// # Returns
 ///
 /// Returns a vector of transaction IDs that were removed from the mempool.
-#[spec_locked("9.1")]
 pub fn update_mempool_after_block_with_lookup<F>(
     mempool: &mut Mempool,
     block: &crate::types::Block,
@@ -719,7 +717,7 @@ fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
 /// * `tx` - Transaction to check
 /// * `height` - Current block height
 /// * `block_time` - Median time-past of chain tip (BIP113) for timestamp locktime validation
-#[spec_locked("9.1")]
+#[spec_locked("9.1.1", "CheckFinalTxAtTip")]
 pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bool {
     use crate::constants::SEQUENCE_FINAL;
 
@@ -761,7 +759,6 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
 /// Check if transaction signals RBF
 ///
 /// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
-#[spec_locked("9.3")]
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
         if (input.sequence as u32) < SEQUENCE_FINAL {
@@ -786,7 +783,6 @@ fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
 ///
 /// A conflict exists if new_tx spends at least one input from existing_tx.
 /// This is requirement #4 of BIP125.
-#[spec_locked("9.3")]
 pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> bool {
     for new_input in &new_tx.inputs {
         for existing_input in &existing_tx.inputs {
@@ -867,7 +863,7 @@ fn is_standard_script(script: &ByteString) -> Result<bool> {
 /// This function is kept for backward compatibility but delegates to the
 /// standard implementation in block.rs.
 #[deprecated(note = "Use crate::block::calculate_tx_id instead")]
-#[spec_locked("5.1")]
+#[spec_locked("5.1", "CalculateTxId")]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     crate::block::calculate_tx_id(tx)
 }

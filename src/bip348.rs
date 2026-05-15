@@ -305,7 +305,7 @@ impl SchnorrSignatureCollector {
 /// BIP 340 uses tagged hashes. For CSFS, we hash the message with SHA256 to create
 /// a 32-byte digest, which is then used for BIP 340 verification.
 /// This matches the reference implementation in BIP348 reference implementation.
-#[spec_locked("5.4.8")]
+#[spec_locked("5.4.8", "BIP348Check")]
 pub fn verify_signature_from_stack(
     message: &[u8],
     pubkey: &[u8],
@@ -406,7 +406,7 @@ pub fn verify_signature_from_stack(
 /// Uses true batch verification via `libsecp256k1`'s multi-scalar multiplication,
 /// providing 2-3x speedup compared to individual verification.
 #[cfg(feature = "production")]
-#[spec_locked("5.4.8")]
+#[spec_locked("5.4.8", "BIP348Check")]
 pub fn batch_verify_signatures_from_stack(
     verification_tasks: &[(&[u8], &[u8], &[u8])],
 ) -> Result<Vec<bool>> {
@@ -525,7 +525,7 @@ pub fn batch_verify_signatures_from_stack(
 ///
 /// `true` if signature is valid or collected, `false` otherwise
 #[cfg(feature = "production")]
-#[spec_locked("5.4.8")]
+#[spec_locked("5.4.8", "BIP348Check")]
 pub fn verify_tapscript_schnorr_signature(
     sighash: &[u8; 32],
     pubkey: &[u8],

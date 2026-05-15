@@ -267,7 +267,7 @@ fn sighash_with_cache(preimage: &[u8]) -> Hash {
 /// Uses incremental SHA256 - feeds data directly to the hasher, avoiding
 /// the preimage buffer allocation and double memory pass.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 #[inline]
 pub fn compute_legacy_sighash_nocache(
     tx: &Transaction,
@@ -386,7 +386,7 @@ fn push_varint(buf: &mut Vec<u8>, value: u64) {
 /// Compute legacy sighash by pre-serializing the full preimage into a thread-local buffer,
 /// then hashing in one pass. Reduces function call overhead vs streaming h.update() calls.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 #[inline]
 pub fn compute_legacy_sighash_buffered(
     tx: &Transaction,
@@ -480,7 +480,7 @@ pub fn compute_legacy_sighash_buffered(
 ///
 /// Falls back to per-input compute for ANYONECANPAY/SINGLE/NONE hash types.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn compute_sighashes_batch(
     tx: &Transaction,
     script_codes: &[&[u8]],
@@ -586,7 +586,7 @@ pub fn compute_sighashes_batch(
 ///
 /// # Returns
 /// 32-byte hash to be signed with ECDSA
-#[spec_locked("5.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn calculate_transaction_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -620,7 +620,7 @@ pub fn calculate_transaction_sighash(
 /// Takes only (script_for_signing, prevout_value) for the current input. Non-signing inputs
 /// use empty script internally. Eliminates need for workers to build full refs per tx.
 /// script_for_signing is the script that goes into the preimage (scriptPubKey or redeem script).
-#[spec_locked("5.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn calculate_transaction_sighash_single_input(
     tx: &Transaction,
     input_index: usize,
@@ -674,7 +674,7 @@ pub fn calculate_transaction_sighash_single_input(
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
 /// When sighash_cache is provided (CCheckQueue path), caches (scriptCode, sighash_byte) -> hash for multisig reuse.
-#[spec_locked("5.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
     input_index: usize,
@@ -1212,7 +1212,7 @@ fn build_preimage_and_hash(
 ///
 /// # Returns
 /// Vector of 32-byte hashes, one per input (in same order)
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn batch_compute_sighashes(
     tx: &Transaction,
     prevouts: &[TransactionOutput],
@@ -1329,7 +1329,7 @@ fn build_legacy_sighash_preimage_into(
 /// Each spec is (input_index, sighash_byte, script_code). Returns hashes in spec order.
 /// Uses thread-local reusable buffers; no per-spec Vec allocs.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1")]
+#[spec_locked("5.1.1", "CalculateSighash")]
 pub fn batch_compute_legacy_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],
@@ -1561,7 +1561,7 @@ fn double_sha256(data: &[u8]) -> [u8; 32] {
 ///
 /// # Returns
 /// 32-byte sighash for signature verification
-#[spec_locked("11.1.9")]
+#[spec_locked("11.1.9", "ComputeWitnessSignatureHash")]
 pub fn calculate_bip143_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -1727,7 +1727,7 @@ fn build_bip143_preimage(
 /// Batch compute BIP143 sighashes for all inputs.
 /// This is the optimal way to verify a SegWit transaction - compute precomputed
 /// hashes once, then calculate sighash for each input.
-#[spec_locked("11.1.9")]
+#[spec_locked("11.1.9", "ComputeWitnessSignatureHash")]
 pub fn batch_compute_bip143_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],

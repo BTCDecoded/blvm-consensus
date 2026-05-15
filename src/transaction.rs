@@ -154,7 +154,7 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 /// 8. If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
 ///
 /// Uses fast-path checks before full validation.
-#[spec_locked("5.1")]
+#[spec_locked("5.1", "CheckTransaction")]
 #[track_caller] // Better error messages showing caller location
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
@@ -387,7 +387,7 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
 /// 4. Let total_out = Σₒ o.value
 /// 5. If total_in < total_out: return (invalid, 0)
 /// 6. Return (valid, total_in - total_out)
-#[spec_locked("5.1")]
+#[spec_locked("5.1", "CheckTxInputs")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 #[allow(clippy::overly_complex_bool_expr)] // Intentional tautological assertions for formal verification
@@ -696,7 +696,7 @@ pub fn check_tx_inputs_with_owned_data(
 /// Hot-path function called frequently during validation.
 /// Always inline for maximum performance.
 #[inline(always)]
-#[spec_locked("6.4")]
+#[spec_locked("6.4", "IsCoinbase")]
 pub fn is_coinbase(tx: &Transaction) -> bool {
     // Optimization: Use constant folding for zero hash check
     #[cfg(feature = "production")]
@@ -719,14 +719,14 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 ///
 /// Hot-path function called frequently during validation.
 /// Always inline for maximum performance.
-#[inline(always)]
 ///
 /// This function calculates the size of a transaction when serialized
 /// without witness data (base serialization size).
 ///
 /// CRITICAL: This must match the actual serialized size exactly to ensure
 /// consensus compatibility.
-#[spec_locked("5.1")]
+#[inline(always)]
+#[spec_locked("5.1", "CalculateTransactionSize")]
 pub fn calculate_transaction_size(tx: &Transaction) -> usize {
     // Use actual serialization for consensus compatibility
     // This replaces the simplified calculation that didn't account for varint encoding

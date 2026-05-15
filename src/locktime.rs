@@ -19,7 +19,6 @@ pub enum LocktimeType {
 /// Determine locktime type from value
 ///
 /// BIP65/BIP68: If locktime < 500000000, it's block height; otherwise it's Unix timestamp.
-#[spec_locked("5.4.7")]
 #[inline]
 pub fn get_locktime_type(locktime: u32) -> LocktimeType {
     if locktime < LOCKTIME_THRESHOLD {
@@ -32,7 +31,7 @@ pub fn get_locktime_type(locktime: u32) -> LocktimeType {
 /// BIP65 CLTV core check: validates that transaction locktime satisfies the script requirement.
 /// Returns true if valid: tx_locktime != 0, types match, and tx_locktime >= stack_locktime.
 #[inline]
-#[spec_locked("5.4.7")]
+#[spec_locked("5.4.7", "BIP65Check")]
 pub fn check_bip65(tx_locktime: u32, stack_locktime: u32) -> bool {
     tx_locktime != 0
         && locktime_types_match(tx_locktime, stack_locktime)
@@ -43,7 +42,6 @@ pub fn check_bip65(tx_locktime: u32, stack_locktime: u32) -> bool {
 ///
 /// Used by both BIP65 (CLTV) and BIP112 (CSV) to ensure type consistency.
 #[inline]
-#[spec_locked("5.4.7")]
 pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
     get_locktime_type(locktime1) == get_locktime_type(locktime2)
 }
@@ -58,7 +56,6 @@ pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
 ///
 /// # Returns
 /// Decoded u32 value, or None if invalid encoding
-#[spec_locked("5.4.7")]
 pub fn decode_locktime_value(bytes: &[u8]) -> Option<u32> {
     if bytes.len() > 5 {
         return None; // Invalid encoding (too large)
@@ -99,7 +96,6 @@ pub fn decode_locktime_value(bytes: &[u8]) -> Option<u32> {
 ///
 /// Encodes a u32 locktime value to minimal little-endian encoding for script stack.
 /// Used for script construction and testing.
-#[spec_locked("5.4.7")]
 pub fn encode_locktime_value(value: u32) -> ByteString {
     let mut bytes = Vec::new();
 
@@ -141,7 +137,7 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
 /// - 0 = block-based relative locktime
 /// - 1 = time-based relative locktime
 #[inline]
-#[spec_locked("5.5")]
+#[spec_locked("5.5", "ExtractSequenceTypeFlag")]
 pub fn extract_sequence_type_flag(sequence: u32) -> bool {
     (sequence & 0x00400000) != 0
 }
@@ -150,7 +146,7 @@ pub fn extract_sequence_type_flag(sequence: u32) -> bool {
 ///
 /// Masks out flags (bits 31, 22) and returns only the locktime value (bits 0-15).
 #[inline]
-#[spec_locked("5.5")]
+#[spec_locked("5.5", "ExtractSequenceLocktimeValue")]
 pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
     (sequence & 0x0000ffff) as u16
 }
@@ -159,7 +155,7 @@ pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
 ///
 /// Bit 31 (0x80000000) disables relative locktime when set.
 #[inline]
-#[spec_locked("5.5")]
+#[spec_locked("5.5", "IsSequenceDisabled")]
 pub fn is_sequence_disabled(sequence: u32) -> bool {
     (sequence & 0x80000000) != 0
 }

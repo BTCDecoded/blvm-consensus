@@ -379,7 +379,6 @@ pub fn reorganize_chain_with_witnesses(
 /// # Ok(())
 /// # }
 /// ```
-#[spec_locked("11.3")]
 pub fn update_mempool_after_reorg<F>(
     mempool: &mut crate::mempool::Mempool,
     reorg_result: &ReorganizationResult,
@@ -446,7 +445,6 @@ where
 }
 
 /// Simplified version without transaction lookup
-#[spec_locked("11.3")]
 pub fn update_mempool_after_reorg_simple(
     mempool: &mut crate::mempool::Mempool,
     reorg_result: &ReorganizationResult,
@@ -473,7 +471,6 @@ struct CommonAncestorResult {
 /// comparing blocks at the same distance from tip until we find a match.
 /// This is the common ancestor where the chains diverged.
 /// Orange Paper 11.3: Chain reorganization finds common ancestor before disconnect/connect.
-#[spec_locked("11.3")]
 fn find_common_ancestor(
     new_chain: &[Block],
     current_chain: &[Block],
@@ -538,7 +535,7 @@ fn find_common_ancestor(
 /// * `undo_log` - The undo log created when this block was connected
 /// * `utxo_set` - Current UTXO set (will be modified)
 /// * `_height` - Block height (for potential future use)
-#[spec_locked("11.3.1")]
+#[spec_locked("11.3.1", "DisconnectBlock")]
 fn disconnect_block(
     _block: &Block,
     undo_log: &BlockUndoLog,
@@ -588,7 +585,7 @@ fn disconnect_block(
 /// Check if reorganization is beneficial
 #[track_caller] // Better error messages showing caller location
 #[allow(clippy::redundant_comparisons)] // Intentional assertions for formal verification
-#[spec_locked("11.3")]
+#[spec_locked("11.3", "ShouldReorganize")]
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
     // Precondition assertions: Validate function inputs
     assert!(
@@ -635,7 +632,7 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
 /// - Work is always non-negative
 /// - Work increases monotonically with chain length
 /// - Work calculation is deterministic
-#[spec_locked("11.3")]
+#[spec_locked("11.3", "CalculateChainWork")]
 fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
     let mut total_work = 0u128;
 
