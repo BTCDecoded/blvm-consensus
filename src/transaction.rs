@@ -35,8 +35,9 @@ fn sum_output_values(outputs: &[TransactionOutput]) -> Result<i64> {
                 "Output value {} must be non-negative",
                 output.value
             );
-            acc.checked_add(output.value)
-                .ok_or_else(|| ConsensusError::TransactionValidation("Output value overflow".into()))
+            acc.checked_add(output.value).ok_or_else(|| {
+                ConsensusError::TransactionValidation("Output value overflow".into())
+            })
         })
         .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))
 }
@@ -841,12 +842,19 @@ pub(crate) mod transaction_proptest {
         Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0,
+                },
                 script_sig: vec![],
                 sequence: 0xffffffff,
             }]
             .into(),
-            outputs: vec![TransactionOutput { value, script_pubkey: vec![] }].into(),
+            outputs: vec![TransactionOutput {
+                value,
+                script_pubkey: vec![],
+            }]
+            .into(),
             lock_time: 0,
         }
     }
@@ -1052,7 +1060,14 @@ mod tests {
     fn make_n_large_inputs(n: usize, script_size: usize) -> Vec<TransactionInput> {
         (0..n)
             .map(|i| TransactionInput {
-                prevout: OutPoint { hash: { let mut h = [0u8; 32]; h[..4].copy_from_slice(&(i as u32).to_le_bytes()); h }, index: 0 },
+                prevout: OutPoint {
+                    hash: {
+                        let mut h = [0u8; 32];
+                        h[..4].copy_from_slice(&(i as u32).to_le_bytes());
+                        h
+                    },
+                    index: 0,
+                },
                 script_sig: vec![0u8; script_size],
                 sequence: 0xffffffff,
             })
@@ -1106,7 +1121,8 @@ mod tests {
     #[test]
     fn test_check_tx_inputs_coinbase() {
         let utxo_set = UtxoSet::default();
-        let (result, fee) = check_tx_inputs(&make_coinbase_tx(5_000_000_000), &utxo_set, 0).unwrap();
+        let (result, fee) =
+            check_tx_inputs(&make_coinbase_tx(5_000_000_000), &utxo_set, 0).unwrap();
         assert_eq!(result, ValidationResult::Valid);
         assert_eq!(fee, 0);
     }
@@ -1306,7 +1322,9 @@ mod tests {
     #[test]
     fn test_is_coinbase_edge_cases() {
         assert!(is_coinbase(&bare_tx(vec![make_input([0; 32], 0xffffffff)])));
-        assert!(!is_coinbase(&bare_tx(vec![make_input([1; 32], 0xffffffff)]))); // wrong hash
+        assert!(!is_coinbase(&bare_tx(vec![make_input(
+            [1; 32], 0xffffffff
+        )]))); // wrong hash
         assert!(!is_coinbase(&bare_tx(vec![make_input([0; 32], 0)]))); // wrong index
         assert!(!is_coinbase(&bare_tx(vec![
             make_input([0; 32], 0xffffffff),
@@ -1326,20 +1344,32 @@ mod tests {
             version: 1,
             inputs: vec![
                 TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                    prevout: OutPoint {
+                        hash: [0; 32].into(),
+                        index: 0,
+                    },
                     script_sig: vec![1, 2, 3],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
-                    prevout: OutPoint { hash: [1; 32], index: 1 },
+                    prevout: OutPoint {
+                        hash: [1; 32],
+                        index: 1,
+                    },
                     script_sig: vec![4, 5, 6],
                     sequence: 0xffffffff,
                 },
             ]
             .into(),
             outputs: vec![
-                TransactionOutput { value: 1000, script_pubkey: vec![7, 8, 9].into() },
-                TransactionOutput { value: 2000, script_pubkey: vec![10, 11, 12] },
+                TransactionOutput {
+                    value: 1000,
+                    script_pubkey: vec![7, 8, 9].into(),
+                },
+                TransactionOutput {
+                    value: 2000,
+                    script_pubkey: vec![10, 11, 12],
+                },
             ]
             .into(),
             lock_time: 12345,
