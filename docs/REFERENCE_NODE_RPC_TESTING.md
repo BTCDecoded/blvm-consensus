@@ -32,43 +32,17 @@ blvm-node provides a complete Bitcoin node implementation with JSON-RPC 2.0 API 
 
 ### Method 1: In-Process Test Node
 
-For unit tests, start a test node in the same process:
-
-```rust
-use blvm_node::{Node, NodeConfig};
-use blvm_protocol::ProtocolVersion;
-
-#[tokio::test]
-async fn test_consensus_validation_via_rpc() {
-    // Start blvm-node in regtest mode (safe for testing)
-    let mut config = NodeConfig::default();
-    config.network = ProtocolVersion::Regtest;
-    let node = Node::new(config)?;
-    
-    // Start RPC server on random port
-    let rpc_manager = node.rpc_manager();
-    let rpc_addr = "127.0.0.1:0".parse()?;
-    rpc_manager.start(rpc_addr).await?;
-    
-    // Get actual RPC address
-    let actual_addr = rpc_manager.server_addr();
-    
-    // Now you can make RPC calls to test blvm-consensus
-    // ...
-}
-```
+For unit tests **inside `blvm-node`**, construct a `Node` with `Node::new(data_dir, listen_addr, rpc_addr, Some(ProtocolVersion::Regtest))` (or `with_storage_config`) and start it the same way as the crate’s integration tests. See **`blvm-node/tests/node_tests.rs`** and related tests for a working pattern — do not use a nonexistent `config.network` field on **`NodeConfig`**.
 
 ### Method 2: Standalone Test Node
 
-For integration tests, start a standalone node:
+For integration tests, start the operator binary from the **`blvm`** crate (JSON-RPC on `--rpc-addr`; default `127.0.0.1:18332`):
 
 ```bash
-# Start blvm-node in regtest mode
-cd blvm-node
-cargo run -- --network regtest --rpc-bind=127.0.0.1:18332
+# From workspace root (monorepo with `blvm/`):
+cd blvm
+cargo run -p blvm -- --network regtest --rpc-addr 127.0.0.1:18332
 ```
-
-Then connect to it from tests using the RPC client of your choice (e.g. `jsonrpc` crate).
 
 ## RPC Methods for Testing Consensus
 
@@ -89,8 +63,8 @@ Use blockchain RPC methods (`getblock`, `getblockchaininfo`, `gettxoutsetinfo`) 
 ### 1. Start blvm-node
 
 ```bash
-cd blvm-node
-cargo run -- --network regtest --rpc-bind=127.0.0.1:18332
+cd blvm
+cargo run -p blvm -- --network regtest --rpc-addr 127.0.0.1:18332
 ```
 
 ### 2. Run Consensus Tests
