@@ -56,7 +56,7 @@ jobs:
       - name: Cache
         id: setup-cache
         run: |
-          CACHE_ROOT="/tmp/runner-cache"
+          CACHE_ROOT="/tmp/runner-cache/${{ github.repository }}"
           
           # Generate cache key from Cargo.toml (library crates do not commit Cargo.lock)
           DEPS_KEY=$(sha256sum Cargo.toml | cut -d' ' -f1)
