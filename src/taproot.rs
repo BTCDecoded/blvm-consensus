@@ -139,7 +139,9 @@ pub fn parse_taproot_script_path_witness(
         return Ok(None);
     }
 
-    let control_block = witness.last().expect("len >= 2");
+    let Some(control_block) = witness.last() else {
+        return Ok(None);
+    };
     if control_block.len() < 33 || (control_block.len() - 33) % 32 != 0 {
         return Ok(None);
     }
