@@ -233,18 +233,17 @@ pub fn validate_witness_commitment(
     // BIP141: if multiple outputs match the 0xaa21a9ed prefix, use the LAST one.
     // Bitcoin Core iterates all outputs and keeps updating the commitment index,
     // so only the highest-index matching output is used for validation.
-    let mut last_commitment: Option<Hash> = None;
-    for output in &coinbase_tx.outputs {
-        if let Some(commitment) = extract_witness_commitment(&output.script_pubkey) {
-            last_commitment = Some(commitment);
-        }
-    }
+    let last_commitment =
+        last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs);
 
-    match last_commitment {
+    // Encode validity as 0/1 so blvm-spec-lock's Option match translation (Int arms) applies.
+    let ok_disc: i64 = match last_commitment {
+        None => 1,
         Some(commitment) => {
-            let ok = commitment == expected_commitment;
             #[cfg(feature = "profile")]
-            if !ok && std::env::var("BLVM_WITNESS_COMMIT_DEBUG").is_ok() {
+            if commitment != expected_commitment
+                && std::env::var("BLVM_WITNESS_COMMIT_DEBUG").is_ok()
+            {
                 eprintln!(
                     "BLVM_WITNESS_COMMIT_DEBUG: root={} nonce={} expected={} got={}",
                     hex::encode(witness_merkle_root),
@@ -253,11 +252,15 @@ pub fn validate_witness_commitment(
                     hex::encode(commitment),
                 );
             }
-            Ok(ok)
+            if commitment == expected_commitment {
+                1
+            } else {
+                0
+            }
         }
-        // No witness commitment found — valid for pre-SegWit blocks.
-        None => Ok(true),
-    }
+    };
+
+    Ok(ok_disc != 0)
 }
 
 /// Extract the 32-byte commitment hash from a coinbase OP_RETURN witness commitment output.
@@ -276,6 +279,16 @@ pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
         return Some(commitment);
     }
     None
+}
+
+fn last_witness_commitment_in_coinbase_outputs(outputs: &[TransactionOutput]) -> Option<Hash> {
+    let mut last_commitment: Option<Hash> = None;
+    for output in outputs {
+        if let Some(commitment) = extract_witness_commitment(&output.script_pubkey) {
+            last_commitment = Some(commitment);
+        }
+    }
+    last_commitment
 }
 
 /// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs
