@@ -233,8 +233,7 @@ pub fn validate_witness_commitment(
     // BIP141: if multiple outputs match the 0xaa21a9ed prefix, use the LAST one.
     // Bitcoin Core iterates all outputs and keeps updating the commitment index,
     // so only the highest-index matching output is used for validation.
-    let last_commitment =
-        last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs);
+    let last_commitment = last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs);
 
     // Encode validity as 0/1 so blvm-spec-lock's Option match translation (Int arms) applies.
     let ok_disc: i64 = match last_commitment {
