@@ -175,6 +175,8 @@ This enables:
 
 ## Testing
 
+Property-based tests (`proptest`), differential comparisons where configured, and fuzz targets under **`fuzz/`** (see [`fuzz/README.md`](fuzz/README.md)). CI runs **`cargo test --all-features`** and a nightly **Miri** job on selected targets — see [`docs/MIRI.md`](docs/MIRI.md) for scope and limitations.
+
 ```bash
 # Run all tests and verification
 cargo test --all-features

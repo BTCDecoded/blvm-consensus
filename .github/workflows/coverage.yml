@@ -47,7 +47,7 @@ jobs:
         run: |
           CACHE_ROOT="/tmp/runner-cache/${{ github.repository }}"
           
-          # Generate cache key from Cargo.toml (library crate does not commit Cargo.lock)
+          # Generate cache key from Cargo.toml (.gitignore — root Cargo.lock not tracked for this library crate)
           DEPS_KEY=$(sha256sum Cargo.toml | cut -d' ' -f1)
           TOOLCHAIN=$(grep -E '^channel|rust-version' rust-toolchain.toml Cargo.toml 2>/dev/null | head -1 | sha256sum | cut -d' ' -f1 || echo "1.88.0")
           CACHE_KEY="${DEPS_KEY}-${TOOLCHAIN}"

@@ -121,7 +121,7 @@ jobs:
           # Capture test output and hash it
           TEST_OUTPUT_FILE="test_output.txt"
           # Re-run tests with output capture (or use existing test output if available)
-          cargo test --lib --bins --tests -- --nocapture 2>&1 | tee "$TEST_OUTPUT_FILE" || true
+          cargo test --all-features --lib --bins --tests -- --nocapture 2>&1 | tee "$TEST_OUTPUT_FILE" || true
           UNIT_TESTS_HASH=$(sha256sum "$TEST_OUTPUT_FILE" | cut -d' ' -f1)
           echo "unit_tests_hash=$UNIT_TESTS_HASH" >> $GITHUB_ENV
           echo "Test output hash: $UNIT_TESTS_HASH"

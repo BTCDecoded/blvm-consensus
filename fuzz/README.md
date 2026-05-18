@@ -4,6 +4,12 @@ Coverage-guided fuzzing with **libFuzzer**. **Harness names** are defined in **`
 
 Narrative overview (timeless): [Fuzzing (BLVM docs)](https://docs.thebitcoincommons.org/development/fuzzing.html).
 
+## Production feature (`cfg(feature = "production")`)
+
+The fuzz workspace depends on **`blvm-consensus`** with extra features (**`utxo-commitments`**, **`ctv`**) but **does not** set **`default-features = false`**. The in-tree **`blvm-consensus`** crate therefore keeps its **default features**, including **`production`**.
+
+So fuzz builds **do compile production-gated code paths** unless you change **`fuzz/Cargo.toml`** to disable defaults. If you ever introduce **`default-features = false`**, document explicit **`--features production`** (or equivalent) in every **`cargo fuzz run`** example below.
+
 ## Quick Start
 
 ### 1. Initialize Corpus
@@ -177,6 +183,7 @@ Where fuzzing runs in CI, schedules and target matrices are defined in the workf
 
 ## References
 
+- **`blvm-protocol/fuzz/README.md`** — sibling protocol fuzz workspace (**`production`** + feature alignment).
 - [libFuzzer](https://llvm.org/docs/LibFuzzer.html)
 - [Rust Fuzz Book](https://rust-fuzz.github.io/book/)
 
