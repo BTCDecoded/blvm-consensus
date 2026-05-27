@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering SegWit transaction weight,
 //! witness validation, Taproot output validation, and related edge cases.
 
-use blvm_consensus::*;
+use blvm_consensus::constants::MAX_BLOCK_SIZE;
 use blvm_consensus::segwit;
 use blvm_consensus::types::*;
-use blvm_consensus::constants::MAX_BLOCK_SIZE;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: transaction weight is always positive
@@ -22,7 +22,7 @@ proptest! {
             outputs: Vec::new(),
             lock_time: 0,
         };
-        
+
         // Add inputs
         for i in 0..input_count {
             tx.inputs.push(TransactionInput {
@@ -31,7 +31,7 @@ proptest! {
                 sequence: 0xffffffff,
             });
         }
-        
+
         // Add outputs
         for i in 0..output_count {
             tx.outputs.push(TransactionOutput {
@@ -39,12 +39,12 @@ proptest! {
                 script_pubkey: vec![i as u8; 50],
             });
         }
-        
+
         let witness: segwit::Witness = vec![vec![0x51; 50]; input_count];
-        
+
         // Calculate weight
         let result = segwit::calculate_transaction_weight(&tx, Some(&witness), crate::types::Network::Mainnet);
-        
+
         prop_assert!(result.is_ok());
         if result.is_ok() {
             let weight = result.unwrap();
@@ -70,7 +70,7 @@ proptest! {
             },
             transactions: Vec::new(),
         };
-        
+
         // Add transactions
         for i in 0..tx_count {
             block.transactions.push(Transaction {
@@ -87,11 +87,11 @@ proptest! {
                 lock_time: 0,
             });
         }
-        
+
         let witnesses: Vec<segwit::Witness> = vec![vec![vec![]]; tx_count];
-        
+
         let result = segwit::calculate_block_weight(&block, &witnesses);
-        
+
         prop_assert!(result.is_ok());
         if result.is_ok() {
             let weight = result.unwrap();
@@ -113,7 +113,7 @@ proptest! {
         // This is a simplified formula test
         let base_weight = base_size * 3;
         let total_weight = base_weight + witness_size;
-        
+
         prop_assert!(total_weight >= base_size);
         prop_assert!(total_weight >= witness_size);
         prop_assert!(total_weight <= (base_size * 4 + witness_size));
@@ -131,9 +131,9 @@ proptest! {
         let witness: Vec<Vec<u8>> = (0..witness_item_count)
             .map(|_| vec![0x51; witness_item_size])
             .collect();
-        
+
         let total_witness_size: usize = witness.iter().map(|w| w.len()).sum();
-        
+
         prop_assert!(total_witness_size >= 0);
         prop_assert!(total_witness_size <= witness_item_count * witness_item_size);
     }
@@ -162,9 +162,9 @@ proptest! {
         // Base size is part of weight calculation
         // Weight = base_size * 3 + witness_size
         let weight = (base_size * 3) + witness_size;
-        
+
         prop_assert!(weight >= base_size);
-        
+
         // Weight should be at least base_size
         if witness_size == 0 {
             prop_assert!(weight >= base_size * 3);
@@ -182,7 +182,7 @@ proptest! {
     ) {
         // Witness commitment should be 32 bytes (SHA256 output)
         prop_assert_eq!(witness_root.len(), 32);
-        
+
         // Witness root should be non-zero (typically)
         // (but zero is technically valid)
         prop_assert!(true);
@@ -197,7 +197,7 @@ proptest! {
     ) {
         // SegWit versions 0-16 are valid
         prop_assert!(version <= 16);
-        
+
         // Version 0 is standard (P2WPKH, P2WSH)
         if version == 0 {
             prop_assert!(true, "Version 0 is standard SegWit");
@@ -225,7 +225,7 @@ proptest! {
         non_segwit_tx_count in 0usize..5usize
     ) {
         let total_tx_count = segwit_tx_count + non_segwit_tx_count;
-        
+
         if total_tx_count > 0 {
             let mut block = Block {
                 header: BlockHeader {
@@ -238,7 +238,7 @@ proptest! {
                 },
                 transactions: Vec::new(),
             };
-            
+
             // Add transactions
             for i in 0..total_tx_count {
                 block.transactions.push(Transaction {
@@ -255,7 +255,7 @@ proptest! {
                     lock_time: 0,
                 });
             }
-            
+
             // Create witnesses (SegWit txs have witnesses, non-SegWit have empty)
             let mut witnesses: Vec<segwit::Witness> = Vec::new();
             for i in 0..total_tx_count {
@@ -265,9 +265,9 @@ proptest! {
                     witnesses.push(vec![vec![]]);
                 }
             }
-            
+
             let result = segwit::calculate_block_weight(&block, &witnesses);
-            
+
             // Should succeed
             prop_assert!(result.is_ok() || result.is_err());
         }
@@ -288,10 +288,10 @@ proptest! {
         } else {
             (witness2_size, witness1_size)
         };
-        
+
         let weight1 = (base_size * 3) + w1;
         let weight2 = (base_size * 3) + w2;
-        
+
         // Larger witness should produce larger weight
         prop_assert!(weight2 >= weight1,
             "Transaction weight should increase with witness size");
@@ -308,11 +308,11 @@ proptest! {
         // Weight = base_bytes * 4 + witness_bytes * 1
         // Base data counts 4x, witness counts 1x
         let weight = (base_bytes * 4) + witness_bytes;
-        
+
         // Base bytes contribute more to weight
         prop_assert!(weight >= base_bytes * 4);
         prop_assert!(weight >= witness_bytes);
-        
+
         // Witness discount: witness_bytes contribute less than base_bytes would
         if witness_bytes > 0 {
             prop_assert!((witness_bytes * 4) > witness_bytes,
@@ -320,4 +320,3 @@ proptest! {
         }
     }
 }
-

@@ -100,6 +100,24 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     ))
 }
 
+/// Taproot output key with parity from internal key and merkle root (BIP 341).
+/// Returns (output_xonly_key, parity) where parity is 0 for even y, 1 for odd y.
+pub fn taproot_output_key_with_parity(
+    internal_pubkey: &[u8; 32],
+    merkle_root: &Hash,
+) -> Result<([u8; 32], u8)> {
+    #[cfg(feature = "blvm-secp256k1")]
+    return blvm_impl::taproot_output_key_with_parity(internal_pubkey, merkle_root);
+
+    #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
+    return secp256k1_impl::taproot_output_key_with_parity(internal_pubkey, merkle_root);
+
+    #[cfg(not(any(feature = "blvm-secp256k1", feature = "secp256k1-fallback")))]
+    Err(crate::error::ConsensusError::BlockValidation(
+        "no crypto backend enabled".into(),
+    ))
+}
+
 /// BIP 341 TapLeaf hash: tag "TapLeaf", data = leaf_version || compact_size(script_len) || script.
 pub fn tap_leaf_hash(leaf_version: u8, script: &[u8]) -> [u8; 32] {
     #[cfg(feature = "blvm-secp256k1")]

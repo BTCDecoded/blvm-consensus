@@ -237,6 +237,66 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
     )
 }
 
+/// Variant of `is_standard_tx` that accepts an optional [`blvm_primitives::config::MempoolConfig`].
+///
+/// Applies configurable policy overrides. When config is `None`, delegates to `is_standard_tx`.
+/// When config is present, config fields override the base policy for envelope protocol,
+/// multiple OP_RETURN, and script size limits.
+pub fn is_standard_tx_with_config(
+    tx: &crate::types::Transaction,
+    config: Option<&blvm_primitives::config::MempoolConfig>,
+) -> Result<bool> {
+    let Some(cfg) = config else {
+        return is_standard_tx(tx);
+    };
+
+    // Size checks (same as base).
+    let tx_size = crate::transaction::calculate_transaction_size(tx);
+    if tx_size > MAX_TX_SIZE {
+        return Ok(false);
+    }
+    for input in tx.inputs.iter() {
+        if input.script_sig.len() > MAX_SCRIPT_SIZE {
+            return Ok(false);
+        }
+    }
+
+    let max_script = cfg.max_standard_script_size as usize;
+    let max_op_return = cfg.max_op_return_size as usize;
+    let reject_envelope = cfg.reject_envelope_protocol;
+    let reject_multi_op_return = cfg.reject_multiple_op_return;
+
+    let mut op_return_count = 0usize;
+    for output in tx.outputs.iter() {
+        let s = &output.script_pubkey;
+
+        // Configurable max script size.
+        if s.len() > max_script {
+            return Ok(false);
+        }
+
+        if s.first() == Some(&0x6a) {
+            // OP_RETURN: check configurable data size.
+            op_return_count += 1;
+            if s.len().saturating_sub(1) > max_op_return {
+                return Ok(false);
+            }
+        } else if s.len() >= 2 && s[0] == 0x00 && s[1] == 0x63 {
+            // Envelope protocol (OP_FALSE OP_IF).
+            if reject_envelope {
+                return Ok(false);
+            }
+        }
+    }
+
+    // Multiple OP_RETURN check (config-gated).
+    if reject_multi_op_return && op_return_count > 1 {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 /// IsStandardTx: 𝒯𝒳 → {true, false}
 ///
 /// Check if transaction follows standard rules for mempool acceptance:
@@ -283,7 +343,8 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         }
     }
 
-    // 3. Check for standard script types (simplified)
+    // 3. Check for standard script types and policy
+    let mut op_return_count = 0usize;
     for (i, output) in tx.outputs.iter().enumerate() {
         // Bounds checking assertion: Output index must be valid
         assert!(
@@ -293,12 +354,25 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
         if !is_standard_script(&output.script_pubkey)? {
             return Ok(false);
         }
+
+        // Count OP_RETURN outputs; Bitcoin Core rejects multiple OP_RETURN outputs (policy).
+        if output.script_pubkey.first() == Some(&0x6a) {
+            op_return_count += 1;
+        }
+
+        // Reject envelope protocol scripts (OP_FALSE OP_IF) — non-standard in base policy.
+        let s = &output.script_pubkey;
+        if s.len() >= 2 && s[0] == 0x00 && s[1] == 0x63 {
+            return Ok(false);
+        }
     }
 
-    // Postcondition assertion: Result must be boolean
-    let result = true;
-    // Note: Result is boolean (tautology for formal verification)
-    Ok(result)
+    // Reject transactions with more than one OP_RETURN output (base policy).
+    if op_return_count > 1 {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 /// ReplacementChecks: 𝒯𝒳 × 𝒯𝒳 × 𝒰𝒮 × Mempool → {true, false}
@@ -836,23 +910,19 @@ fn creates_new_dependencies(
 
 /// Check if script is standard
 fn is_standard_script(script: &ByteString) -> Result<bool> {
-    // Simplified standard script check
-    // In reality, this would check for P2PKH, P2SH, P2WPKH, P2WSH, etc.
     if script.is_empty() {
         return Ok(false);
     }
 
-    // Basic checks
     if script.len() > MAX_SCRIPT_SIZE {
         return Ok(false);
     }
 
-    // Check for non-standard opcodes (simplified)
-    for &byte in script {
-        if byte > 0x60 && byte < 0x7f {
-            // Some non-standard opcodes
-            return Ok(false);
-        }
+    // OP_RETURN (0x6a) outputs are standard and allowed (with size constraints).
+    // An OP_RETURN script is recognized by its first byte being 0x6a.
+    if script[0] == 0x6a {
+        // OP_RETURN outputs are standard up to 83 bytes total (1 opcode + 1 push + 80 data).
+        return Ok(script.len() <= 83);
     }
 
     Ok(true)

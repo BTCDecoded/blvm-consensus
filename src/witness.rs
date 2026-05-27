@@ -130,7 +130,20 @@ pub fn weight_to_vsize(weight: Natural) -> Natural {
 /// from SegWit v0 (OP_0 <witness-program>) or Taproot v1 (OP_1 <witness-program>)
 #[spec_locked("11.1.3", "ExtractWitnessVersion")]
 pub fn extract_witness_version(script: &ByteString) -> Option<WitnessVersion> {
-    if script.is_empty() {
+    // BIP141 §witness_program: scriptPubKey must be exactly [version, push, program_bytes]
+    // where program_bytes is 2–40 bytes. Minimum valid length is 4 bytes (version + push + 2).
+    if script.len() < 4 {
+        return None;
+    }
+
+    // Validate the push opcode encodes a 2–40 byte program.
+    let push_opcode = script[1];
+    let program_len = push_opcode as usize; // direct push opcodes (0x02..=0x28) encode their length
+    if !(2..=40).contains(&program_len) {
+        return None;
+    }
+    // The script must be exactly version(1) + push(1) + program_bytes
+    if script.len() != 2 + program_len {
         return None;
     }
 

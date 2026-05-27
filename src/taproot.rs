@@ -59,15 +59,20 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
     crate::secp256k1_backend::taproot_output_key(internal_pubkey, merkle_root)
 }
 
-/// Validate Taproot key aggregation
+/// Validate Taproot key aggregation, including the parity commitment from the control block.
+///
+/// Per BIP341: verifies that `output_key.x == tweaked_internal_key.x` AND that
+/// `tweaked_internal_key.y_parity == expected_parity` (from `control_block[0] & 0x01`).
 #[spec_locked("11.2.2", "ValidateTaprootKeyAggregation")]
 pub fn validate_taproot_key_aggregation(
     internal_pubkey: &[u8; 32],
     merkle_root: &Hash,
     output_key: &[u8; 32],
+    expected_parity: u8,
 ) -> Result<bool> {
-    let expected_output_key = compute_taproot_tweak(internal_pubkey, merkle_root)?;
-    Ok(expected_output_key == *output_key)
+    let (computed_key, actual_parity) =
+        crate::secp256k1_backend::taproot_output_key_with_parity(internal_pubkey, merkle_root)?;
+    Ok(computed_key == *output_key && actual_parity == expected_parity)
 }
 
 /// Validate Taproot script path spending
@@ -146,7 +151,10 @@ pub fn parse_taproot_script_path_witness(
         return Ok(None);
     }
 
-    let leaf_version = control_block[0];
+    // BIP341: leaf_version = control_block[0] & 0xfe (strip parity bit).
+    // parity = control_block[0] & 0x01 (which y-coordinate the tweaked key uses).
+    let leaf_version = control_block[0] & 0xfe;
+    let parity = control_block[0] & 0x01;
     let mut internal_pubkey = [0u8; 32];
     internal_pubkey.copy_from_slice(&control_block[1..33]);
     let merkle_proof: Vec<Hash> = control_block[33..]
@@ -173,7 +181,8 @@ pub fn parse_taproot_script_path_witness(
     let stack_items: Vec<ByteString> = witness[..script_idx].to_vec();
 
     let merkle_root = compute_script_merkle_root(&tapscript, &merkle_proof, leaf_version)?;
-    if !validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, output_key)? {
+    // BIP341: verify output key x-coordinate and parity both match the commitment.
+    if !validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, output_key, parity)? {
         return Ok(None);
     }
 
@@ -181,7 +190,7 @@ pub fn parse_taproot_script_path_witness(
         tapscript,
         stack_items,
         TaprootControlBlock {
-            leaf_version,
+            leaf_version, // already masked (0xfe) — parity bit stripped
             internal_pubkey,
             merkle_proof,
         },
@@ -220,8 +229,57 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
     Ok(true)
 }
 
-/// Compute Taproot signature hash following BIP 341 specification.
-/// Uses TaggedHash("TapSighash", 0x00 || SigMsg(...)) per BIP 341.
+/// Compute BIP341 SigMsg hash commitments from all inputs and outputs.
+///
+/// Returns (sha_prevouts, sha_amounts, sha_scriptpubkeys, sha_sequences, sha_outputs).
+/// Each is SHA256 of the concatenation of the respective field across all inputs/outputs.
+fn bip341_precompute(
+    tx: &Transaction,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+) -> ([u8; 32], [u8; 32], [u8; 32], [u8; 32], [u8; 32]) {
+    use sha2::{Digest, Sha256};
+
+    let mut prevouts_data = Vec::new();
+    let mut amounts_data = Vec::new();
+    let mut scriptpubkeys_data = Vec::new();
+    let mut sequences_data = Vec::new();
+    for (i, input) in tx.inputs.iter().enumerate() {
+        prevouts_data.extend_from_slice(&input.prevout.hash);
+        prevouts_data.extend_from_slice(&input.prevout.index.to_le_bytes());
+        amounts_data
+            .extend_from_slice(&(prevout_values.get(i).copied().unwrap_or(0) as u64).to_le_bytes());
+        let spk = prevout_script_pubkeys.get(i).copied().unwrap_or(&[]);
+        scriptpubkeys_data.extend_from_slice(&encode_varint(spk.len() as u64));
+        scriptpubkeys_data.extend_from_slice(spk);
+        sequences_data.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    }
+    let mut outputs_data = Vec::new();
+    for output in &tx.outputs {
+        outputs_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+        outputs_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        outputs_data.extend_from_slice(&output.script_pubkey);
+    }
+
+    (
+        Sha256::digest(&prevouts_data).into(),
+        Sha256::digest(&amounts_data).into(),
+        Sha256::digest(&scriptpubkeys_data).into(),
+        Sha256::digest(&sequences_data).into(),
+        Sha256::digest(&outputs_data).into(),
+    )
+}
+
+/// Compute Taproot key-path signature hash following BIP341.
+///
+/// SigMsg = epoch(1) || hash_type(1) || nVersion(4) || nLockTime(4)
+///        || sha_prevouts(32) || sha_amounts(32) || sha_scriptpubkeys(32) || sha_sequences(32)
+///        || sha_outputs(32)   [if SIGHASH_ALL]
+///        || spend_type(1)     [0x00 = key-path, no annex]
+///        || input_index(4)
+///
+/// Only SIGHASH_DEFAULT (0x00 = treated as ALL) and SIGHASH_ALL (0x01) are handled here;
+/// ANYONECANPAY and SIGHASH_SINGLE paths use the same base but are not yet exercised.
 #[spec_locked("11.2.6", "ComputeTaprootSignatureHash")]
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
@@ -230,47 +288,91 @@ pub fn compute_taproot_signature_hash(
     prevout_script_pubkeys: &[&[u8]],
     sighash_type: u8,
 ) -> Result<Hash> {
-    let mut sigmsg = Vec::new();
+    use sha2::{Digest, Sha256};
 
-    sigmsg.extend((tx.version as u32).to_le_bytes());
-    sigmsg.extend(encode_varint(tx.inputs.len() as u64));
-    for input in &tx.inputs {
-        sigmsg.extend(input.prevout.hash);
-        sigmsg.extend(input.prevout.index.to_le_bytes());
-        sigmsg.push(0);
-        sigmsg.extend((input.sequence as u32).to_le_bytes());
-    }
-    sigmsg.extend(encode_varint(tx.outputs.len() as u64));
-    for output in &tx.outputs {
-        sigmsg.extend((output.value as u64).to_le_bytes());
-        sigmsg.extend(encode_varint(output.script_pubkey.len() as u64));
-        sigmsg.extend(&output.script_pubkey);
-    }
-    sigmsg.extend((tx.lock_time as u32).to_le_bytes());
-    sigmsg.extend((sighash_type as u32).to_le_bytes());
-    sigmsg.extend((input_index as u32).to_le_bytes());
-    if input_index < prevout_values.len() {
-        sigmsg.extend((prevout_values[input_index] as u64).to_le_bytes());
-    } else {
-        sigmsg.extend([0u8; 8]);
-    }
-    if input_index < prevout_script_pubkeys.len() {
-        sigmsg.extend(encode_varint(
-            prevout_script_pubkeys[input_index].len() as u64
+    // Reject invalid sighash types (BIP341 §Common signature message)
+    // Valid: 0x00 (DEFAULT/ALL), 0x01–0x03, 0x81–0x83.
+    if !(sighash_type <= 0x03 || (0x81..=0x83).contains(&sighash_type)) {
+        return Err(crate::error::ConsensusError::InvalidSignature(
+            "Invalid Taproot sighash type".into(),
         ));
-        sigmsg.extend(prevout_script_pubkeys[input_index]);
-    } else {
-        sigmsg.push(0);
     }
 
-    let mut tagged_input = Vec::with_capacity(1 + sigmsg.len());
-    tagged_input.push(0x00);
-    tagged_input.extend(sigmsg);
-    Ok(crate::secp256k1_backend::tap_sighash_hash(&tagged_input))
+    let input_type = sighash_type & 0x80; // ANYONECANPAY bit
+    let output_type = if sighash_type == 0x00 {
+        0x01
+    } else {
+        sighash_type & 0x03
+    }; // DEFAULT → ALL
+
+    let (sha_prevouts, sha_amounts, sha_scriptpubkeys, sha_sequences, sha_outputs) =
+        bip341_precompute(tx, prevout_values, prevout_script_pubkeys);
+
+    let mut sigmsg = Vec::with_capacity(180);
+
+    // epoch
+    sigmsg.push(0x00u8);
+    // hash_type
+    sigmsg.push(sighash_type);
+    // nVersion
+    sigmsg.extend_from_slice(&(tx.version as u32).to_le_bytes());
+    // nLockTime
+    sigmsg.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+
+    if input_type != 0x80 {
+        // not ANYONECANPAY: include all-input hash commitments
+        sigmsg.extend_from_slice(&sha_prevouts);
+        sigmsg.extend_from_slice(&sha_amounts);
+        sigmsg.extend_from_slice(&sha_scriptpubkeys);
+        sigmsg.extend_from_slice(&sha_sequences);
+    }
+    if output_type == 0x01 {
+        // SIGHASH_ALL: include all-output hash
+        sigmsg.extend_from_slice(&sha_outputs);
+    }
+
+    // spend_type: ext_flag=0 (key path), annex_present=0 → 0x00
+    sigmsg.push(0x00u8);
+
+    if input_type == 0x80 {
+        // ANYONECANPAY: include this input's outpoint + amount + scriptpubkey + sequence
+        let input = tx.inputs.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature("input_index out of range".into())
+        })?;
+        sigmsg.extend_from_slice(&input.prevout.hash);
+        sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
+        let amount = prevout_values.get(input_index).copied().unwrap_or(0) as u64;
+        sigmsg.extend_from_slice(&amount.to_le_bytes());
+        let spk = prevout_script_pubkeys
+            .get(input_index)
+            .copied()
+            .unwrap_or(&[]);
+        sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
+        sigmsg.extend_from_slice(spk);
+        sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    } else {
+        // include input_index
+        sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
+    }
+
+    if output_type == 0x03 {
+        // SIGHASH_SINGLE: hash of this input's corresponding output
+        if let Some(output) = tx.outputs.get(input_index) {
+            let mut out_data = Vec::new();
+            out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+            out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+            out_data.extend_from_slice(&output.script_pubkey);
+            sigmsg.extend_from_slice(&Sha256::digest(&out_data));
+        }
+    }
+
+    Ok(crate::secp256k1_backend::tap_sighash_hash(&sigmsg))
 }
 
-/// Compute Tapscript signature hash per BIP 342.
-/// Same base SigMsg as key-path, with ext = codesep_pos (4) || key_version (1) || tapleaf_hash (32).
+/// Compute Tapscript (BIP342) signature hash.
+///
+/// Same base SigMsg as key-path (spend_type bit 0 set = 0x01 or 0x03 depending on annex),
+/// with extension: tapleaf_hash(32) || key_version(1=0x00) || codesep_pos(4).
 #[spec_locked("11.2.7", "ComputeTapscriptSignatureHash")]
 pub fn compute_tapscript_signature_hash(
     tx: &Transaction,
@@ -282,45 +384,85 @@ pub fn compute_tapscript_signature_hash(
     codesep_pos: u32,
     sighash_type: u8,
 ) -> Result<Hash> {
-    let mut sigmsg = Vec::new();
-    sigmsg.extend((tx.version as u32).to_le_bytes());
-    sigmsg.extend(encode_varint(tx.inputs.len() as u64));
-    for input in &tx.inputs {
-        sigmsg.extend(input.prevout.hash);
-        sigmsg.extend(input.prevout.index.to_le_bytes());
-        sigmsg.push(0);
-        sigmsg.extend((input.sequence as u32).to_le_bytes());
-    }
-    sigmsg.extend(encode_varint(tx.outputs.len() as u64));
-    for output in &tx.outputs {
-        sigmsg.extend((output.value as u64).to_le_bytes());
-        sigmsg.extend(encode_varint(output.script_pubkey.len() as u64));
-        sigmsg.extend(&output.script_pubkey);
-    }
-    sigmsg.extend((tx.lock_time as u32).to_le_bytes());
-    sigmsg.extend((sighash_type as u32).to_le_bytes());
-    sigmsg.extend((input_index as u32).to_le_bytes());
-    if input_index < prevout_values.len() {
-        sigmsg.extend((prevout_values[input_index] as u64).to_le_bytes());
-    } else {
-        sigmsg.extend([0u8; 8]);
-    }
-    if input_index < prevout_script_pubkeys.len() {
-        sigmsg.extend(encode_varint(
-            prevout_script_pubkeys[input_index].len() as u64
+    use sha2::{Digest, Sha256};
+
+    if !(sighash_type <= 0x03 || (0x81..=0x83).contains(&sighash_type)) {
+        return Err(crate::error::ConsensusError::InvalidSignature(
+            "Invalid Tapscript sighash type".into(),
         ));
-        sigmsg.extend(prevout_script_pubkeys[input_index]);
-    } else {
-        sigmsg.push(0);
     }
+
+    let input_type = sighash_type & 0x80;
+    let output_type = if sighash_type == 0x00 {
+        0x01
+    } else {
+        sighash_type & 0x03
+    };
+
+    let (sha_prevouts, sha_amounts, sha_scriptpubkeys, sha_sequences, sha_outputs) =
+        bip341_precompute(tx, prevout_values, prevout_script_pubkeys);
+
+    let mut sigmsg = Vec::with_capacity(250);
+
+    // epoch
+    sigmsg.push(0x00u8);
+    // hash_type
+    sigmsg.push(sighash_type);
+    // nVersion
+    sigmsg.extend_from_slice(&(tx.version as u32).to_le_bytes());
+    // nLockTime
+    sigmsg.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+
+    if input_type != 0x80 {
+        sigmsg.extend_from_slice(&sha_prevouts);
+        sigmsg.extend_from_slice(&sha_amounts);
+        sigmsg.extend_from_slice(&sha_scriptpubkeys);
+        sigmsg.extend_from_slice(&sha_sequences);
+    }
+    if output_type == 0x01 {
+        sigmsg.extend_from_slice(&sha_outputs);
+    }
+
+    // spend_type: ext_flag=1 (script path), annex_present=0 → 0x02
+    sigmsg.push(0x02u8);
+
+    if input_type == 0x80 {
+        let input = tx.inputs.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature("input_index out of range".into())
+        })?;
+        sigmsg.extend_from_slice(&input.prevout.hash);
+        sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
+        let amount = prevout_values.get(input_index).copied().unwrap_or(0) as u64;
+        sigmsg.extend_from_slice(&amount.to_le_bytes());
+        let spk = prevout_script_pubkeys
+            .get(input_index)
+            .copied()
+            .unwrap_or(&[]);
+        sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
+        sigmsg.extend_from_slice(spk);
+        let input = tx.inputs.get(input_index).unwrap();
+        sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    } else {
+        sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
+    }
+
+    if output_type == 0x03 {
+        if let Some(output) = tx.outputs.get(input_index) {
+            let mut out_data = Vec::new();
+            out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+            out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+            out_data.extend_from_slice(&output.script_pubkey);
+            sigmsg.extend_from_slice(&Sha256::digest(&out_data));
+        }
+    }
+
+    // BIP342 extension: tapleaf_hash || key_version(0x00) || codesep_pos
     let tapleaf_hash = crate::secp256k1_backend::tap_leaf_hash(leaf_version, tapscript);
-    sigmsg.extend(codesep_pos.to_le_bytes());
-    sigmsg.push(0x00);
-    sigmsg.extend(tapleaf_hash);
-    let mut tagged_input = Vec::with_capacity(1 + sigmsg.len());
-    tagged_input.push(0x00);
-    tagged_input.extend(sigmsg);
-    Ok(crate::secp256k1_backend::tap_sighash_hash(&tagged_input))
+    sigmsg.extend_from_slice(&tapleaf_hash);
+    sigmsg.push(0x00u8); // key_version
+    sigmsg.extend_from_slice(&codesep_pos.to_le_bytes());
+
+    Ok(crate::secp256k1_backend::tap_sighash_hash(&sigmsg))
 }
 
 /// Encode a number as a Bitcoin varint
@@ -397,11 +539,19 @@ mod tests {
             0x16, 0xf8, 0x17, 0x98,
         ];
         let merkle_root = [2u8; 32];
-        let output_key = compute_taproot_tweak(&internal_pubkey, &merkle_root).unwrap();
+        let (output_key, parity) = crate::secp256k1_backend::taproot_output_key_with_parity(
+            &internal_pubkey,
+            &merkle_root,
+        )
+        .unwrap();
 
-        assert!(
-            validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key).unwrap()
-        );
+        assert!(validate_taproot_key_aggregation(
+            &internal_pubkey,
+            &merkle_root,
+            &output_key,
+            parity
+        )
+        .unwrap());
     }
 
     #[test]
@@ -573,7 +723,8 @@ mod tests {
         assert!(!validate_taproot_key_aggregation(
             &internal_pubkey,
             &merkle_root,
-            &wrong_output_key
+            &wrong_output_key,
+            0, // parity — irrelevant since key mismatch will fail first
         )
         .unwrap());
     }

@@ -3,10 +3,12 @@
 //! Comprehensive property-based tests covering difficulty adjustment calculations,
 //! target bounds, and edge cases in proof-of-work validation.
 
-use blvm_consensus::*;
+use blvm_consensus::constants::{
+    DIFFICULTY_ADJUSTMENT_INTERVAL, MAX_TARGET, TARGET_TIME_PER_BLOCK,
+};
 use blvm_consensus::pow;
 use blvm_consensus::types::*;
-use blvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, MAX_TARGET, TARGET_TIME_PER_BLOCK};
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: difficulty adjustment interval properties
@@ -17,10 +19,10 @@ proptest! {
     ) {
         // Difficulty adjustment happens every DIFFICULTY_ADJUSTMENT_INTERVAL blocks
         let is_adjustment_height = (height % DIFFICULTY_ADJUSTMENT_INTERVAL as u64) == 0;
-        
+
         // Height should be valid
         prop_assert!(height >= 0);
-        
+
         // Adjustment should occur at multiples of interval
         if is_adjustment_height && height > 0 {
             let prev_height = height - 1;
@@ -40,7 +42,7 @@ proptest! {
         // Target should be within valid range
         prop_assert!(bits >= 0x01000000);
         prop_assert!(bits <= MAX_TARGET);
-        
+
         // Bits should be non-zero
         prop_assert!(bits != 0);
     }
@@ -56,12 +58,12 @@ proptest! {
         // Difficulty adjustment factor = expected / actual
         // Should be clamped between 0.25 and 4.0
         let factor = expected_time as f64 / actual_time as f64;
-        
+
         let clamped = factor.max(0.25).min(4.0);
-        
+
         prop_assert!(clamped >= 0.25, "Factor should be >= 0.25");
         prop_assert!(clamped <= 4.0, "Factor should be <= 4.0");
-        
+
         if factor < 0.25 {
             prop_assert_eq!(clamped, 0.25, "Factor should clamp to 0.25");
         } else if factor > 4.0 {
@@ -81,7 +83,7 @@ proptest! {
     ) {
         // Work = 2^256 / (target + 1)
         // Lower target = higher difficulty = more work
-        
+
         if target1 < target2 {
             // Lower target should produce more work
             // Work1 > Work2
@@ -103,15 +105,15 @@ proptest! {
     ) {
         // New target = prev_target * (actual_time / expected_time)
         // Should be clamped
-        
+
         let expected_time = (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) * TARGET_TIME_PER_BLOCK;
         let factor = time_span as f64 / expected_time as f64;
         let clamped_factor = factor.max(0.25).min(4.0);
-        
+
         // Clamped factor should be within bounds
         prop_assert!(clamped_factor >= 0.25);
         prop_assert!(clamped_factor <= 4.0);
-        
+
         // New target should be within valid range
         prop_assert!(prev_bits >= 0x01000000);
         prop_assert!(prev_bits <= MAX_TARGET);
@@ -129,7 +131,7 @@ proptest! {
         // This is a structural property test
         prop_assert!(target_bits >= 0x01000000);
         prop_assert!(target_bits <= MAX_TARGET);
-        
+
         // Hash bytes should be valid
         prop_assert!(hash_bytes.len() == 32);
     }
@@ -144,7 +146,7 @@ proptest! {
         // Adjustment happens at heights: 0, DIFFICULTY_ADJUSTMENT_INTERVAL, 2*DIFFICULTY_ADJUSTMENT_INTERVAL, etc.
         let adjustment_period = height / (DIFFICULTY_ADJUSTMENT_INTERVAL as u64);
         let next_adjustment = (adjustment_period + 1) * (DIFFICULTY_ADJUSTMENT_INTERVAL as u64);
-        
+
         prop_assert!(next_adjustment >= height);
         prop_assert!(next_adjustment >= (DIFFICULTY_ADJUSTMENT_INTERVAL as u64));
         prop_assert!((next_adjustment % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64)) == 0);
@@ -159,13 +161,12 @@ proptest! {
     ) {
         // Target should never exceed MAX_TARGET
         prop_assert!(bits <= MAX_TARGET);
-        
+
         // Target should be positive
         prop_assert!(bits >= 0x01000000);
-        
+
         // Expanded target should also respect bounds
         // (Actual expansion would be tested in implementation)
         prop_assert!(bits != 0);
     }
 }
-

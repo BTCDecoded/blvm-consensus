@@ -91,8 +91,48 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     let tweaked_pk = full_pk.add_exp_tweak(&secp, &tweak_scalar).map_err(|_| {
         ConsensusError::InvalidSignature("Failed to compute tweaked public key".into())
     })?;
-    let xonly_pk = XOnlyPublicKey::from(tweaked_pk);
+    let (xonly_pk, _parity) = tweaked_pk.x_only_public_key();
     Ok(xonly_pk.serialize())
+}
+
+pub fn taproot_output_key_with_parity(
+    internal_pubkey: &[u8; 32],
+    merkle_root: &Hash,
+) -> Result<([u8; 32], u8)> {
+    use secp256k1::{Parity, Scalar, XOnlyPublicKey};
+    use sha2::{Digest, Sha256};
+
+    let secp = Secp256k1::new();
+    let internal_pk = match XOnlyPublicKey::from_slice(internal_pubkey) {
+        Ok(pk) => pk,
+        Err(_) => {
+            return Err(ConsensusError::InvalidSignature(
+                "Invalid internal public key".into(),
+            ))
+        }
+    };
+
+    let mut tweak_data = Vec::new();
+    tweak_data.extend_from_slice(b"TapTweak");
+    tweak_data.extend_from_slice(internal_pubkey);
+    tweak_data.extend_from_slice(merkle_root);
+    let tweak_hash = Sha256::digest(&tweak_data);
+    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash.into()) {
+        Ok(s) => s,
+        Err(_) => {
+            return Err(ConsensusError::InvalidSignature(
+                "Invalid tweak scalar".into(),
+            ))
+        }
+    };
+
+    let full_pk = PublicKey::from_x_only_public_key(internal_pk, Parity::Even);
+    let tweaked_pk = full_pk.add_exp_tweak(&secp, &tweak_scalar).map_err(|_| {
+        ConsensusError::InvalidSignature("Failed to compute tweaked public key".into())
+    })?;
+    let (xonly_pk, parity) = tweaked_pk.x_only_public_key();
+    let parity_byte = if parity == Parity::Odd { 1u8 } else { 0u8 };
+    Ok((xonly_pk.serialize(), parity_byte))
 }
 
 /// BIP 341 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || data).

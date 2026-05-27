@@ -2,43 +2,57 @@
 
 #[cfg(feature = "production")]
 mod tests {
-    use blvm_consensus::*;
     use blvm_consensus::block::*;
     use blvm_consensus::script::*;
+    use blvm_consensus::*;
 
     fn create_multi_input_transaction() -> Transaction {
         Transaction {
             version: 1,
             inputs: vec![
                 TransactionInput {
-                    prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+                    prevout: OutPoint {
+                        hash: [1; 32].into(),
+                        index: 0,
+                    },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
-                    prevout: OutPoint { hash: [2; 32], index: 0 },
+                    prevout: OutPoint {
+                        hash: [2; 32],
+                        index: 0,
+                    },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
-                    prevout: OutPoint { hash: [3; 32], index: 0 },
+                    prevout: OutPoint {
+                        hash: [3; 32],
+                        index: 0,
+                    },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 },
-            ].into(),
+            ]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         }
     }
 
     fn create_multi_input_utxo_set() -> UtxoSet {
         let mut utxo_set = UtxoSet::default();
-        
+
         for i in 1..=3 {
-            let outpoint = OutPoint { hash: [i as u8; 32], index: 0 };
+            let outpoint = OutPoint {
+                hash: [i as u8; 32],
+                index: 0,
+            };
             let utxo = UTXO {
                 value: 10000,
                 script_pubkey: vec![0x51].into(),
@@ -46,7 +60,7 @@ mod tests {
             };
             utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
         }
-        
+
         utxo_set
     }
 
@@ -55,7 +69,7 @@ mod tests {
         // Test parallel verification of single transaction with multiple inputs
         let tx = create_multi_input_transaction();
         let utxo_set = create_multi_input_utxo_set();
-        
+
         // Create block with this transaction (after coinbase)
         let block = Block {
             header: BlockHeader {
@@ -71,41 +85,57 @@ mod tests {
                 Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint {
+                            hash: [0; 32].into(),
+                            index: 0xffffffff,
+                        },
                         script_sig: vec![0x51],
                         sequence: 0xffffffff,
-                    }].into(),
+                    }]
+                    .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
                         script_pubkey: vec![0x51].into(),
-                    }].into(),
+                    }]
+                    .into(),
                     lock_time: 0,
                 },
                 tx.clone(),
             ],
         };
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) }.unwrap();
-        
+
+        let witnesses: Vec<segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = {
+            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            connect_block(&block, &witnesses, utxo_set, 0, &ctx)
+        }
+        .unwrap();
+
         // Should produce valid result (or invalid, but should be deterministic)
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
-                "Parallel verification must produce deterministic result");
+        assert!(
+            matches!(
+                result,
+                ValidationResult::Valid | ValidationResult::Invalid(_)
+            ),
+            "Parallel verification must produce deterministic result"
+        );
     }
 
     #[test]
     fn test_parallel_script_verification_ordering() {
         // Verify parallel results maintain correct input ordering
         let tx = create_multi_input_transaction();
-        
+
         // Pre-lookup UTXOs (as done in production code)
         let utxo_set = create_multi_input_utxo_set();
-        let input_utxos: Vec<(usize, Option<&ByteString>)> = tx.inputs
+        let input_utxos: Vec<(usize, Option<&ByteString>)> = tx
+            .inputs
             .iter()
             .enumerate()
             .map(|(j, input)| (j, utxo_set.get(&input.prevout).map(|u| &u.script_pubkey)))
             .collect();
-        
+
         // Verify ordering is preserved
         assert_eq!(input_utxos.len(), 3);
         assert_eq!(input_utxos[0].0, 0);
@@ -117,24 +147,27 @@ mod tests {
     fn test_parallel_script_verification_error_handling() {
         // Test error propagation in parallel mode
         let mut utxo_set = create_multi_input_utxo_set();
-        
+
         // Create transaction with invalid script
         let tx = Transaction {
             version: 1,
-            inputs: vec![
-                TransactionInput {
-                    prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-                    script_sig: vec![0xff; MAX_SCRIPT_OPS + 1], // Invalid: too many ops
-                    sequence: 0xffffffff,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
                 },
-            ].into(),
+                script_sig: vec![0xff; MAX_SCRIPT_OPS + 1], // Invalid: too many ops
+                sequence: 0xffffffff,
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
-        
+
         let block = Block {
             header: BlockHeader {
                 version: 1,
@@ -148,26 +181,37 @@ mod tests {
                 Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint {
+                            hash: [0; 32].into(),
+                            index: 0xffffffff,
+                        },
                         script_sig: vec![0x51],
                         sequence: 0xffffffff,
-                    }].into(),
+                    }]
+                    .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
                         script_pubkey: vec![0x51].into(),
-                    }].into(),
+                    }]
+                    .into(),
                     lock_time: 0,
                 },
                 tx,
             ],
         };
-        
+
         // Should handle error correctly
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) };
+        let witnesses: Vec<segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let result = {
+            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            connect_block(&block, &witnesses, utxo_set, 0, &ctx)
+        };
         // May succeed or fail depending on when error is caught
-        assert!(result.is_ok() || result.is_err(),
-                "Parallel verification must handle errors correctly");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Parallel verification must handle errors correctly"
+        );
     }
 
     #[test]
@@ -175,19 +219,23 @@ mod tests {
         // Verify UTXO pre-lookup avoids race conditions
         let tx = create_multi_input_transaction();
         let utxo_set = create_multi_input_utxo_set();
-        
+
         // Pre-lookup all UTXOs (as done in production code)
-        let input_utxos: Vec<(usize, Option<&ByteString>)> = tx.inputs
+        let input_utxos: Vec<(usize, Option<&ByteString>)> = tx
+            .inputs
             .iter()
             .enumerate()
             .map(|(j, input)| (j, utxo_set.get(&input.prevout).map(|u| &u.script_pubkey)))
             .collect();
-        
+
         // All inputs should have corresponding UTXOs
         assert_eq!(input_utxos.len(), 3);
         for (idx, opt_script) in &input_utxos {
-            assert!(opt_script.is_some(), 
-                    "UTXO pre-lookup must find all inputs (input {})", idx);
+            assert!(
+                opt_script.is_some(),
+                "UTXO pre-lookup must find all inputs (input {})",
+                idx
+            );
         }
     }
 
@@ -197,17 +245,22 @@ mod tests {
         let coinbase_tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0xffffffff,
+                },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 50_000_000_000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
-        
+
         let block = Block {
             header: BlockHeader {
                 version: 1,
@@ -219,39 +272,55 @@ mod tests {
             },
             transactions: vec![coinbase_tx].into(),
         };
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, UtxoSet::default(), 0, &ctx) }.unwrap();
+
+        let witnesses: Vec<segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = {
+            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            connect_block(&block, &witnesses, UtxoSet::default(), 0, &ctx)
+        }
+        .unwrap();
         // Should handle empty non-coinbase transactions correctly
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
+        assert!(matches!(
+            result,
+            ValidationResult::Valid | ValidationResult::Invalid(_)
+        ));
     }
 
     #[test]
     fn test_parallel_single_input() {
         // Edge case: transaction with single input (should still work)
         let mut utxo_set = UtxoSet::default();
-        let outpoint = OutPoint { hash: [1; 32], index: 0 };
+        let outpoint = OutPoint {
+            hash: [1; 32],
+            index: 0,
+        };
         let utxo = UTXO {
             value: 10000,
             script_pubkey: vec![0x51].into(),
             height: 0,
         };
         utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
-        
+
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
+                },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
-            }].into(),
+            }]
+            .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
-            }].into(),
+            }]
+            .into(),
             lock_time: 0,
         };
-        
+
         let block = Block {
             header: BlockHeader {
                 version: 1,
@@ -265,24 +334,37 @@ mod tests {
                 Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint {
+                            hash: [0; 32].into(),
+                            index: 0xffffffff,
+                        },
                         script_sig: vec![0x51],
                         sequence: 0xffffffff,
-                    }].into(),
+                    }]
+                    .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
                         script_pubkey: vec![0x51].into(),
-                    }].into(),
+                    }]
+                    .into(),
                     lock_time: 0,
                 },
                 tx,
             ],
         };
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) }.unwrap();
+
+        let witnesses: Vec<segwit::Witness> =
+            block.transactions.iter().map(|_| Vec::new()).collect();
+        let (result, _) = {
+            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            connect_block(&block, &witnesses, utxo_set, 0, &ctx)
+        }
+        .unwrap();
         // Single input should work correctly in parallel mode
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
+        assert!(matches!(
+            result,
+            ValidationResult::Valid | ValidationResult::Invalid(_)
+        ));
     }
 
     #[test]
@@ -290,7 +372,7 @@ mod tests {
         // Verify parallel execution produces deterministic results
         let tx = create_multi_input_transaction();
         let utxo_set = create_multi_input_utxo_set();
-        
+
         let block = Block {
             header: BlockHeader {
                 version: 1,
@@ -304,20 +386,25 @@ mod tests {
                 Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint {
+                            hash: [0; 32].into(),
+                            index: 0xffffffff,
+                        },
                         script_sig: vec![0x51],
                         sequence: 0xffffffff,
-                    }].into(),
+                    }]
+                    .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
                         script_pubkey: vec![0x51].into(),
-                    }].into(),
+                    }]
+                    .into(),
                     lock_time: 0,
                 },
                 tx.clone(),
             ],
         };
-        
+
         let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
@@ -326,10 +413,12 @@ mod tests {
         let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
         let (result1, _) = connect_block(&block, &witnesses, utxo_set.clone(), 0, &ctx).unwrap();
         let (result2, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
-        
+
         // Results should be identical
-        assert_eq!(format!("{:?}", result1), format!("{:?}", result2),
-                   "Parallel verification must be deterministic");
+        assert_eq!(
+            format!("{:?}", result1),
+            format!("{:?}", result2),
+            "Parallel verification must be deterministic"
+        );
     }
 }
-

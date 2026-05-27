@@ -5,7 +5,7 @@ mod tests {
     use blvm_consensus::script::*;
     
     // Import CI-aware test helpers
-    #[path = "../test_helpers.rs"]
+    #[path = "test_helpers.rs"]
     mod test_helpers;
     use test_helpers::adjusted_timeout;
 

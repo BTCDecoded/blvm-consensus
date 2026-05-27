@@ -3,8 +3,8 @@
 //! Comprehensive property-based tests covering UTXO set operations,
 //! consistency during block connection, and edge cases.
 
-use blvm_consensus::*;
 use blvm_consensus::types::*;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: UTXO set insertion maintains uniqueness
@@ -15,26 +15,26 @@ proptest! {
     ) {
         let mut utxo_set = UtxoSet::default();
         let mut inserted_count = 0;
-        
+
         for i in 0..outpoint_count {
             let outpoint = OutPoint {
                 hash: [i as u8; 32],
                 index: 0,
             };
-            
+
             let utxo = UTXO {
                 value: 1000 * (i as i64 + 1),
                 script_pubkey: vec![i as u8].into(),
                 height: 1,
             };
-            
+
             // Insert UTXO
             let was_new = utxo_set.insert(outpoint, std::sync::Arc::new(utxo)).is_none();
             if was_new {
                 inserted_count += 1;
             }
         }
-        
+
         // All unique outpoints should be inserted
         prop_assert_eq!(utxo_set.len(), inserted_count);
         prop_assert!(utxo_set.len() <= outpoint_count);
@@ -50,7 +50,7 @@ proptest! {
     ) {
         let mut utxo_set = UtxoSet::default();
         let mut outpoints = Vec::new();
-        
+
         // Insert UTXOs
         for i in 0..initial_count {
             let outpoint = OutPoint {
@@ -58,22 +58,22 @@ proptest! {
                 index: 0,
             };
             outpoints.push(outpoint.clone());
-            
+
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
                 height: 1,
             }));
         }
-        
+
         let initial_len = utxo_set.len();
-        
+
         // Remove some UTXOs
         let remove_len = remove_count.min(initial_count);
         for i in 0..remove_len {
             utxo_set.remove(&outpoints[i]);
         }
-        
+
         // Size should decrease by number removed
         prop_assert_eq!(utxo_set.len(), initial_len - remove_len);
         prop_assert!(utxo_set.len() >= 0);
@@ -91,7 +91,7 @@ proptest! {
             script_pubkey: vec![0x51].into(),
             height: 1,
         };
-        
+
         prop_assert!(utxo.value >= 0, "UTXO value must be non-negative");
     }
 }
@@ -107,7 +107,7 @@ proptest! {
             script_pubkey: vec![0x51].into(),
             height,
         };
-        
+
         prop_assert!(utxo.height >= 0, "UTXO height must be non-negative");
     }
 }
@@ -125,16 +125,16 @@ proptest! {
             hash: outpoint_hash,
             index: outpoint_index,
         };
-        
+
         let utxo = UTXO {
             value,
             script_pubkey: vec![0x51].into(),
             height: 1,
         };
-        
+
         // Insert UTXO
         utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo.clone()));
-        
+
         // Query should return correct UTXO
         let queried = utxo_set.get(&outpoint);
         prop_assert!(queried.is_some());
@@ -158,21 +158,21 @@ proptest! {
             hash: outpoint_hash,
             index: 0,
         };
-        
+
         // Insert initial UTXO
         utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
             value: initial_value,
             script_pubkey: vec![0x51].into(),
             height: 1,
         }));
-        
+
         // Replace with new value
         utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
             value: new_value,
             script_pubkey: vec![0x52].into(),
             height: 2,
         }));
-        
+
         // Query should return new value
         let queried = utxo_set.get(&outpoint);
         prop_assert!(queried.is_some());
@@ -191,7 +191,7 @@ proptest! {
     ) {
         let mut utxo_set = UtxoSet::default();
         let mut inserted_outpoints = Vec::new();
-        
+
         // Insert entries
         for i in 0..entry_count {
             let outpoint = OutPoint {
@@ -199,14 +199,14 @@ proptest! {
                 index: i as u64,
             };
             inserted_outpoints.push(outpoint.clone());
-            
+
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000 * (i as i64 + 1),
                 script_pubkey: vec![i as u8].into(),
                 height: 1,
             }));
         }
-        
+
         // Iterate and verify all entries are present
         let mut found_count = 0;
         for (outpoint, _utxo) in &utxo_set {
@@ -214,7 +214,7 @@ proptest! {
                 found_count += 1;
             }
         }
-        
+
         prop_assert_eq!(found_count, entry_count,
             "All inserted entries should be found during iteration");
     }
@@ -229,7 +229,7 @@ proptest! {
     ) {
         let mut utxo_set = UtxoSet::default();
         let mut outpoints = Vec::new();
-        
+
         // Insert UTXOs
         for i in 0..insert_count {
             let outpoint = OutPoint {
@@ -237,29 +237,21 @@ proptest! {
                 index: 0,
             };
             outpoints.push(outpoint.clone());
-            
+
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
                 script_pubkey: vec![0x51].into(),
                 height: 1,
             }));
         }
-        
+
         // Remove some UTXOs
         let actual_remove = remove_count.min(insert_count);
         for i in 0..actual_remove {
             utxo_set.remove(&outpoints[i]);
         }
-        
+
         // Size should be insertions minus removals
         prop_assert_eq!(utxo_set.len(), insert_count - actual_remove);
     }
 }
-
-
-
-
-
-
-
-

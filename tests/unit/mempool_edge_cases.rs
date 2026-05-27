@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering mempool transaction validation,
 //! RBF rules, fee rate calculations, and conflict detection.
 
-use blvm_consensus::*;
+use blvm_consensus::constants::MAX_INPUTS;
 use blvm_consensus::mempool;
 use blvm_consensus::types::*;
-use blvm_consensus::constants::MAX_INPUTS;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 // Note: Mempool is a HashSet<Hash> in the actual implementation
@@ -31,22 +31,22 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let mut pool = mempool::Mempool::new();
         let utxo_set = UtxoSet::default();
-        
+
         // Add transaction first time
         let result1 = mempool::accept_to_memory_pool(&tx, &utxo_set, &pool, 0);
-        
+
         // Update pool with transaction ID
         if result1.is_ok() {
             let tx_id = mempool::calculate_tx_id(&tx);
             pool.insert(tx_id);
         }
-        
+
         // Try to add same transaction again
         let result2 = mempool::accept_to_memory_pool(&tx, &utxo_set, &pool, 0);
-        
+
         // First should potentially succeed, second should fail (duplicate)
         prop_assert!(result1.is_ok());
         if result1.is_ok() {
@@ -86,9 +86,9 @@ proptest! {
         // Replacement must have higher fee rate
         let original_fee_rate = original_fee as f64 / size as f64;
         let replacement_fee_rate = replacement_fee as f64 / size as f64;
-        
+
         let can_replace = replacement_fee_rate > original_fee_rate;
-        
+
         if replacement_fee_rate <= original_fee_rate {
             prop_assert!(!can_replace,
                 "RBF requires higher fee rate");
@@ -114,7 +114,7 @@ proptest! {
                 sequence: 0xffffffff,
             });
         }
-        
+
         let mut outputs = Vec::new();
         for i in 0..output_count {
             outputs.push(TransactionOutput {
@@ -122,14 +122,14 @@ proptest! {
                 script_pubkey: vec![i as u8; 50],
             });
         }
-        
+
         let tx = Transaction {
             version: 1,
             inputs: inputs.into(),
             outputs: outputs.into(),
             lock_time: 0,
         };
-        
+
         // Transaction should be within size limits for mempool
         // (actual validation would check MAX_TX_SIZE)
         prop_assert!(tx.inputs.len() <= MAX_INPUTS);
@@ -146,7 +146,7 @@ proptest! {
         prevout_index in 0u64..1000u64
     ) {
         let mut pool = mempool::Mempool::new();
-        
+
         // Create first transaction spending the prevout
         let tx1 = Transaction {
             version: 1,
@@ -161,7 +161,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         // Create conflicting transaction spending same prevout
         let tx2 = Transaction {
             version: 1,
@@ -176,21 +176,21 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let utxo_set = UtxoSet::default();
-        
+
         // Add first transaction
         let result1 = mempool::accept_to_memory_pool(&tx1, &utxo_set, &pool, 0);
-        
+
         // Update pool
         if result1.is_ok() {
             let tx_id = mempool::calculate_tx_id(&tx1);
             pool.insert(tx_id);
         }
-        
+
         // Try to add conflicting transaction
         let result2 = mempool::accept_to_memory_pool(&tx2, &utxo_set, &pool, 0);
-        
+
         prop_assert!(result1.is_ok());
         // Conflicting transaction should be rejected
         if result1.is_ok() {
@@ -212,7 +212,7 @@ proptest! {
     ) {
         // Ensure output <= input (fee = input - output)
         let output = output_value.min(input_value - 1000);
-        
+
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
@@ -226,7 +226,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let utxo_set = UtxoSet::default();
         // Note: actual fee calculation requires UTXO set
         // This tests structural correctness
@@ -244,7 +244,7 @@ proptest! {
     ) {
         let mut pool = mempool::Mempool::new();
         let mut transactions = Vec::new();
-        
+
         // Add multiple transactions
         for i in 0..tx_count {
             let tx = Transaction {
@@ -260,11 +260,11 @@ proptest! {
                 }].into(),
                 lock_time: 0,
             };
-            
+
             transactions.push(tx.clone());
             let _ = pool.add_transaction(tx);
         }
-        
+
         // Remove transactions
         for tx in transactions {
             let result = pool.remove_transaction(&tx);
@@ -281,7 +281,7 @@ proptest! {
         tx_count in 1usize..20usize
     ) {
         let mut pool = mempool::Mempool::new();
-        
+
         // Try to add multiple transactions
         for i in 0..tx_count {
             let tx = Transaction {
@@ -297,13 +297,12 @@ proptest! {
                 }].into(),
                 lock_time: 0,
             };
-            
+
             let _ = pool.add_transaction(tx);
         }
-        
+
         // Mempool should maintain internal consistency
         // (actual size limit checks would be in implementation)
         prop_assert!(tx_count >= 1);
     }
 }
-

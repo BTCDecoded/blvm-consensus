@@ -209,6 +209,7 @@ pub fn batch_verify_signatures(
     flags: u32,
     height: Natural,
     network: crate::types::Network,
+    sigversion: SigVersion,
 ) -> Result<Vec<bool>> {
     #[cfg(feature = "profile")]
     let _t0 = std::time::Instant::now();
@@ -236,7 +237,7 @@ pub fn batch_verify_signatures(
                 flags,
                 height,
                 network,
-                SigVersion::Base,
+                sigversion,
             )?;
             results.push(result);
         }

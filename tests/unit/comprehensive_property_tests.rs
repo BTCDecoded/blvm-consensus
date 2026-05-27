@@ -2,9 +2,9 @@
 //!
 //! Additional property tests to push toward 100+ property test target and 99% coverage.
 
-use blvm_consensus::*;
+use blvm_consensus::constants::{MAX_BLOCK_SIZE, MAX_MONEY, MAX_TX_SIZE};
 use blvm_consensus::types::*;
-use blvm_consensus::constants::{MAX_TX_SIZE, MAX_BLOCK_SIZE, MAX_MONEY};
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: transaction version validation
@@ -26,7 +26,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         // Version should be valid
         prop_assert!(version >= 0);
         prop_assert_eq!(tx.version, version);
@@ -52,7 +52,7 @@ proptest! {
             }].into(),
             lock_time,
         };
-        
+
         prop_assert_eq!(tx.lock_time, lock_time);
         prop_assert!(lock_time >= 0);
     }
@@ -77,7 +77,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         prop_assert_eq!(tx.inputs[0].sequence, sequence);
     }
 }
@@ -96,7 +96,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce,
         };
-        
+
         prop_assert_eq!(header.nonce, nonce);
     }
 }
@@ -113,12 +113,12 @@ proptest! {
             hash: hash1_bytes,
             index,
         };
-        
+
         let outpoint2 = OutPoint {
             hash: hash2_bytes,
             index,
         };
-        
+
         // Outpoints are equal only if both hash and index match
         if hash1_bytes == hash2_bytes {
             prop_assert_eq!(outpoint1, outpoint2);
@@ -138,7 +138,7 @@ proptest! {
             hash: [0; 32],
             index,
         };
-        
+
         prop_assert_eq!(outpoint.index, index);
         prop_assert!(index >= 0);
     }
@@ -154,7 +154,7 @@ proptest! {
             value,
             script_pubkey: vec![0x51].into(),
         };
-        
+
         prop_assert!(output.value >= 0);
         prop_assert!(output.value <= MAX_MONEY);
     }
@@ -167,7 +167,7 @@ proptest! {
         script_size in 0usize..1000usize
     ) {
         let script_pubkey = vec![0x51; script_size];
-        
+
         prop_assert!(script_pubkey.len() <= 10000); // MAX_SCRIPT_SIZE
         prop_assert_eq!(script_pubkey.len(), script_size);
     }
@@ -188,7 +188,7 @@ proptest! {
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         };
-        
+
         prop_assert_eq!(input.prevout.hash, hash_bytes);
         prop_assert_eq!(input.prevout.index, index);
     }
@@ -207,7 +207,7 @@ proptest! {
         } else {
             (timestamp2, timestamp1)
         };
-        
+
         let header1 = BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
@@ -216,7 +216,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         let header2 = BlockHeader {
             version: 1,
             prev_block_hash: [1; 32],
@@ -225,7 +225,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         prop_assert!(header2.timestamp >= header1.timestamp);
     }
 }
@@ -244,7 +244,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         prop_assert_eq!(header.version, version);
         prop_assert!(version >= 1);
     }
@@ -264,7 +264,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         prop_assert_eq!(header.merkle_root.len(), 32);
         prop_assert_eq!(header.merkle_root, root_bytes);
     }
@@ -284,7 +284,7 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-        
+
         prop_assert_eq!(header.prev_block_hash.len(), 32);
         prop_assert_eq!(header.prev_block_hash, prev_hash_bytes);
     }
@@ -310,7 +310,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         // Coinbase should have exactly one input with null prevout
         prop_assert_eq!(coinbase.inputs.len(), 1);
         prop_assert_eq!(coinbase.inputs[0].prevout.hash, [0; 32]);
@@ -337,7 +337,7 @@ proptest! {
             }).collect(),
             lock_time: 0,
         };
-        
+
         prop_assert_eq!(tx.outputs.len(), output_count);
         prop_assert!(output_count > 0);
         prop_assert!(output_count <= 1000); // MAX_OUTPUTS
@@ -363,7 +363,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         prop_assert_eq!(tx.inputs.len(), input_count);
         prop_assert!(input_count > 0);
         prop_assert!(input_count <= 1000); // MAX_INPUTS
@@ -387,7 +387,7 @@ proptest! {
             },
             transactions: Vec::new(),
         };
-        
+
         // Add coinbase first
         block.transactions.push(Transaction {
             version: 1,
@@ -402,7 +402,7 @@ proptest! {
             }].into(),
             lock_time: 0,
         });
-        
+
         // Add regular transactions
         for i in 0..regular_tx_count {
             block.transactions.push(Transaction {
@@ -419,7 +419,7 @@ proptest! {
                 lock_time: 0,
             });
         }
-        
+
         // First transaction should be coinbase
         prop_assert!(block.transactions.len() > 0);
         prop_assert_eq!(block.transactions[0].inputs[0].prevout.hash, [0; 32]);
@@ -434,7 +434,7 @@ proptest! {
         script_sig_size in 0usize..1000usize
     ) {
         let script_sig = vec![0x51; script_sig_size];
-        
+
         prop_assert!(script_sig.len() <= 10000); // MAX_SCRIPT_SIZE
         prop_assert_eq!(script_sig.len(), script_sig_size);
     }
@@ -457,7 +457,7 @@ proptest! {
             },
             transactions: Vec::new(),
         };
-        
+
         // Add transactions
         for i in 0..tx_count {
             block.transactions.push(Transaction {
@@ -474,10 +474,9 @@ proptest! {
                 lock_time: 0,
             });
         }
-        
+
         // Block should have at least one transaction
         prop_assert!(block.transactions.len() > 0);
         prop_assert!(block.transactions.len() <= tx_count);
     }
 }
-

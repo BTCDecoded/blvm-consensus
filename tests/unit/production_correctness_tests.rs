@@ -11,7 +11,7 @@ mod tests {
     use blvm_consensus::block::*;
     use std::time::Instant;
 
-    #[path = "../test_helpers.rs"]
+    #[path = "test_helpers.rs"]
     mod test_helpers;
     use test_helpers::{create_test_tx, create_test_utxo_set};
 

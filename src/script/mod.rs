@@ -413,6 +413,63 @@ fn is_push_opcode(opcode: u8) -> bool {
     opcode <= 0x60
 }
 
+/// BIP342: opcodes that cause immediate script success in Tapscript (OP_SUCCESSx).
+/// Reference: Bitcoin Core IsOpSuccess (script.cpp:364–370).
+#[inline]
+fn is_op_success(opcode: u8) -> bool {
+    matches!(
+        opcode,
+        80 | 98
+            | 126..=129
+            | 131..=134
+            | 137..=138
+            | 141..=142
+            | 149..=153
+            | 187..=254
+    )
+}
+
+/// Advance past one opcode + its push data in a script byte slice.
+/// Returns the number of bytes to skip (always >= 1).
+#[inline]
+fn op_advance(script: &[u8], pc: usize) -> usize {
+    let opcode = script[pc];
+    match opcode {
+        // direct push: opcode byte is the data length (1–75 bytes)
+        0x01..=0x4b => 1 + opcode as usize,
+        // OP_PUSHDATA1: 1 length byte follows
+        0x4c => {
+            if pc + 1 < script.len() {
+                2 + script[pc + 1] as usize
+            } else {
+                1
+            }
+        }
+        // OP_PUSHDATA2: 2 length bytes follow (LE)
+        0x4d => {
+            if pc + 2 < script.len() {
+                3 + u16::from_le_bytes([script[pc + 1], script[pc + 2]]) as usize
+            } else {
+                1
+            }
+        }
+        // OP_PUSHDATA4: 4 length bytes follow (LE)
+        0x4e => {
+            if pc + 4 < script.len() {
+                5 + u32::from_le_bytes([
+                    script[pc + 1],
+                    script[pc + 2],
+                    script[pc + 3],
+                    script[pc + 4],
+                ]) as usize
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
 fn eval_script_inner(
     script: &[u8],
     stack: &mut Vec<StackElement>,
@@ -450,9 +507,9 @@ fn eval_script_inner(
             );
         }
 
-        // Check combined stack + altstack size (BIP62/consensus)
-        // Use >= to error before exceeding limit (next opcode may push)
-        if stack.len() + altstack.len() >= MAX_STACK_SIZE {
+        // Check combined stack + altstack size (BIP62/consensus).
+        // Bitcoin Core uses > MAX_STACK_SIZE (allows exactly 1000 items).
+        if stack.len() + altstack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
         }
 
@@ -580,12 +637,9 @@ fn eval_script_inner(
                     return Ok(false);
                 }
 
-                debug_assert!(
-                    stack.len() + altstack.len() <= MAX_STACK_SIZE,
-                    "Combined stack size ({}) must not exceed MAX_STACK_SIZE ({}) after opcode execution",
-                    stack.len() + altstack.len(),
-                    MAX_STACK_SIZE
-                );
+                if stack.len() + altstack.len() > MAX_STACK_SIZE {
+                    return Err(make_stack_overflow_error());
+                }
             }
         }
     }
@@ -641,7 +695,7 @@ pub fn verify_script(
         if !is_caching_disabled() {
             let cache_key = compute_script_cache_key(script_sig, script_pubkey, witness, flags);
             {
-                let cache = get_script_cache().read().unwrap();
+                let cache = get_script_cache().read().unwrap_or_else(|e| e.into_inner());
                 if let Some(&cached_result) = cache.peek(&cache_key) {
                     return Ok(cached_result);
                 }
@@ -656,27 +710,35 @@ pub fn verify_script(
             if !eval_script(script_sig, &mut stack, flags, sigversion)? {
                 // Cache negative result (unless disabled)
                 if !is_caching_disabled() {
-                    let mut cache = get_script_cache().write().unwrap();
+                    let mut cache = get_script_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
                     cache.put(cache_key, false);
                 }
                 false
             } else if !eval_script(script_pubkey, &mut stack, flags, sigversion)? {
                 if !is_caching_disabled() {
-                    let mut cache = get_script_cache().write().unwrap();
+                    let mut cache = get_script_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
                     cache.put(cache_key, false);
                 }
                 false
             } else if let Some(w) = witness {
                 if !eval_script(w, &mut stack, flags, sigversion)? {
                     if !is_caching_disabled() {
-                        let mut cache = get_script_cache().write().unwrap();
+                        let mut cache = get_script_cache()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         cache.put(cache_key, false);
                     }
                     false
                 } else {
                     let res = stack.len() == 1 && cast_to_bool(&stack[0]);
                     if !is_caching_disabled() {
-                        let mut cache = get_script_cache().write().unwrap();
+                        let mut cache = get_script_cache()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner());
                         cache.put(cache_key, res);
                     }
                     res
@@ -684,7 +746,9 @@ pub fn verify_script(
             } else {
                 let res = stack.len() == 1 && cast_to_bool(&stack[0]);
                 if !is_caching_disabled() {
-                    let mut cache = get_script_cache().write().unwrap();
+                    let mut cache = get_script_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
                     cache.put(cache_key, res);
                 }
                 res
@@ -1964,11 +2028,10 @@ fn try_verify_p2wsh_fast_path(
         return Some(Ok(false));
     }
 
-    let witness_sigversion = if flags & 0x8000 != 0 {
-        SigVersion::Tapscript
-    } else {
-        SigVersion::WitnessV0
-    };
+    // P2WSH always uses WitnessV0 sighash semantics (BIP143).
+    // 0x8000 is SCRIPT_VERIFY_WITNESS_PUBKEYTYPE — a key-type strictness flag, not a
+    // sigversion selector. Tapscript only applies inside Taproot script-path spends.
+    let witness_sigversion = SigVersion::WitnessV0;
 
     // P2WSH-with-P2PKH fast-path: witness_script = P2PKH, stack = [sig, pubkey]. BIP143, batch collect.
     if witness_sigversion == SigVersion::WitnessV0
@@ -2841,12 +2904,9 @@ pub fn verify_script_with_context_full(
 
     // For P2WSH, execute the witness script after scriptPubkey verification
     if let Some(witness_script) = witness_script_to_execute {
-        // Determine sigversion for witness execution
-        let witness_sigversion = if flags & 0x8000 != 0 {
-            SigVersion::Tapscript
-        } else {
-            SigVersion::WitnessV0 // P2WSH: WitnessV0 (flags & 0x800 or default)
-        };
+        // P2WSH always uses WitnessV0 (BIP143). 0x8000 = SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+        // is a key-type strictness flag and does not select Tapscript semantics.
+        let witness_sigversion = SigVersion::WitnessV0;
 
         // Execute witness script with witness stack elements on the stack
         // Interpreter path: no collection (same invalid pairing issue as bare multisig).
@@ -3177,6 +3237,29 @@ fn eval_script_with_context_full_inner(
     );
 
     use crate::error::{ConsensusError, ScriptErrorCode};
+
+    // BIP342: In Tapscript, pre-scan the entire script for OP_SUCCESSx opcodes.
+    // If any OP_SUCCESSx is encountered (even in unexecuted branches), the whole
+    // script succeeds immediately. This must happen before any opcode is executed.
+    // Reference: Bitcoin Core ExecuteWitnessScript (interpreter.cpp:1836–1851).
+    if sigversion == SigVersion::Tapscript {
+        const SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS: u32 = 1 << 17;
+        let mut pc = 0usize;
+        while pc < script.len() {
+            let opcode = script[pc];
+            if is_op_success(opcode) {
+                if flags & SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS != 0 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::BadOpcode,
+                        message: format!("OP_SUCCESSx opcode 0x{opcode:02x} is discouraged").into(),
+                    });
+                }
+                return Ok(true);
+            }
+            // Advance past push data so we inspect opcodes, not push payloads.
+            pc += op_advance(script, pc);
+        }
+    }
 
     // Pre-allocate stack capacity if needed
     if stack.capacity() < 20 {
@@ -5027,7 +5110,7 @@ fn execute_opcode_with_context_full(
             }
         }
 
-        // OP_CHECKSIGVERIFY - verify ECDSA signature and remove from stack
+        // OP_CHECKSIGVERIFY - verify signature (Schnorr in Tapscript, ECDSA otherwise)
         OP_CHECKSIGVERIFY => {
             if stack.len() >= 2 {
                 let pubkey_bytes = stack.pop().unwrap();
@@ -5038,9 +5121,72 @@ fn execute_opcode_with_context_full(
                     return Ok(false);
                 }
 
+                // BIP342 Tapscript: Schnorr path (same as OP_CHECKSIG Tapscript branch).
+                if sigversion == SigVersion::Tapscript {
+                    if signature_bytes.len() == 64 && pubkey_bytes.len() == 32 {
+                        let sighash_byte = 0x00u8;
+                        let (tapscript, codesep_pos) = tapscript_for_sighash
+                            .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
+                            .unwrap_or((&[] as &[u8], 0xffff_ffff));
+                        let sighash = if tapscript.is_empty() {
+                            crate::taproot::compute_taproot_signature_hash(
+                                tx,
+                                input_index,
+                                prevout_values,
+                                prevout_script_pubkeys,
+                                sighash_byte,
+                            )?
+                        } else {
+                            crate::taproot::compute_tapscript_signature_hash(
+                                tx,
+                                input_index,
+                                prevout_values,
+                                prevout_script_pubkeys,
+                                tapscript,
+                                crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
+                                codesep_pos,
+                                sighash_byte,
+                            )?
+                        };
+                        #[cfg(feature = "production")]
+                        let is_valid = {
+                            use crate::bip348::verify_tapscript_schnorr_signature;
+                            verify_tapscript_schnorr_signature(
+                                &sighash,
+                                &pubkey_bytes,
+                                &signature_bytes,
+                                schnorr_collector,
+                            )
+                            .unwrap_or(false)
+                        };
+                        #[cfg(not(feature = "production"))]
+                        let is_valid = {
+                            #[cfg(feature = "csfs")]
+                            let x = {
+                                use crate::bip348::verify_tapscript_schnorr_signature;
+                                verify_tapscript_schnorr_signature(
+                                    &sighash,
+                                    &pubkey_bytes,
+                                    &signature_bytes,
+                                    None,
+                                )
+                                .unwrap_or(false)
+                            };
+                            #[cfg(not(feature = "csfs"))]
+                            let x = false;
+                            x
+                        };
+                        if !is_valid {
+                            return Ok(false); // OP_CHECKSIGVERIFY: fail script on invalid sig
+                        }
+                        return Ok(true);
+                    }
+                    // Non-standard pubkey size in Tapscript: fail per BIP342
+                    return Ok(false);
+                }
+
+                // Legacy / SegWit v0: ECDSA path
                 // Extract sighash type from last byte of signature
-                // Bitcoin signature format: <DER signature><sighash_type>
-                // OPTIMIZATION: Cache length to avoid repeated computation
                 let sig_len = signature_bytes.len();
                 let sighash_byte = signature_bytes[sig_len - 1];
                 let _der_sig = &signature_bytes[..sig_len - 1];
@@ -5245,15 +5391,19 @@ fn execute_opcode_with_context_full(
                 return Ok(false);
             }
 
-            // Pop n (number of public keys) - this is the last element on stack
-            // CScriptNum treats empty bytes [] as 0
+            // Pop n (number of public keys) — must be decoded as CScriptNum (BIP62)
             let n_bytes = stack.pop().unwrap();
-            let n = if n_bytes.is_empty() {
-                0
-            } else {
-                n_bytes[0] as usize
-            };
-            if n > 20 || stack.len() < n + 1 {
+            let n_raw = script_num_decode(&n_bytes, 4).map_err(|_| {
+                ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::InvalidStackOperation,
+                    message: "OP_CHECKMULTISIG: invalid n encoding".into(),
+                }
+            })?;
+            if !(0..=20).contains(&n_raw) {
+                return Ok(false);
+            }
+            let n = n_raw as usize;
+            if stack.len() < n + 1 {
                 return Ok(false);
             }
 
@@ -5263,15 +5413,19 @@ fn execute_opcode_with_context_full(
                 pubkeys.push(stack.pop().unwrap());
             }
 
-            // Pop m (number of required signatures)
-            // CScriptNum treats empty bytes [] as 0
+            // Pop m (number of required signatures) — must be decoded as CScriptNum (BIP62)
             let m_bytes = stack.pop().unwrap();
-            let m = if m_bytes.is_empty() {
-                0
-            } else {
-                m_bytes[0] as usize
-            };
-            if m > n || m > 20 || stack.len() < m + 1 {
+            let m_raw = script_num_decode(&m_bytes, 4).map_err(|_| {
+                ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::InvalidStackOperation,
+                    message: "OP_CHECKMULTISIG: invalid m encoding".into(),
+                }
+            })?;
+            if m_raw < 0 || m_raw as usize > n || m_raw > 20 {
+                return Ok(false);
+            }
+            let m = m_raw as usize;
+            if stack.len() < m + 1 {
                 return Ok(false);
             }
 
@@ -5432,7 +5586,7 @@ fn execute_opcode_with_context_full(
                 let results = if tasks.is_empty() {
                     vec![]
                 } else {
-                    batch_verify_signatures(&tasks, flags, height, network)?
+                    batch_verify_signatures(&tasks, flags, height, network, sigversion)?
                 };
 
                 // Matching: for each pubkey in order, if current sig verifies with this pubkey, advance

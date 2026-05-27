@@ -112,6 +112,7 @@ pub mod secp256k1_backend;
 pub mod segwit;
 pub mod sequence_locks;
 pub mod sigop;
+pub mod spec_lock_formula_witness;
 pub mod taproot;
 pub mod utxo_overlay;
 pub mod version_bits;
@@ -170,6 +171,9 @@ impl ConsensusProof {
         // Create empty witnesses for backward compatibility
         let witnesses: Vec<Vec<segwit::Witness>> =
             block.transactions.iter().map(|_| Vec::new()).collect();
+        // Safe time read: unwrap_or avoids panic when clock is before epoch.
+        // NOTE: This entry point defaults to Network::Mainnet. Callers that need
+        // a different network should use `validate_block_with_time_context` instead.
         let network_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or(std::time::Duration::ZERO)

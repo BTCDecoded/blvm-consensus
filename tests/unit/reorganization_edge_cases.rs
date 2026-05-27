@@ -3,9 +3,9 @@
 //! Comprehensive property-based tests covering chain reorganization scenarios,
 //! chain work calculations, and UTXO set consistency during reorganizations.
 
-use blvm_consensus::*;
 use blvm_consensus::reorganization;
 use blvm_consensus::types::*;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: chain work is always non-negative
@@ -26,10 +26,10 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         // Chain work should be calculated and non-negative
         let result = reorganization::calculate_chain_work(&headers);
-        
+
         prop_assert!(result.is_ok() || result.is_err());
         if result.is_ok() {
             let work = result.unwrap();
@@ -50,7 +50,7 @@ proptest! {
         } else {
             (long_chain_len, short_chain_len)
         };
-        
+
         // Create short chain
         let mut short_headers = Vec::new();
         for i in 0..short_len {
@@ -63,7 +63,7 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         // Create long chain (extends short chain)
         let mut long_headers = short_headers.clone();
         for i in short_len..long_len {
@@ -76,10 +76,10 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         let short_work = reorganization::calculate_chain_work(&short_headers);
         let long_work = reorganization::calculate_chain_work(&long_headers);
-        
+
         if short_work.is_ok() && long_work.is_ok() {
             prop_assert!(long_work.unwrap() >= short_work.unwrap(),
                 "Longer chain should have equal or more work");
@@ -106,7 +106,7 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         let mut chain2 = Vec::new();
         for i in 0..chain2_len {
             chain2.push(BlockHeader {
@@ -118,9 +118,9 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         let result = reorganization::should_reorganize(&chain1, &chain2);
-        
+
         // Should reorganize if chain2 has more work
         prop_assert!(result.is_ok() || result.is_err());
     }
@@ -135,7 +135,7 @@ proptest! {
     ) {
         // Create initial chain state
         let mut utxo_set = UtxoSet::default();
-        
+
         // Add some UTXOs
         for i in 0..5 {
             utxo_set.insert(
@@ -147,14 +147,14 @@ proptest! {
                 })
             );
         }
-        
+
         let initial_utxo_count = utxo_set.len();
-        
+
         // Simulate reorganization
         // UTXO set should maintain consistency (not lose or duplicate UTXOs)
         prop_assert!(initial_utxo_count >= 0);
         prop_assert!(initial_utxo_count <= 1000); // Reasonable bound
-        
+
         // After reorganization, UTXO set should still be valid
         // (actual implementation would reorganize and check)
         prop_assert!(utxo_set.len() <= initial_utxo_count + 10); // Allow some variation
@@ -179,11 +179,11 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         // Calculate work twice
         let work1 = reorganization::calculate_chain_work(&headers);
         let work2 = reorganization::calculate_chain_work(&headers);
-        
+
         // Results should be identical
         prop_assert_eq!(work1.is_ok(), work2.is_ok());
         if work1.is_ok() && work2.is_ok() {
@@ -198,9 +198,9 @@ proptest! {
     #[test]
     fn prop_empty_chain_zero_work() {
         let empty_chain: Vec<BlockHeader> = Vec::new();
-        
+
         let result = reorganization::calculate_chain_work(&empty_chain);
-        
+
         // Empty chain should have zero work or error
         prop_assert!(result.is_ok() || result.is_err());
         if result.is_ok() {
@@ -220,7 +220,7 @@ proptest! {
         // Reorganization depth = common prefix length
         let common_prefix = current_chain_len.min(new_chain_len);
         let reorg_depth = current_chain_len - common_prefix;
-        
+
         prop_assert!(reorg_depth <= current_chain_len,
             "Reorganization depth should not exceed current chain length");
         prop_assert!(reorg_depth >= 0,
@@ -248,7 +248,7 @@ proptest! {
                 nonce: i as u64,
             });
         }
-        
+
         // Extend chain1
         let mut chain1 = common_prefix.clone();
         for i in 0..chain1_extension {
@@ -261,7 +261,7 @@ proptest! {
                 nonce: (fork_height + i as u64),
             });
         }
-        
+
         // Extend chain2
         let mut chain2 = common_prefix;
         for i in 0..chain2_extension {
@@ -274,7 +274,7 @@ proptest! {
                 nonce: (fork_height + i as u64),
             });
         }
-        
+
         // Both chains should share common prefix
         prop_assert!(chain1.len() >= fork_height as usize);
         prop_assert!(chain2.len() >= fork_height as usize);
@@ -282,11 +282,3 @@ proptest! {
         prop_assert!(chain2.len() == (fork_height as usize + chain2_extension));
     }
 }
-
-
-
-
-
-
-
-

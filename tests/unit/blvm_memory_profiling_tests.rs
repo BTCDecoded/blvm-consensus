@@ -12,9 +12,9 @@
 
 use blvm_consensus::{
     mining::calculate_merkle_root,
-    optimizations::{prealloc_tx_buffer, prealloc_block_buffer},
+    optimizations::{prealloc_block_buffer, prealloc_tx_buffer},
     serialization::transaction::serialize_transaction,
-    types::{Transaction, TransactionInput, TransactionOutput, OutPoint},
+    types::{OutPoint, Transaction, TransactionInput, TransactionOutput},
 };
 
 /// Helper to create a test transaction
@@ -22,25 +22,32 @@ fn create_test_transaction() -> Transaction {
     Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
             script_sig: vec![0x51], // OP_1
             sequence: 0xffffffff,
-        }].into(),
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey: vec![0x51].into(), // OP_1
-        }].into(),
+        }]
+        .into(),
         lock_time: 0,
     }
 }
 
 /// Helper to create multiple test transactions
 fn create_test_transactions(count: usize) -> Vec<Transaction> {
-    (0..count).map(|i| {
-        let mut tx = create_test_transaction();
-        tx.inputs[0].prevout.index = i as u32;
-        tx
-    }).collect()
+    (0..count)
+        .map(|i| {
+            let mut tx = create_test_transaction();
+            tx.inputs[0].prevout.index = i as u32;
+            tx
+        })
+        .collect()
 }
 
 /// Test that pre-allocation reduces reallocations
@@ -51,10 +58,10 @@ fn test_preallocation_reduces_reallocations() {
     // Memory profiler should show fewer allocations with production feature
 
     let tx = create_test_transaction();
-    
+
     // Serialize transaction (uses prealloc_tx_buffer in production)
     let serialized = serialize_transaction(&tx);
-    
+
     // Verify buffer was used (size should be less than capacity in production)
     #[cfg(feature = "production")]
     {
@@ -111,11 +118,17 @@ fn test_merkle_root_memory_allocation() {
 fn test_preallocation_buffer_sizes() {
     // Test transaction buffer
     let tx_buffer = prealloc_tx_buffer();
-    assert!(tx_buffer.capacity() >= 100_000, "Transaction buffer should be pre-allocated");
+    assert!(
+        tx_buffer.capacity() >= 100_000,
+        "Transaction buffer should be pre-allocated"
+    );
 
     // Test block buffer
     let block_buffer = prealloc_block_buffer();
-    assert!(block_buffer.capacity() >= 1_000_000, "Block buffer should be pre-allocated");
+    assert!(
+        block_buffer.capacity() >= 1_000_000,
+        "Block buffer should be pre-allocated"
+    );
 }
 
 /// Test memory usage scaling
@@ -125,7 +138,7 @@ fn test_memory_usage_scaling() {
     // Test with different transaction counts
     for count in [10, 100, 500, 1000].iter() {
         let transactions = create_test_transactions(*count);
-        
+
         // Serialize all transactions
         let serialized: Vec<Vec<u8>> = transactions
             .iter()
@@ -153,13 +166,13 @@ fn test_cache_alignment_impact() {
 
     // Use aligned version
     let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&tx_refs);
-    
+
     // Use regular version
     let regular_hashes = simd_vectorization::batch_double_sha256(&tx_refs);
 
     // Verify correctness
     assert_eq!(aligned_hashes.len(), regular_hashes.len());
-    
+
     // Memory profiler should show:
     // - Cache-aligned structures reduce cache misses
     // - Better memory access patterns
@@ -181,4 +194,3 @@ fn test_memory_fragmentation() {
     // - More consistent memory usage patterns
     // - Fewer allocations/deallocations
 }
-

@@ -285,7 +285,7 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
 pub struct U256([u64; 4]); // 4 * 64 = 256 bits
 
 impl U256 {
-    fn zero() -> Self {
+    pub fn zero() -> Self {
         U256([0; 4])
     }
 

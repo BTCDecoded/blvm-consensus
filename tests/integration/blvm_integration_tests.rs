@@ -8,7 +8,7 @@ use blvm_consensus::{
     optimizations::simd_vectorization,
     serialization::{block::serialize_block, transaction::serialize_transaction},
     types::{Block, BlockHeader, Transaction},
-    ConsensusProof, ValidationResult, UtxoSet,
+    ConsensusProof, UtxoSet, ValidationResult,
 };
 
 /// Test that block validation produces identical results with/without production feature
@@ -92,8 +92,8 @@ fn test_serialization_round_trip() {
     let serialized = serialize_transaction(&tx);
 
     // Deserialize
-    let deserialized = deserialize_transaction(&serialized)
-        .expect("Should deserialize transaction");
+    let deserialized =
+        deserialize_transaction(&serialized).expect("Should deserialize transaction");
 
     // Verify round-trip
     assert_eq!(tx.version, deserialized.version);
@@ -101,7 +101,6 @@ fn test_serialization_round_trip() {
     assert_eq!(tx.outputs.len(), deserialized.outputs.len());
     assert_eq!(tx.lock_time, deserialized.lock_time);
 }
-
 
 /// Test that batch operations work correctly with parallel processing
 #[test]
@@ -149,4 +148,3 @@ fn test_optimizations_edge_cases() {
     let serialized = serialize_transaction(&large_tx);
     assert!(serialized.len() > 10000);
 }
-

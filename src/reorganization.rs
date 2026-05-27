@@ -633,7 +633,7 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
 /// - Work increases monotonically with chain length
 /// - Work calculation is deterministic
 #[spec_locked("11.3", "CalculateChainWork")]
-fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
+pub fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
     let mut total_work = 0u128;
 
     for block in chain {

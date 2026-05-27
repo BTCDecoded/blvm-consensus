@@ -189,21 +189,9 @@ proptest! {
 
 ### Verification Workflow
 
-The `.github/workflows/verify.yml` workflow enforces verification:
+The **Verify** job in **`blvm-consensus/.github/workflows/ci.yml`** enforces **`check-drift`** (with spec paths) and a single **`cargo-spec-lock verify`** with **`--spec-path`** — **merged `F_*` registry** (inside **`verify`**) plus **`#[spec_locked]`** Rust rows; **`spec_lock_verify.json`** via **`--json-out`**. MIRI smoke steps run in that same CI file (non-blocking when unavailable).
 
-1. **Unit & Property Tests** (required)
-   - `cargo test --all-features`
-   - Must pass for CI to succeed
-
-2. **Spec-Lock Verification** (required, runs in blvm-consensus CI)
-   - `cargo spec-lock verify --crate-path .`
-   - Verifies all `#[spec_locked]` functions
-   - Must pass for CI to succeed
-
-3. **OpenTimestamps Audit** (non-blocking)
-   - Collect verification artifacts
-   - Timestamp proof bundle with `ots stamp`
-   - Upload artifacts for transparency
+See also **[SPEC_LOCK_DEPENDENCY.md](../SPEC_LOCK_DEPENDENCY.md)** for umbrella monorepo workflows that **mirror** **blvm-consensus** / **blvm-node** / **blvm-protocol** **`ci.yml`** checks but **do not** replace those authoritative gates.
 
 ### Local Development
 
@@ -212,9 +200,12 @@ The `.github/workflows/verify.yml` workflow enforces verification:
 cargo test --all-features
 ```
 
-**Run spec-lock verification:**
+**Run spec-lock verification** (needs sibling **`../blvm-spec`** or set **`SPEC_LOCK_SPEC_PATH`**, same as CI):
+
 ```bash
-cargo spec-lock verify --crate-path .
+cargo spec-lock verify --crate-path . \
+  --spec-path ../blvm-spec/PROTOCOL.md ../blvm-spec/ARCHITECTURE.md \
+  --timeout 120 --json-out spec_lock_verify.json
 ```
 
 **Run specific verification:**

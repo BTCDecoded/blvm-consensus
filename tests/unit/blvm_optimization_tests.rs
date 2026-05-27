@@ -5,9 +5,9 @@
 
 use blvm_consensus::{
     mining::calculate_merkle_root,
-    optimizations::{prealloc_tx_buffer, prealloc_block_buffer},
+    optimizations::{prealloc_block_buffer, prealloc_tx_buffer},
     serialization::{block::serialize_block_header, transaction::serialize_transaction},
-    types::{BlockHeader, Hash, Transaction, TransactionInput, TransactionOutput, OutPoint},
+    types::{BlockHeader, Hash, OutPoint, Transaction, TransactionInput, TransactionOutput},
 };
 
 /// Test that pre-allocated transaction buffer works correctly
@@ -39,14 +39,19 @@ fn create_test_transaction() -> Transaction {
     Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
             script_sig: vec![0x51], // OP_1
             sequence: 0xffffffff,
-        }].into(),
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey: vec![0x51].into(), // OP_1
-        }].into(),
+        }]
+        .into(),
         lock_time: 0,
     }
 }
@@ -65,12 +70,14 @@ fn create_test_block_header() -> BlockHeader {
 
 /// Helper to create multiple test transactions
 fn create_test_transactions(count: usize) -> Vec<Transaction> {
-    (0..count).map(|i| {
-        let mut tx = create_test_transaction();
-        // Make each transaction unique
-        tx.inputs[0].prevout.index = i as u32;
-        tx
-    }).collect()
+    (0..count)
+        .map(|i| {
+            let mut tx = create_test_transaction();
+            // Make each transaction unique
+            tx.inputs[0].prevout.index = i as u32;
+            tx
+        })
+        .collect()
 }
 
 /// Test that serialize_transaction produces identical output with/without production feature
@@ -82,7 +89,10 @@ fn test_serialize_transaction_correctness() {
     let serialized = serialize_transaction(&tx);
 
     // Verify basic structure
-    assert!(serialized.len() >= 10, "Transaction should have minimum size");
+    assert!(
+        serialized.len() >= 10,
+        "Transaction should have minimum size"
+    );
 }
 
 /// Test that serialize_block_header produces identical output with/without production feature
@@ -93,7 +103,11 @@ fn test_serialize_block_header_correctness() {
     // Serialize (uses pre-allocation in production)
     let serialized = serialize_block_header(&header);
 
-    assert_eq!(serialized.len(), 80, "Block header should be exactly 80 bytes");
+    assert_eq!(
+        serialized.len(),
+        80,
+        "Block header should be exactly 80 bytes"
+    );
 }
 
 /// Test that merkle root calculation produces identical results with/without production feature
@@ -135,7 +149,11 @@ fn test_cache_aligned_batch_hashing() {
 
         // Verify they produce identical results
         for (aligned, regular) in aligned_hashes.iter().zip(regular_hashes.iter()) {
-            assert_eq!(aligned.as_bytes(), regular, "Aligned and regular hashes should match");
+            assert_eq!(
+                aligned.as_bytes(),
+                regular,
+                "Aligned and regular hashes should match"
+            );
         }
     }
 }
@@ -164,9 +182,7 @@ fn test_batch_operations_small_batch() {
     {
         use blvm_consensus::optimizations::simd_vectorization;
 
-        let inputs = vec![
-            b"small batch test".as_slice(),
-        ];
+        let inputs = vec![b"small batch test".as_slice()];
 
         let aligned_hashes = simd_vectorization::batch_double_sha256_aligned(&inputs);
         assert_eq!(aligned_hashes.len(), 1);
@@ -182,7 +198,8 @@ fn test_batch_operations_small_batch() {
 fn test_merkle_root_edge_cases() {
     // Single transaction
     let single_tx = vec![create_test_transaction()];
-    let root = calculate_merkle_root(&single_tx).expect("Should calculate merkle root for single tx");
+    let root =
+        calculate_merkle_root(&single_tx).expect("Should calculate merkle root for single tx");
     assert_eq!(root.len(), 32);
 
     // Multiple transactions (odd number)
@@ -191,15 +208,14 @@ fn test_merkle_root_edge_cases() {
         create_test_transaction(),
         create_test_transaction(),
     ];
-    let root_odd = calculate_merkle_root(&odd_txs).expect("Should calculate merkle root for odd number");
+    let root_odd =
+        calculate_merkle_root(&odd_txs).expect("Should calculate merkle root for odd number");
     assert_eq!(root_odd.len(), 32);
 
     // Multiple transactions (even number)
-    let even_txs = vec![
-        create_test_transaction(),
-        create_test_transaction(),
-    ];
-    let root_even = calculate_merkle_root(&even_txs).expect("Should calculate merkle root for even number");
+    let even_txs = vec![create_test_transaction(), create_test_transaction()];
+    let root_even =
+        calculate_merkle_root(&even_txs).expect("Should calculate merkle root for even number");
     assert_eq!(root_even.len(), 32);
 }
 
@@ -210,8 +226,11 @@ fn test_serialization_bitcoin_compatibility() {
     let serialized = serialize_transaction(&tx);
 
     // Verify basic structure
-    assert!(serialized.len() >= 10, "Transaction should have minimum size");
-    
+    assert!(
+        serialized.len() >= 10,
+        "Transaction should have minimum size"
+    );
+
     // Version should be first 4 bytes
     let version_bytes = &serialized[0..4];
     let version = i32::from_le_bytes([
@@ -222,4 +241,3 @@ fn test_serialization_bitcoin_compatibility() {
     ]);
     assert_eq!(version, tx.version as i32, "Version should match");
 }
-

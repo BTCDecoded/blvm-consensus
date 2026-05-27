@@ -116,9 +116,15 @@ fn test_taproot_key_aggregation() {
     // Output key should be 32 bytes
     assert_eq!(output_key_value.len(), 32);
 
-    // Validate key aggregation
+    // Validate key aggregation — use with_parity to get correct parity for this key
+    use blvm_consensus::taproot::compute_taproot_tweak as _; // just to satisfy imports
+    let (expected_key, parity) = blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
+        &internal_pubkey,
+        &merkle_root,
+    )
+    .unwrap();
     let result =
-        validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key_value);
+        validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &expected_key, parity);
     assert!(result.is_ok());
     assert!(result.unwrap()); // Should match
 }
@@ -132,7 +138,7 @@ fn test_taproot_key_aggregation_wrong_key() {
 
     // Should fail validation
     let result =
-        validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &wrong_output_key);
+        validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &wrong_output_key, 0);
     assert!(result.is_ok());
     assert!(!result.unwrap()); // Should not match
 }
@@ -199,10 +205,16 @@ fn test_taproot_key_aggregation_empty_merkle() {
     assert!(output_key.is_ok());
 
     // Validate key aggregation
+    let (expected_key, parity) = blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
+        &internal_pubkey,
+        &empty_merkle_root,
+    )
+    .unwrap();
     let result = validate_taproot_key_aggregation(
         &internal_pubkey,
         &empty_merkle_root,
-        &output_key.unwrap(),
+        &expected_key,
+        parity,
     );
     assert!(result.is_ok());
 }

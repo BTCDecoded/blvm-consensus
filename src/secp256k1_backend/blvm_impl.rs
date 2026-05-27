@@ -54,3 +54,13 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
     blvm_taproot_output_key(internal_pubkey, merkle_root)
         .ok_or_else(|| ConsensusError::InvalidSignature("Invalid internal public key".into()))
 }
+
+pub fn taproot_output_key_with_parity(
+    internal_pubkey: &[u8; 32],
+    merkle_root: &Hash,
+) -> Result<([u8; 32], u8)> {
+    use blvm_secp256k1::taproot::{tap_tweak_hash, xonly_pubkey_tweak_add};
+    let tweak = tap_tweak_hash(internal_pubkey, merkle_root);
+    xonly_pubkey_tweak_add(internal_pubkey, &tweak)
+        .ok_or_else(|| ConsensusError::InvalidSignature("Invalid taproot tweak".into()))
+}

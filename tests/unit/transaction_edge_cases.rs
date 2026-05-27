@@ -3,10 +3,10 @@
 //! Comprehensive property-based tests covering all edge cases and boundary conditions
 //! for transaction validation, ensuring 99% coverage of possible input combinations.
 
-use blvm_consensus::*;
-use blvm_consensus::ConsensusProof;
+use blvm_consensus::constants::{MAX_INPUTS, MAX_MONEY, MAX_OUTPUTS};
 use blvm_consensus::types::*;
-use blvm_consensus::constants::{MAX_MONEY, MAX_INPUTS, MAX_OUTPUTS};
+use blvm_consensus::ConsensusProof;
+use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: transaction with exactly MAX_MONEY output value
@@ -28,10 +28,10 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Value bounds property
         if value <= MAX_MONEY && value >= 0 {
             // Valid if within bounds
@@ -59,17 +59,17 @@ proptest! {
                 sequence: 0xffffffff,
             });
         }
-        
+
         let tx = Transaction {
             version: 1,
             inputs: inputs.into(),
             outputs: vec![].into(), // Zero outputs
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Must be invalid: transactions must have at least one output
         prop_assert!(matches!(result, ValidationResult::Invalid(_)),
             "Transaction with zero outputs must be invalid");
@@ -90,7 +90,7 @@ proptest! {
                 sequence: 0xffffffff,
             });
         }
-        
+
         let tx = Transaction {
             version: 1,
             inputs: inputs.into(),
@@ -100,10 +100,10 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Input count property
         if input_count <= MAX_INPUTS && input_count > 0 {
             // May be valid if within bounds
@@ -127,7 +127,7 @@ proptest! {
                 script_pubkey: vec![i as u8],
             });
         }
-        
+
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
@@ -138,10 +138,10 @@ proptest! {
             outputs: outputs.into(),
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Output count property
         if output_count <= MAX_OUTPUTS && output_count > 0 {
             // May be valid if within bounds
@@ -171,10 +171,10 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Negative values must be invalid
         if value < 0 {
             prop_assert!(matches!(result, ValidationResult::Invalid(_)),
@@ -198,7 +198,7 @@ proptest! {
                 script_pubkey: vec![0x51],
             });
         }
-        
+
         let coinbase = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
@@ -209,7 +209,7 @@ proptest! {
             outputs: outputs.into(),
             lock_time: 0,
         };
-        
+
         // Coinbase should have exactly one input with specific markers
         prop_assert_eq!(coinbase.inputs.len(), 1, "Coinbase must have exactly one input");
         prop_assert_eq!(coinbase.inputs[0].prevout.hash, [0; 32], "Coinbase input must have zero hash");
@@ -225,7 +225,7 @@ proptest! {
         index in 0u64..10u64
     ) {
         let prevout = OutPoint { hash, index };
-        
+
         let tx = Transaction {
             version: 1,
             inputs: vec![
@@ -246,10 +246,10 @@ proptest! {
             }].into(),
             lock_time: 0,
         };
-        
+
         let consensus = ConsensusProof::new();
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
-        
+
         // Duplicate prevouts must be invalid
         prop_assert!(matches!(result, ValidationResult::Invalid(_)),
             "Transaction with duplicate prevouts must be invalid (double-spend attempt)");
@@ -271,7 +271,7 @@ proptest! {
                 sequence: 0xffffffff,
             });
         }
-        
+
         let mut outputs = Vec::new();
         for i in 0..output_count {
             outputs.push(TransactionOutput {
@@ -279,14 +279,14 @@ proptest! {
                 script_pubkey: vec![i as u8; 50], // Fixed script size
             });
         }
-        
+
         let tx = Transaction {
             version: 1,
             inputs: inputs.into(),
             outputs: outputs.into(),
             lock_time: 0,
         };
-        
+
         // Test transaction structure properties
         prop_assert!(input_count > 0, "Transaction must have inputs");
         prop_assert!(output_count > 0, "Transaction must have outputs");
@@ -294,4 +294,3 @@ proptest! {
         prop_assert_eq!(tx.outputs.len(), output_count, "Output count should match");
     }
 }
-

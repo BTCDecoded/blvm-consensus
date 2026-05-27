@@ -1,9 +1,9 @@
 //! Unit tests for economic model functions
 
-use blvm_consensus::*;
-use blvm_consensus::economic::*;
 use blvm_consensus::constants::*;
+use blvm_consensus::economic::*;
 use blvm_consensus::orange_paper_constants::{C, H};
+use blvm_consensus::*;
 
 #[test]
 fn test_get_block_subsidy_genesis() {
@@ -97,37 +97,3 @@ fn test_validate_supply_limit_excessive() {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
