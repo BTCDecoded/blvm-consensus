@@ -112,7 +112,6 @@ pub mod secp256k1_backend;
 pub mod segwit;
 pub mod sequence_locks;
 pub mod sigop;
-pub mod spec_lock_formula_witness;
 pub mod taproot;
 pub mod utxo_overlay;
 pub mod version_bits;
