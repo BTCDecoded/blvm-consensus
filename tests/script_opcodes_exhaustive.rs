@@ -240,7 +240,11 @@ fn test_stack_size_limits() {
 
     // Bitcoin Core checks combined stack size after each opcode (> MAX_STACK_SIZE).
     // The failing push may leave stack at MAX+1 before the error is returned.
-    assert!(result.is_err(), "expected stack overflow for {} pushes", MAX_STACK_SIZE + 1);
+    assert!(
+        result.is_err(),
+        "expected stack overflow for {} pushes",
+        MAX_STACK_SIZE + 1
+    );
 }
 
 /// Generate all flag combinations for testing

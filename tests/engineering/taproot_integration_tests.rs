@@ -71,10 +71,21 @@ fn test_taproot_key_aggregation() {
     ];
     let merkle_root = [2u8; 32];
     
-    let output_key = compute_taproot_tweak(&internal_pubkey, &merkle_root).unwrap();
+    let (output_key, parity) =
+        blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
+            &internal_pubkey,
+            &merkle_root,
+        )
+        .unwrap();
     
     // Validate that output key matches expected aggregation
-    assert!(validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key).unwrap());
+    assert!(validate_taproot_key_aggregation(
+        &internal_pubkey,
+        &merkle_root,
+        &output_key,
+        parity
+    )
+    .unwrap());
 }
 
 #[test]
@@ -291,13 +302,30 @@ fn test_taproot_invalid_key_aggregation() {
     // Test that wrong output key fails validation
     let internal_pubkey = [0x79u8; 32];
     let merkle_root = [2u8; 32];
-    let correct_output_key = compute_taproot_tweak(&internal_pubkey, &merkle_root).unwrap();
+    let (correct_output_key, parity) =
+        blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
+            &internal_pubkey,
+            &merkle_root,
+        )
+        .unwrap();
     
     // Use wrong output key
     let wrong_output_key = [0x99u8; 32];
     
-    assert!(!validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &wrong_output_key).unwrap());
-    assert!(validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &correct_output_key).unwrap());
+    assert!(!validate_taproot_key_aggregation(
+        &internal_pubkey,
+        &merkle_root,
+        &wrong_output_key,
+        parity
+    )
+    .unwrap());
+    assert!(validate_taproot_key_aggregation(
+        &internal_pubkey,
+        &merkle_root,
+        &correct_output_key,
+        parity
+    )
+    .unwrap());
 }
 
 #[test]

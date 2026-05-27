@@ -38,13 +38,28 @@ fuzz_target!(|data: &[u8]| {
         // Test tweak computation
         let _tweak_result = compute_taproot_tweak(&internal_pubkey, &merkle_root);
 
-        // Test key aggregation validation
-        if let Ok(expected_key) = compute_taproot_tweak(&internal_pubkey, &merkle_root) {
-            let _validation_result = validate_taproot_key_aggregation(
-                &internal_pubkey,
-                &merkle_root,
-                &output_key,
-            );
+        // Test key aggregation validation (parity from control block bit 0 per BIP341).
+        if data.len() >= 97 {
+            let expected_parity = data[96] & 1;
+            if let Ok((expected_key, parity)) =
+                blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
+                    &internal_pubkey,
+                    &merkle_root,
+                )
+            {
+                let _validation_result = validate_taproot_key_aggregation(
+                    &internal_pubkey,
+                    &merkle_root,
+                    &expected_key,
+                    parity,
+                );
+                let _ = validate_taproot_key_aggregation(
+                    &internal_pubkey,
+                    &merkle_root,
+                    &output_key,
+                    expected_parity,
+                );
+            }
         }
     }
 

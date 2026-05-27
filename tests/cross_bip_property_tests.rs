@@ -141,9 +141,12 @@ proptest! {
         // This verifies that SegWit and Taproot validation logic doesn't interfere
         // (They would be in different transactions in practice)
         if segwit_valid && taproot_valid {
-            // Both are valid - verify they use different witness versions
-            let segwit_script = vec![0x00, 0x14]; // OP_0 <20-byte-program>
-            let taproot_script = vec![0x51, 0x20]; // OP_1 <32-byte-program>
+            // Both are valid - verify they use different witness versions.
+            // extract_witness_version requires full BIP141/BIP341 program lengths.
+            let mut segwit_script = vec![0x00, 0x14]; // OP_0 PUSH_20
+            segwit_script.extend([0u8; 20]);
+            let mut taproot_script = vec![0x51, 0x20]; // OP_1 PUSH_32
+            taproot_script.extend([0u8; 32]);
 
             assert_eq!(
                 witness::extract_witness_version(&segwit_script),
