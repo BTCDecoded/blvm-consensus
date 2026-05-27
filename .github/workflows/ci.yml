@@ -39,7 +39,7 @@ jobs:
         with:
           show-df: false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
@@ -91,14 +91,14 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
 
       - name: Checkout develop scripts (blvm)
         if: github.ref == 'refs/heads/develop' || github.base_ref == 'develop'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: BTCDecoded/blvm
           ref: ${{ github.ref_name == 'develop' && 'develop' || 'main' }}
@@ -144,7 +144,7 @@ jobs:
       
       - name: Upload test data for attestation
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-attestation-data
           path: |
@@ -171,7 +171,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
@@ -214,7 +214,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
@@ -244,7 +244,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_docs]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
@@ -287,7 +287,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_tests]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
 
       - name: Strip [patch.crates-io] for crates.io-only CI
@@ -317,7 +317,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_verify]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
@@ -440,7 +440,7 @@ jobs:
       - name: Upload spec-lock coverage JSON
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: spec-lock-coverage-json
           path: spec_lock_coverage.json
@@ -450,7 +450,7 @@ jobs:
       - name: Upload spec-lock drift log
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: spec-lock-drift-log
           path: spec_lock_drift.txt
@@ -459,7 +459,7 @@ jobs:
       
       - name: Upload spec-lock output for attestation
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: spec-lock-attestation-data
           path: |
@@ -471,7 +471,7 @@ jobs:
       - name: Upload spec-lock verify JSON for attestation
         if: github.ref == 'refs/heads/main'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: spec-lock-verify-json
           path: spec_lock_verify.json
@@ -524,7 +524,7 @@ jobs:
       (github.event_name != 'push' || github.event.head_commit == null || 
        !contains(github.event.head_commit.message, '[skip_fuzz]'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
@@ -617,7 +617,7 @@ jobs:
         (needs.security.result == 'success' || needs.security.result == 'skipped') &&
         (needs.fuzz.result == 'success' || needs.fuzz.result == 'skipped'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup
         uses: ./.github/actions/consensus-setup
@@ -680,7 +680,7 @@ jobs:
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       
@@ -1189,7 +1189,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Download attestation artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: '*-attestation-data'
           merge-multiple: true
@@ -1197,7 +1197,7 @@ jobs:
       
       - name: Download spec-lock verify JSON (optional)
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: spec-lock-verify-json
           path: attestation-data
@@ -1323,7 +1323,7 @@ jobs:
           cat build-metadata.json
       
       - name: Upload build metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-metadata
           path: build-metadata.json
@@ -1404,7 +1404,7 @@ jobs:
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Strip [patch.crates-io] for crates.io-only CI
         uses: BTCDecoded/rust-ci/strip-patch-crates-io@main
@@ -1416,7 +1416,7 @@ jobs:
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
 
       - name: Checkout develop scripts (blvm)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: BTCDecoded/blvm
           ref: ${{ github.ref_name == 'develop' && 'develop' || 'main' }}
