@@ -238,10 +238,9 @@ fn test_stack_size_limits() {
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
 
-    // Should reject scripts that would exceed stack size
-    assert!(result.is_ok() || result.is_err());
-    // Stack should not exceed MAX_STACK_SIZE
-    assert!(stack.len() <= MAX_STACK_SIZE);
+    // Bitcoin Core checks combined stack size after each opcode (> MAX_STACK_SIZE).
+    // The failing push may leave stack at MAX+1 before the error is returned.
+    assert!(result.is_err(), "expected stack overflow for {} pushes", MAX_STACK_SIZE + 1);
 }
 
 /// Generate all flag combinations for testing
