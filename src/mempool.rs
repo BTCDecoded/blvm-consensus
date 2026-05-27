@@ -215,7 +215,7 @@ pub fn accept_to_memory_pool(
 /// Returns appropriate flags for script validation:
 /// - Base flags: Standard validation flags (P2SH, STRICTENC, DERSIG, LOW_S, etc.)
 /// - SegWit flag (SCRIPT_VERIFY_WITNESS = 0x800): Enabled if transaction uses SegWit
-/// - Taproot flag (SCRIPT_VERIFY_TAPROOT = 0x4000): Enabled if transaction uses Taproot
+/// - Taproot flag (SCRIPT_VERIFY_TAPROOT = 0x20000): Enabled if transaction uses Taproot
 fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u32 {
     // Delegate to the canonical script flag calculation used by block validation.
     //

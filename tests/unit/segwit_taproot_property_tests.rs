@@ -18,8 +18,8 @@ proptest! {
     ) {
         let mut tx = Transaction {
             version: 1,
-            inputs: Vec::new(),
-            outputs: Vec::new(),
+            inputs: Default::default(),
+            outputs: Default::default(),
             lock_time: 0,
         };
 
@@ -42,8 +42,8 @@ proptest! {
 
         let witness: segwit::Witness = vec![vec![0x51; 50]; input_count];
 
-        // Calculate weight
-        let result = segwit::calculate_transaction_weight(&tx, Some(&witness), crate::types::Network::Mainnet);
+        // Calculate weight (API no longer takes Network parameter)
+        let result = segwit::calculate_transaction_weight(&tx, Some(&witness));
 
         prop_assert!(result.is_ok());
         if result.is_ok() {
@@ -59,7 +59,22 @@ proptest! {
     fn prop_block_weight_maximum(
         tx_count in 1usize..10usize
     ) {
-        let mut block = Block {
+        let txs: Vec<Transaction> = (0..tx_count)
+            .map(|i| Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+                    script_sig: vec![0x51],
+                    sequence: 0xffffffff,
+                }].into(),
+                outputs: vec![TransactionOutput {
+                    value: 1000,
+                    script_pubkey: vec![0x51],
+                }].into(),
+                lock_time: 0,
+            })
+            .collect();
+        let block = Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash: [0; 32],
@@ -68,25 +83,8 @@ proptest! {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: Vec::new(),
+            transactions: txs.into_boxed_slice(),
         };
-
-        // Add transactions
-        for i in 0..tx_count {
-            block.transactions.push(Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
-                    script_sig: vec![0x51],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value: 1000,
-                    script_pubkey: vec![0x51].into(),
-                }].into(),
-                lock_time: 0,
-            });
-        }
 
         let witnesses: Vec<segwit::Witness> = vec![vec![vec![]]; tx_count];
 
@@ -227,7 +225,22 @@ proptest! {
         let total_tx_count = segwit_tx_count + non_segwit_tx_count;
 
         if total_tx_count > 0 {
-            let mut block = Block {
+            let txs: Vec<Transaction> = (0..total_tx_count)
+                .map(|i| Transaction {
+                    version: 1,
+                    inputs: vec![TransactionInput {
+                        prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+                        script_sig: vec![0x51],
+                        sequence: 0xffffffff,
+                    }].into(),
+                    outputs: vec![TransactionOutput {
+                        value: 1000,
+                        script_pubkey: vec![0x51],
+                    }].into(),
+                    lock_time: 0,
+                })
+                .collect();
+            let block = Block {
                 header: BlockHeader {
                     version: 1,
                     prev_block_hash: [0; 32],
@@ -236,25 +249,8 @@ proptest! {
                     bits: 0x1d00ffff,
                     nonce: 0,
                 },
-                transactions: Vec::new(),
+                transactions: txs.into_boxed_slice(),
             };
-
-            // Add transactions
-            for i in 0..total_tx_count {
-                block.transactions.push(Transaction {
-                    version: 1,
-                    inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
-                        script_sig: vec![0x51],
-                        sequence: 0xffffffff,
-                    }].into(),
-                    outputs: vec![TransactionOutput {
-                        value: 1000,
-                        script_pubkey: vec![0x51].into(),
-                    }].into(),
-                    lock_time: 0,
-                });
-            }
 
             // Create witnesses (SegWit txs have witnesses, non-SegWit have empty)
             let mut witnesses: Vec<segwit::Witness> = Vec::new();

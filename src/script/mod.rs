@@ -17,6 +17,7 @@ mod arithmetic;
 mod context;
 mod control_flow;
 mod crypto_ops;
+pub mod flags;
 mod signature;
 mod stack;
 

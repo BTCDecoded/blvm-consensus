@@ -35,6 +35,42 @@ pub fn bip54_deployment_mainnet() -> Bip9Deployment {
     }
 }
 
+/// Returns the BIP54 deployment for testnet3.
+///
+/// Testnet uses the same bit index but no timeout restriction so IBD can run
+/// on any version-bits signalling period without artificial expiry.
+pub fn bip54_deployment_testnet() -> Bip9Deployment {
+    Bip9Deployment {
+        bit: 15,
+        start_time: 0,
+        timeout: u64::MAX,
+    }
+}
+
+/// Returns the BIP54 deployment for regtest.
+///
+/// Regtest activates immediately (bit 15, no time window) so tests using
+/// regtest blocks with the BIP54 bit set pass version-bits scanning.
+pub fn bip54_deployment_regtest() -> Bip9Deployment {
+    Bip9Deployment {
+        bit: 15,
+        start_time: 0,
+        timeout: u64::MAX,
+    }
+}
+
+/// Returns the appropriate BIP54 deployment for `network`.
+///
+/// Prefer this over the network-specific variants so that parallel-IBD and block
+/// processing automatically use the right deployment table.
+pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Deployment {
+    match network {
+        crate::types::Network::Mainnet => bip54_deployment_mainnet(),
+        crate::types::Network::Testnet => bip54_deployment_testnet(),
+        crate::types::Network::Regtest => bip54_deployment_regtest(),
+    }
+}
+
 /// Computes the activation height for a BIP9 deployment from recent block headers.
 ///
 /// * `headers` – Last N block headers (oldest first), typically the 2016 blocks before the

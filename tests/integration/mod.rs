@@ -7,7 +7,6 @@
 mod bip_call_verification;
 #[cfg(any())]
 mod consensus_validation;
-#[cfg(any())]
 mod core_test_vectors;
 #[cfg(any())]
 mod mempool_mining;
