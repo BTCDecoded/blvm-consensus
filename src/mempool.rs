@@ -908,6 +908,71 @@ fn creates_new_dependencies(
     Ok(false)
 }
 
+/// Advance past one opcode + push data in a script (for policy scanning).
+fn script_opcode_advance(script: &[u8], pc: usize) -> usize {
+    let opcode = script[pc];
+    match opcode {
+        0x01..=0x4b => 1 + opcode as usize,
+        0x4c => {
+            if pc + 1 < script.len() {
+                2 + script[pc + 1] as usize
+            } else {
+                1
+            }
+        }
+        0x4d => {
+            if pc + 2 < script.len() {
+                3 + u16::from_le_bytes([script[pc + 1], script[pc + 2]]) as usize
+            } else {
+                1
+            }
+        }
+        0x4e => {
+            if pc + 4 < script.len() {
+                5 + u32::from_le_bytes([
+                    script[pc + 1],
+                    script[pc + 2],
+                    script[pc + 3],
+                    script[pc + 4],
+                ]) as usize
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
+/// Disabled opcodes that make a scriptPubKey non-standard (mempool policy).
+#[inline]
+fn is_disabled_policy_opcode(opcode: u8) -> bool {
+    use crate::opcodes::{
+        OP_2DIV, OP_2MUL, OP_AND, OP_CAT, OP_DIV, OP_INVERT, OP_LEFT, OP_LSHIFT, OP_MOD, OP_MUL,
+        OP_OR, OP_RIGHT, OP_RSHIFT, OP_SUBSTR, OP_VER, OP_VERIF, OP_VERNOTIF, OP_XOR,
+    };
+    matches!(
+        opcode,
+        OP_VER
+            | OP_VERIF
+            | OP_VERNOTIF
+            | OP_CAT
+            | OP_SUBSTR
+            | OP_LEFT
+            | OP_RIGHT
+            | OP_INVERT
+            | OP_AND
+            | OP_OR
+            | OP_XOR
+            | OP_2MUL
+            | OP_2DIV
+            | OP_MUL
+            | OP_DIV
+            | OP_MOD
+            | OP_LSHIFT
+            | OP_RSHIFT
+    )
+}
+
 /// Check if script is standard
 fn is_standard_script(script: &ByteString) -> Result<bool> {
     if script.is_empty() {
@@ -923,6 +988,20 @@ fn is_standard_script(script: &ByteString) -> Result<bool> {
     if script[0] == 0x6a {
         // OP_RETURN outputs are standard up to 83 bytes total (1 opcode + 1 push + 80 data).
         return Ok(script.len() <= 83);
+    }
+
+    // Walk opcodes (skip push payloads) and reject disabled / reserved opcodes.
+    let mut pc = 0;
+    while pc < script.len() {
+        let opcode = script[pc];
+        if is_disabled_policy_opcode(opcode) {
+            return Ok(false);
+        }
+        let advance = script_opcode_advance(script, pc);
+        if advance == 0 {
+            break;
+        }
+        pc += advance;
     }
 
     Ok(true)
