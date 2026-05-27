@@ -280,13 +280,17 @@ mod tests {
 
     #[test]
     fn test_extract_witness_version() {
-        let segwit_script = vec![OP_0, PUSH_20_BYTES, 0x01, 0x02, 0x03]; // OP_0 <20-byte-program>
+        // P2WPKH: OP_0 PUSH_20 <20 bytes> — must be exactly 22 bytes (BIP141).
+        let mut segwit_script = vec![OP_0, PUSH_20_BYTES];
+        segwit_script.extend([0x01u8; 20]);
         assert_eq!(
             extract_witness_version(&segwit_script),
             Some(WitnessVersion::SegWitV0)
         );
 
-        let taproot_script = vec![OP_1, PUSH_32_BYTES]; // OP_1 <32-byte-program>
+        // P2TR: OP_1 PUSH_32 <32 bytes> — must be exactly 34 bytes (BIP341).
+        let mut taproot_script = vec![OP_1, PUSH_32_BYTES];
+        taproot_script.extend([0x02u8; 32]);
         assert_eq!(
             extract_witness_version(&taproot_script),
             Some(WitnessVersion::TaprootV1)
