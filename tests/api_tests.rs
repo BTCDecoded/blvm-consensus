@@ -29,7 +29,7 @@ fn test_validate_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -38,7 +38,7 @@ fn test_validate_transaction() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -53,7 +53,7 @@ fn test_validate_transaction() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -71,7 +71,7 @@ fn test_validate_tx_inputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -80,7 +80,7 @@ fn test_validate_tx_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -113,7 +113,7 @@ fn test_validate_block() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x01, 0x00], // Height 0 - valid length (2 bytes)
@@ -122,7 +122,7 @@ fn test_validate_block() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -318,7 +318,7 @@ fn test_accept_to_memory_pool() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -327,7 +327,7 @@ fn test_accept_to_memory_pool() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -360,7 +360,7 @@ fn test_is_standard_tx() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -369,7 +369,7 @@ fn test_is_standard_tx() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -388,7 +388,7 @@ fn test_replacement_checks() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -397,7 +397,7 @@ fn test_replacement_checks() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -407,7 +407,7 @@ fn test_replacement_checks() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -416,7 +416,7 @@ fn test_replacement_checks() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -493,7 +493,7 @@ fn test_mine_block() {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![OP_1],
@@ -502,7 +502,7 @@ fn test_mine_block() {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![OP_1].into(),
+                script_pubkey: vec![OP_1],
             }]
             .into(),
             lock_time: 0,
@@ -564,7 +564,7 @@ fn test_reorganize_chain() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x01, 0x00], // Height 0
@@ -573,7 +573,7 @@ fn test_reorganize_chain() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -635,7 +635,7 @@ fn test_should_reorganize() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x01, 0x00], // Height 0
@@ -644,7 +644,7 @@ fn test_should_reorganize() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -692,7 +692,7 @@ fn test_calculate_transaction_weight() {
         version: 2,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -701,7 +701,7 @@ fn test_calculate_transaction_weight() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -731,7 +731,7 @@ fn test_validate_segwit_block() {
             version: 2,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -744,8 +744,7 @@ fn test_validate_segwit_block() {
                     0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                ]
-                .into(),
+                ],
             }]
             .into(),
             lock_time: 0,
@@ -774,8 +773,7 @@ fn test_validate_taproot_transaction() {
                 0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            ]
-            .into(),
+            ],
         }]
         .into(),
         lock_time: 0,
@@ -796,8 +794,7 @@ fn test_is_taproot_output() {
             0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ]
-        .into(),
+        ],
     };
 
     let result = consensus.is_taproot_output(&taproot_output);
@@ -806,7 +803,7 @@ fn test_is_taproot_output() {
 
     let non_taproot_output = TransactionOutput {
         value: 1000,
-        script_pubkey: vec![OP_1].into(),
+        script_pubkey: vec![OP_1],
     };
 
     let result = consensus.is_taproot_output(&non_taproot_output);

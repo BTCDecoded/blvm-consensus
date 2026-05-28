@@ -24,7 +24,7 @@ proptest! {
         let actual = economic::get_block_subsidy(height);
         let expected = expected_getblocksubsidy_from_orange_paper(height);
 
-        prop_assert_eq!(actual as i64, expected,
+        prop_assert_eq!(actual, expected,
             "Subsidy at height {} must match Orange Paper formula: actual={}, expected={}",
             height, actual, expected);
     }
@@ -42,7 +42,7 @@ proptest! {
         let actual = economic::total_supply(height);
         let expected = expected_totalsupply_from_orange_paper(height);
 
-        prop_assert_eq!(actual as i64, expected,
+        prop_assert_eq!(actual, expected,
             "Total supply at height {} must match Orange Paper formula: actual={}, expected={}",
             height, actual, expected);
     }
@@ -585,7 +585,7 @@ proptest! {
     ) {
         let subsidy = economic::get_block_subsidy(height);
         let expected_reward = expected_blockreward_from_orange_paper(height, fees);
-        let actual_reward = subsidy as i64 + fees;
+        let actual_reward = subsidy + fees;
 
         prop_assert_eq!(actual_reward, expected_reward,
             "Block reward at height {} with fees {} must match Orange Paper formula: actual={}, expected={}",
@@ -1019,7 +1019,7 @@ proptest! {
         // Calculate sum of subsidies manually
         let mut sum_subsidies = 0i64;
         for i in 0..=height {
-            sum_subsidies += economic::get_block_subsidy(i) as i64;
+            sum_subsidies += economic::get_block_subsidy(i);
         }
 
         prop_assert_eq!(total_supply, sum_subsidies,
@@ -1164,7 +1164,7 @@ proptest! {
         height in 0u64..(H * 10),
         fees in 0i64..100000000i64  // Fees up to 1 BTC
     ) {
-        let subsidy = economic::get_block_subsidy(height) as i64;
+        let subsidy = economic::get_block_subsidy(height);
         let reward = expected_blockreward_from_orange_paper(height, fees);
 
         prop_assert!(reward >= subsidy,

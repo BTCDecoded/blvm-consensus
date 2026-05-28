@@ -18,7 +18,7 @@ fn create_tx_with_sigops(_legacy_sigops: usize) -> Transaction {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -27,7 +27,7 @@ fn create_tx_with_sigops(_legacy_sigops: usize) -> Transaction {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -44,7 +44,7 @@ fn test_block_sigop_cost_at_maximum() {
     let block = Block {
         header: BlockHeader {
             version: 1,
-            prev_block_hash: [0; 32].into(),
+            prev_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1231006505,
             bits: 0x1d00ffff,

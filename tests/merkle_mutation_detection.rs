@@ -21,16 +21,16 @@ fn test_merkle_mutation_detection_duplicate_txids() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -48,7 +48,7 @@ fn test_merkle_mutation_detection_duplicate_txids() {
 
     // Verify error message mentions CVE-2012-2459
     if let Err(e) = result {
-        let error_msg = format!("{}", e);
+        let error_msg = format!("{e}");
         assert!(
             error_msg.contains("mutation") || error_msg.contains("CVE-2012-2459"),
             "Error message should mention mutation or CVE-2012-2459"
@@ -63,16 +63,16 @@ fn test_merkle_root_normal_transactions() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -82,16 +82,16 @@ fn test_merkle_root_normal_transactions() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [2; 32].into(),
+                hash: [2; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -115,16 +115,16 @@ fn test_merkle_root_single_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -159,16 +159,16 @@ fn test_merkle_root_odd_number() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -178,16 +178,16 @@ fn test_merkle_root_odd_number() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [2; 32].into(),
+                hash: [2; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -197,16 +197,16 @@ fn test_merkle_root_odd_number() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [3; 32].into(),
+                hash: [3; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 3000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,

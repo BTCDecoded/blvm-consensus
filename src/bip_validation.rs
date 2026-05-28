@@ -630,7 +630,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00],
@@ -639,7 +639,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_0000_0000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -675,7 +675,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00],
@@ -684,7 +684,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_0000_0000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -713,7 +713,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 // Height encoded as CScriptNum: 0x03 (push 3 bytes) + height in little-endian
@@ -728,7 +728,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_0000_0000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -799,7 +799,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00],
@@ -808,7 +808,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_0000_0000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -865,7 +865,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 // Wrong height encoding
@@ -875,7 +875,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_0000_0000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,

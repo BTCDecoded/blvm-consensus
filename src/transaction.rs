@@ -843,7 +843,7 @@ pub(crate) mod transaction_proptest {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -1026,7 +1026,7 @@ mod tests {
     fn make_output(value: i64) -> TransactionOutput {
         TransactionOutput {
             value,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }
     }
 
@@ -1080,7 +1080,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -1345,7 +1345,7 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [0; 32].into(),
+                        hash: [0; 32],
                         index: 0,
                     },
                     script_sig: vec![1, 2, 3],
@@ -1364,7 +1364,7 @@ mod tests {
             outputs: vec![
                 TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![7, 8, 9].into(),
+                    script_pubkey: vec![7, 8, 9],
                 },
                 TransactionOutput {
                     value: 2000,

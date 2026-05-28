@@ -593,7 +593,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![OP_1, OP_CHECKSIG], // OP_1, OP_CHECKSIG
@@ -602,7 +602,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![OP_1, OP_CHECKSIGVERIFY].into(), // OP_1, OP_CHECKSIGVERIFY
+                script_pubkey: vec![OP_1, OP_CHECKSIGVERIFY], // OP_1, OP_CHECKSIGVERIFY
             }]
             .into(),
             lock_time: 0,
@@ -621,7 +621,7 @@ mod tests {
         assert!(is_pay_to_script_hash(&p2sh_script));
 
         // Invalid: wrong length
-        assert!(!is_pay_to_script_hash(&vec![OP_HASH160, 0x14]));
+        assert!(!is_pay_to_script_hash(&[OP_HASH160, 0x14]));
 
         // Invalid: not P2SH format
         let p2pkh = vec![OP_DUP, OP_HASH160, 0x14]; // OP_DUP OP_HASH160
@@ -815,7 +815,7 @@ mod tests {
         use crate::segwit::Witness;
 
         let prev = OutPoint {
-            hash: [7u8; 32].into(),
+            hash: [7u8; 32],
             index: 0,
         };
         let mut spk = vec![OP_1, 0x20];
@@ -845,7 +845,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 10_000,
-                script_pubkey: vec![OP_0].into(),
+                script_pubkey: vec![OP_0],
             }]
             .into(),
             lock_time: 0,

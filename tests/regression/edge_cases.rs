@@ -18,7 +18,7 @@ fn test_transaction_size_boundaries() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: large_script.clone(),
@@ -57,7 +57,7 @@ fn test_maximum_input_output_counts() {
                 hash: [(i % 256) as u8; 32],
                 index: i as u32,
             },
-            script_sig: vec![0x51].into(),
+            script_sig: vec![0x51],
             sequence: 0xffffffff,
         });
     }
@@ -67,7 +67,7 @@ fn test_maximum_input_output_counts() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -88,7 +88,7 @@ fn test_maximum_input_output_counts() {
     for _ in 0..safe_output_count {
         outputs.push(TransactionOutput {
             value: 1,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         });
     }
 
@@ -96,10 +96,10 @@ fn test_maximum_input_output_counts() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51].into(),
+            script_sig: vec![0x51],
             sequence: 0xffffffff,
         }]
         .into(),
@@ -126,7 +126,7 @@ fn test_monetary_boundaries() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -135,7 +135,7 @@ fn test_monetary_boundaries() {
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -149,7 +149,7 @@ fn test_monetary_boundaries() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -158,7 +158,7 @@ fn test_monetary_boundaries() {
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -179,7 +179,7 @@ fn test_script_operation_limits() {
     }
 
     let result = consensus.verify_script(&script, &script, None, 0).unwrap();
-    assert!(result == true || result == false);
+    assert!(result || !result);
 
     // Test script exceeding operation limit.
     // OP_NOP (0x61) is a counted non-pushdata opcode, unlike OP_1 (0x51) which is a push.
@@ -193,8 +193,7 @@ fn test_script_operation_limits() {
     // Either an error or Ok(false) is acceptable — the script must not succeed.
     assert!(
         result.is_err() || result == Ok(false),
-        "Script with too many ops should be rejected, got: {:?}",
-        result
+        "Script with too many ops should be rejected, got: {result:?}"
     );
 }
 
@@ -223,7 +222,7 @@ fn test_block_size_boundaries() {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [i as u8; 32].into(),
+                    hash: [i as u8; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -232,7 +231,7 @@ fn test_block_size_boundaries() {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }]
             .into(),
             lock_time: 0,
@@ -316,8 +315,7 @@ fn test_difficulty_adjustment_boundaries() {
     // 0x1d00ffff is the maximum target (minimum difficulty); higher difficulty → lower bits.
     assert!(
         result < 0x1d00ffff,
-        "Fast blocks should increase difficulty (result 0x{:08x} should be < 0x1d00ffff)",
-        result
+        "Fast blocks should increase difficulty (result 0x{result:08x} should be < 0x1d00ffff)"
     );
 
     // Create headers with very slow block times (1 hour each)
@@ -340,8 +338,7 @@ fn test_difficulty_adjustment_boundaries() {
     // implementation clamps at MAX_TARGET (0x1d00ffff).  So result == MAX_TARGET.
     assert!(
         result == 0x1d00ffff,
-        "Slow blocks should stay at MAX_TARGET (result 0x{:08x} should be 0x1d00ffff)",
-        result
+        "Slow blocks should stay at MAX_TARGET (result 0x{result:08x} should be 0x1d00ffff)"
     );
 }
 
@@ -376,7 +373,7 @@ fn test_sequence_number_boundaries() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -385,7 +382,7 @@ fn test_sequence_number_boundaries() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -399,7 +396,7 @@ fn test_sequence_number_boundaries() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -408,7 +405,7 @@ fn test_sequence_number_boundaries() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

@@ -6,9 +6,9 @@
 //! Consensus-critical: Endianness differences = network incompatibility
 
 use blvm_consensus::serialization::{
-    block::{deserialize_block_header, serialize_block_header},
+    block::serialize_block_header,
     transaction::{deserialize_transaction, serialize_transaction},
-    varint::{decode_varint, encode_varint},
+    varint::encode_varint,
 };
 use blvm_consensus::types::{BlockHeader, Transaction, TransactionInput, TransactionOutput};
 
@@ -54,7 +54,7 @@ fn test_transaction_value_little_endian() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0x0102030405060708,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -126,10 +126,10 @@ fn test_transaction_input_index_little_endian() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0x01020304,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
@@ -170,10 +170,10 @@ fn test_transaction_sequence_little_endian() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0x01020304,
         }]
         .into(),
@@ -384,16 +384,16 @@ fn test_round_trip_little_endian() {
         version: 0x01020304,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0x05060708,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0x090a0b0c,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 0x0d0e0f1011121314,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0x15161718,

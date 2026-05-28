@@ -19,7 +19,7 @@ fn test_duplicate_inputs_same_prevout() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -27,8 +27,8 @@ fn test_duplicate_inputs_same_prevout() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(), // Same hash
-                    index: 0,             // Same index
+                    hash: [1; 32], // Same hash
+                    index: 0,      // Same index
                 },
                 script_sig: vec![0x52],
                 sequence: 0xfffffffe,
@@ -37,7 +37,7 @@ fn test_duplicate_inputs_same_prevout() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -63,7 +63,7 @@ fn test_duplicate_inputs_same_hash_different_index() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -71,8 +71,8 @@ fn test_duplicate_inputs_same_hash_different_index() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(), // Same hash
-                    index: 1,             // Different index
+                    hash: [1; 32], // Same hash
+                    index: 1,      // Different index
                 },
                 script_sig: vec![0x52],
                 sequence: 0xfffffffe,
@@ -81,7 +81,7 @@ fn test_duplicate_inputs_same_hash_different_index() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -107,7 +107,7 @@ fn test_duplicate_inputs_different_hash_same_index() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -115,8 +115,8 @@ fn test_duplicate_inputs_different_hash_same_index() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(), // Different hash
-                    index: 0,             // Same index
+                    hash: [2; 32], // Different hash
+                    index: 0,      // Same index
                 },
                 script_sig: vec![0x52],
                 sequence: 0xfffffffe,
@@ -125,7 +125,7 @@ fn test_duplicate_inputs_different_hash_same_index() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -151,7 +151,7 @@ fn test_multiple_duplicate_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -159,7 +159,7 @@ fn test_multiple_duplicate_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0, // Duplicate of first
                 },
                 script_sig: vec![0x52],
@@ -167,7 +167,7 @@ fn test_multiple_duplicate_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 0,
                 },
                 script_sig: vec![0x53],
@@ -175,7 +175,7 @@ fn test_multiple_duplicate_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 0, // Duplicate of third
                 },
                 script_sig: vec![0x54],
@@ -185,7 +185,7 @@ fn test_multiple_duplicate_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -211,7 +211,7 @@ fn test_all_inputs_duplicate() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -219,7 +219,7 @@ fn test_all_inputs_duplicate() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x52],
@@ -227,7 +227,7 @@ fn test_all_inputs_duplicate() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x53],
@@ -237,7 +237,7 @@ fn test_all_inputs_duplicate() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -261,7 +261,7 @@ fn test_no_duplicate_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -269,7 +269,7 @@ fn test_no_duplicate_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 1,
                 },
                 script_sig: vec![0x52],
@@ -277,7 +277,7 @@ fn test_no_duplicate_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [3; 32].into(),
+                    hash: [3; 32],
                     index: 2,
                 },
                 script_sig: vec![0x53],
@@ -287,7 +287,7 @@ fn test_no_duplicate_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -314,7 +314,7 @@ fn test_duplicate_detection_many_inputs() {
     for i in 0..100 {
         inputs.push(TransactionInput {
             prevout: OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: i,
             },
             script_sig: vec![0x51],
@@ -325,7 +325,7 @@ fn test_duplicate_detection_many_inputs() {
     // Add a duplicate of input 50
     inputs.push(TransactionInput {
         prevout: OutPoint {
-            hash: [50; 32].into(),
+            hash: [50; 32],
             index: 50,
         },
         script_sig: vec![0x52],
@@ -337,7 +337,7 @@ fn test_duplicate_detection_many_inputs() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

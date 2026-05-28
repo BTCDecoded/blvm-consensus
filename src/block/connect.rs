@@ -2863,7 +2863,7 @@ mod sighash_batch_ibd_tests {
         v.extend(std::iter::repeat_n(0x30u8, 70));
         v.push(0x01);
         append_fake_pubkey(&mut v);
-        v.into()
+        v
     }
 
     fn script_sig_pushdata1() -> ByteString {
@@ -2873,7 +2873,7 @@ mod sighash_batch_ibd_tests {
         v.extend(std::iter::repeat_n(0x30u8, 70));
         v.push(0x01);
         append_fake_pubkey(&mut v);
-        v.into()
+        v
     }
 
     fn sample_tx_two_p2pkh(script_sig_a: ByteString, script_sig_b: ByteString) -> Transaction {
@@ -2898,7 +2898,7 @@ mod sighash_batch_ibd_tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51u8].into(),
+                script_pubkey: vec![0x51u8],
             }]
             .into(),
             lock_time: 0,
@@ -2943,7 +2943,7 @@ mod sighash_batch_ibd_tests {
         v.push(0x30);
         v.push(0x81u8);
         append_fake_pubkey(&mut v);
-        let tx = sample_tx_two_p2pkh(v.clone().into(), v.into());
+        let tx = sample_tx_two_p2pkh(v.clone(), v);
         let spk = p2pkh_spk_bytes();
         assert!(
             try_batch_precompute_sighashes_ibd(&tx, &[spk.as_slice(), spk.as_slice()]).is_none(),

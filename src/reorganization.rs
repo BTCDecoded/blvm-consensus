@@ -1152,7 +1152,7 @@ mod tests {
             height: 1,
             is_coinbase: false,
         };
-        utxo_set.insert(outpoint.clone(), std::sync::Arc::new(utxo.clone()));
+        utxo_set.insert(outpoint, std::sync::Arc::new(utxo.clone()));
 
         // Connect block and get undo log
         let witnesses: Vec<Vec<Witness>> = block
@@ -1219,7 +1219,7 @@ mod tests {
             connect_block(&block, &witnesses, utxo_set.clone(), 1, &ctx).unwrap();
 
         if !matches!(result, crate::types::ValidationResult::Valid) {
-            eprintln!("Block validation failed: {:?}", result);
+            eprintln!("Block validation failed: {result:?}");
         }
         assert!(matches!(result, crate::types::ValidationResult::Valid));
 
@@ -1402,7 +1402,7 @@ mod tests {
             n >>= 8;
         }
         // If high bit is set, add 0x00 for positive sign
-        if height_bytes.last().map_or(false, |&b| b & 0x80 != 0) {
+        if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
             height_bytes.push(0x00);
         }
         let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
@@ -1424,7 +1424,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig,
@@ -1433,7 +1433,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5_000_000_000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }]
             .into(),
             lock_time: 0,

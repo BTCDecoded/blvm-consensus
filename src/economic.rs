@@ -396,7 +396,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -405,7 +405,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -514,7 +514,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -523,7 +523,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 900000000, // 9 BTC output
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -567,7 +567,7 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [1; 32].into(),
+                        hash: [1; 32],
                         index: 0,
                     },
                     script_sig: vec![],
@@ -586,11 +586,11 @@ mod tests {
             outputs: vec![
                 TransactionOutput {
                     value: 600000000, // 6 BTC output
-                    script_pubkey: vec![].into(),
+                    script_pubkey: vec![],
                 },
                 TransactionOutput {
                     value: 150000000, // 1.5 BTC output
-                    script_pubkey: vec![].into(),
+                    script_pubkey: vec![],
                 },
             ]
             .into(),
@@ -609,7 +609,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -618,7 +618,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 100000000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -651,7 +651,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -660,7 +660,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 200000000, // 2 BTC output (more than input)
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,
@@ -694,7 +694,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -711,7 +711,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -728,7 +728,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -746,7 +746,7 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [0; 32].into(),
+                        hash: [0; 32],
                         index: 0xffffffff,
                     },
                     script_sig: vec![],

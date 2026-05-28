@@ -268,7 +268,7 @@ mod tests {
             version: 2,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -293,7 +293,7 @@ mod tests {
             version: 2,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -319,7 +319,7 @@ mod tests {
             version: 2,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],

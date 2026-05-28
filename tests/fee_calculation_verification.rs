@@ -22,7 +22,7 @@ fn test_zero_fee_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -31,7 +31,7 @@ fn test_zero_fee_transaction() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 100_000_000, // Same as input (zero fee)
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -59,7 +59,7 @@ fn test_positive_fee_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -68,7 +68,7 @@ fn test_positive_fee_transaction() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 99_000_000, // 0.01 BTC fee
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -99,7 +99,7 @@ fn test_negative_fee_transaction() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -108,7 +108,7 @@ fn test_negative_fee_transaction() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 101_000_000, // More than input (negative fee)
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -136,7 +136,7 @@ fn test_fee_multiple_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51],
@@ -144,7 +144,7 @@ fn test_fee_multiple_inputs() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 0,
                 },
                 script_sig: vec![0x52],
@@ -154,7 +154,7 @@ fn test_fee_multiple_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 140_000_000, // 0.01 BTC fee (150M - 140M)
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -185,7 +185,7 @@ fn test_fee_multiple_outputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -195,11 +195,11 @@ fn test_fee_multiple_outputs() {
         outputs: vec![
             TransactionOutput {
                 value: 50_000_000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             },
             TransactionOutput {
                 value: 49_000_000, // 0.01 BTC fee
-                script_pubkey: vec![0x52].into(),
+                script_pubkey: vec![0x52],
             },
         ]
         .into(),
@@ -228,7 +228,7 @@ fn test_fee_maximum_money() {
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
         OutPoint {
-            hash: [1; 32].into(),
+            hash: [1; 32],
             index: 0,
         },
         std::sync::Arc::new(UTXO {
@@ -243,7 +243,7 @@ fn test_fee_maximum_money() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -252,7 +252,7 @@ fn test_fee_maximum_money() {
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY - 1, // 1 satoshi fee
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -283,7 +283,7 @@ fn test_fee_overflow_protection() {
     for i in 0..10 {
         utxo_set.insert(
             OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: 0,
             },
             std::sync::Arc::new(UTXO {
@@ -299,7 +299,7 @@ fn test_fee_overflow_protection() {
     for i in 0..10 {
         inputs.push(TransactionInput {
             prevout: OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -312,7 +312,7 @@ fn test_fee_overflow_protection() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -337,7 +337,7 @@ fn test_coinbase_fee() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff, // Coinbase marker
             },
             script_sig: vec![0x03, 0x01, 0x00, 0x00], // Coinbase scriptSig
@@ -346,7 +346,7 @@ fn test_coinbase_fee() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

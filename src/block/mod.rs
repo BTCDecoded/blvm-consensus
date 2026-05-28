@@ -380,7 +380,7 @@ fn compute_block_tx_ids_spec_matches_optimized_paths() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x03, 0x01, 0x00, 0x00],
@@ -389,7 +389,7 @@ fn compute_block_tx_ids_spec_matches_optimized_paths() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -398,7 +398,7 @@ fn compute_block_tx_ids_spec_matches_optimized_paths() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1u8; 32].into(),
+                hash: [1u8; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -407,7 +407,7 @@ fn compute_block_tx_ids_spec_matches_optimized_paths() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 10_000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -436,7 +436,7 @@ fn test_connect_block_invalid_header() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -445,7 +445,7 @@ fn test_connect_block_invalid_header() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -516,7 +516,7 @@ fn test_connect_block_first_tx_not_coinbase() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -525,7 +525,7 @@ fn test_connect_block_first_tx_not_coinbase() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -566,7 +566,7 @@ fn test_connect_block_coinbase_exceeds_subsidy() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -575,7 +575,7 @@ fn test_connect_block_coinbase_exceeds_subsidy() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 6000000000, // 60 BTC - exceeds subsidy
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -631,7 +631,7 @@ fn test_apply_transaction_regular() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1], // OP_1
@@ -640,7 +640,7 @@ fn test_apply_transaction_regular() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 500,
-            script_pubkey: vec![OP_2].into(), // OP_2
+            script_pubkey: vec![OP_2], // OP_2
         }]
         .into(),
         lock_time: 0,
@@ -658,7 +658,7 @@ fn test_apply_transaction_multiple_outputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -668,11 +668,11 @@ fn test_apply_transaction_multiple_outputs() {
         outputs: vec![
             TransactionOutput {
                 value: 2500000000,
-                script_pubkey: vec![OP_1].into(),
+                script_pubkey: vec![OP_1],
             },
             TransactionOutput {
                 value: 2500000000,
-                script_pubkey: vec![OP_2].into(),
+                script_pubkey: vec![OP_2],
             },
         ]
         .into(),
@@ -739,7 +739,7 @@ fn test_is_coinbase_true() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -748,7 +748,7 @@ fn test_is_coinbase_true() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -763,7 +763,7 @@ fn test_is_coinbase_false_wrong_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0xffffffff,
             }, // Wrong hash
             script_sig: vec![],
@@ -772,7 +772,7 @@ fn test_is_coinbase_false_wrong_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -787,7 +787,7 @@ fn test_is_coinbase_false_wrong_index() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             }, // Wrong index
             script_sig: vec![],
@@ -796,7 +796,7 @@ fn test_is_coinbase_false_wrong_index() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -812,7 +812,7 @@ fn test_is_coinbase_false_multiple_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0xffffffff,
                 },
                 script_sig: vec![],
@@ -830,7 +830,7 @@ fn test_is_coinbase_false_multiple_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -845,7 +845,7 @@ fn test_calculate_tx_id() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -854,7 +854,7 @@ fn test_calculate_tx_id() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -937,7 +937,7 @@ fn test_connect_block_invalid_coinbase() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             }, // Wrong hash for coinbase
             script_sig: vec![],
@@ -946,7 +946,7 @@ fn test_connect_block_invalid_coinbase() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -1000,7 +1000,7 @@ fn test_apply_transaction_insufficient_funds() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -1009,7 +1009,7 @@ fn test_apply_transaction_insufficient_funds() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 200, // More than input value
-            script_pubkey: vec![OP_2].into(),
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -1028,7 +1028,7 @@ fn test_apply_transaction_missing_utxo() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -1037,7 +1037,7 @@ fn test_apply_transaction_missing_utxo() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 100,
-            script_pubkey: vec![OP_2].into(),
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -1093,7 +1093,7 @@ fn test_connect_block_coinbase_exceeds_subsidy_edge() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -1102,7 +1102,7 @@ fn test_connect_block_coinbase_exceeds_subsidy_edge() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 2100000000000000, // Exceeds total supply
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -1141,7 +1141,7 @@ fn test_connect_block_first_tx_not_coinbase_edge() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -1150,7 +1150,7 @@ fn test_connect_block_first_tx_not_coinbase_edge() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_2].into(),
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -1217,7 +1217,7 @@ fn test_apply_transaction_multiple_inputs() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![OP_1],
@@ -1235,7 +1235,7 @@ fn test_apply_transaction_multiple_inputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 700, // Total input value
-            script_pubkey: vec![OP_3].into(),
+            script_pubkey: vec![OP_3],
         }]
         .into(),
         lock_time: 0,
@@ -1267,7 +1267,7 @@ fn test_apply_transaction_no_outputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -1288,7 +1288,7 @@ fn test_apply_transaction_no_outputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1],
@@ -1297,7 +1297,7 @@ fn test_apply_transaction_no_outputs() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 500, // Valid output
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

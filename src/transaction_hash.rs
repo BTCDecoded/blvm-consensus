@@ -1794,7 +1794,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1u8; 32].into(),
+                    hash: [1u8; 32],
                     index: 0,
                 },
                 script_sig: vec![OP_1],
@@ -1826,8 +1826,7 @@ mod tests {
                     0x9a,
                     OP_EQUALVERIFY,
                     OP_CHECKSIG,
-                ]
-                .into(), // P2PKH
+                ], // P2PKH
             }]
             .into(),
             lock_time: 0,
@@ -1897,7 +1896,7 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [1u8; 32].into(),
+                        hash: [1u8; 32],
                         index: 0,
                     },
                     script_sig: vec![], // Empty for SegWit
@@ -1905,7 +1904,7 @@ mod tests {
                 },
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [2u8; 32].into(),
+                        hash: [2u8; 32],
                         index: 1,
                     },
                     script_sig: vec![],
@@ -1938,14 +1937,13 @@ mod tests {
                     0xbc,
                     0xde,
                     0xf0,
-                ]
-                .into(),
+                ],
             }]
             .into(),
             lock_time: 0,
         };
 
-        let prevouts = vec![
+        let prevouts = [
             TransactionOutput {
                 value: 10000000000,
                 script_pubkey: vec![
@@ -2064,7 +2062,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1u8; 32].into(),
+                    hash: [1u8; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -2073,7 +2071,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![OP_0, PUSH_20_BYTES].into(),
+                script_pubkey: vec![OP_0, PUSH_20_BYTES],
             }]
             .into(),
             lock_time: 0,
@@ -2181,25 +2179,25 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [1u8; 32].into(),
+                        hash: [1u8; 32],
                         index: 0,
                     },
-                    script_sig: vec![].into(),
+                    script_sig: vec![],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [2u8; 32].into(),
+                        hash: [2u8; 32],
                         index: 1,
                     },
-                    script_sig: vec![].into(),
+                    script_sig: vec![],
                     sequence: 0xffffffff,
                 },
             ]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![OP_DUP, OP_HASH160, PUSH_20_BYTES].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160, PUSH_20_BYTES],
             }]
             .into(),
             lock_time: 0,
@@ -2246,25 +2244,25 @@ mod tests {
             inputs: vec![
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [1u8; 32].into(),
+                        hash: [1u8; 32],
                         index: 0,
                     },
-                    script_sig: vec![].into(),
+                    script_sig: vec![],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
                     prevout: OutPoint {
-                        hash: [2u8; 32].into(),
+                        hash: [2u8; 32],
                         index: 1,
                     },
-                    script_sig: vec![].into(),
+                    script_sig: vec![],
                     sequence: 0xffffffff,
                 },
             ]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![OP_DUP, OP_HASH160, PUSH_20_BYTES].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160, PUSH_20_BYTES],
             }]
             .into(),
             lock_time: 0,

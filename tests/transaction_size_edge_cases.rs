@@ -20,7 +20,7 @@ fn test_transaction_size_matches_serialization() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51], // OP_1
@@ -29,7 +29,7 @@ fn test_transaction_size_matches_serialization() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(), // OP_1
+            script_pubkey: vec![0x51], // OP_1
         }]
         .into(),
         lock_time: 0,
@@ -42,8 +42,7 @@ fn test_transaction_size_matches_serialization() {
     // CRITICAL: Calculated size must match actual serialized size
     assert_eq!(
         calculated_size, actual_size,
-        "Transaction size calculation ({}) must match actual serialization size ({})",
-        calculated_size, actual_size
+        "Transaction size calculation ({calculated_size}) must match actual serialization size ({actual_size})"
     );
 }
 
@@ -59,7 +58,7 @@ fn test_transaction_size_varint_script_lengths() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51; 0xfc], // 252 bytes (0xfc)
@@ -68,7 +67,7 @@ fn test_transaction_size_varint_script_lengths() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -87,7 +86,7 @@ fn test_transaction_size_varint_script_lengths() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51; 0xfd], // 253 bytes (0xfd)
@@ -96,7 +95,7 @@ fn test_transaction_size_varint_script_lengths() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -119,7 +118,7 @@ fn test_transaction_size_varint_counts() {
     for i in 0..0xfc {
         inputs.push(TransactionInput {
             prevout: OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -132,7 +131,7 @@ fn test_transaction_size_varint_counts() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -154,7 +153,7 @@ fn test_transaction_size_empty_scripts() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![], // Empty script
@@ -163,7 +162,7 @@ fn test_transaction_size_empty_scripts() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(), // Empty script
+            script_pubkey: vec![], // Empty script
         }]
         .into(),
         lock_time: 0,
@@ -188,7 +187,7 @@ fn test_transaction_size_no_witness() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
                 script_sig: vec![0x51, 0x52, 0x53],
@@ -196,7 +195,7 @@ fn test_transaction_size_no_witness() {
             },
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 1,
                 },
                 script_sig: vec![0x54, 0x55],
@@ -207,11 +206,11 @@ fn test_transaction_size_no_witness() {
         outputs: vec![
             TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51, 0x52].into(),
+                script_pubkey: vec![0x51, 0x52],
             },
             TransactionOutput {
                 value: 2000,
-                script_pubkey: vec![0x53, 0x54, 0x55].into(),
+                script_pubkey: vec![0x53, 0x54, 0x55],
             },
         ]
         .into(),
@@ -235,7 +234,7 @@ fn test_transaction_size_coinbase() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x04, 0x00, 0x00, 0x00, 0x00], // Height encoding (5 bytes)
@@ -244,7 +243,7 @@ fn test_transaction_size_coinbase() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_0000_0000, // 50 BTC
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,

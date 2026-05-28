@@ -22,7 +22,7 @@ const HEIGHT: u64 = 164676;
 
 fn dump_dir() -> std::path::PathBuf {
     if let Ok(d) = std::env::var("BLVM_IBD_DUMP_DIR") {
-        return std::path::PathBuf::from(d).join(format!("height_{}", HEIGHT));
+        return std::path::PathBuf::from(d).join(format!("height_{HEIGHT}"));
     }
     // Prefer repo backup (survives temp cleanup)
     let repo = std::path::PathBuf::from(REPO_DUMP_SUBDIR);
@@ -31,7 +31,7 @@ fn dump_dir() -> std::path::PathBuf {
     }
     std::env::temp_dir()
         .join("blvm_ibd_failure")
-        .join(format!("height_{}", HEIGHT))
+        .join(format!("height_{HEIGHT}"))
 }
 
 fn load_dump(
@@ -92,6 +92,6 @@ fn block_164676_connect_block_ibd_repro() {
 
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("Block {} should be valid: {}", HEIGHT, reason),
+        ValidationResult::Invalid(reason) => panic!("Block {HEIGHT} should be valid: {reason}"),
     }
 }

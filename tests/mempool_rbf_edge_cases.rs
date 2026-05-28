@@ -21,7 +21,7 @@ fn test_rbf_signaling() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -30,7 +30,7 @@ fn test_rbf_signaling() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -41,7 +41,7 @@ fn test_rbf_signaling() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -50,7 +50,7 @@ fn test_rbf_signaling() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -77,7 +77,7 @@ fn test_rbf_fee_bump_requirements() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -86,7 +86,7 @@ fn test_rbf_fee_bump_requirements() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 90000000, // 0.9 BTC
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -97,7 +97,7 @@ fn test_rbf_fee_bump_requirements() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -106,7 +106,7 @@ fn test_rbf_fee_bump_requirements() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 80000000, // 0.8 BTC (higher fee: 0.1 BTC vs 0.1 BTC)
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -131,7 +131,7 @@ fn test_rbf_conflicting_transactions() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -140,7 +140,7 @@ fn test_rbf_conflicting_transactions() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -150,7 +150,7 @@ fn test_rbf_conflicting_transactions() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             }, // Same input
             script_sig: vec![],
@@ -159,7 +159,7 @@ fn test_rbf_conflicting_transactions() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 500, // Higher fee (less output value)
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -179,7 +179,7 @@ fn test_rbf_new_unconfirmed_dependencies() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -188,7 +188,7 @@ fn test_rbf_new_unconfirmed_dependencies() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -200,7 +200,7 @@ fn test_rbf_new_unconfirmed_dependencies() {
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 }, // Same as original
                 script_sig: vec![],
@@ -218,7 +218,7 @@ fn test_rbf_new_unconfirmed_dependencies() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 500, // Higher fee
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -239,7 +239,7 @@ fn test_rbf_fee_rate_calculation() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -248,7 +248,7 @@ fn test_rbf_fee_rate_calculation() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 90000000, // 0.9 BTC output
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -259,7 +259,7 @@ fn test_rbf_fee_rate_calculation() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -268,7 +268,7 @@ fn test_rbf_fee_rate_calculation() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 90000000, // Same output (same fee)
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -279,7 +279,7 @@ fn test_rbf_fee_rate_calculation() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -288,7 +288,7 @@ fn test_rbf_fee_rate_calculation() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 95000000, // Higher output (lower fee)
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -307,7 +307,7 @@ fn test_rbf_replacement_chains() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -316,7 +316,7 @@ fn test_rbf_replacement_chains() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 90000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -326,7 +326,7 @@ fn test_rbf_replacement_chains() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -335,7 +335,7 @@ fn test_rbf_replacement_chains() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 80000000, // Higher fee than tx1
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -345,7 +345,7 @@ fn test_rbf_replacement_chains() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -354,7 +354,7 @@ fn test_rbf_replacement_chains() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 70000000, // Higher fee than tx2
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -399,7 +399,7 @@ fn test_rbf_all_five_rules() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -408,7 +408,7 @@ fn test_rbf_all_five_rules() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 90000000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -419,7 +419,7 @@ fn test_rbf_all_five_rules() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             }, // Rule 4: Conflicts
             script_sig: vec![],
@@ -431,7 +431,7 @@ fn test_rbf_all_five_rules() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 80000000, // Higher fee (lower output)
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,

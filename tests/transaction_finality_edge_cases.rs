@@ -15,16 +15,16 @@ fn test_finality_locktime_zero() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -51,16 +51,16 @@ fn test_finality_height_based_locktime() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 100, // Height-based locktime (< LOCKTIME_THRESHOLD)
@@ -96,16 +96,16 @@ fn test_finality_timestamp_based_locktime() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: locktime_value,
@@ -140,16 +140,16 @@ fn test_finality_sequence_final_override() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: SEQUENCE_FINAL as u64, // SEQUENCE_FINAL
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 10000, // Locktime that is NOT satisfied
@@ -177,25 +177,25 @@ fn test_finality_mixed_sequences_no_override() {
         inputs: vec![
             TransactionInput {
                 prevout: blvm_consensus::types::OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
-                script_sig: vec![].into(),
+                script_sig: vec![],
                 sequence: SEQUENCE_FINAL as u64, // First input has SEQUENCE_FINAL
             },
             TransactionInput {
                 prevout: blvm_consensus::types::OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![].into(),
+                script_sig: vec![],
                 sequence: 0, // Second input does NOT have SEQUENCE_FINAL
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 10000, // Locktime that is NOT satisfied
@@ -220,16 +220,16 @@ fn test_finality_locktime_threshold_boundary() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: blvm_consensus::types::OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
-            script_sig: vec![].into(),
+            script_sig: vec![],
             sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: LOCKTIME_THRESHOLD as u64, // Exactly at threshold
@@ -257,33 +257,33 @@ fn test_finality_all_inputs_sequence_final() {
         inputs: vec![
             TransactionInput {
                 prevout: blvm_consensus::types::OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
-                script_sig: vec![].into(),
+                script_sig: vec![],
                 sequence: SEQUENCE_FINAL as u64,
             },
             TransactionInput {
                 prevout: blvm_consensus::types::OutPoint {
-                    hash: [1; 32].into(),
+                    hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![].into(),
+                script_sig: vec![],
                 sequence: SEQUENCE_FINAL as u64,
             },
             TransactionInput {
                 prevout: blvm_consensus::types::OutPoint {
-                    hash: [2; 32].into(),
+                    hash: [2; 32],
                     index: 0,
                 },
-                script_sig: vec![].into(),
+                script_sig: vec![],
                 sequence: SEQUENCE_FINAL as u64,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 50000, // Locktime that is NOT satisfied

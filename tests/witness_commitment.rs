@@ -182,7 +182,7 @@ fn test_invalid_witness_commitment_rejection() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![],
@@ -191,7 +191,7 @@ fn test_invalid_witness_commitment_rejection() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 12_5000_0000,
-            script_pubkey: bad_commitment_script.into(),
+            script_pubkey: bad_commitment_script,
         }]
         .into(),
         lock_time: 0,

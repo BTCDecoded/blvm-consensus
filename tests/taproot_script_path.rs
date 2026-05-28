@@ -117,7 +117,7 @@ fn test_taproot_key_aggregation() {
     assert_eq!(output_key_value.len(), 32);
 
     // Validate key aggregation — use with_parity to get correct parity for this key
-    use blvm_consensus::taproot::compute_taproot_tweak as _; // just to satisfy imports
+    // just to satisfy imports
     let (expected_key, parity) = blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
         &internal_pubkey,
         &merkle_root,

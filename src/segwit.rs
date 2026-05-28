@@ -463,7 +463,7 @@ mod tests {
         let p2wpkh_hash = [0x51; 20]; // 20-byte hash
         let mut script_pubkey = vec![OP_0, PUSH_20_BYTES]; // OP_0, push 20 bytes
         script_pubkey.extend_from_slice(&p2wpkh_hash);
-        tx.outputs[0].script_pubkey = script_pubkey.into();
+        tx.outputs[0].script_pubkey = script_pubkey;
 
         assert!(is_segwit_transaction(&tx));
     }
@@ -667,7 +667,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![OP_1],
@@ -676,7 +676,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![OP_1].into(),
+                script_pubkey: vec![OP_1],
             }]
             .into(),
             lock_time: 0,
@@ -703,7 +703,7 @@ mod tests {
         let mut script = vec![OP_RETURN, PUSH_36_BYTES]; // 0x6a, 0x24
         script.extend_from_slice(&[0xaa, 0x21, 0xa9, 0xed]); // BIP141 magic prefix
         script.extend_from_slice(&commitment);
-        script.into()
+        script
     }
 }
 

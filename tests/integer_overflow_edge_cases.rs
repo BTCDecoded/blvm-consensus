@@ -28,7 +28,7 @@ fn test_output_sum_exceeds_max_money() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -38,11 +38,11 @@ fn test_output_sum_exceeds_max_money() {
         outputs: vec![
             TransactionOutput {
                 value: MAX_MONEY, // First output at max
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             },
             TransactionOutput {
                 value: 1, // Second output pushes sum over MAX_MONEY
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             },
         ]
         .into(),
@@ -75,7 +75,7 @@ fn test_output_sum_near_i64_max() {
     for _ in 0..num_outputs {
         outputs.push(TransactionOutput {
             value: large_value,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         });
     }
 
@@ -83,7 +83,7 @@ fn test_output_sum_near_i64_max() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -116,7 +116,7 @@ fn test_input_sum_overflow() {
     // Add multiple UTXOs that individually pass checks
     for i in 0..5 {
         let outpoint = OutPoint {
-            hash: [i as u8; 32].into(),
+            hash: [i as u8; 32],
             index: 0,
         };
         let utxo = UTXO {
@@ -133,7 +133,7 @@ fn test_input_sum_overflow() {
     for i in 0..5 {
         inputs.push(TransactionInput {
             prevout: OutPoint {
-                hash: [i as u8; 32].into(),
+                hash: [i as u8; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -146,7 +146,7 @@ fn test_input_sum_overflow() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -174,7 +174,7 @@ fn test_single_output_at_max_money() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -183,7 +183,7 @@ fn test_single_output_at_max_money() {
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY, // Single output at max - should be valid
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -205,7 +205,7 @@ fn test_output_above_max_money() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -214,7 +214,7 @@ fn test_output_above_max_money() {
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1, // Just above max - should be invalid
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -236,7 +236,7 @@ fn test_negative_output_value() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -245,7 +245,7 @@ fn test_negative_output_value() {
         .into(),
         outputs: vec![TransactionOutput {
             value: -1, // Negative value - should be invalid
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -267,7 +267,7 @@ fn test_zero_output_value() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -276,7 +276,7 @@ fn test_zero_output_value() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 0, // Zero value - should be valid (dust outputs)
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -302,7 +302,7 @@ fn test_many_small_outputs() {
     for _ in 0..num_outputs {
         outputs.push(TransactionOutput {
             value: value_per_output,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         });
     }
 
@@ -310,7 +310,7 @@ fn test_many_small_outputs() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],

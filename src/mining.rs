@@ -1060,7 +1060,7 @@ mod tests {
         // Use thread-local counter to avoid non-determinism across tests
         use std::cell::Cell;
         thread_local! {
-            static COUNTER: Cell<u64> = Cell::new(0);
+            static COUNTER: Cell<u64> = const { Cell::new(0) };
         }
         let counter = COUNTER.with(|c| {
             let val = c.get();
@@ -1072,7 +1072,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [1; 32].into(), // Keep consistent hash for UTXO matching
+                    hash: [1; 32], // Keep consistent hash for UTXO matching
                     index: 0,
                 },
                 // Use OP_1 in script_sig to push 1, script_pubkey will be OP_1 which also pushes 1
@@ -1096,7 +1096,7 @@ mod tests {
             outputs: vec![TransactionOutput {
                 value: 1000 + counter as i64, // Make each transaction unique
                 // Empty script_pubkey - script_sig already pushed 1, so final stack is [1].into()
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }]
             .into(),
             lock_time: 0,

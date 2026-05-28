@@ -116,7 +116,7 @@ fn block_ibd_repro() {
                     if tx_idx == 562 {
                         eprintln!(
                             "  tx {tx_idx} input {inp_idx}: UTXO not found (intra-block?) prevout={}:{}",
-                            hex::encode(&input.prevout.hash),
+                            hex::encode(input.prevout.hash),
                             input.prevout.index,
                         );
                     }
@@ -274,7 +274,7 @@ fn block_ibd_repro() {
             tx_562.outputs.len()
         );
         for (inp_idx, input) in tx_562.inputs.iter().enumerate() {
-            let prevout_txid = hex::encode(&input.prevout.hash);
+            let prevout_txid = hex::encode(input.prevout.hash);
             let witness_data = witnesses.get(562).and_then(|w| w.get(inp_idx));
             let has_wit = witness_data.map(|w| !w.is_empty()).unwrap_or(false);
             let in_utxo_set = utxo_set.get(&input.prevout).is_some();

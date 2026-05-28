@@ -6,7 +6,7 @@
 use blvm_consensus::constants::*;
 use blvm_consensus::crypto::OptimizedSha256;
 use blvm_consensus::economic;
-use blvm_consensus::orange_paper_constants::{C, H};
+use blvm_consensus::orange_paper_constants::H;
 use blvm_consensus::pow;
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::transaction;
@@ -31,7 +31,7 @@ proptest! {
     fn double_sha256_matches_reference(
         data in prop::collection::vec(any::<u8>(), 0..1024)
     ) {
-        let reference = Sha256::digest(&Sha256::digest(&data));
+        let reference = Sha256::digest(Sha256::digest(&data));
         let ours = OptimizedSha256::new().hash256(&data);
         prop_assert_eq!(&reference[..], &ours[..]);
     }
@@ -80,7 +80,7 @@ proptest! {
         let actual = economic::get_block_subsidy(height as u64);
         let expected = expected_getblocksubsidy_from_orange_paper(height as u64);
 
-        prop_assert_eq!(actual as i64, expected,
+        prop_assert_eq!(actual, expected,
             "Subsidy at height {} must match Orange Paper formula: actual={}, expected={}",
             height, actual, expected);
     }
@@ -181,7 +181,7 @@ proptest! {
     /// ∀ tx ∈ 𝒯𝒳, ∀ o ∈ tx.outputs: 0 ≤ o.value ≤ MAX_MONEY
     #[test]
     fn prop_transaction_output_value_bounded(
-        value in 0i64..(MAX_MONEY as i64 + 1)
+        value in 0i64..(MAX_MONEY + 1)
     ) {
         let output = TransactionOutput {
             value,
@@ -190,7 +190,7 @@ proptest! {
 
         // Output value must be within bounds
         prop_assert!(output.value >= 0, "Output value must be non-negative");
-        prop_assert!(output.value <= MAX_MONEY as i64,
+        prop_assert!(output.value <= MAX_MONEY,
             "Output value {} exceeds MAX_MONEY {}", output.value, MAX_MONEY);
     }
 
@@ -236,7 +236,7 @@ proptest! {
     /// ∀ tx ∈ 𝒯𝒳: |tx| ≤ MAX_TX_SIZE
     #[test]
     fn prop_transaction_size_bounded(
-        tx_size in 1usize..(MAX_TX_SIZE as usize + 1)
+        tx_size in 1usize..(MAX_TX_SIZE + 1)
     ) {
         // Create a transaction with bounded size
         // This is a simplified test - actual serialization would be more complex
@@ -282,7 +282,7 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(), // Null prevout indicates coinbase
+                    hash: [0; 32], // Null prevout indicates coinbase
                     index: 0xffffffff, // Coinbase index
                 },
                 script_sig: vec![0; script_sig_len],
@@ -290,7 +290,7 @@ proptest! {
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }].into(),
             lock_time: 0,
         };
@@ -343,7 +343,7 @@ proptest! {
     /// ∀ script: |script| ≤ MAX_SCRIPT_SIZE ⟹ eval_script terminates
     #[test]
     fn prop_script_size_bounded(
-        script_size in 0usize..(MAX_SCRIPT_SIZE as usize + 1)
+        script_size in 0usize..(MAX_SCRIPT_SIZE + 1)
     ) {
         use blvm_consensus::script;
 
@@ -541,7 +541,7 @@ proptest! {
             let ratio = duration2.as_nanos() as f64 / duration1.as_nanos() as f64;
 
             // Use lenient bounds (0.1x to 10x) to account for measurement noise
-            prop_assert!(ratio >= 0.1 && ratio <= 10.0,
+            prop_assert!((0.1..=10.0).contains(&ratio),
                 "Subsidy calculation should be approximately constant-time: ratio = {:.2} (expected ~1.0, heights: {}, {})",
                 ratio, height1, height2);
         }
@@ -705,7 +705,7 @@ proptest! {
                     hash: [i as u8; 32],
                     index: 0,
                 };
-                utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
+                utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                     value: 10000,
                     script_pubkey: vec![0; 20].into(),
                     height: 0,
@@ -722,7 +722,7 @@ proptest! {
             inputs: inputs.into(),
             outputs: (0..num_outputs).map(|_| TransactionOutput {
                 value: 5000,
-                script_pubkey: vec![0; 20].into(),
+                script_pubkey: vec![0; 20],
             }).collect(),
             lock_time: 0,
         };
@@ -768,7 +768,7 @@ proptest! {
                     hash: [i as u8; 32],
                     index: 0,
                 };
-                utxo_set.insert(outpoint.clone(), std::sync::Arc::new(UTXO {
+                utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                     value,
                     script_pubkey: vec![0; 20].into(),
                     height: 0,
@@ -786,7 +786,7 @@ proptest! {
             inputs: inputs.into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0; 20].into(),
+                    script_pubkey: vec![0; 20],
                 }].into(),
                 lock_time: 0,
             };
@@ -817,7 +817,7 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
-                        hash: [0; 32].into(),
+                        hash: [0; 32],
                         index: 0,
                     },
                     script_sig: vec![0; 10],
@@ -849,7 +849,7 @@ proptest! {
         let supply = economic::total_supply(height as u64);
 
         // Total supply must never exceed MAX_MONEY
-        prop_assert!(supply <= MAX_MONEY as i64,
+        prop_assert!(supply <= MAX_MONEY,
             "Total supply at height {} must not exceed MAX_MONEY: {} <= {}",
             height, supply, MAX_MONEY);
 
@@ -897,13 +897,13 @@ proptest! {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                     script_sig: vec![0x51, 0x51], // 2 bytes for valid coinbase
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: economic::get_block_subsidy(height1 as u64) as i64,
-                    script_pubkey: vec![0x51].into(),
+                    value: economic::get_block_subsidy(height1 as u64),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -921,13 +921,13 @@ proptest! {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                     script_sig: vec![0x51, 0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: economic::get_block_subsidy(height2 as u64) as i64,
-                    script_pubkey: vec![0x51].into(),
+                    value: economic::get_block_subsidy(height2 as u64),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -945,7 +945,7 @@ proptest! {
                 .values()
                 .map(|utxo| utxo.value)
                 .try_fold(0i64, |acc, val| acc.checked_add(val))
-                .unwrap_or(MAX_MONEY as i64);
+                .unwrap_or(MAX_MONEY);
 
             // Connect block2
             let witnesses2: Vec<Vec<Witness>> = block2.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
@@ -957,7 +957,7 @@ proptest! {
                     .values()
                     .map(|utxo| utxo.value)
                     .try_fold(0i64, |acc, val| acc.checked_add(val))
-                    .unwrap_or(MAX_MONEY as i64);
+                    .unwrap_or(MAX_MONEY);
 
                 // Supply should never decrease
                 prop_assert!(supply2 >= supply1,
@@ -998,13 +998,13 @@ proptest! {
                 transactions: vec![Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                         script_sig: vec![0x51, 0x51],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
-                        value: economic::get_block_subsidy(i as u64) as i64,
-                        script_pubkey: vec![0x51].into(),
+                        value: economic::get_block_subsidy(i as u64),
+                        script_pubkey: vec![0x51],
                     }].into(),
                     lock_time: 0,
                 }].into_boxed_slice(),
@@ -1025,13 +1025,13 @@ proptest! {
                 transactions: vec![Transaction {
                     version: 1,
                     inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                        prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                         script_sig: vec![0x51, 0x51],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
-                        value: economic::get_block_subsidy(i as u64) as i64,
-                        script_pubkey: vec![0x51].into(),
+                        value: economic::get_block_subsidy(i as u64),
+                        script_pubkey: vec![0x51],
                     }].into(),
                     lock_time: 0,
                 }].into_boxed_slice(),
@@ -1087,10 +1087,10 @@ proptest! {
 
         for i in 0..num_blocks {
             let height = i as u64;
-            let subsidy = economic::get_block_subsidy(height) as i64;
+            let subsidy = economic::get_block_subsidy(height);
             expected_supply = expected_supply
                 .checked_add(subsidy)
-                .unwrap_or(MAX_MONEY as i64);
+                .unwrap_or(MAX_MONEY);
         }
 
         // Calculate using total_supply function
@@ -1139,13 +1139,13 @@ proptest! {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                     script_sig: vec![0x51, 0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: economic::get_block_subsidy(height1 as u64) as i64,
-                    script_pubkey: vec![0x51].into(),
+                    value: economic::get_block_subsidy(height1 as u64),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1163,13 +1163,13 @@ proptest! {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                     script_sig: vec![0x51, 0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: economic::get_block_subsidy(height2 as u64) as i64,
-                    script_pubkey: vec![0x51].into(),
+                    value: economic::get_block_subsidy(height2 as u64),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1187,10 +1187,10 @@ proptest! {
                 .values()
                 .map(|utxo| utxo.value)
                 .try_fold(0i64, |acc, val| acc.checked_add(val))
-                .unwrap_or(MAX_MONEY as i64);
+                .unwrap_or(MAX_MONEY);
 
             prop_assert!(supply1 >= 0, "Supply after block1 must be non-negative: {}", supply1);
-            prop_assert!(supply1 <= MAX_MONEY as i64, "Supply after block1 must be <= MAX_MONEY: {} <= {}", supply1, MAX_MONEY);
+            prop_assert!(supply1 <= MAX_MONEY, "Supply after block1 must be <= MAX_MONEY: {} <= {}", supply1, MAX_MONEY);
 
             // Connect block2
             let witnesses2: Vec<Vec<Witness>> = block2.transactions.iter().map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect()).collect();
@@ -1202,11 +1202,11 @@ proptest! {
                     .values()
                     .map(|utxo| utxo.value)
                     .try_fold(0i64, |acc, val| acc.checked_add(val))
-                    .unwrap_or(MAX_MONEY as i64);
+                    .unwrap_or(MAX_MONEY);
 
                 prop_assert!(supply2 >= supply1, "Supply must increase or stay same: {} >= {}", supply2, supply1);
                 prop_assert!(supply2 >= 0, "Supply after block2 must be non-negative: {}", supply2);
-                prop_assert!(supply2 <= MAX_MONEY as i64, "Supply after block2 must be <= MAX_MONEY: {} <= {}", supply2, MAX_MONEY);
+                prop_assert!(supply2 <= MAX_MONEY, "Supply after block2 must be <= MAX_MONEY: {} <= {}", supply2, MAX_MONEY);
             }
         }
     }
@@ -1240,13 +1240,13 @@ proptest! {
             transactions: vec![Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                    prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                     script_sig: vec![0x51, 0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
-                    value: economic::get_block_subsidy(height as u64) as i64,
-                    script_pubkey: vec![0x51].into(),
+                    value: economic::get_block_subsidy(height as u64),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1408,8 +1408,8 @@ proptest! {
 
         let total_size = base_size + witness_size;
         let weight = witness::calculate_transaction_weight_segwit(
-            base_size as u64,
-            total_size as u64
+            base_size,
+            total_size
         );
 
         // BIP141: Weight = 3 * base_size + total_size (= 4 * base_size + witness_size)
@@ -1446,7 +1446,7 @@ proptest! {
         let vsize = witness::weight_to_vsize(weight);
 
         // vsize = ceil(weight / 4) = (weight + 3) / 4
-        let expected_vsize = (weight + 3) / 4;
+        let expected_vsize = weight.div_ceil(4);
 
         prop_assert_eq!(vsize, expected_vsize,
             "Vsize calculation: weight={}, expected={}, actual={}",
@@ -1505,16 +1505,16 @@ proptest! {
     fn prop_max_money_boundary(
         offset in -1i64..2i64
     ) {
-        let value = (MAX_MONEY as i64).saturating_add(offset);
+        let value = MAX_MONEY.saturating_add(offset);
 
-        if value <= MAX_MONEY && value >= 0 {
+        if (0..=MAX_MONEY).contains(&value) {
             // Valid value
-            prop_assert!(value >= 0 && value <= MAX_MONEY,
+            prop_assert!((0..=MAX_MONEY).contains(&value),
                 "Value within bounds: value={}, MAX_MONEY={}",
                 value, MAX_MONEY);
         } else {
             // Invalid value (outside bounds)
-            prop_assert!(value < 0 || value > MAX_MONEY,
+            prop_assert!(!(0..=MAX_MONEY).contains(&value),
                 "Value outside bounds: value={}, MAX_MONEY={}",
                 value, MAX_MONEY);
         }
@@ -1566,16 +1566,16 @@ proptest! {
         let height = ((DIFFICULTY_ADJUSTMENT_INTERVAL as i64).saturating_add(offset)) as u64;
 
         // Difficulty adjustment occurs at multiples of DIFFICULTY_ADJUSTMENT_INTERVAL
-        let is_adjustment_height = height % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) == 0 && height > 0;
+        let is_adjustment_height = height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0 && height > 0;
 
         if is_adjustment_height {
             // At adjustment height
-            prop_assert!(height > 0 && height % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) == 0,
+            prop_assert!(height > 0 && height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0,
                 "Adjustment height: height={}, interval={}",
                 height, DIFFICULTY_ADJUSTMENT_INTERVAL);
         } else {
             // Not at adjustment height
-            prop_assert!(height == 0 || height % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) != 0,
+            prop_assert!(height == 0 || height % DIFFICULTY_ADJUSTMENT_INTERVAL != 0,
                 "Non-adjustment height: height={}, interval={}",
                 height, DIFFICULTY_ADJUSTMENT_INTERVAL);
         }
@@ -2011,7 +2011,7 @@ proptest! {
             }).collect(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1), // Small outputs
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }).collect(),
             lock_time: 0,
         };

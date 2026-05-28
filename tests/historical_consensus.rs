@@ -47,7 +47,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51],
@@ -56,7 +56,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -66,7 +66,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [2; 32].into(),
+                hash: [2; 32],
                 index: 0,
             },
             script_sig: vec![0x52],
@@ -75,7 +75,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x52].into(),
+            script_pubkey: vec![0x52],
         }]
         .into(),
         lock_time: 0,
@@ -85,7 +85,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [3; 32].into(),
+                hash: [3; 32],
                 index: 0,
             },
             script_sig: vec![0x53],
@@ -94,7 +94,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 3000,
-            script_pubkey: vec![0x53].into(),
+            script_pubkey: vec![0x53],
         }]
         .into(),
         lock_time: 0,
@@ -123,7 +123,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [4; 32].into(),
+                hash: [4; 32],
                 index: 0,
             },
             script_sig: vec![0x54],
@@ -132,7 +132,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 4000,
-            script_pubkey: vec![0x54].into(),
+            script_pubkey: vec![0x54],
         }]
         .into(),
         lock_time: 0,
@@ -164,7 +164,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0xffffffff,
             },
             script_sig: vec![0x51, 0x51],
@@ -173,7 +173,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -212,7 +212,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
         index: 0,
     };
     utxo_set.insert(
-        prevout.clone(),
+        prevout,
         std::sync::Arc::new(UTXO {
             value: 1000000,
             script_pubkey: vec![0x51].into(),
@@ -225,14 +225,14 @@ fn test_cve_2018_17144_double_spend_in_block() {
     let tx1 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: prevout.clone(),
-            script_sig: vec![0x51].into(),
+            prevout: prevout,
+            script_sig: vec![0x51],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 500000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -242,14 +242,14 @@ fn test_cve_2018_17144_double_spend_in_block() {
     let tx2 = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: prevout.clone(), // Same prevout as tx1!
-            script_sig: vec![0x52].into(),
+            prevout: prevout, // Same prevout as tx1!
+            script_sig: vec![0x52],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 600000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -271,7 +271,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint {
-                        hash: [0; 32].into(),
+                        hash: [0; 32],
                         index: 0xffffffff,
                     },
                     script_sig: vec![0x51, 0x51],
@@ -280,7 +280,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
                 .into(),
                 outputs: vec![TransactionOutput {
                     value: 5000000000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![0x51],
                 }]
                 .into(),
                 lock_time: 0,

@@ -25,7 +25,7 @@ fn test_block_weight_exact_limit() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -34,7 +34,7 @@ fn test_block_weight_exact_limit() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -74,7 +74,7 @@ fn test_segwit_weight_discount() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -83,7 +83,7 @@ fn test_segwit_weight_discount() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -115,7 +115,7 @@ fn test_mixed_witness_weight() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -124,7 +124,7 @@ fn test_mixed_witness_weight() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -134,7 +134,7 @@ fn test_mixed_witness_weight() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![0x51], // OP_1
@@ -143,7 +143,7 @@ fn test_mixed_witness_weight() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -176,7 +176,7 @@ fn test_weight_calculation_segwit_activation() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -185,7 +185,7 @@ fn test_weight_calculation_segwit_activation() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,
@@ -205,7 +205,7 @@ fn test_weight_large_witness() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0; 32].into(),
+                hash: [0; 32],
                 index: 0,
             },
             script_sig: vec![],
@@ -214,7 +214,7 @@ fn test_weight_large_witness() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![].into(),
+            script_pubkey: vec![],
         }]
         .into(),
         lock_time: 0,

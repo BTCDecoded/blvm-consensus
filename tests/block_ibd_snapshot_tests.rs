@@ -99,7 +99,7 @@ fn validate_once(
     let elapsed = t.elapsed().as_secs_f64() * 1000.0;
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("height {} invalid: {}", height, reason),
+        ValidationResult::Invalid(reason) => panic!("height {height} invalid: {reason}"),
     }
     elapsed
 }
@@ -137,7 +137,7 @@ fn validate_call_only(
     let elapsed = t.elapsed().as_secs_f64() * 1000.0;
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("height {} invalid: {}", height, reason),
+        ValidationResult::Invalid(reason) => panic!("height {height} invalid: {reason}"),
     }
     (elapsed, new_utxo)
 }
@@ -177,15 +177,12 @@ fn validate_once_timed(
     let drop_done = Instant::now();
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("height {} invalid: {}", height, reason),
+        ValidationResult::Invalid(reason) => panic!("height {height} invalid: {reason}"),
     }
     let total = t0.elapsed().as_secs_f64() * 1000.0;
     let call_ms = (call_done - clone_done).as_secs_f64() * 1000.0;
     let drop_ms = (drop_done - drop_start).as_secs_f64() * 1000.0;
-    eprintln!(
-        "  [TIMING] h={} total={:.2}ms call={:.2}ms drop={:.2}ms",
-        height, total, call_ms, drop_ms
-    );
+    eprintln!("  [TIMING] h={height} total={total:.2}ms call={call_ms:.2}ms drop={drop_ms:.2}ms");
     total
 }
 
@@ -219,7 +216,7 @@ fn validate_with_txids(
     let elapsed = t.elapsed().as_secs_f64() * 1000.0;
     match result {
         ValidationResult::Valid => {}
-        ValidationResult::Invalid(reason) => panic!("height {} invalid: {}", height, reason),
+        ValidationResult::Invalid(reason) => panic!("height {height} invalid: {reason}"),
     }
     elapsed
 }
@@ -247,13 +244,13 @@ fn block_ibd_snapshot_tests() {
         .collect();
     heights.sort_unstable();
     for h in heights {
-        let dir = base.join(format!("height_{}", h));
+        let dir = base.join(format!("height_{h}"));
         let (block, block_arc, witnesses, _witnesses_arc, utxo_set) = match prepare(&dir) {
             Some(x) => x,
             None => continue,
         };
         validate_once(&block, &witnesses, utxo_set, h, &block_arc);
-        eprintln!("  height={}: OK", h);
+        eprintln!("  height={h}: OK");
     }
 }
 
@@ -291,13 +288,13 @@ fn bench_ibd_snapshots() {
         heights.retain(|h| *h == hf);
     }
 
-    eprintln!("=== IBD Snapshot Benchmark ({} iters) ===", iterations);
+    eprintln!("=== IBD Snapshot Benchmark ({iterations} iters) ===");
     eprintln!("height,txs,inputs,min_ms,median_ms,mean_ms,p95_ms,max_ms,bps");
 
     let mut focus_medians: Vec<f64> = Vec::new();
 
     for &h in &heights {
-        let dir = base.join(format!("height_{}", h));
+        let dir = base.join(format!("height_{h}"));
         let (block, block_arc, witnesses, witnesses_arc, utxo_set_template) = match prepare(&dir) {
             Some(x) => x,
             None => continue,
@@ -345,8 +342,7 @@ fn bench_ibd_snapshots() {
         let bps = 1000.0 / median;
 
         eprintln!(
-            "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.0}",
-            h, n_txs, n_inputs, min, median, mean, p95, max, bps
+            "{h},{n_txs},{n_inputs},{min:.2},{median:.2},{mean:.2},{p95:.2},{max:.2},{bps:.0}"
         );
 
         if h >= 100_000 {
@@ -392,16 +388,13 @@ fn bench_ibd_snapshots_no_txid() {
     heights.sort_unstable();
     heights.retain(|h| *h >= 100_000);
 
-    eprintln!(
-        "=== IBD Validation-Only Benchmark ({} iters, precomputed tx_ids) ===",
-        iterations
-    );
+    eprintln!("=== IBD Validation-Only Benchmark ({iterations} iters, precomputed tx_ids) ===");
     eprintln!("height,txs,inputs,min_ms,median_ms,mean_ms,max_ms,bps");
 
     let mut focus_medians: Vec<f64> = Vec::new();
 
     for &h in &heights {
-        let dir = base.join(format!("height_{}", h));
+        let dir = base.join(format!("height_{h}"));
         let (block, block_arc, witnesses, _witnesses_arc, utxo_set_template) = match prepare(&dir) {
             Some(x) => x,
             None => continue,
@@ -441,10 +434,7 @@ fn bench_ibd_snapshots_no_txid() {
         let max = *times.last().unwrap();
         let bps = 1000.0 / median;
 
-        eprintln!(
-            "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.0}",
-            h, n_txs, n_inputs, min, median, mean, max, bps
-        );
+        eprintln!("{h},{n_txs},{n_inputs},{min:.2},{median:.2},{mean:.2},{max:.2},{bps:.0}");
         focus_medians.push(median);
     }
 

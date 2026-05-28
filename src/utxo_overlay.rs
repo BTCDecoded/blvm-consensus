@@ -576,8 +576,7 @@ mod tests {
         // without flaking on loaded self-hosted CI like a sub-millisecond threshold would.
         assert!(
             elapsed < std::time::Duration::from_millis(100),
-            "Overlay creation took {:?} (expected no full base clone)",
-            elapsed
+            "Overlay creation took {elapsed:?} (expected no full base clone)"
         );
     }
 }

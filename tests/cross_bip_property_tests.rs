@@ -26,13 +26,13 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                prevout: OutPoint { hash: [0; 32], index: 0 },
                 script_sig: vec![],
                 sequence: input_sequence as u64,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }].into(),
             lock_time: tx_locktime as u64,
         };
@@ -185,7 +185,7 @@ proptest! {
             }).collect(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }].into(),
             lock_time: 0,
         };
@@ -199,7 +199,7 @@ proptest! {
             }).collect(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![].into(),
+                script_pubkey: vec![],
             }].into(),
             lock_time: 0,
         };

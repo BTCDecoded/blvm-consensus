@@ -75,7 +75,7 @@ fn test_script_execution_errors() {
 
     // Test script with too many non-push operations: OP_1 (push) + OP_DUP×202 exceeds limit
     let mut large_script = vec![OP_1];
-    large_script.extend(std::iter::repeat(OP_DUP).take(MAX_SCRIPT_OPS + 1));
+    large_script.extend(std::iter::repeat_n(OP_DUP, MAX_SCRIPT_OPS + 1));
     let result = consensus.verify_script(&large_script, &vec![OP_1], None, 0);
     assert!(result.is_err()); // Exceeds op limit should error
 }
@@ -89,7 +89,7 @@ fn test_mempool_errors() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [1; 32].into(),
+                hash: [1; 32],
                 index: 0,
             },
             script_sig: vec![OP_1; MAX_TX_SIZE],
@@ -98,7 +98,7 @@ fn test_mempool_errors() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(),
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -186,7 +186,7 @@ fn test_taproot_errors() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![OP_1].into(), // Not a valid Taproot script
+            script_pubkey: vec![OP_1], // Not a valid Taproot script
         }]
         .into(),
         lock_time: 0,

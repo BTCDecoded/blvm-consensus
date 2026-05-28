@@ -194,13 +194,13 @@ mod tests {
 
     #[test]
     fn test_decode_locktime_value() {
-        assert_eq!(decode_locktime_value(&vec![100, 0, 0, 0]), Some(100));
-        assert_eq!(decode_locktime_value(&vec![0]), Some(0));
+        assert_eq!(decode_locktime_value(&[100, 0, 0, 0]), Some(100));
+        assert_eq!(decode_locktime_value(&[0]), Some(0));
         assert_eq!(
-            decode_locktime_value(&vec![0xff, 0xff, 0xff, 0xff]),
+            decode_locktime_value(&[0xff, 0xff, 0xff, 0xff]),
             Some(0xffffffff)
         );
-        assert_eq!(decode_locktime_value(&vec![0; 6]), None); // Too large
+        assert_eq!(decode_locktime_value(&[0; 6]), None); // Too large
     }
 
     #[test]

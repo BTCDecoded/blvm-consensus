@@ -152,7 +152,7 @@ fn test_transaction_vectors_if_available() {
     let vectors = match load_transaction_vectors() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Failed to load transaction vectors: {}", e);
+            eprintln!("Failed to load transaction vectors: {e}");
             return; // Skip test if loading fails
         }
     };
@@ -181,7 +181,7 @@ fn test_transaction_vectors_if_available() {
                 );
             }
             Err(e) => {
-                panic!("Transaction validation failed with error: {}", e);
+                panic!("Transaction validation failed with error: {e}");
             }
         }
     }
@@ -197,7 +197,7 @@ fn test_block_vectors_if_available() {
     let vectors = match load_block_vectors() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Failed to load block vectors: {}", e);
+            eprintln!("Failed to load block vectors: {e}");
             return; // Skip test if loading fails
         }
     };
@@ -235,7 +235,7 @@ fn test_block_vectors_if_available() {
             }
             Err(e) => {
                 if *should_be_valid {
-                    panic!("Block validation failed with error (expected valid): {}", e);
+                    panic!("Block validation failed with error (expected valid): {e}");
                 }
                 // If block should be invalid, error is acceptable
             }
