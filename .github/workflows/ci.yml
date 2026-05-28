@@ -350,7 +350,13 @@ jobs:
 
       - name: Install blvm-spec-lock (with Z3 for full contract verification)
         # Resolves to latest published 0.1.x (floor matches library dep); see SPEC_LOCK_DEPENDENCY.md.
-        run: cargo install blvm-spec-lock --version '>=0.1, <1' --locked --features z3
+        # Use `rustup run` so cargo install honours rust-toolchain.toml even when the default
+        # override is stale on shared self-hosted runners.
+        run: |
+          set -euo pipefail
+          CHANNEL=$(grep -E '^channel\s*=' rust-toolchain.toml | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/')
+          test -n "$CHANNEL"
+          rustup run "$CHANNEL" cargo install blvm-spec-lock --version '>=0.1, <1' --locked --features z3
 
       # Single gate: drift → merged F_* verify → optional coverage rollup → attestation env (blocking parts use set -e).
       - name: Verify
