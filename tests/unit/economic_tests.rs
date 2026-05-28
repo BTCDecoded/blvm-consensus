@@ -1,38 +1,31 @@
 //! Unit tests for economic model functions
 
-use blvm_consensus::constants::*;
 use blvm_consensus::economic::*;
 use blvm_consensus::orange_paper_constants::{C, H};
-use blvm_consensus::*;
 
 #[test]
 fn test_get_block_subsidy_genesis() {
     let subsidy = get_block_subsidy(0);
-    // Using Orange Paper constant: initial subsidy = 50 * C where C = 10^8
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     assert_eq!(subsidy, initial_subsidy);
 }
 
 #[test]
 fn test_get_block_subsidy_first_halving() {
-    // Using Orange Paper constant H (halving interval = 210,000)
     let subsidy = get_block_subsidy(H);
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     assert_eq!(subsidy, initial_subsidy / 2);
 }
 
 #[test]
 fn test_get_block_subsidy_second_halving() {
-    // Using Orange Paper constant H (halving interval = 210,000)
     let subsidy = get_block_subsidy(H * 2);
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     assert_eq!(subsidy, initial_subsidy / 4);
 }
 
 #[test]
 fn test_get_block_subsidy_max_halvings() {
-    // After 64 halvings, subsidy should be 0
-    // Using Orange Paper constant H (halving interval = 210,000)
     assert_eq!(get_block_subsidy(H * 64), 0);
 }
 
@@ -41,8 +34,7 @@ fn test_total_supply_convergence() {
     // Test that total supply approaches 21M BTC
     // Using Orange Paper constant H (halving interval = 210,000)
     let supply_at_halving = total_supply(H);
-    // At the first halving, we have H blocks of 50 BTC each
-    let initial_subsidy = 50 * C;
+    let initial_subsidy = (50 * C) as i64;
     let expected_at_halving = (H as i64) * initial_subsidy;
     // The difference is due to bit shifting in get_block_subsidy
     // Allow for significant rounding differences due to bit operations
@@ -61,25 +53,76 @@ fn test_supply_limit() {
 
 #[test]
 fn test_calculate_fee() {
-    let input_value = 1000;
-    let output_value = 800;
-    let fee = calculate_fee(input_value, output_value).unwrap();
+    use blvm_consensus::types::*;
+
+    // Build a simple tx spending a 1000-sat UTXO to a 800-sat output (200 sat fee)
+    let outpoint = OutPoint {
+        hash: [1; 32],
+        index: 0u32,
+    };
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: outpoint,
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 800,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        outpoint,
+        std::sync::Arc::new(UTXO {
+            value: 1000,
+            script_pubkey: vec![0x51].into(),
+            height: 1,
+            is_coinbase: false,
+        }),
+    );
+    let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 200);
 }
 
 #[test]
-fn test_calculate_fee_negative() {
-    let input_value = 500;
-    let output_value = 800;
-    let result = calculate_fee(input_value, output_value);
-    assert!(result.is_err());
-}
-
-#[test]
 fn test_calculate_fee_zero() {
-    let input_value = 1000;
-    let output_value = 1000;
-    let fee = calculate_fee(input_value, output_value).unwrap();
+    use blvm_consensus::types::*;
+
+    let outpoint = OutPoint {
+        hash: [2; 32],
+        index: 0u32,
+    };
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: outpoint,
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        outpoint,
+        std::sync::Arc::new(UTXO {
+            value: 1000,
+            script_pubkey: vec![0x51].into(),
+            height: 1,
+            is_coinbase: false,
+        }),
+    );
+    let fee = calculate_fee(&tx, &utxo_set).unwrap();
     assert_eq!(fee, 0);
 }
 

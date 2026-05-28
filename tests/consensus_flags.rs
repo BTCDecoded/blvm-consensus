@@ -3,7 +3,7 @@
 //! Tests all script verification flag combinations to ensure consensus correctness.
 //! consensus uses 32 different flag combinations, and all must be tested.
 //!
-//! Flags tested:
+//! Flags tested (canonical values from blvm_consensus::script::flags):
 //! - SCRIPT_VERIFY_P2SH (0x01)
 //! - SCRIPT_VERIFY_STRICTENC (0x02)
 //! - SCRIPT_VERIFY_DERSIG (0x04)
@@ -18,27 +18,30 @@
 //! - SCRIPT_VERIFY_WITNESS (0x800)
 //! - SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM (0x1000)
 //! - SCRIPT_VERIFY_MINIMALIF (0x2000)
-//! - SCRIPT_VERIFY_TAPROOT (0x4000)
+//! - SCRIPT_VERIFY_WITNESS_PUBKEYTYPE (0x8000)
+//! - SCRIPT_VERIFY_TAPROOT (0x20000)  ← bit 17, matching Bitcoin Core
 
+use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
 use blvm_consensus::script::{eval_script, verify_script, SigVersion};
 
-/// All script verification flags
+/// All script verification flags (values match Bitcoin Core script/interpreter.h)
 pub const ALL_FLAGS: &[u32] = &[
-    0x01,   // SCRIPT_VERIFY_P2SH
-    0x02,   // SCRIPT_VERIFY_STRICTENC
-    0x04,   // SCRIPT_VERIFY_DERSIG
-    0x08,   // SCRIPT_VERIFY_LOW_S
-    0x10,   // SCRIPT_VERIFY_NULLDUMMY
-    0x20,   // SCRIPT_VERIFY_SIGPUSHONLY
-    0x40,   // SCRIPT_VERIFY_MINIMALDATA
-    0x80,   // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS
-    0x100,  // SCRIPT_VERIFY_CLEANSTACK
-    0x200,  // SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY
-    0x400,  // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
-    0x800,  // SCRIPT_VERIFY_WITNESS
-    0x1000, // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
-    0x2000, // SCRIPT_VERIFY_MINIMALIF
-    0x4000, // SCRIPT_VERIFY_TAPROOT
+    0x01,    // SCRIPT_VERIFY_P2SH
+    0x02,    // SCRIPT_VERIFY_STRICTENC
+    0x04,    // SCRIPT_VERIFY_DERSIG
+    0x08,    // SCRIPT_VERIFY_LOW_S
+    0x10,    // SCRIPT_VERIFY_NULLDUMMY
+    0x20,    // SCRIPT_VERIFY_SIGPUSHONLY
+    0x40,    // SCRIPT_VERIFY_MINIMALDATA
+    0x80,    // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS
+    0x100,   // SCRIPT_VERIFY_CLEANSTACK
+    0x200,   // SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY
+    0x400,   // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
+    0x800,   // SCRIPT_VERIFY_WITNESS
+    0x1000,  // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
+    0x2000,  // SCRIPT_VERIFY_MINIMALIF
+    0x8000,  // SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+    0x20000, // SCRIPT_VERIFY_TAPROOT (bit 17)
 ];
 
 /// Generate all 32 flag combinations (2^5 = 32)
@@ -64,8 +67,8 @@ pub fn generate_all_flag_combinations() -> Vec<u32> {
             flags |= 0x800;
         } // WITNESS
         if i & 0x10 != 0 {
-            flags |= 0x4000;
-        } // TAPROOT
+            flags |= SCRIPT_VERIFY_TAPROOT;
+        } // TAPROOT (0x20000)
         combinations.push(flags);
     }
 
@@ -136,7 +139,7 @@ fn test_flag_interactions() {
     assert!(result.is_ok() || result.is_err());
 
     // Test TAPROOT + WITNESS combination
-    let flags = 0x4000 | 0x800; // TAPROOT + WITNESS (legacy mapping in this test module)
+    let flags = SCRIPT_VERIFY_TAPROOT | 0x800; // TAPROOT (0x20000) + WITNESS (0x800)
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
@@ -166,7 +169,7 @@ fn test_historical_flag_changes() {
     assert!(result.is_ok() || result.is_err());
 
     // Post-Taproot flags (TAPROOT enabled)
-    let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | 0x4000; // + TAPROOT (legacy mapping in this test module)
+    let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | SCRIPT_VERIFY_TAPROOT; // + TAPROOT (0x20000)
     let script = vec![0x51]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, post_taproot_flags, SigVersion::Base);

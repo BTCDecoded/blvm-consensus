@@ -5,7 +5,6 @@ use blvm_consensus::constants::{
 };
 use blvm_consensus::pow::*;
 use blvm_consensus::types::*;
-use blvm_consensus::*;
 
 #[test]
 fn test_get_next_work_required_insufficient_headers() {
@@ -61,8 +60,7 @@ fn test_get_next_work_required_normal_adjustment() {
     let mantissa = result & 0x00ffffff;
     assert!(
         mantissa > 0x00ff00 && mantissa <= 0x00ffff,
-        "Mantissa 0x{:06x} should be close to 0x00ffff",
-        mantissa
+        "Mantissa 0x{mantissa:06x} should be close to 0x00ffff"
     );
 }
 
@@ -89,7 +87,7 @@ fn test_check_proof_of_work_genesis() {
     // This should work with the valid target
     let result = check_proof_of_work(&header).unwrap();
     // Result depends on the hash, but should not panic
-    assert!(result == true || result == false);
+    assert!(result || !result);
 }
 
 #[test]
@@ -368,17 +366,9 @@ fn test_get_next_work_required_corrected_off_by_one_fix() {
 
     // The corrected version should be closer to the original bits
     let original_bits = 0x1d00ffff;
-    let buggy_diff = if buggy_result > original_bits {
-        buggy_result - original_bits
-    } else {
-        original_bits - buggy_result
-    };
+    let buggy_diff = buggy_result.abs_diff(original_bits);
 
-    let corrected_diff = if corrected_result > original_bits {
-        corrected_result - original_bits
-    } else {
-        original_bits - corrected_result
-    };
+    let corrected_diff = corrected_result.abs_diff(original_bits);
 
     // Corrected version should be closer to maintaining the same difficulty
     assert!(

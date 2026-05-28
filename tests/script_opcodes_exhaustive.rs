@@ -9,12 +9,10 @@
 //! - All verification flag combinations
 //! - Opcode interactions and edge cases
 
+use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
 use blvm_consensus::script::{eval_script, verify_script, SigVersion};
 
-/// Script verification flags from consensus
-///
-/// These flags control script verification behavior and must be tested
-/// in all combinations to ensure consensus correctness.
+/// Script verification flags (values match Bitcoin Core script/interpreter.h)
 #[allow(dead_code)]
 pub const SCRIPT_VERIFY_P2SH: u32 = 0x01;
 pub const SCRIPT_VERIFY_STRICTENC: u32 = 0x02;
@@ -30,7 +28,8 @@ pub const SCRIPT_VERIFY_CHECKSEQUENCEVERIFY: u32 = 0x400;
 pub const SCRIPT_VERIFY_WITNESS: u32 = 0x800;
 pub const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM: u32 = 0x1000;
 pub const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-pub const SCRIPT_VERIFY_TAPROOT: u32 = 0x4000;
+// SCRIPT_VERIFY_TAPROOT = 0x20000 (bit 17) — imported from flags module above.
+// 0x4000 (bit 14) is SCRIPT_VERIFY_NULLFAIL; do not use it for Taproot.
 
 /// Test all opcodes individually
 ///

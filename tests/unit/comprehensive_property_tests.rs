@@ -2,33 +2,50 @@
 //!
 //! Additional property tests to push toward 100+ property test target and 99% coverage.
 
-use blvm_consensus::constants::{MAX_BLOCK_SIZE, MAX_MONEY, MAX_TX_SIZE};
+use blvm_consensus::constants::MAX_MONEY;
 use blvm_consensus::types::*;
-use blvm_consensus::*;
 use proptest::prelude::*;
+
+fn make_header(version: i64, timestamp: u64, nonce: u64) -> BlockHeader {
+    BlockHeader {
+        version,
+        prev_block_hash: [0; 32],
+        merkle_root: [1; 32],
+        timestamp,
+        bits: 0x1d00ffff,
+        nonce,
+    }
+}
+
+fn make_tx(version: u64, lock_time: u64) -> Transaction {
+    Transaction {
+        version,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0u32,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time,
+    }
+}
 
 /// Property test: transaction version validation
 proptest! {
     #[test]
     fn prop_transaction_version_valid(
-        version in 0u32..10u32
+        version in 0u64..10u64
     ) {
-        let tx = Transaction {
-            version,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
-                script_sig: vec![0x51],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![0x51].into(),
-            }].into(),
-            lock_time: 0,
-        };
-
-        // Version should be valid
-        prop_assert!(version >= 0);
+        let tx = make_tx(version, 0);
+        prop_assert!(tx.version >= 0);
         prop_assert_eq!(tx.version, version);
     }
 }
@@ -37,24 +54,10 @@ proptest! {
 proptest! {
     #[test]
     fn prop_transaction_lock_time(
-        lock_time in 0u32..500000000u32
+        lock_time in 0u64..500000000u64
     ) {
-        let tx = Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
-                script_sig: vec![0x51],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 1000,
-                script_pubkey: vec![0x51].into(),
-            }].into(),
-            lock_time,
-        };
-
+        let tx = make_tx(1, lock_time);
         prop_assert_eq!(tx.lock_time, lock_time);
-        prop_assert!(lock_time >= 0);
     }
 }
 
@@ -62,22 +65,21 @@ proptest! {
 proptest! {
     #[test]
     fn prop_transaction_sequence(
-        sequence in 0u32..0xffffffffu32
+        sequence in 0u64..0xffffffffu64
     ) {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                prevout: OutPoint { hash: [0; 32], index: 0u32 },
                 script_sig: vec![0x51],
                 sequence,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
-
         prop_assert_eq!(tx.inputs[0].sequence, sequence);
     }
 }
@@ -86,17 +88,9 @@ proptest! {
 proptest! {
     #[test]
     fn prop_block_header_nonce(
-        nonce in 0u32..0xffffffffu32
+        nonce in 0u64..0xffffffffu64
     ) {
-        let header = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce,
-        };
-
+        let header = make_header(1, 1234567890, nonce);
         prop_assert_eq!(header.nonce, nonce);
     }
 }
@@ -107,19 +101,10 @@ proptest! {
     fn prop_outpoint_hash_uniqueness(
         hash1_bytes in prop::array::uniform32(0u8..=255u8),
         hash2_bytes in prop::array::uniform32(0u8..=255u8),
-        index in 0u64..1000u64
+        index in 0u32..1000u32
     ) {
-        let outpoint1 = OutPoint {
-            hash: hash1_bytes,
-            index,
-        };
-
-        let outpoint2 = OutPoint {
-            hash: hash2_bytes,
-            index,
-        };
-
-        // Outpoints are equal only if both hash and index match
+        let outpoint1 = OutPoint { hash: hash1_bytes, index };
+        let outpoint2 = OutPoint { hash: hash2_bytes, index };
         if hash1_bytes == hash2_bytes {
             prop_assert_eq!(outpoint1, outpoint2);
         } else {
@@ -134,13 +119,8 @@ proptest! {
     fn prop_outpoint_index_range(
         index in 0u32..1000000u32
     ) {
-        let outpoint = OutPoint {
-            hash: [0; 32],
-            index,
-        };
-
+        let outpoint = OutPoint { hash: [0; 32], index };
         prop_assert_eq!(outpoint.index, index);
-        prop_assert!(index >= 0);
     }
 }
 
@@ -152,9 +132,8 @@ proptest! {
     ) {
         let output = TransactionOutput {
             value,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         };
-
         prop_assert!(output.value >= 0);
         prop_assert!(output.value <= MAX_MONEY);
     }
@@ -167,8 +146,7 @@ proptest! {
         script_size in 0usize..1000usize
     ) {
         let script_pubkey = vec![0x51; script_size];
-
-        prop_assert!(script_pubkey.len() <= 10000); // MAX_SCRIPT_SIZE
+        prop_assert!(script_pubkey.len() <= 10000);
         prop_assert_eq!(script_pubkey.len(), script_size);
     }
 }
@@ -181,14 +159,10 @@ proptest! {
         index in 0u32..1000u32
     ) {
         let input = TransactionInput {
-            prevout: OutPoint {
-                hash: hash_bytes,
-                index,
-            },
+            prevout: OutPoint { hash: hash_bytes, index },
             script_sig: vec![0x51],
             sequence: 0xffffffff,
         };
-
         prop_assert_eq!(input.prevout.hash, hash_bytes);
         prop_assert_eq!(input.prevout.index, index);
     }
@@ -201,31 +175,13 @@ proptest! {
         timestamp1 in 1234567890u64..2000000000u64,
         timestamp2 in 1234567890u64..2000000000u64
     ) {
-        // Ensure timestamp2 >= timestamp1 for progression test
         let (t1, t2) = if timestamp1 <= timestamp2 {
             (timestamp1, timestamp2)
         } else {
             (timestamp2, timestamp1)
         };
-
-        let header1 = BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp: t1,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-
-        let header2 = BlockHeader {
-            version: 1,
-            prev_block_hash: [1; 32],
-            merkle_root: [1; 32],
-            timestamp: t2,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-
+        let header1 = make_header(1, t1, 0);
+        let header2 = make_header(1, t2, 0);
         prop_assert!(header2.timestamp >= header1.timestamp);
     }
 }
@@ -234,17 +190,9 @@ proptest! {
 proptest! {
     #[test]
     fn prop_block_header_version_consistency(
-        version in 1i32..10i32
+        version in 1i64..10i64
     ) {
-        let header = BlockHeader {
-            version,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        };
-
+        let header = make_header(version, 1234567890, 0);
         prop_assert_eq!(header.version, version);
         prop_assert!(version >= 1);
     }
@@ -264,7 +212,6 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-
         prop_assert_eq!(header.merkle_root.len(), 32);
         prop_assert_eq!(header.merkle_root, root_bytes);
     }
@@ -284,7 +231,6 @@ proptest! {
             bits: 0x1d00ffff,
             nonce: 0,
         };
-
         prop_assert_eq!(header.prev_block_hash.len(), 32);
         prop_assert_eq!(header.prev_block_hash, prev_hash_bytes);
     }
@@ -300,21 +246,19 @@ proptest! {
         let coinbase = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffffu32 },
                 script_sig: height.to_le_bytes().to_vec(),
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: subsidy,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
-
-        // Coinbase should have exactly one input with null prevout
         prop_assert_eq!(coinbase.inputs.len(), 1);
         prop_assert_eq!(coinbase.inputs[0].prevout.hash, [0; 32]);
-        prop_assert_eq!(coinbase.inputs[0].prevout.index, 0xffffffff);
+        prop_assert_eq!(coinbase.inputs[0].prevout.index, 0xffffffffu32);
     }
 }
 
@@ -327,20 +271,19 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0 },
+                prevout: OutPoint { hash: [0; 32], index: 0u32 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }].into(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![i as u8].into(),
+                script_pubkey: vec![i as u8],
             }).collect(),
             lock_time: 0,
         };
-
         prop_assert_eq!(tx.outputs.len(), output_count);
         prop_assert!(output_count > 0);
-        prop_assert!(output_count <= 1000); // MAX_OUTPUTS
+        prop_assert!(output_count <= 1000);
     }
 }
 
@@ -353,20 +296,40 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: (0..input_count).map(|i| TransactionInput {
-                prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+                prevout: OutPoint { hash: [i as u8; 32], index: 0u32 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
-
         prop_assert_eq!(tx.inputs.len(), input_count);
         prop_assert!(input_count > 0);
-        prop_assert!(input_count <= 1000); // MAX_INPUTS
+        prop_assert!(input_count <= 1000);
+    }
+}
+
+fn make_simple_tx(i: usize) -> Transaction {
+    Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [i as u8; 32],
+                index: 0u32,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
     }
 }
 
@@ -376,7 +339,24 @@ proptest! {
     fn prop_block_coinbase_first(
         regular_tx_count in 1usize..10usize
     ) {
-        let mut block = Block {
+        let coinbase = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffffu32 },
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            }].into(),
+            outputs: vec![TransactionOutput {
+                value: 5000000000,
+                script_pubkey: vec![0x51],
+            }].into(),
+            lock_time: 0,
+        };
+        let mut txs: Vec<Transaction> = vec![coinbase];
+        for i in 0..regular_tx_count {
+            txs.push(make_simple_tx(i + 1));
+        }
+        let block = Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash: [0; 32],
@@ -385,45 +365,11 @@ proptest! {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: Vec::new(),
+            transactions: txs.into_boxed_slice(),
         };
-
-        // Add coinbase first
-        block.transactions.push(Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![0x51].into(),
-            }].into(),
-            lock_time: 0,
-        });
-
-        // Add regular transactions
-        for i in 0..regular_tx_count {
-            block.transactions.push(Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
-                    script_sig: vec![0x51],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value: 1000,
-                    script_pubkey: vec![0x51].into(),
-                }].into(),
-                lock_time: 0,
-            });
-        }
-
-        // First transaction should be coinbase
-        prop_assert!(block.transactions.len() > 0);
+        prop_assert!(!block.transactions.is_empty());
         prop_assert_eq!(block.transactions[0].inputs[0].prevout.hash, [0; 32]);
-        prop_assert_eq!(block.transactions[0].inputs[0].prevout.index, 0xffffffff);
+        prop_assert_eq!(block.transactions[0].inputs[0].prevout.index, 0xffffffffu32);
     }
 }
 
@@ -434,8 +380,7 @@ proptest! {
         script_sig_size in 0usize..1000usize
     ) {
         let script_sig = vec![0x51; script_sig_size];
-
-        prop_assert!(script_sig.len() <= 10000); // MAX_SCRIPT_SIZE
+        prop_assert!(script_sig.len() <= 10000);
         prop_assert_eq!(script_sig.len(), script_sig_size);
     }
 }
@@ -446,7 +391,8 @@ proptest! {
     fn prop_block_size_bounds(
         tx_count in 1usize..100usize
     ) {
-        let mut block = Block {
+        let txs: Vec<Transaction> = (0..tx_count).map(make_simple_tx).collect();
+        let block = Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash: [0; 32],
@@ -455,28 +401,9 @@ proptest! {
                 bits: 0x1d00ffff,
                 nonce: 0,
             },
-            transactions: Vec::new(),
+            transactions: txs.into_boxed_slice(),
         };
-
-        // Add transactions
-        for i in 0..tx_count {
-            block.transactions.push(Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
-                    script_sig: vec![0x51],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value: 1000,
-                    script_pubkey: vec![0x51].into(),
-                }].into(),
-                lock_time: 0,
-            });
-        }
-
-        // Block should have at least one transaction
-        prop_assert!(block.transactions.len() > 0);
+        prop_assert!(!block.transactions.is_empty());
         prop_assert!(block.transactions.len() <= tx_count);
     }
 }

@@ -6,7 +6,6 @@
 use blvm_consensus::constants::MAX_INPUTS;
 use blvm_consensus::mempool;
 use blvm_consensus::types::*;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
 // Note: Mempool is a HashSet<Hash> in the actual implementation
@@ -21,13 +20,13 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+                prevout: OutPoint { hash: [1; 32], index: 0 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -36,7 +35,7 @@ proptest! {
         let utxo_set = UtxoSet::default();
 
         // Add transaction first time
-        let result1 = mempool::accept_to_memory_pool(&tx, &utxo_set, &pool, 0);
+        let result1 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None);
 
         // Update pool with transaction ID
         if result1.is_ok() {
@@ -45,7 +44,7 @@ proptest! {
         }
 
         // Try to add same transaction again
-        let result2 = mempool::accept_to_memory_pool(&tx, &utxo_set, &pool, 0);
+        let result2 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None);
 
         // First should potentially succeed, second should fail (duplicate)
         prop_assert!(result1.is_ok());
@@ -109,7 +108,7 @@ proptest! {
         let mut inputs = Vec::new();
         for i in 0..input_count.min(MAX_INPUTS) {
             inputs.push(TransactionInput {
-                prevout: OutPoint { hash: [i as u8; 32], index: i as u64 },
+                prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
                 script_sig: vec![0x51; 50],
                 sequence: 0xffffffff,
             });
@@ -133,8 +132,8 @@ proptest! {
         // Transaction should be within size limits for mempool
         // (actual validation would check MAX_TX_SIZE)
         prop_assert!(tx.inputs.len() <= MAX_INPUTS);
-        prop_assert!(tx.inputs.len() > 0);
-        prop_assert!(tx.outputs.len() > 0);
+        prop_assert!(!tx.inputs.is_empty());
+        prop_assert!(!tx.outputs.is_empty());
     }
 }
 
@@ -143,7 +142,7 @@ proptest! {
     #[test]
     fn prop_mempool_conflict_detection(
         prevout_hash in prop::array::uniform32(0u8..=255u8),
-        prevout_index in 0u64..1000u64
+        prevout_index in 0u32..1000u32
     ) {
         let mut pool = mempool::Mempool::new();
 
@@ -152,12 +151,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: prevout_hash, index: prevout_index },
-                script_sig: vec![0x51].into(),
+                script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -167,12 +166,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: prevout_hash, index: prevout_index },
-                script_sig: vec![0x52].into(),
+                script_sig: vec![0x52],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -180,7 +179,7 @@ proptest! {
         let utxo_set = UtxoSet::default();
 
         // Add first transaction
-        let result1 = mempool::accept_to_memory_pool(&tx1, &utxo_set, &pool, 0);
+        let result1 = mempool::accept_to_memory_pool(&tx1, None, &utxo_set, &pool, 0, None);
 
         // Update pool
         if result1.is_ok() {
@@ -189,7 +188,7 @@ proptest! {
         }
 
         // Try to add conflicting transaction
-        let result2 = mempool::accept_to_memory_pool(&tx2, &utxo_set, &pool, 0);
+        let result2 = mempool::accept_to_memory_pool(&tx2, None, &utxo_set, &pool, 0, None);
 
         prop_assert!(result1.is_ok());
         // Conflicting transaction should be rejected
@@ -216,13 +215,13 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+                prevout: OutPoint { hash: [1; 32], index: 0 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: output,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -250,24 +249,24 @@ proptest! {
             let tx = Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
+                    prevout: OutPoint { hash: [i as u8; 32], index: 0 },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             };
 
             transactions.push(tx.clone());
-            let _ = pool.add_transaction(tx);
+            let _id = { let id = mempool::calculate_tx_id(&tx); pool.insert(id); id };
         }
 
         // Remove transactions
         for tx in transactions {
-            let result = pool.remove_transaction(&tx);
+            let result: Result<(), ()> = { let id = mempool::calculate_tx_id(&tx); pool.remove(&id); Ok(()) };
             // Removal should not panic
             prop_assert!(result.is_ok() || result.is_err());
         }
@@ -287,18 +286,18 @@ proptest! {
             let tx = Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [i as u8; 32].into(), index: 0 },
+                    prevout: OutPoint { hash: [i as u8; 32], index: 0 },
                     script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![0x51],
                 }].into(),
                 lock_time: 0,
             };
 
-            let _ = pool.add_transaction(tx);
+            let _id = { let id = mempool::calculate_tx_id(&tx); pool.insert(id); id };
         }
 
         // Mempool should maintain internal consistency

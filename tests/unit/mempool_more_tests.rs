@@ -13,13 +13,13 @@ fn test_negative_fee_rejected() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: prev,
-            script_sig: vec![0x51].into(),
+            script_sig: vec![0x51],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![0x51],
         }]
         .into(),
         lock_time: 0,
@@ -39,7 +39,7 @@ fn test_non_standard_script_flagged() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: vec![0x6a].into(),
+            script_pubkey: vec![0x6a],
         }]
         .into(), // OP_RETURN only
         lock_time: 0,
@@ -61,7 +61,7 @@ fn test_op_return_within_size_limit() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -84,7 +84,7 @@ fn test_op_return_exceeds_size_limit() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -107,11 +107,11 @@ fn test_multiple_op_return_rejected() {
         outputs: vec![
             TransactionOutput {
                 value: 0,
-                script_pubkey: op_return_script.clone().into(),
+                script_pubkey: op_return_script.clone(),
             },
             TransactionOutput {
                 value: 0,
-                script_pubkey: op_return_script.into(),
+                script_pubkey: op_return_script,
             },
         ]
         .into(),
@@ -138,7 +138,7 @@ fn test_op_return_config_custom_limit() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -163,11 +163,11 @@ fn test_op_return_config_allow_multiple() {
         outputs: vec![
             TransactionOutput {
                 value: 0,
-                script_pubkey: op_return_script.clone().into(),
+                script_pubkey: op_return_script.clone(),
             },
             TransactionOutput {
                 value: 0,
-                script_pubkey: op_return_script.into(),
+                script_pubkey: op_return_script,
             },
         ]
         .into(),
@@ -192,7 +192,7 @@ fn test_envelope_protocol_rejected() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -216,7 +216,7 @@ fn test_envelope_protocol_config_allow() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -243,7 +243,7 @@ fn test_large_script_rejected() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,
@@ -268,7 +268,7 @@ fn test_script_at_limit_accepted() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: script.into(),
+            script_pubkey: script,
         }]
         .into(),
         lock_time: 0,

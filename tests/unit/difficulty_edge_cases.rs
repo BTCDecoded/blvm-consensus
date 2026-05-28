@@ -6,9 +6,6 @@
 use blvm_consensus::constants::{
     DIFFICULTY_ADJUSTMENT_INTERVAL, MAX_TARGET, TARGET_TIME_PER_BLOCK,
 };
-use blvm_consensus::pow;
-use blvm_consensus::types::*;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: difficulty adjustment interval properties
@@ -18,7 +15,7 @@ proptest! {
         height in 0u64..1000000u64
     ) {
         // Difficulty adjustment happens every DIFFICULTY_ADJUSTMENT_INTERVAL blocks
-        let is_adjustment_height = (height % DIFFICULTY_ADJUSTMENT_INTERVAL as u64) == 0;
+        let is_adjustment_height = (height % DIFFICULTY_ADJUSTMENT_INTERVAL) == 0;
 
         // Height should be valid
         prop_assert!(height >= 0);
@@ -26,7 +23,7 @@ proptest! {
         // Adjustment should occur at multiples of interval
         if is_adjustment_height && height > 0 {
             let prev_height = height - 1;
-            prop_assert!((prev_height % DIFFICULTY_ADJUSTMENT_INTERVAL as u64) != 0,
+            prop_assert!((prev_height % DIFFICULTY_ADJUSTMENT_INTERVAL) != 0,
                 "Previous height should not be adjustment height");
         }
     }
@@ -106,7 +103,7 @@ proptest! {
         // New target = prev_target * (actual_time / expected_time)
         // Should be clamped
 
-        let expected_time = (DIFFICULTY_ADJUSTMENT_INTERVAL as u64) * TARGET_TIME_PER_BLOCK;
+        let expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
         let factor = time_span as f64 / expected_time as f64;
         let clamped_factor = factor.max(0.25).min(4.0);
 
@@ -144,12 +141,12 @@ proptest! {
         height in 0u64..1000000u64
     ) {
         // Adjustment happens at heights: 0, DIFFICULTY_ADJUSTMENT_INTERVAL, 2*DIFFICULTY_ADJUSTMENT_INTERVAL, etc.
-        let adjustment_period = height / (DIFFICULTY_ADJUSTMENT_INTERVAL as u64);
-        let next_adjustment = (adjustment_period + 1) * (DIFFICULTY_ADJUSTMENT_INTERVAL as u64);
+        let adjustment_period = height / DIFFICULTY_ADJUSTMENT_INTERVAL;
+        let next_adjustment = (adjustment_period + 1) * DIFFICULTY_ADJUSTMENT_INTERVAL;
 
         prop_assert!(next_adjustment >= height);
-        prop_assert!(next_adjustment >= (DIFFICULTY_ADJUSTMENT_INTERVAL as u64));
-        prop_assert!((next_adjustment % (DIFFICULTY_ADJUSTMENT_INTERVAL as u64)) == 0);
+        prop_assert!(next_adjustment >= DIFFICULTY_ADJUSTMENT_INTERVAL);
+        prop_assert!((next_adjustment % DIFFICULTY_ADJUSTMENT_INTERVAL) == 0);
     }
 }
 

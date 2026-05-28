@@ -6,7 +6,6 @@
 use blvm_consensus::constants::{MAX_INPUTS, MAX_MONEY, MAX_OUTPUTS};
 use blvm_consensus::types::*;
 use blvm_consensus::ConsensusProof;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: transaction with exactly MAX_MONEY output value
@@ -18,13 +17,13 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                 script_sig: vec![],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -33,9 +32,9 @@ proptest! {
         let result = consensus.validate_transaction(&tx).unwrap_or(ValidationResult::Invalid("Error".to_string()));
 
         // Value bounds property
-        if value <= MAX_MONEY && value >= 0 {
+        if (0..=MAX_MONEY).contains(&value) {
             // Valid if within bounds
-            if tx.inputs.len() > 0 && tx.outputs.len() > 0 {
+            if !tx.inputs.is_empty() && !tx.outputs.is_empty() {
                 // May be valid (other checks may still fail)
             }
         } else {
@@ -85,7 +84,7 @@ proptest! {
         let mut inputs = Vec::new();
         for i in 0..input_count {
             inputs.push(TransactionInput {
-                prevout: OutPoint { hash: [i as u8; 32], index: i as u64 },
+                prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             });
@@ -96,7 +95,7 @@ proptest! {
             inputs: inputs.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -131,7 +130,7 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                 script_sig: vec![],
                 sequence: 0xffffffff,
             }].into(),
@@ -161,13 +160,13 @@ proptest! {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
                 script_sig: vec![],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -202,7 +201,7 @@ proptest! {
         let coinbase = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff }, // Coinbase marker
+                prevout: OutPoint { hash: [0; 32], index: 0xffffffff }, // Coinbase marker
                 script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }].into(),
@@ -222,7 +221,7 @@ proptest! {
     #[test]
     fn prop_duplicate_prevouts(
         hash in any::<[u8; 32]>(),
-        index in 0u64..10u64
+        index in 0u32..10u32
     ) {
         let prevout = OutPoint { hash, index };
 
@@ -230,19 +229,19 @@ proptest! {
             version: 1,
             inputs: vec![
                 TransactionInput {
-                    prevout: prevout.clone(),
-                    script_sig: vec![0x51].into(),
+                    prevout: prevout,
+                    script_sig: vec![0x51],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
-                    prevout: prevout.clone(), // Duplicate!
+                    prevout: prevout, // Duplicate!
                     script_sig: vec![0x52],
                     sequence: 0xffffffff,
                 },
             ].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
@@ -266,7 +265,7 @@ proptest! {
         let mut inputs = Vec::new();
         for i in 0..input_count {
             inputs.push(TransactionInput {
-                prevout: OutPoint { hash: [i as u8; 32], index: i as u64 },
+                prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
                 script_sig: vec![0x51; 50], // Fixed script size
                 sequence: 0xffffffff,
             });

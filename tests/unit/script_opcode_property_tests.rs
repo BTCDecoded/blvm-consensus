@@ -5,7 +5,6 @@
 
 use blvm_consensus::constants::MAX_STACK_SIZE;
 use blvm_consensus::script;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
 // Note: execute_opcode is private, so we'll use eval_script instead
@@ -25,13 +24,13 @@ proptest! {
         script.push(0x76); // OP_DUP
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         // After OP_DUP, stack should have item duplicated
         if result.unwrap() && stack.len() >= 2 {
-            prop_assert_eq!(stack[stack.len() - 2], item);
-            prop_assert_eq!(stack[stack.len() - 1], item);
+            prop_assert_eq!(stack[stack.len() - 2].as_slice(), item.as_slice());
+            prop_assert_eq!(stack[stack.len() - 1].as_slice(), item.as_slice());
         }
     }
 }
@@ -52,7 +51,7 @@ proptest! {
         script.push(0x88); // OP_EQUALVERIFY
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok() || result.is_err());
         // OP_EQUALVERIFY succeeds if items are equal
@@ -75,7 +74,7 @@ proptest! {
         script.push(0xa9); // OP_HASH160
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         if result.unwrap() && !stack.is_empty() {
@@ -102,7 +101,7 @@ proptest! {
         script.push(0xac); // OP_CHECKSIG
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         // OP_CHECKSIG may succeed or fail, but shouldn't panic
@@ -117,31 +116,33 @@ proptest! {
     ) {
         let script = vec![opcode];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         if result.unwrap() && !stack.is_empty() {
-            let expected_value = (opcode - 0x50) as u8;
+            let expected_value = (opcode - 0x50);
             // OP_1 pushes [1], OP_2 pushes [2], etc.
-            prop_assert!(stack[0].len() > 0);
+            prop_assert!(!stack[0].is_empty());
             // Value should be between 1 and 16
-            prop_assert!(expected_value >= 1 && expected_value <= 16);
+            prop_assert!((1..=16).contains(&expected_value));
         }
     }
 }
 
-/// Property test: OP_0 pushes empty array
-proptest! {
-    #[test]
-    fn prop_op_0_pushes_empty() {
-        let script = vec![0x00]; // OP_0
-        let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
-
-        prop_assert!(result.is_ok());
-        if result.unwrap() && !stack.is_empty() {
-            prop_assert!(stack[0].is_empty(), "OP_0 should push empty array");
-        }
+/// OP_0 pushes empty array
+#[test]
+fn prop_op_0_pushes_empty() {
+    let script = vec![0x00]; // OP_0
+    let mut stack = Vec::new();
+    let result = script::eval_script(
+        &script,
+        &mut stack,
+        0,
+        blvm_consensus::script::SigVersion::Base,
+    );
+    assert!(result.is_ok());
+    if result.unwrap() && !stack.is_empty() {
+        assert!(stack[0].is_empty(), "OP_0 should push empty array");
     }
 }
 
@@ -158,7 +159,7 @@ proptest! {
         script.push(0x63); // OP_IF
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         // Should not panic (may succeed or fail)
         prop_assert!(result.is_ok() || result.is_err());
@@ -179,12 +180,12 @@ proptest! {
             script.extend_from_slice(&data);
 
             let mut stack = Vec::new();
-            let result = script::eval_script(&script, &mut stack, 0);
+            let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
             prop_assert!(result.is_ok() || result.is_err());
             // Data should be preserved if script succeeds
             if result.is_ok() && result.unwrap() && !stack.is_empty() {
-                prop_assert_eq!(stack[0], data);
+                prop_assert_eq!(stack[0].as_slice(), data.as_slice());
             }
         }
     }
@@ -201,7 +202,7 @@ proptest! {
         // Build script: OP_a, OP_b, arithmetic opcode
         let script = vec![0x51 + a.min(16), 0x51 + b.min(16), opcode];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         // Should not panic
         prop_assert!(result.is_ok() || result.is_err());
@@ -218,7 +219,7 @@ proptest! {
         // Build script: OP_a, OP_b, OP_EQUAL
         let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x87]; // OP_EQUAL
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok() || result.is_err());
     }
@@ -233,25 +234,27 @@ proptest! {
         // Build script: OP_value, OP_VERIFY
         let script = vec![0x51 + value.min(16), 0x69]; // OP_VERIFY
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok() || result.is_err());
     }
 }
 
 /// Property test: Script with OP_RETURN always fails
-proptest! {
-    #[test]
-    fn prop_script_op_return_always_fails() {
-        let script = vec![0x51, 0x6a]; // OP_1, OP_RETURN
-        let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
-
-        // OP_RETURN should cause script to fail
-        prop_assert!(result.is_ok());
-        if let Ok(success) = result {
-            prop_assert!(!success, "OP_RETURN should always fail");
-        }
+/// OP_RETURN always fails
+#[test]
+fn prop_script_op_return_always_fails() {
+    let script = vec![0x51, 0x6a]; // OP_1, OP_RETURN
+    let mut stack = Vec::new();
+    let result = script::eval_script(
+        &script,
+        &mut stack,
+        0,
+        blvm_consensus::script::SigVersion::Base,
+    );
+    assert!(result.is_ok());
+    if let Ok(success) = result {
+        assert!(!success, "OP_RETURN should always fail");
     }
 }
 
@@ -268,7 +271,7 @@ proptest! {
         script.push(0xa8); // OP_SHA256
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         if result.unwrap() && !stack.is_empty() {
@@ -292,7 +295,7 @@ proptest! {
         script.push(0xa6); // OP_RIPEMD160
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok());
         if result.unwrap() && !stack.is_empty() {
@@ -316,7 +319,7 @@ proptest! {
         }
 
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         // Stack should never exceed MAX_STACK_SIZE
         prop_assert!(stack.len() <= MAX_STACK_SIZE);
@@ -338,7 +341,7 @@ proptest! {
         // Build script: OP_a, OP_b, OP_2DROP
         let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x6d]; // OP_2DROP
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok() || result.is_err());
     }
@@ -354,7 +357,7 @@ proptest! {
         // Build script: OP_a, OP_b, OP_SWAP
         let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x7c]; // OP_SWAP
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0);
+        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
         prop_assert!(result.is_ok() || result.is_err());
     }

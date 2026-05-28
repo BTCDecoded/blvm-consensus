@@ -1,44 +1,57 @@
 //! Property tests for chain reorganization edge cases
-//!
-//! Comprehensive property-based tests covering chain reorganization scenarios,
-//! chain work calculations, and UTXO set consistency during reorganizations.
 
 use blvm_consensus::reorganization;
 use blvm_consensus::types::*;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
-/// Property test: chain work is always non-negative
+fn make_block(i: usize, bits: u64) -> Block {
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffffu32,
+            },
+            script_sig: (i as u64).to_le_bytes().to_vec(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    Block {
+        header: BlockHeader {
+            version: 1i64,
+            prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
+            merkle_root: [1; 32],
+            timestamp: 1234567890 + (i as u64 * 600),
+            bits,
+            nonce: i as u64,
+        },
+        transactions: vec![coinbase].into_boxed_slice(),
+    }
+}
+
+fn make_chain(n: usize) -> Vec<Block> {
+    (0..n).map(|i| make_block(i, 0x1d00ffff)).collect()
+}
+
 proptest! {
     #[test]
-    fn prop_chain_work_non_negative(
-        block_count in 1usize..20usize
-    ) {
-        // Create a chain of blocks
-        let mut headers = Vec::new();
-        for i in 0..block_count {
-            headers.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        // Chain work should be calculated and non-negative
-        let result = reorganization::calculate_chain_work(&headers);
-
+    fn prop_chain_work_non_negative(block_count in 1usize..20usize) {
+        let chain = make_chain(block_count);
+        let result = reorganization::calculate_chain_work(&chain);
         prop_assert!(result.is_ok() || result.is_err());
-        if result.is_ok() {
-            let work = result.unwrap();
-            prop_assert!(work >= 0, "Chain work must be non-negative");
+        if let Ok(work) = result {
+            prop_assert!(work >= 0);
         }
     }
 }
 
-/// Property test: longer chain has more work (or equal)
 proptest! {
     #[test]
     fn prop_chain_work_increases_with_length(
@@ -50,235 +63,98 @@ proptest! {
         } else {
             (long_chain_len, short_chain_len)
         };
-
-        // Create short chain
-        let mut short_headers = Vec::new();
-        for i in 0..short_len {
-            short_headers.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        // Create long chain (extends short chain)
-        let mut long_headers = short_headers.clone();
-        for i in short_len..long_len {
-            long_headers.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        let short_work = reorganization::calculate_chain_work(&short_headers);
-        let long_work = reorganization::calculate_chain_work(&long_headers);
-
+        let short_chain = make_chain(short_len);
+        let long_chain = make_chain(long_len);
+        let short_work = reorganization::calculate_chain_work(&short_chain);
+        let long_work = reorganization::calculate_chain_work(&long_chain);
         if short_work.is_ok() && long_work.is_ok() {
-            prop_assert!(long_work.unwrap() >= short_work.unwrap(),
-                "Longer chain should have equal or more work");
+            prop_assert!(long_work.unwrap() >= short_work.unwrap());
         }
     }
 }
 
-/// Property test: should_reorganize prefers chain with more work
 proptest! {
     #[test]
     fn prop_reorganize_prefers_more_work(
         chain1_len in 1usize..10usize,
         chain2_len in 1usize..10usize
     ) {
-        // Create two chains
-        let mut chain1 = Vec::new();
-        for i in 0..chain1_len {
-            chain1.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [1, i as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        let mut chain2 = Vec::new();
-        for i in 0..chain2_len {
-            chain2.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [2, i as u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
+        let chain1 = make_chain(chain1_len);
+        let chain2 = make_chain(chain2_len);
         let result = reorganization::should_reorganize(&chain1, &chain2);
-
-        // Should reorganize if chain2 has more work
         prop_assert!(result.is_ok() || result.is_err());
     }
 }
 
-/// Property test: reorganization maintains UTXO consistency
 proptest! {
     #[test]
     fn prop_reorganization_utxo_consistency(
         initial_height in 1u64..10u64,
-        reorg_depth in 1u64..5u64
+        _reorg_depth in 1u64..5u64
     ) {
-        // Create initial chain state
         let mut utxo_set = UtxoSet::default();
-
-        // Add some UTXOs
         for i in 0..5 {
             utxo_set.insert(
-                OutPoint { hash: [i as u8; 32], index: 0 },
+                OutPoint { hash: [i as u8; 32], index: 0u32 },
                 std::sync::Arc::new(UTXO {
                     value: 1000 * (i as i64 + 1),
                     script_pubkey: vec![0x51].into(),
                     height: initial_height,
+                    is_coinbase: false,
                 })
             );
         }
-
         let initial_utxo_count = utxo_set.len();
-
-        // Simulate reorganization
-        // UTXO set should maintain consistency (not lose or duplicate UTXOs)
-        prop_assert!(initial_utxo_count >= 0);
-        prop_assert!(initial_utxo_count <= 1000); // Reasonable bound
-
-        // After reorganization, UTXO set should still be valid
-        // (actual implementation would reorganize and check)
-        prop_assert!(utxo_set.len() <= initial_utxo_count + 10); // Allow some variation
+        prop_assert!(initial_utxo_count <= 1000);
+        prop_assert!(utxo_set.len() <= initial_utxo_count + 10);
     }
 }
 
-/// Property test: chain work calculation is deterministic
 proptest! {
     #[test]
-    fn prop_chain_work_deterministic(
-        block_count in 1usize..10usize
-    ) {
-        // Create chain
-        let mut headers = Vec::new();
-        for i in 0..block_count {
-            headers.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        // Calculate work twice
-        let work1 = reorganization::calculate_chain_work(&headers);
-        let work2 = reorganization::calculate_chain_work(&headers);
-
-        // Results should be identical
+    fn prop_chain_work_deterministic(block_count in 1usize..10usize) {
+        let chain = make_chain(block_count);
+        let work1 = reorganization::calculate_chain_work(&chain);
+        let work2 = reorganization::calculate_chain_work(&chain);
         prop_assert_eq!(work1.is_ok(), work2.is_ok());
         if work1.is_ok() && work2.is_ok() {
-            prop_assert_eq!(work1.unwrap(), work2.unwrap(),
-                "Chain work calculation should be deterministic");
+            prop_assert_eq!(work1.unwrap(), work2.unwrap());
         }
     }
 }
 
-/// Property test: empty chain has zero work
-proptest! {
-    #[test]
-    fn prop_empty_chain_zero_work() {
-        let empty_chain: Vec<BlockHeader> = Vec::new();
-
-        let result = reorganization::calculate_chain_work(&empty_chain);
-
-        // Empty chain should have zero work or error
-        prop_assert!(result.is_ok() || result.is_err());
-        if result.is_ok() {
-            prop_assert_eq!(result.unwrap(), 0,
-                "Empty chain should have zero work");
-        }
+#[test]
+fn empty_chain_zero_work() {
+    let empty: Vec<Block> = Vec::new();
+    let result = reorganization::calculate_chain_work(&empty);
+    assert!(result.is_ok() || result.is_err());
+    if let Ok(work) = result {
+        assert_eq!(work, 0);
     }
 }
 
-/// Property test: reorganization depth is bounded
 proptest! {
     #[test]
     fn prop_reorganization_depth_bounded(
         current_chain_len in 1usize..20usize,
         new_chain_len in 1usize..20usize
     ) {
-        // Reorganization depth = common prefix length
         let common_prefix = current_chain_len.min(new_chain_len);
         let reorg_depth = current_chain_len - common_prefix;
-
-        prop_assert!(reorg_depth <= current_chain_len,
-            "Reorganization depth should not exceed current chain length");
-        prop_assert!(reorg_depth >= 0,
-            "Reorganization depth should be non-negative");
+        prop_assert!(reorg_depth <= current_chain_len);
     }
 }
 
-/// Property test: chain fork point identification
 proptest! {
     #[test]
     fn prop_chain_fork_point(
-        fork_height in 1u64..10u64,
+        fork_height in 1usize..10usize,
         chain1_extension in 1usize..10usize,
         chain2_extension in 1usize..10usize
     ) {
-        // Create common prefix
-        let mut common_prefix = Vec::new();
-        for i in 0..fork_height as usize {
-            common_prefix.push(BlockHeader {
-                version: 1,
-                prev_block_hash: if i == 0 { [0; 32] } else { [i as u8; 32] },
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + (i as u64 * 600),
-                bits: 0x1d00ffff,
-                nonce: i as u64,
-            });
-        }
-
-        // Extend chain1
-        let mut chain1 = common_prefix.clone();
-        for i in 0..chain1_extension {
-            chain1.push(BlockHeader {
-                version: 1,
-                prev_block_hash: [1; 32],
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + ((fork_height + i as u64) * 600),
-                bits: 0x1d00ffff,
-                nonce: (fork_height + i as u64),
-            });
-        }
-
-        // Extend chain2
-        let mut chain2 = common_prefix;
-        for i in 0..chain2_extension {
-            chain2.push(BlockHeader {
-                version: 1,
-                prev_block_hash: [2; 32],
-                merkle_root: [1; 32],
-                timestamp: 1234567890 + ((fork_height + i as u64) * 600),
-                bits: 0x1d00ffff,
-                nonce: (fork_height + i as u64),
-            });
-        }
-
-        // Both chains should share common prefix
-        prop_assert!(chain1.len() >= fork_height as usize);
-        prop_assert!(chain2.len() >= fork_height as usize);
-        prop_assert!(chain1.len() == (fork_height as usize + chain1_extension));
-        prop_assert!(chain2.len() == (fork_height as usize + chain2_extension));
+        let chain1_len = fork_height + chain1_extension;
+        let chain2_len = fork_height + chain2_extension;
+        prop_assert!(chain1_len >= fork_height);
+        prop_assert!(chain2_len >= fork_height);
     }
 }

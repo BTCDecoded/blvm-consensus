@@ -12,7 +12,9 @@
 
 use blvm_consensus::bip_validation::check_bip30_network;
 use blvm_consensus::constants::*;
-use blvm_consensus::script::{verify_script, verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{
+    flags::SCRIPT_VERIFY_TAPROOT, verify_script, verify_script_with_context_full, SigVersion,
+};
 use blvm_consensus::transaction_hash::{
     calculate_transaction_sighash_with_script_code, SighashType,
 };
@@ -157,17 +159,16 @@ fn test_taproot_empty_scriptsig_requirement() {
     }];
 
     let height = TAPROOT_ACTIVATION_MAINNET; // After Taproot activation
-                                             // Calculate flags manually (calculate_script_flags_for_block is private)
-                                             // For Taproot, we need 0x8000 flag if transaction has P2TR outputs
-    let mut flags = 0u32;
+                                             // Set WITNESS + WITNESS_PUBKEYTYPE + TAPROOT flags for a post-Taproot P2TR spend.
+    let mut flags = 0x800u32; // SCRIPT_VERIFY_WITNESS
     if height >= TAPROOT_ACTIVATION_MAINNET {
-        // Check if transaction has P2TR outputs
         for output in &tx.outputs {
             if output.script_pubkey.len() == 34
                 && output.script_pubkey[0] == 0x51
                 && output.script_pubkey[1] == 0x20
             {
                 flags |= 0x8000; // SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+                flags |= SCRIPT_VERIFY_TAPROOT; // 0x20000
                 break;
             }
         }
@@ -563,7 +564,7 @@ fn test_script_flags_per_transaction() {
         &tx_with_taproot.inputs[0].script_sig,
         &script_pubkey_taproot,
         None,
-        0x8000, // Taproot flag set
+        0x800 | 0x8000 | SCRIPT_VERIFY_TAPROOT, // WITNESS | WITNESS_PUBKEYTYPE | TAPROOT
         &tx_with_taproot,
         0,
         &pv,
@@ -724,66 +725,31 @@ fn test_transaction_limits() {
 }
 
 // ============================================================================
-// Bug #10: Taproot Flag Value (0x8000 not 0x20000)
+// Bug #10: Taproot Flag Value
 // ============================================================================
 
-/// Regression test: Taproot flag must use correct value (0x8000)
+/// Regression test: SCRIPT_VERIFY_TAPROOT must equal 0x20000 (bit 17), matching Bitcoin Core.
 ///
-/// **Bug Fixed:** Taproot flag was using 0x20000 instead of 0x8000.
-///
-/// **Fix:** Changed to 0x8000 (SCRIPT_VERIFY_WITNESS_PUBKEYTYPE).
-///
-/// **Test:** Verify that Taproot flag is 0x8000, not 0x20000.
+/// **History:** An earlier version of this codebase used 0x8000 for "Taproot", which is
+/// actually SCRIPT_VERIFY_WITNESS_PUBKEYTYPE (bit 15) in Bitcoin Core.  The flag was
+/// corrected in script/flags.rs to 0x20000 (bit 17) = `(1U << 17)` per Core's
+/// script/interpreter.h.  This test locks that value in.
 #[test]
 fn test_taproot_flag_value() {
-    let height = TAPROOT_ACTIVATION_MAINNET + 1000;
-
-    // Transaction with P2TR output
-    let mut script_pubkey = vec![0x51, 0x20];
-    script_pubkey.extend_from_slice(&[0u8; 32]);
-
-    let tx = Transaction {
-        version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint {
-                hash: [1; 32],
-                index: 0,
-            },
-            script_sig: vec![],
-            sequence: 0xffffffff,
-        }]
-        .into(),
-        outputs: vec![TransactionOutput {
-            value: 1000,
-            script_pubkey,
-        }]
-        .into(),
-        lock_time: 0,
-    };
-
-    // Manually calculate flags (calculate_script_flags_for_block is private)
-    let mut flags = 0u32;
-    if height >= TAPROOT_ACTIVATION_MAINNET {
-        for output in &tx.outputs {
-            if output.script_pubkey.len() == 34
-                && output.script_pubkey[0] == 0x51
-                && output.script_pubkey[1] == 0x20
-            {
-                flags |= 0x8000; // SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
-                break;
-            }
-        }
-    }
-
-    // CRITICAL: Flag must be 0x8000, not 0x20000
-    if flags & 0x8000 != 0 {
-        assert_eq!(
-            flags & 0x8000,
-            0x8000,
-            "Taproot flag must be 0x8000, not 0x20000"
-        );
-        assert_eq!(flags & 0x20000, 0, "Taproot flag must NOT be 0x20000");
-    }
+    assert_eq!(
+        SCRIPT_VERIFY_TAPROOT, 0x20000,
+        "SCRIPT_VERIFY_TAPROOT must be 0x20000 (bit 17) to match Bitcoin Core"
+    );
+    // 0x8000 is SCRIPT_VERIFY_WITNESS_PUBKEYTYPE — a different flag.
+    assert_ne!(
+        SCRIPT_VERIFY_TAPROOT, 0x8000,
+        "0x8000 is WITNESS_PUBKEYTYPE, not TAPROOT"
+    );
+    // 0x4000 is SCRIPT_VERIFY_NULLFAIL — also not Taproot.
+    assert_ne!(
+        SCRIPT_VERIFY_TAPROOT, 0x4000,
+        "0x4000 is NULLFAIL, not TAPROOT"
+    );
 }
 
 // ============================================================================

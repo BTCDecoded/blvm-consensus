@@ -391,6 +391,8 @@ fn test_cltv_multiple_inputs_context() {
         &tx,
         0, // First input
         &prevouts,
+        Some(500_000u64), // block_height
+        Network::Regtest,
     );
     
     // Should pass: CLTV validation for first input

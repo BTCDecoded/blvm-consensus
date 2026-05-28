@@ -9,27 +9,16 @@ mod mempool_more_tests;
 mod pow_tests;
 mod transaction_tests;
 
-// These modules have ≥10 API-drift errors and require a dedicated update pass.
-#[cfg(any())]
 mod block_edge_cases;
-#[cfg(any())]
 mod comprehensive_property_tests;
-#[cfg(any())]
 mod difficulty_edge_cases;
-#[cfg(any())]
 mod economic_tests;
-#[cfg(any())]
 mod mempool_edge_cases;
-#[cfg(any())]
 mod reorganization_edge_cases;
-#[cfg(any())]
 mod script_opcode_property_tests;
-#[cfg(any())]
 mod script_tests;
 mod segwit_taproot_property_tests;
-#[cfg(any())]
 mod transaction_edge_cases;
-#[cfg(any())]
 mod utxo_edge_cases;
 
 // Production optimization tests (only compiled with production feature)

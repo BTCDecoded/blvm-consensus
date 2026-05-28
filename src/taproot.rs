@@ -247,9 +247,11 @@ fn bip341_precompute(
     for (i, input) in tx.inputs.iter().enumerate() {
         prevouts_data.extend_from_slice(&input.prevout.hash);
         prevouts_data.extend_from_slice(&input.prevout.index.to_le_bytes());
-        amounts_data
-            .extend_from_slice(&(prevout_values.get(i).copied().unwrap_or(0) as u64).to_le_bytes());
-        let spk = prevout_script_pubkeys.get(i).copied().unwrap_or(&[]);
+        // Both callers validate that prevout slices are at least as long as tx.inputs before
+        // calling this function.  Direct indexing here makes the invariant explicit; a panic
+        // would signal a programming error, not a consensus-invalid input.
+        amounts_data.extend_from_slice(&(prevout_values[i] as u64).to_le_bytes());
+        let spk = prevout_script_pubkeys[i];
         scriptpubkeys_data.extend_from_slice(&encode_varint(spk.len() as u64));
         scriptpubkeys_data.extend_from_slice(spk);
         sequences_data.extend_from_slice(&(input.sequence as u32).to_le_bytes());
@@ -601,7 +603,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -610,7 +612,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: create_taproot_script(&[1u8; 32].into()),
+                script_pubkey: create_taproot_script(&[1u8; 32]),
             }]
             .into(),
             lock_time: 0,
@@ -627,7 +629,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -636,13 +638,13 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }]
             .into(),
             lock_time: 0,
         };
 
-        let prevouts = vec![TransactionOutput {
+        let prevouts = [TransactionOutput {
             value: 2000,
             script_pubkey: create_taproot_script(&[1u8; 32]),
         }];
@@ -661,7 +663,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -670,13 +672,13 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }]
             .into(),
             lock_time: 0,
         };
 
-        let prevouts = vec![TransactionOutput {
+        let prevouts = [TransactionOutput {
             value: 2000,
             script_pubkey: create_taproot_script(&[1u8; 32]),
         }];
@@ -696,7 +698,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -705,7 +707,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![0x51],
             }]
             .into(),
             lock_time: 0,
@@ -849,7 +851,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -858,7 +860,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x52].into(), // Not Taproot
+                script_pubkey: vec![0x52], // Not Taproot
             }]
             .into(),
             lock_time: 0,
@@ -875,7 +877,7 @@ mod tests {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32].into(),
+                    hash: [0; 32],
                     index: 0,
                 },
                 script_sig: vec![],
@@ -884,7 +886,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: create_taproot_script(&[1u8; 32].into()),
+                script_pubkey: create_taproot_script(&[1u8; 32]),
             }]
             .into(),
             lock_time: 0,

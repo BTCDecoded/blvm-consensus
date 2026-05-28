@@ -6,7 +6,6 @@
 use blvm_consensus::constants::MAX_BLOCK_SIZE;
 use blvm_consensus::segwit;
 use blvm_consensus::types::*;
-use blvm_consensus::*;
 use proptest::prelude::*;
 
 /// Property test: transaction weight is always positive

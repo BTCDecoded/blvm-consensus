@@ -366,6 +366,8 @@ fn test_csv_multiple_inputs_context() {
         &tx,
         0, // First input
         &prevouts,
+        Some(500_000u64), // block_height
+        Network::Regtest,
     );
     
     // Should pass: CSV validation for first input

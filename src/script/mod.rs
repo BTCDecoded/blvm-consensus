@@ -792,7 +792,15 @@ pub fn verify_script(
 /// VerifyScript with transaction context for signature verification
 ///
 /// This version includes the full transaction context needed for proper
-/// ECDSA signature verification with correct sighash calculation.
+/// Script verification with transaction context and optional block height.
+///
+/// Pass `block_height` whenever it is known; height-dependent fork rules (CLTV, CSV,
+/// SegWit, Taproot) rely on it to select the correct evaluation path.  Passing `None`
+/// falls back to height `0` inside the engine, which means pre-activation rules are
+/// used — valid only for regtest / test-vector scenarios.
+///
+/// For callers that also need to supply a pre-computed sighash or a specific
+/// `SigVersion`, use [`verify_script_with_context_full`] directly.
 #[spec_locked("5.2", "VerifyScript")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
@@ -805,6 +813,7 @@ pub fn verify_script_with_context(
     tx: &Transaction,
     input_index: usize,
     prevouts: &[TransactionOutput],
+    block_height: Option<u64>,
     network: crate::types::Network,
 ) -> Result<bool> {
     // Convert prevouts to parallel slices for the optimized API
@@ -812,8 +821,6 @@ pub fn verify_script_with_context(
     let prevout_script_pubkeys: Vec<&[u8]> =
         prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
 
-    // Default to Base sigversion for this API (no witness version inspection here)
-    let sigversion = SigVersion::Base;
     verify_script_with_context_full(
         script_sig,
         script_pubkey,
@@ -823,13 +830,13 @@ pub fn verify_script_with_context(
         input_index,
         &prevout_values,
         &prevout_script_pubkeys,
-        None, // block_height
+        block_height,
         None, // median_time_past
         network,
-        sigversion,
+        SigVersion::Base, // _sigversion is ignored inside full; SigVersion is inferred from script
         #[cfg(feature = "production")]
         None, // schnorr_collector
-        None, // precomputed_bip143 - caller doesn't provide
+        None,             // precomputed_bip143
         #[cfg(feature = "production")]
         None, // precomputed_sighash_all
         #[cfg(feature = "production")]
