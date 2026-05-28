@@ -29,11 +29,9 @@ fn write_varint_to_vec(vec: &mut Vec<u8>, value: u64) {
 }
 
 #[cfg(feature = "production")]
-use hashbrown::HashMap as HashBrownMap;
-#[cfg(feature = "production")]
 use lru::LruCache;
 #[cfg(feature = "production")]
-use rustc_hash::{FxBuildHasher, FxHasher};
+use rustc_hash::{FxHashMap, FxHasher};
 #[cfg(feature = "production")]
 use std::cell::RefCell;
 #[cfg(feature = "production")]
@@ -58,14 +56,14 @@ impl std::hash::Hash for SighashCacheKey {
 
 #[cfg(feature = "production")]
 pub type SighashMidstateCache =
-    std::sync::Arc<std::sync::Mutex<HashBrownMap<SighashCacheKey, [u8; 32], FxBuildHasher>>>;
+    std::sync::Arc<std::sync::Mutex<FxHashMap<SighashCacheKey, [u8; 32]>>>;
 
 /// Thread-local midstate cache: (prevout, code_hash, sighash_byte) -> hash. Avoids Mutex contention
 /// across script-check workers. Used when block passes None (CCheckQueue/rayon path).
 #[cfg(feature = "production")]
 thread_local! {
-    static SIGHASH_MIDSTATE_CACHE: RefCell<HashBrownMap<SighashCacheKey, [u8; 32], FxBuildHasher>> =
-        const { RefCell::new(HashBrownMap::with_hasher(FxBuildHasher)) };
+    static SIGHASH_MIDSTATE_CACHE: RefCell<FxHashMap<SighashCacheKey, [u8; 32]>> =
+        RefCell::new(FxHashMap::default());
 }
 
 #[cfg(feature = "production")]
@@ -727,28 +725,18 @@ pub fn calculate_transaction_sighash_with_script_code(
         let code = script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]);
         let sighash_byte_u8 = sighash_byte as u8;
         let hash = sighash_cache_hash(prevout, code, sighash_byte_u8);
+        let lookup_key = SighashCacheKey {
+            prevout: *prevout,
+            code_hash: hash,
+            sighash_byte: sighash_byte_u8,
+        };
         let cached = if let Some(cache) = sighash_cache {
-            cache.lock().ok().and_then(|guard| {
-                (*guard)
-                    .raw_entry()
-                    .from_hash(hash, |k: &SighashCacheKey| {
-                        k.prevout == *prevout
-                            && k.code_hash == hash
-                            && k.sighash_byte == sighash_byte_u8
-                    })
-                    .map(|(_, v)| *v)
-            })
+            cache
+                .lock()
+                .ok()
+                .and_then(|guard| guard.get(&lookup_key).copied())
         } else {
-            SIGHASH_MIDSTATE_CACHE.with(|cell| {
-                let map = cell.borrow();
-                map.raw_entry()
-                    .from_hash(hash, |k: &SighashCacheKey| {
-                        k.prevout == *prevout
-                            && k.code_hash == hash
-                            && k.sighash_byte == sighash_byte_u8
-                    })
-                    .map(|(_, v)| *v)
-            })
+            SIGHASH_MIDSTATE_CACHE.with(|cell| cell.borrow().get(&lookup_key).copied())
         };
         if let Some(cached) = cached {
             return Ok(cached);

@@ -6,6 +6,10 @@
 use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::constants::*;
 use crate::opcodes::*;
+use crate::script::flags::{
+    SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
+    SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+};
 use crate::segwit::{is_segwit_transaction, Witness};
 use crate::transaction::is_coinbase;
 use crate::types::*;
@@ -202,7 +206,12 @@ pub fn get_block_script_verify_flags_core(
     activation: &impl IsForkActive,
     network: Network,
 ) -> u32 {
-    let mut flags = 0x01u32 | 0x800 | 0x8000; // P2SH | WITNESS | TAPROOT
+    // Baseline: P2SH + WITNESS + WITNESS_PUBKEYTYPE + TAPROOT.
+    // TAPROOT is 0x20000 (bit 17). Using 0x8000 here was a bug — that is WITNESS_PUBKEYTYPE.
+    let mut flags = SCRIPT_VERIFY_P2SH
+        | SCRIPT_VERIFY_WITNESS
+        | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+        | SCRIPT_VERIFY_TAPROOT;
     if let Some(v) = script_flag_exceptions_lookup(block_hash, network) {
         flags = v;
     }
@@ -451,6 +460,10 @@ mod script_flag_exceptions_tests {
     };
     use crate::activation::ForkActivationTable;
     use crate::crypto::OptimizedSha256;
+    use crate::script::flags::{
+        SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
+        SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+    };
     use crate::serialization::block::{deserialize_block_header, serialize_block_header};
     use crate::types::{Network, Transaction};
 
@@ -538,7 +551,19 @@ mod script_flag_exceptions_tests {
         let table = ForkActivationTable::from_network(Network::Mainnet);
         let h = [0xabu8; 32];
         let flags = get_block_script_verify_flags_core(&h, 800_000, &table, Network::Mainnet);
-        assert_eq!(flags & 0x8801, 0x8801, "P2SH | WITNESS | TAPROOT baseline");
+        // P2SH (0x1) | WITNESS (0x800) | WITNESS_PUBKEYTYPE (0x8000) | TAPROOT (0x20000)
+        assert_eq!(
+            flags
+                & (SCRIPT_VERIFY_P2SH
+                    | SCRIPT_VERIFY_WITNESS
+                    | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+                    | SCRIPT_VERIFY_TAPROOT),
+            SCRIPT_VERIFY_P2SH
+                | SCRIPT_VERIFY_WITNESS
+                | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
+                | SCRIPT_VERIFY_TAPROOT,
+            "P2SH | WITNESS | WITNESS_PUBKEYTYPE | TAPROOT baseline"
+        );
         assert_ne!(flags & 0x04, 0, "DERSIG");
         assert_ne!(flags & 0x200, 0, "CLTV");
         assert_ne!(flags & 0x400, 0, "CSV");

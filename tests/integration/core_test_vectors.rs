@@ -6,8 +6,11 @@
 //! Test vectors can be downloaded from consensus's test framework.
 //! If vectors are not available, tests will skip gracefully.
 
+use blvm_consensus::block::{connect_block, BlockValidationContext};
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::serialization::transaction::deserialize_transaction;
+use blvm_consensus::transaction::check_transaction;
+use blvm_consensus::types::Network;
 use blvm_consensus::*;
 use std::fs;
 use std::path::PathBuf;
@@ -71,7 +74,8 @@ fn load_transaction_vectors() -> Result<Vec<(Transaction, bool)>, Box<dyn std::e
 }
 
 /// Load block test vectors
-fn load_block_vectors() -> Result<Vec<(Block, Vec<Witness>, bool)>, Box<dyn std::error::Error>> {
+fn load_block_vectors() -> Result<Vec<(Block, Vec<Vec<Witness>>, bool)>, Box<dyn std::error::Error>>
+{
     let block_valid_path = PathBuf::from(CORE_VECTORS_DIR).join("block_valid.json");
     let block_invalid_path = PathBuf::from(CORE_VECTORS_DIR).join("block_invalid.json");
 
@@ -210,12 +214,12 @@ fn test_block_vectors_if_available() {
     for (block, witnesses, should_be_valid) in vectors.iter().take(5) {
         // Limit to first 5 for speed
         let result = {
-            let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
+            let ctx = BlockValidationContext::for_network(Network::Mainnet);
             connect_block(block, witnesses, utxo_set.clone(), height, &ctx)
         };
 
         match result {
-            Ok((ValidationResult::Valid, new_utxo_set)) => {
+            Ok((ValidationResult::Valid, new_utxo_set, _undo)) => {
                 assert!(
                     should_be_valid,
                     "Block should be valid but was marked invalid in test vector"
@@ -223,7 +227,7 @@ fn test_block_vectors_if_available() {
                 utxo_set = new_utxo_set;
                 height += 1;
             }
-            Ok((ValidationResult::Invalid(_), _)) => {
+            Ok((ValidationResult::Invalid(_), _, _)) => {
                 assert!(
                     !should_be_valid,
                     "Block should be invalid but was marked valid in test vector"

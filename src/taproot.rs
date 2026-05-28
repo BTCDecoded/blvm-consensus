@@ -298,6 +298,16 @@ pub fn compute_taproot_signature_hash(
         ));
     }
 
+    // Validate prevout slices: one entry per input is required for a correct sighash.
+    // A short slice would silently produce wrong amounts/scriptpubkeys (zeroed),
+    // which is a consensus error.
+    if prevout_values.len() < tx.inputs.len() || prevout_script_pubkeys.len() < tx.inputs.len() {
+        return Err(crate::error::ConsensusError::InvalidSignature(
+            "prevout_values/prevout_script_pubkeys shorter than tx.inputs — cannot compute sighash"
+                .into(),
+        ));
+    }
+
     let input_type = sighash_type & 0x80; // ANYONECANPAY bit
     let output_type = if sighash_type == 0x00 {
         0x01
@@ -341,12 +351,18 @@ pub fn compute_taproot_signature_hash(
         })?;
         sigmsg.extend_from_slice(&input.prevout.hash);
         sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
-        let amount = prevout_values.get(input_index).copied().unwrap_or(0) as u64;
+        // prevout slice length was validated at function entry; indexing is safe here.
+        let amount = *prevout_values.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                "prevout_values index out of range for ANYONECANPAY".into(),
+            )
+        })? as u64;
         sigmsg.extend_from_slice(&amount.to_le_bytes());
-        let spk = prevout_script_pubkeys
-            .get(input_index)
-            .copied()
-            .unwrap_or(&[]);
+        let spk = *prevout_script_pubkeys.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                "prevout_script_pubkeys index out of range for ANYONECANPAY".into(),
+            )
+        })?;
         sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
         sigmsg.extend_from_slice(spk);
         sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
@@ -432,15 +448,19 @@ pub fn compute_tapscript_signature_hash(
         })?;
         sigmsg.extend_from_slice(&input.prevout.hash);
         sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
-        let amount = prevout_values.get(input_index).copied().unwrap_or(0) as u64;
+        let amount = *prevout_values.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                "prevout_values index out of range for script-path ANYONECANPAY".into(),
+            )
+        })? as u64;
         sigmsg.extend_from_slice(&amount.to_le_bytes());
-        let spk = prevout_script_pubkeys
-            .get(input_index)
-            .copied()
-            .unwrap_or(&[]);
+        let spk = *prevout_script_pubkeys.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                "prevout_script_pubkeys index out of range for script-path ANYONECANPAY".into(),
+            )
+        })?;
         sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
         sigmsg.extend_from_slice(spk);
-        let input = tx.inputs.get(input_index).unwrap();
         sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     } else {
         sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
@@ -691,14 +711,19 @@ mod tests {
             lock_time: 0,
         };
 
+        // Empty prevout slices with a non-empty input list must return Err (fail-closed).
+        // Previously this silently used zeros; the audit fix made it explicit.
         let prevouts: Vec<TransactionOutput> = vec![];
         let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
         let psp: Vec<&[u8]> = prevouts
             .iter()
             .map(|p| p.script_pubkey.as_slice())
             .collect();
-        let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01).unwrap();
-        assert_eq!(sig_hash.len(), 32);
+        let result = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01);
+        assert!(
+            result.is_err(),
+            "empty prevouts shorter than tx.inputs must return Err, not silently use zeros"
+        );
     }
 
     #[test]

@@ -26,7 +26,6 @@ mod reorganization_edge_cases;
 mod script_opcode_property_tests;
 #[cfg(any())]
 mod script_tests;
-#[cfg(any())]
 mod segwit_taproot_property_tests;
 #[cfg(any())]
 mod transaction_edge_cases;

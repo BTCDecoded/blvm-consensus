@@ -631,10 +631,12 @@ pub(crate) fn connect_block_inner<'a>(
     // block AND chain work is sufficient (nMinimumChainWork).  Bitcoin Core does NOT have a
     // two-week age check; we dropped that guard to keep parity and avoid inconsistency with
     // the per-signature short-circuit in script/signature.rs.
+    // Fail-closed: when chainwork is unknown we cannot confirm the chain meets
+    // the minimum-work threshold, so we must NOT skip signature verification.
     #[cfg(feature = "production")]
     let chainwork_ok = best_header_chainwork
         .map(|cw| cw >= crate::config::get_n_minimum_chain_work())
-        .unwrap_or(true);
+        .unwrap_or(false);
     #[cfg(feature = "production")]
     let skip_signatures = height < crate::block::get_assume_valid_height() && chainwork_ok;
 
