@@ -159,7 +159,7 @@ secp256k1-fallback = ["dep:secp256k1"]
 
 
 [dependencies.lru]
-version = "0.12"
+version = "0.16"
 optional = true
 
 [dependencies.crossbeam-queue]
