@@ -2556,12 +2556,15 @@ pub(crate) fn connect_block_inner<'a>(
                 None
             };
             if ibd_mode {
+                // IBD: utxo_set is a per-block scratch view discarded after this call.
+                // Skip all HashMap mutations; only BIP30 coinbase accounting is preserved.
                 script_cache::merge_overlay_changes_to_cache(
                     &additions_arc,
                     &deletions,
                     &mut utxo_set,
                     bip30_for_merge,
                     None,
+                    true,
                 );
             } else {
                 script_cache::merge_overlay_changes_to_cache(
@@ -2570,6 +2573,7 @@ pub(crate) fn connect_block_inner<'a>(
                     &mut utxo_set,
                     bip30_for_merge,
                     Some(&mut undo_log),
+                    false,
                 );
             }
             #[cfg(feature = "rayon")]

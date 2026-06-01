@@ -288,8 +288,13 @@ pub(super) fn insert_script_exec_cache_for_block(
     }
 }
 
-/// Merge overlay changes into cache. Updates bip30_index and optionally builds undo log.
-/// When `undo_log` is None (IBD mode), skips undo entry construction entirely.
+/// Merge overlay changes into the UTXO set and update BIP30 index / undo log.
+///
+/// `skip_utxo_set_mutation`: when `true` (IBD path), the `utxo_set` is a per-block
+/// scratch view that is discarded after this call. Skip all HashMap inserts/removes —
+/// only BIP30 coinbase deletion accounting is performed (via a non-mutating `get`).
+/// The non-IBD path (`false`) performs the full remove/insert cycle and builds the
+/// undo log entry. `undo_log` must be `None` when `skip_utxo_set_mutation` is `true`.
 #[cfg(feature = "production")]
 pub(super) fn merge_overlay_changes_to_cache(
     additions: &FxHashMap<OutPoint, std::sync::Arc<UTXO>>,
@@ -297,14 +302,21 @@ pub(super) fn merge_overlay_changes_to_cache(
     utxo_set: &mut UtxoSet,
     mut bip30_index: Option<&mut crate::bip_validation::Bip30Index>,
     mut undo_log: Option<&mut crate::reorganization::BlockUndoLog>,
+    skip_utxo_set_mutation: bool,
 ) {
     use crate::reorganization::UndoEntry;
 
     for del_key in deletions {
         let outpoint = crate::utxo_overlay::utxo_deletion_key_to_outpoint(del_key);
-        if let Some(arc) = utxo_set.remove(&outpoint) {
+        if skip_utxo_set_mutation {
+            // IBD fast path: utxo_set is discarded after this call.
+            // Use get (no remove) solely for the BIP30 coinbase check.
             if let Some(idx) = bip30_index.as_deref_mut() {
-                if arc.is_coinbase {
+                if utxo_set
+                    .get(&outpoint)
+                    .map(|arc| arc.is_coinbase)
+                    .unwrap_or(false)
+                {
                     if let std::collections::hash_map::Entry::Occupied(mut o) =
                         idx.entry(outpoint.hash)
                     {
@@ -315,24 +327,43 @@ pub(super) fn merge_overlay_changes_to_cache(
                     }
                 }
             }
-            if let Some(ref mut log) = undo_log {
-                log.entries.push(UndoEntry {
-                    outpoint,
-                    previous_utxo: Some(arc),
-                    new_utxo: None,
-                });
+            // undo_log is always None on the IBD path — nothing to do.
+        } else {
+            if let Some(arc) = utxo_set.remove(&outpoint) {
+                if let Some(idx) = bip30_index.as_deref_mut() {
+                    if arc.is_coinbase {
+                        if let std::collections::hash_map::Entry::Occupied(mut o) =
+                            idx.entry(outpoint.hash)
+                        {
+                            *o.get_mut() = o.get().saturating_sub(1);
+                            if *o.get() == 0 {
+                                o.remove();
+                            }
+                        }
+                    }
+                }
+                if let Some(ref mut log) = undo_log {
+                    log.entries.push(UndoEntry {
+                        outpoint,
+                        previous_utxo: Some(arc),
+                        new_utxo: None,
+                    });
+                }
             }
         }
     }
-    for (outpoint, arc) in additions {
-        if let Some(ref mut log) = undo_log {
-            log.entries.push(UndoEntry {
-                outpoint: *outpoint,
-                previous_utxo: None,
-                new_utxo: Some(std::sync::Arc::clone(arc)),
-            });
+
+    if !skip_utxo_set_mutation {
+        for (outpoint, arc) in additions {
+            if let Some(ref mut log) = undo_log {
+                log.entries.push(UndoEntry {
+                    outpoint: *outpoint,
+                    previous_utxo: None,
+                    new_utxo: Some(std::sync::Arc::clone(arc)),
+                });
+            }
+            utxo_set.insert(*outpoint, std::sync::Arc::clone(arc));
         }
-        utxo_set.insert(*outpoint, std::sync::Arc::clone(arc));
     }
 }
 
