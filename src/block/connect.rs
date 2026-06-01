@@ -608,12 +608,16 @@ pub(crate) fn connect_block_inner<'a>(
 
     // tx_ids already computed above (before BIP30) for #21/#2
 
+    // Compute block hash once — reused below by get_block_script_verify_flags_core and the
+    // assume_valid_hash ancestry check. Hoisted here to avoid a second serialize+hash256 at
+    // the exact assume_valid_height when both paths would otherwise run independently.
+    let serialized_header = crate::serialization::block::serialize_block_header(&block.header);
+    let block_hash: Hash = crate::crypto::OptimizedSha256::new().hash256(&serialized_header);
+
     // Hash-based ancestry verification: when assume_valid_hash is set and we're at
     // the assume-valid height, the block hash must match (reject otherwise).
     if let Some(expected_hash) = crate::config::get_assume_valid_hash() {
         if height == crate::block::get_assume_valid_height() {
-            let serialized = crate::serialization::block::serialize_block_header(&block.header);
-            let block_hash: [u8; 32] = crate::crypto::OptimizedSha256::new().hash256(&serialized);
             if block_hash != expected_hash {
                 return invalid_block_result(
                     utxo_set,
@@ -656,8 +660,7 @@ pub(crate) fn connect_block_inner<'a>(
     }
 
     // Pre-compute block script verify flags (Bitcoin Core GetBlockScriptFlags): one mask for all txs.
-    let serialized_header = crate::serialization::block::serialize_block_header(&block.header);
-    let block_hash: Hash = crate::crypto::OptimizedSha256::new().hash256(&serialized_header);
+    // block_hash is already computed above (hoisted to eliminate duplicate at assume_valid_height).
     let block_script_verify_flags =
         get_block_script_verify_flags_core(&block_hash, height, context, context.network);
 
