@@ -345,6 +345,7 @@ fn block_ibd_repro() {
         None,
         Some(std::sync::Arc::new(block.clone())),
         None,
+        None,
     )
     .expect("connect_block_ibd");
 

@@ -102,6 +102,8 @@ fn ibd_dump_connect_full_script_verify() {
         Network::Mainnet,
     );
 
+    // Pass None for best_header_chainwork to force full script verification
+    // regardless of assume-valid configuration (this test verifies script correctness).
     let (result, _new_utxo, _tx_ids, _delta) = connect_block_ibd(
         &block,
         &witnesses,
@@ -111,6 +113,7 @@ fn ibd_dump_connect_full_script_verify() {
         None,
         None,
         Some(Arc::new(block.clone())),
+        None,
         None,
     )
     .expect("connect_block_ibd");

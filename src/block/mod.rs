@@ -163,6 +163,11 @@ pub fn connect_block(
 /// * `bip30_index` - Optional index for O(1) BIP30 duplicate-coinbase check.
 /// * `precomputed_tx_ids` - Optional pre-computed tx IDs; when `Some`, skips hashing in consensus
 ///   and returns those IDs as `Cow::Borrowed` (no per-block `Vec` clone).
+/// * `best_header_chainwork` - Cumulative chainwork of the best known header, used to gate the
+///   assume-valid skip: `skip_signatures = height < assume_valid_height && chainwork_ok` where
+///   `chainwork_ok = chainwork >= n_minimum_chain_work`. Pass `Some(0)` from the IBD node path
+///   (since `n_minimum_chain_work` defaults to 0, any `Some` value enables assume-valid). Pass
+///   `None` in tests that require full script verification regardless of assume-valid.
 #[spec_locked("5.3", "ConnectBlock")]
 pub fn connect_block_ibd<'a>(
     block: &Block,
@@ -174,6 +179,7 @@ pub fn connect_block_ibd<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
+    best_header_chainwork: Option<u128>,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -191,7 +197,7 @@ pub fn connect_block_ibd<'a>(
         precomputed_tx_ids,
         block_arc,
         true,
-        None,
+        best_header_chainwork,
     )?;
     Ok((result, new_utxo_set, tx_ids, utxo_delta))
 }

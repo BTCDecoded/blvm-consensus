@@ -94,6 +94,7 @@ fn validate_once(
         None,
         Some(Arc::clone(block_arc)),
         None,
+        None,
     )
     .expect("connect_block_ibd");
     let elapsed = t.elapsed().as_secs_f64() * 1000.0;
@@ -132,6 +133,7 @@ fn validate_call_only(
         precomputed_tx_ids,
         Some(Arc::clone(block_arc)),
         witnesses_arc,
+        None,
     )
     .expect("connect_block_ibd");
     let elapsed = t.elapsed().as_secs_f64() * 1000.0;
@@ -166,6 +168,7 @@ fn validate_once_timed(
         None,
         None,
         Some(Arc::clone(block_arc)),
+        None,
         None,
     )
     .expect("connect_block_ibd");
@@ -210,6 +213,7 @@ fn validate_with_txids(
         None,
         Some(tx_ids),
         Some(Arc::clone(block_arc)),
+        None,
         None,
     )
     .expect("connect_block_ibd");
