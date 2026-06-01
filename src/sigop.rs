@@ -165,6 +165,12 @@ pub fn count_tapscript_sigops(script: &ByteString) -> u32 {
 }
 
 /// Orange Paper 5.2.1: P2SH scriptPubKey pattern (consensus `IsP2SH`-style predicate).
+///
+/// Structural invariant: if the function returns `true`, the script has exactly 23 bytes
+/// (OP_HASH160 + 0x14 push + 20-byte hash + OP_EQUAL).  When length ≠ 23 the first AND
+/// condition short-circuits to `false`, so `result == true` implies `script.len() == 23`.
+#[spec_locked("5.2.1", "IsP2SH")]
+#[blvm_spec_lock::ensures(result == false || script.len() == 23)]
 pub fn is_pay_to_script_hash(script: &[u8]) -> bool {
     script.len() == 23
         && script[0] == OP_HASH160  // OP_HASH160

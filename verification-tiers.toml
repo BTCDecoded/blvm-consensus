@@ -1,0 +1,35 @@
+# Verification tiers for blvm-consensus spec-lock CI gating.
+# Consumed by .github/workflows/ci.yml to classify spec-lock results.
+# Verification is Z3 via blvm-spec-lock only.
+#
+# Tier 1 — Full Z3 body proof required (pure math, simple bodies).
+#   CI gate: any Tier-1 function with status=partial and
+#   partial_reason=unsupported_translation is flagged (informational;
+#   blocks merge once Track A translator improvements close all gaps).
+#
+# Tier 2 — Invariant-only + proptest oracle (complex bodies, tractable invariants).
+#   Partial allowed; proptest must cover invariants.
+#
+# Tier 3 — Differential equivalence only (crypto primitives, FFI boundaries).
+#   No spec_locked required; equivalence harnesses validate against reference.
+
+[tier1]
+# Full Z3/Kani body proof required; unsupported_translation = CI fail
+functions = [
+  "get_block_subsidy",
+  "expand_target",
+  "compress_target",
+  "check_proof_of_work",
+  "get_next_work_required",
+  "compute_block_tx_ids_spec",
+  "calculate_chain_work",
+  "should_reorganize",
+]
+
+[tier2]
+# spec_locked with invariants; Partial allowed; proptest must cover invariants
+sections = ["5.3", "5.2", "2.2.1", "5.4"]
+
+[tier3]
+# Differential equivalence harnesses; no spec_locked required
+modules = ["secp256k1_backend", "utxo_overlay"]

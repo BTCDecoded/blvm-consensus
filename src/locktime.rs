@@ -19,8 +19,31 @@ pub enum LocktimeType {
 /// Determine locktime type from value
 ///
 /// BIP65/BIP68: If locktime < 500000000, it's block height; otherwise it's Unix timestamp.
+///
+/// Contracts express the two complementary classification invariants:
+/// - below LOCKTIME_THRESHOLD ⟹ BlockHeight
+/// - at or above LOCKTIME_THRESHOLD ⟹ Timestamp
 #[inline]
+#[spec_locked("5.4.7", "GetLocktimeType")]
+#[blvm_spec_lock::requires(locktime < LOCKTIME_THRESHOLD)]
+#[blvm_spec_lock::ensures(result == LocktimeType::BlockHeight)]
 pub fn get_locktime_type(locktime: u32) -> LocktimeType {
+    if locktime < LOCKTIME_THRESHOLD {
+        LocktimeType::BlockHeight
+    } else {
+        LocktimeType::Timestamp
+    }
+}
+
+/// Timestamp branch of GetLocktimeType: when locktime >= LOCKTIME_THRESHOLD, returns Timestamp.
+///
+/// Symmetric spec witness to `get_locktime_type` (block-height branch).
+/// The two together give a complete two-sided specification of locktime classification.
+#[inline]
+#[spec_locked("5.4.7", "GetLocktimeType")]
+#[blvm_spec_lock::requires(locktime >= LOCKTIME_THRESHOLD)]
+#[blvm_spec_lock::ensures(result == LocktimeType::Timestamp)]
+pub fn get_locktime_type_timestamp(locktime: u32) -> LocktimeType {
     if locktime < LOCKTIME_THRESHOLD {
         LocktimeType::BlockHeight
     } else {
@@ -31,7 +54,10 @@ pub fn get_locktime_type(locktime: u32) -> LocktimeType {
 /// BIP65 CLTV core check: validates that transaction locktime satisfies the script requirement.
 /// Returns true if valid: tx_locktime != 0, types match, and tx_locktime >= stack_locktime.
 #[inline]
+/// BIP65 safety: a transaction with nLockTime == 0 can never satisfy any CLTV script.
+/// If result is true, the first AND-term `tx_locktime != 0` must have been true.
 #[spec_locked("5.4.7", "BIP65Check")]
+#[blvm_spec_lock::ensures(result == false || tx_locktime != 0)]
 pub fn check_bip65(tx_locktime: u32, stack_locktime: u32) -> bool {
     tx_locktime != 0
         && locktime_types_match(tx_locktime, stack_locktime)
@@ -136,8 +162,12 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
 /// Bit 22 (0x00400000) indicates locktime type:
 /// - 0 = block-based relative locktime
 /// - 1 = time-based relative locktime
+///
+/// BIP68 invariant: when the type flag is set, bit 22 (0x00400000 = 4194304) is set,
+/// so sequence ≥ 4194304.  Z3 verifies: result == true ⟹ sequence ≥ 4194304.
 #[inline]
 #[spec_locked("5.5", "ExtractSequenceTypeFlag")]
+#[blvm_spec_lock::ensures(result == false || sequence >= 4194304)]
 pub fn extract_sequence_type_flag(sequence: u32) -> bool {
     (sequence & 0x00400000) != 0
 }
@@ -147,6 +177,7 @@ pub fn extract_sequence_type_flag(sequence: u32) -> bool {
 /// Masks out flags (bits 31, 22) and returns only the locktime value (bits 0-15).
 #[inline]
 #[spec_locked("5.5", "ExtractSequenceLocktimeValue")]
+#[blvm_spec_lock::ensures(result <= 65535)]
 pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
     (sequence & 0x0000ffff) as u16
 }
@@ -154,8 +185,12 @@ pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
 /// BIP68: Check if sequence number has disabled bit set
 ///
 /// Bit 31 (0x80000000) disables relative locktime when set.
+///
+/// BIP68 invariant: when the disable bit is set, bit 31 is set, so sequence > i32::MAX
+/// (any u32 value ≥ 2^31 satisfies this).  Z3 verifies: result == true ⟹ sequence > 2147483647.
 #[inline]
 #[spec_locked("5.5", "IsSequenceDisabled")]
+#[blvm_spec_lock::ensures(result == false || sequence > 2147483647)]
 pub fn is_sequence_disabled(sequence: u32) -> bool {
     (sequence & 0x80000000) != 0
 }

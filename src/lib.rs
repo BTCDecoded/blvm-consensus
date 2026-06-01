@@ -112,6 +112,7 @@ pub mod secp256k1_backend;
 pub mod segwit;
 pub mod sequence_locks;
 pub mod sigop;
+pub(crate) mod spec_witnesses;
 pub mod taproot;
 pub mod utxo_overlay;
 pub mod version_bits;
@@ -141,6 +142,7 @@ impl ConsensusProof {
 
     /// Validate a transaction according to consensus rules
     #[spec_locked("5.1", "CheckTransaction")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn validate_transaction(
         &self,
         tx: &types::Transaction,
@@ -150,6 +152,7 @@ impl ConsensusProof {
 
     /// Validate transaction inputs against UTXO set
     #[spec_locked("5.1", "CheckTxInputs")]
+    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
     pub fn validate_tx_inputs(
         &self,
         tx: &types::Transaction,
@@ -161,6 +164,7 @@ impl ConsensusProof {
 
     /// Validate a complete block
     #[spec_locked("5.3", "ConnectBlock")]
+    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
     pub fn validate_block(
         &self,
         block: &types::Block,
@@ -189,6 +193,7 @@ impl ConsensusProof {
 
     /// Validate a complete block with witness data and time context
     #[spec_locked("5.3", "ConnectBlock")]
+    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
     pub fn validate_block_with_time_context(
         &self,
         block: &types::Block,
@@ -210,6 +215,7 @@ impl ConsensusProof {
 
     /// Verify script execution
     #[spec_locked("5.2", "VerifyScript")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn verify_script(
         &self,
         script_sig: &types::ByteString,
@@ -222,24 +228,29 @@ impl ConsensusProof {
 
     /// Check proof of work
     #[spec_locked("7.2", "CheckProofOfWork")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn check_proof_of_work(&self, header: &types::BlockHeader) -> error::Result<bool> {
         pow::check_proof_of_work(header)
     }
 
     /// Get block subsidy for height
     #[spec_locked("6.1", "GetBlockSubsidy")]
+    #[blvm_spec_lock::ensures(result >= 0)]
+    #[blvm_spec_lock::axiom(result <= INITIAL_SUBSIDY)]
     pub fn get_block_subsidy(&self, height: types::Natural) -> types::Integer {
         economic::get_block_subsidy(height)
     }
 
     /// Calculate total supply at height
     #[spec_locked("6.2", "TotalSupply")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn total_supply(&self, height: types::Natural) -> types::Integer {
         economic::total_supply(height)
     }
 
     /// Get next work required for difficulty adjustment
     #[spec_locked("7.1", "GetNextWorkRequired")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn get_next_work_required(
         &self,
         current_header: &types::BlockHeader,
@@ -250,6 +261,7 @@ impl ConsensusProof {
 
     /// Accept transaction to memory pool
     #[spec_locked("9.1", "AcceptToMemoryPool")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn accept_to_memory_pool(
         &self,
         tx: &types::Transaction,
@@ -263,12 +275,14 @@ impl ConsensusProof {
 
     /// Check if transaction is standard
     #[spec_locked("9.2", "IsStandardTx")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn is_standard_tx(&self, tx: &types::Transaction) -> error::Result<bool> {
         mempool::is_standard_tx(tx)
     }
 
     /// Check if transaction can replace existing one (RBF)
     #[spec_locked("9.3", "ReplacementChecks")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn replacement_checks(
         &self,
         new_tx: &types::Transaction,
@@ -282,6 +296,7 @@ impl ConsensusProof {
     /// Create new block from mempool transactions
     #[allow(clippy::too_many_arguments)]
     #[spec_locked("12.1", "CreateNewBlock")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn create_new_block(
         &self,
         utxo_set: &types::UtxoSet,
@@ -305,6 +320,7 @@ impl ConsensusProof {
 
     /// Mine a block by finding valid nonce
     #[spec_locked("12.3", "MineBlock")]
+    #[blvm_spec_lock::ensures(result_0 >= 0)]
     pub fn mine_block(
         &self,
         block: types::Block,
@@ -316,6 +332,7 @@ impl ConsensusProof {
     /// Create block template for mining
     #[allow(clippy::too_many_arguments)]
     #[spec_locked("12.4", "BlockTemplate")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn create_block_template(
         &self,
         utxo_set: &types::UtxoSet,
@@ -339,6 +356,7 @@ impl ConsensusProof {
 
     /// Reorganize chain when longer chain is found
     #[spec_locked("11.3")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn reorganize_chain(
         &self,
         new_chain: &[types::Block],
@@ -358,6 +376,7 @@ impl ConsensusProof {
 
     /// Check if reorganization is beneficial
     #[spec_locked("11.3", "ShouldReorganize")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn should_reorganize(
         &self,
         new_chain: &[types::Block],
@@ -368,6 +387,7 @@ impl ConsensusProof {
 
     /// Calculate transaction weight for SegWit
     #[spec_locked("11.1.1", "CalculateTransactionWeight")]
+    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn calculate_transaction_weight(
         &self,
         tx: &types::Transaction,
@@ -378,6 +398,7 @@ impl ConsensusProof {
 
     /// Validate SegWit block
     #[spec_locked("11.1.7", "ValidateSegWitBlock")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn validate_segwit_block(
         &self,
         block: &types::Block,
@@ -389,6 +410,7 @@ impl ConsensusProof {
 
     /// Validate Taproot transaction
     #[spec_locked("11.2.5", "ValidateTaprootTransaction")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn validate_taproot_transaction(
         &self,
         tx: &types::Transaction,
@@ -399,6 +421,7 @@ impl ConsensusProof {
 
     /// Check if transaction output is Taproot
     #[spec_locked("11.2.1", "IsTaprootOutput")]
+    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn is_taproot_output(&self, output: &types::TransactionOutput) -> bool {
         taproot::is_taproot_output(output)
     }

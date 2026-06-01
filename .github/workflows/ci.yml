@@ -368,6 +368,10 @@ jobs:
           SPEC_ARGS="--crate-path ."
           if [ -f "../blvm-spec/PROTOCOL.md" ] && [ -f "../blvm-spec/ARCHITECTURE.md" ]; then
             SPEC_ARGS="$SPEC_ARGS --spec-path ../blvm-spec/PROTOCOL.md ../blvm-spec/ARCHITECTURE.md"
+            # VERIFIED_FORMULAS.md sidecar: type-level stubs split off from PROTOCOL.md
+            if [ -f "../blvm-spec/VERIFIED_FORMULAS.md" ]; then
+              SPEC_ARGS="$SPEC_ARGS ../blvm-spec/VERIFIED_FORMULAS.md"
+            fi
           elif [ -f "../blvm-spec/THE_ORANGE_PAPER.md" ]; then
             SPEC_ARGS="$SPEC_ARGS --spec-path ../blvm-spec/THE_ORANGE_PAPER.md"
           else
@@ -389,6 +393,8 @@ jobs:
           echo "🔒 Running blvm-spec-lock verify (merged F_* registry gate + #[spec_locked] Rust rows)..."
           export SPEC_LOCK_STRICT=1
           export SPEC_LOCK_Z3_TIMEOUT_SECS="${SPEC_LOCK_Z3_TIMEOUT_SECS:-120}"
+          # F: ensure full validation paths (no assume-valid shortcuts in consensus functions)
+          export BLVM_ASSUME_VALID_HEIGHT=0
           cargo-spec-lock verify $SPEC_ARGS --timeout 120 --json-out spec_lock_verify.json \
             --format human 2>&1 | tee spec_lock_output.txt
           EXIT_CODE=${PIPESTATUS[0]}
@@ -403,6 +409,9 @@ jobs:
           COV_ARGS="--crate-path . --format json"
           if [ -f "../blvm-spec/PROTOCOL.md" ] && [ -f "../blvm-spec/ARCHITECTURE.md" ]; then
             COV_ARGS="$COV_ARGS --spec-path ../blvm-spec/PROTOCOL.md ../blvm-spec/ARCHITECTURE.md"
+            if [ -f "../blvm-spec/VERIFIED_FORMULAS.md" ]; then
+              COV_ARGS="$COV_ARGS ../blvm-spec/VERIFIED_FORMULAS.md"
+            fi
           elif [ -f "../blvm-spec/THE_ORANGE_PAPER.md" ]; then
             COV_ARGS="$COV_ARGS --spec-path ../blvm-spec/THE_ORANGE_PAPER.md"
           else
@@ -442,6 +451,107 @@ jobs:
             echo "spec_meta_json_version=${SPEC_META_JSON_VERSION}"
           } > spec_lock_verify_meta.env
           echo "  Tool: cargo-spec-lock ${SPEC_LOCK_TOOL_VERSION}, spec HEAD: ${SPEC_LOCK_SPEC_REVISION}"
+
+          # ── A1: Tier-1 unsupported_translation gate ──────────────────────
+          # Count Tier-1 functions with body-translation gaps (unsupported_translation).
+          # Tier-1 list mirrors verification-tiers.toml [tier1].functions.
+          TIER1_FUNCTIONS='["get_block_subsidy","expand_target","compress_target","check_proof_of_work","get_next_work_required","compute_block_tx_ids_spec","calculate_chain_work","should_reorganize"]'
+          BODY_GAP=$(jq --argjson tier1 "$TIER1_FUNCTIONS" '
+            [.results[] |
+              select(.status == "partial") |
+              select(.detail.partial_reason == "unsupported_translation") |
+              select(.function as $f | $tier1 | index($f) != null)
+            ] | length' spec_lock_verify.json 2>/dev/null || echo 0)
+          echo "tier1_body_translation_gaps=$BODY_GAP" >> $GITHUB_ENV
+          echo "📊 Tier-1 body-translation gaps (unsupported_translation): $BODY_GAP"
+          # Non-blocking informational gate — will enforce 0 once Track E completes.
+          if [ "$BODY_GAP" -gt 0 ]; then
+            echo "⚠️  $BODY_GAP Tier-1 function(s) have unsupported_translation gaps"
+          else
+            echo "✅ No Tier-1 unsupported_translation gaps"
+          fi
+          # ─────────────────────────────────────────────────────────────────
+
+          # ── A2: Tier-1 body_translated=false gate ────────────────────────
+          # Passed functions whose proof relied only on type-level axioms (not the
+          # function body) have body_translated=false.  For Tier-1 we want every
+          # function fully proved with body semantics (body_translated=true).
+          TIER1_TYPE_ONLY=$(jq --argjson tier1 "$TIER1_FUNCTIONS" '
+            [.results[] |
+              select(.status == "passed") |
+              select(.body_translated == false) |
+              select(.function as $f | $tier1 | index($f) != null)
+            ] | length' spec_lock_verify.json 2>/dev/null || echo 0)
+          echo "tier1_type_only_passes=$TIER1_TYPE_ONLY" >> $GITHUB_ENV
+          echo "📊 Tier-1 type-only passes (body_translated=false): $TIER1_TYPE_ONLY"
+          if [ "$TIER1_TYPE_ONLY" -gt 0 ]; then
+            echo "⚠️  $TIER1_TYPE_ONLY Tier-1 function(s) passed on type-level contracts only (body not used in proof)"
+            jq --argjson tier1 "$TIER1_FUNCTIONS" '[.results[] | select(.status=="passed") | select(.body_translated==false) | select(.function as $f | $tier1 | index($f) != null) | .function]' spec_lock_verify.json 2>/dev/null || true
+          else
+            echo "✅ All Tier-1 functions proved with body semantics (body_translated=true)"
+          fi
+          # ─────────────────────────────────────────────────────────────────
+
+          # ── E1: Permanent-partial ceiling gate ───────────────────────────
+          # Track total partial functions; fail if count exceeds the baseline.
+          #
+          # Baseline history:
+          #   0  → pre-Sprint-7 (213/0/0, type-level contracts only)
+          #   48 → post-Sprint-7 Properties enrichment (2026-05-30): converting
+          #        Properties bullets to result= form surfaced contracts for 48
+          #        translator-blocked functions (Result<T>/Option<T> returns,
+          #        complex validation, script execution).
+          #   45 → post-Sprint-8 Properties refinement (2026-05-31): rewrote 3 spec
+          #        bullets for is_coinbase, evaluate_sequence_locks, and
+          #        is_minimal_if_condition from math-subject form to prose-first form,
+          #        eliminating 3 false-positive Z3 failures caused by struct-field
+          #        access and unresolvable spec variable names (min_h/min_t) that the
+          #        translator could not model.
+          #   43 → post-Sprint-9 hex-literal fix (2026-05-31): fixed translate_literal
+          #        and extract_int_literal to parse hex literals (0xff, 0x0000_ffff)
+          #        and underscore separators; added "rem" to Z3_BUILTIN_PREFIX and
+          #        CONCRETE_MARKERS so that (rem …) body formulas are recognised as
+          #        concrete rather than vacuous. Unlocked body_translated=yes for 2
+          #        spec witnesses (_verify_f_expand_target_exponent,
+          #        _verify_f_sequence_locktime_mask) and converted 2 more functions
+          #        from partial to passed.
+          #    0 → post-Sprint-10 complete closure (2026-05-31): three compounding
+          #        spec_enrich bugs resolved: (1) formula-anchor functions lost their
+          #        manually-written #[ensures] when the spec LaTeX body was partially
+          #        parseable into an uninterpretable UF contract (bip30/bip34 witnesses);
+          #        (2) non-formula-anchor functions with all-unparseable spec contracts
+          #        replaced manually-written #[ensures] with an "no parseable spec
+          #        contracts" placeholder; (3) BIP30/BIP34 formula bodies used \forall
+          #        quantifiers. PROTOCOL.md: rewrite F_BIP30DeactivationPass +
+          #        F_BIP34PreActivationPass formula bodies to prose-first. Result: 213/0/0
+          #        — but with ARCHITECTURE.md excluded (§13.4 conflict masked enrichment).
+          #   25 → post-Sprint-11 enrichment fix (2026-05-31): §13.4 section ID conflict
+          #        between ARCHITECTURE.md ("Peer Consensus Protocol") and
+          #        VERIFIED_FORMULAS.md ("Boolean-Valued Function Results") caused
+          #        SpecParser::merge to fail, silently disabling all spec enrichment and
+          #        the F_* gate for every verify run that included all 3 spec files.
+          #        verify exited 0 (false green). Fixed: renamed sidecar sections to
+          #        §13.6/§13.7 (no conflict); verify now fails closed on merge error.
+          #        With enrichment active, 25 functions remain partial — all genuine Z3
+          #        translator limits (Result<T>/Option<T> returns, sigop counting, script
+          #        execution, PoW adjustment, mining internals). 0 failures. Ceiling = 25.
+          #    0 → post-Sprint-12 closure (2026-05-31): callee postcond propagation,
+          #        spec enrich fixes, PROTOCOL Properties refactor. Result: 213/0/0.
+          PARTIAL_BASELINE=0
+          PARTIAL_COUNT=$(jq '[.results[] | select(.status == "partial")] | length' \
+            spec_lock_verify.json 2>/dev/null || echo 0)
+          echo "spec_lock_partial_count=$PARTIAL_COUNT" >> $GITHUB_ENV
+          echo "📊 Partial functions: $PARTIAL_COUNT (ceiling: $PARTIAL_BASELINE)"
+          if [ "$PARTIAL_COUNT" -gt "$PARTIAL_BASELINE" ]; then
+            echo "❌ Partial count $PARTIAL_COUNT exceeds ceiling $PARTIAL_BASELINE — new translation gaps introduced"
+            exit 1
+          else
+            echo "✅ Partial count within ceiling"
+          fi
+          # ─────────────────────────────────────────────────────────────────
+
+          echo "spec_lock_assume_valid_height=0" >> $GITHUB_ENV
+          echo "✅ BLVM_ASSUME_VALID_HEIGHT=0 confirmed (full validation paths, no assume-valid shortcuts)"
       
       - name: Upload spec-lock coverage JSON
         if: always()

@@ -198,7 +198,10 @@ pub fn parse_taproot_script_path_witness(
 }
 
 /// Check if transaction output is Taproot
+/// BIP341 invariant: a Taproot output has a P2TR scriptPubKey of exactly 34 bytes
+/// (OP_1 + 0x20 push + 32-byte x-only pubkey).  If this returns true, the length is 34.
 #[spec_locked("11.2.1", "IsTaprootOutput")]
+#[blvm_spec_lock::ensures(result == false || output.script_pubkey.len() == 34)]
 pub fn is_taproot_output(output: &TransactionOutput) -> bool {
     validate_taproot_script(&output.script_pubkey).unwrap_or(false)
 }

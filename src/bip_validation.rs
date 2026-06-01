@@ -158,7 +158,6 @@ pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActiv
 /// (`BIP54_ACTIVATION_*`). This allows the node to run BIP54 when miners are signalling
 /// without configuring a fixed activation height.
 #[spec_locked("5.4.9", "IsBip54ActiveAt")]
-#[blvm_spec_lock::ensures(result == true || result == false)]
 pub fn is_bip54_active_at(
     height: Natural,
     network: crate::types::Network,
@@ -182,7 +181,6 @@ pub fn is_bip54_active_at(
 /// use `connect_block_ibd` with `bip54_activation_override` set from
 /// `blvm_consensus::version_bits::activation_height_from_headers` (e.g. with `version_bits::bip54_deployment_mainnet()`).
 #[spec_locked("5.4.9", "IsBip54Active")]
-#[blvm_spec_lock::ensures(result == true || result == false)]
 pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool {
     is_bip54_active_at(height, network, None)
 }
@@ -191,7 +189,6 @@ pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool 
 ///
 /// Orange Paper §5.4.9. After BIP54 activation, coinbase must have lock_time == height - 13 and sequence != 0xffff_ffff.
 #[spec_locked("5.4.9", "CheckBip54Coinbase")]
-#[blvm_spec_lock::ensures(result == true || result == false)]
 pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
     let required_lock_time = height.saturating_sub(13);
     if coinbase.lock_time != required_lock_time {

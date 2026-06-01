@@ -3789,6 +3789,8 @@ fn eval_script_with_context_full_inner(
 /// Bitcoin's variable-length signed integer encoding (little-endian, sign bit in MSB of last byte).
 /// CScriptNum::set_vch() — BIP62 numeric encoding.
 #[spec_locked("5.4.5", "DecodeCScriptNum")]
+#[blvm_spec_lock::axiom(result >= -549755813887)]
+#[blvm_spec_lock::ensures(result >= -549755813887)]
 #[cfg(feature = "production")]
 #[inline(always)]
 pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {

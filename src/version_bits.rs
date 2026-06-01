@@ -3,6 +3,8 @@
 //! Computes soft-fork activation height from block header version bits so the node
 //! can enforce a fork when miners signal (e.g. BIP54) without a fixed activation height.
 
+use blvm_spec_lock::spec_locked;
+
 use crate::types::BlockHeader;
 
 /// BIP9 lock-in period (2016 blocks).
@@ -27,6 +29,8 @@ pub struct Bip9Deployment {
 /// Uses bit 15 and no time bounds so that once 95% of blocks in a 2016-block period
 /// signal the bit, BIP54 is considered active. If the network assigns a different bit
 /// or timeline, pass a custom `Bip9Deployment` to `activation_height_from_headers` instead.
+#[spec_locked("5.4.9", "Bip54DeploymentMainnet")]
+#[blvm_spec_lock::ensures(result.bit == 15)]
 pub fn bip54_deployment_mainnet() -> Bip9Deployment {
     Bip9Deployment {
         bit: 15,
@@ -39,6 +43,8 @@ pub fn bip54_deployment_mainnet() -> Bip9Deployment {
 ///
 /// Testnet uses the same bit index but no timeout restriction so IBD can run
 /// on any version-bits signalling period without artificial expiry.
+#[spec_locked("5.4.9", "Bip54DeploymentTestnet")]
+#[blvm_spec_lock::ensures(result.bit == 15)]
 pub fn bip54_deployment_testnet() -> Bip9Deployment {
     Bip9Deployment {
         bit: 15,
@@ -51,6 +57,8 @@ pub fn bip54_deployment_testnet() -> Bip9Deployment {
 ///
 /// Regtest activates immediately (bit 15, no time window) so tests using
 /// regtest blocks with the BIP54 bit set pass version-bits scanning.
+#[spec_locked("5.4.9", "Bip54DeploymentRegtest")]
+#[blvm_spec_lock::ensures(result.bit == 15)]
 pub fn bip54_deployment_regtest() -> Bip9Deployment {
     Bip9Deployment {
         bit: 15,
@@ -63,6 +71,8 @@ pub fn bip54_deployment_regtest() -> Bip9Deployment {
 ///
 /// Prefer this over the network-specific variants so that parallel-IBD and block
 /// processing automatically use the right deployment table.
+#[spec_locked("5.4.9", "Bip54DeploymentForNetwork")]
+#[blvm_spec_lock::ensures(result.bit == 15)]
 pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Deployment {
     match network {
         crate::types::Network::Mainnet => bip54_deployment_mainnet(),

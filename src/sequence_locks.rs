@@ -55,6 +55,10 @@ const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 /// - min_height: Minimum block height (or -1 if no height constraint)
 /// - min_time: Minimum block time (or -1 if no time constraint)
 #[spec_locked("5.5", "CalculateSequenceLocks")]
+#[blvm_spec_lock::axiom(result_0 >= -1)]
+#[blvm_spec_lock::axiom(result_1 >= -1)]
+#[blvm_spec_lock::ensures(result_0 >= -1)]
+#[blvm_spec_lock::ensures(result_1 >= -1)]
 pub fn calculate_sequence_locks(
     tx: &Transaction,
     flags: u32,

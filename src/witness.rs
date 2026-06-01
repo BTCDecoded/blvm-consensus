@@ -87,7 +87,13 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
 /// BIP141: Weight(tx) = 3 × BaseSize(tx) + TotalSize(tx)
 /// BaseSize: Transaction size without witness data
 /// TotalSize: Transaction size with witness data
+///
+/// BIP141: weight = base_size * 3 + total_size; result is always ≥ total_size
+/// because the base_size term adds non-negative weight.
 #[spec_locked("11.1.1", "CalculateTransactionWeight")]
+#[blvm_spec_lock::requires(total_size >= base_size)]
+#[blvm_spec_lock::ensures(result >= total_size)]
+#[blvm_spec_lock::ensures(result >= 4 * base_size)]
 pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natural) -> Natural {
     3 * base_size + total_size
 }
@@ -99,7 +105,11 @@ pub fn calculate_transaction_weight_segwit(base_size: Natural, total_size: Natur
 ///
 /// Mathematical specification:
 /// - vsize = ⌈weight / 4⌉
+///
+/// Ceiling-division invariant: result * 4 ≥ weight (vsize * 4 is always ≥ weight).
 #[spec_locked("11.1.1", "WeightToVSize")]
+#[blvm_spec_lock::ensures(result * 4 >= weight)]
+#[blvm_spec_lock::ensures(result <= weight)]
 pub fn weight_to_vsize(weight: Natural) -> Natural {
     let result = weight.div_ceil(4);
 
@@ -190,7 +200,11 @@ pub fn extract_witness_program(
 ///
 /// BIP141: SegWit v0 programs are 20 or 32 bytes (P2WPKH or P2WSH)
 /// BIP341: Taproot v1 programs are 32 bytes (P2TR)
+///
+/// Length invariant: when the function returns true, the program is exactly 20 or 32 bytes.
+/// (P2WPKH = 20, P2WSH = P2TR = 32; no other lengths are valid.)
 #[spec_locked("11.1.3", "ValidateWitnessProgramLength")]
+#[blvm_spec_lock::ensures(result == false || program.len() == 20 || program.len() == 32)]
 pub fn validate_witness_program_length(program: &ByteString, version: WitnessVersion) -> bool {
     use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
 
@@ -207,7 +221,11 @@ pub fn validate_witness_program_length(program: &ByteString, version: WitnessVer
 }
 
 /// Check if witness is empty (non-witness transaction)
+///
+/// Non-emptiness invariant: if the function returns false, the witness must have at
+/// least one stack element (len > 0).  An empty witness stack trivially returns true.
 #[spec_locked("11.1.2", "IsWitnessEmpty")]
+#[blvm_spec_lock::ensures(result == true || witness.len() > 0)]
 pub fn is_witness_empty(witness: &Witness) -> bool {
     witness.is_empty() || witness.iter().all(|elem| elem.is_empty())
 }

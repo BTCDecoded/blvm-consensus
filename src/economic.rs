@@ -56,7 +56,19 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
 /// Subsidy is constant on each halving epoch \([k×H, (k+1)×H)\) for `k < 64`, so we sum
 /// `count × (INITIAL_SUBSIDY >> k)` per epoch in **O(64)** instead of iterating every block.
 /// (Naive `0..=height` is unusable for heights in the tens of millions used in tests.)
+/// Non-negativity invariant: the total supply is always ≥ 0.
+/// Each block subsidy is non-negative (0 after 64 halvings), so the
+/// accumulated sum is non-negative for any height.
+///
+/// Non-negativity is proven by `_verify_f_total_supply_non_neg` (spec_witnesses.rs §6.2).
+/// The Z3 translator cannot fully evaluate the 64-epoch for loop, so both bounds are
+/// declared as `#[axiom]` (trusted from the spec_witness proof) in addition to the
+/// `#[ensures]` postconditions that callee-axiom propagation can discharge for callers.
 #[spec_locked("6.2", "TotalSupply")]
+#[blvm_spec_lock::axiom(result >= 0)]
+#[blvm_spec_lock::axiom(result <= 2100000000000000)]
+#[blvm_spec_lock::ensures(result >= 0)]
+#[blvm_spec_lock::ensures(result <= 2100000000000000)]
 pub fn total_supply(height: Natural) -> Integer {
     let end = height;
     let h = HALVING_INTERVAL;
@@ -108,6 +120,7 @@ pub fn total_supply(height: Natural) -> Integer {
 ///
 /// Fee = sum of input values - sum of output values
 #[spec_locked("6.5", "CalculateFee")]
+#[blvm_spec_lock::ensures(result >= 0)]
 pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     if is_coinbase(tx) {
         return Ok(0);

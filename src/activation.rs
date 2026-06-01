@@ -4,6 +4,8 @@
 //! (built by the node from constants, version-bits, and config overrides)
 //! without passing per-BIP parameters.
 
+use blvm_spec_lock::spec_locked;
+
 use crate::constants::*;
 use crate::types::{ForkId, Network};
 
@@ -163,6 +165,8 @@ impl ForkActivationTable {
 }
 
 /// Taproot (BIP341) activation height for `network` (Core `chainparams` mainnet vs testnet3).
+#[spec_locked("11.2", "TaprootActivationHeight")]
+#[blvm_spec_lock::ensures(result == 0 || result == 709632 || result == 2011968)]
 #[inline]
 pub fn taproot_activation_height(network: Network) -> u64 {
     match network {
