@@ -617,16 +617,14 @@ pub(crate) fn connect_block_inner<'a>(
     // Hash-based ancestry verification: when assume_valid_hash is set and we're at
     // the assume-valid height, the block hash must match (reject otherwise).
     if let Some(expected_hash) = crate::config::get_assume_valid_hash() {
-        if height == crate::block::get_assume_valid_height() {
-            if block_hash != expected_hash {
-                return invalid_block_result(
-                    utxo_set,
-                    &[],
-                    format!(
-                        "Assume-valid block hash mismatch at height {height}: expected {expected_hash:?}, got {block_hash:?}",
-                    ),
-                );
-            }
+        if height == crate::block::get_assume_valid_height() && block_hash != expected_hash {
+            return invalid_block_result(
+                utxo_set,
+                &[],
+                format!(
+                    "Assume-valid block hash mismatch at height {height}: expected {expected_hash:?}, got {block_hash:?}",
+                ),
+            );
         }
     }
 
@@ -661,8 +659,13 @@ pub(crate) fn connect_block_inner<'a>(
 
     // Pre-compute block script verify flags (Bitcoin Core GetBlockScriptFlags): one mask for all txs.
     // block_hash is already computed above (hoisted to eliminate duplicate at assume_valid_height).
-    let block_script_verify_flags =
-        get_block_script_verify_flags_core(&block_hash, height, context, context.network);
+    // Under assume-valid (`skip_signatures=true`) no script verification is performed, so we skip
+    // the table lookup entirely — the value is unused in that path.
+    let block_script_verify_flags = if skip_signatures {
+        0u32
+    } else {
+        get_block_script_verify_flags_core(&block_hash, height, context, context.network)
+    };
 
     // Cache fork activation at block level — avoids per-tx table lookup
     let segwit_active = context.is_fork_active(ForkId::SegWit, height);

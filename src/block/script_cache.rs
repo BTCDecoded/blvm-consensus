@@ -328,27 +328,25 @@ pub(super) fn merge_overlay_changes_to_cache(
                 }
             }
             // undo_log is always None on the IBD path — nothing to do.
-        } else {
-            if let Some(arc) = utxo_set.remove(&outpoint) {
-                if let Some(idx) = bip30_index.as_deref_mut() {
-                    if arc.is_coinbase {
-                        if let std::collections::hash_map::Entry::Occupied(mut o) =
-                            idx.entry(outpoint.hash)
-                        {
-                            *o.get_mut() = o.get().saturating_sub(1);
-                            if *o.get() == 0 {
-                                o.remove();
-                            }
+        } else if let Some(arc) = utxo_set.remove(&outpoint) {
+            if let Some(idx) = bip30_index.as_deref_mut() {
+                if arc.is_coinbase {
+                    if let std::collections::hash_map::Entry::Occupied(mut o) =
+                        idx.entry(outpoint.hash)
+                    {
+                        *o.get_mut() = o.get().saturating_sub(1);
+                        if *o.get() == 0 {
+                            o.remove();
                         }
                     }
                 }
-                if let Some(ref mut log) = undo_log {
-                    log.entries.push(UndoEntry {
-                        outpoint,
-                        previous_utxo: Some(arc),
-                        new_utxo: None,
-                    });
-                }
+            }
+            if let Some(ref mut log) = undo_log {
+                log.entries.push(UndoEntry {
+                    outpoint,
+                    previous_utxo: Some(arc),
+                    new_utxo: None,
+                });
             }
         }
     }
