@@ -9,15 +9,11 @@ use blvm_consensus::*;
 #[test]
 fn test_consensus_proof_new() {
     let _consensus = ConsensusProof::new();
-    // Test that we can create an instance
-    assert!(true); // ConsensusProof doesn't have state to test
 }
 
 #[test]
 fn test_consensus_proof_default() {
     let _consensus = ConsensusProof;
-    // Test that Default trait works
-    assert!(true);
 }
 
 #[test]
@@ -285,11 +281,7 @@ fn test_get_next_work_required() {
     // Test with insufficient headers
     let prev_headers = vec![];
     let result = consensus.get_next_work_required(&current_header, &prev_headers);
-    // This might succeed or fail depending on implementation
-    match result {
-        Ok(_) => assert!(true),
-        Err(_) => assert!(true),
-    }
+    assert!(result.is_err(), "empty prev_headers must error");
 
     // Test with sufficient headers
     let mut prev_headers = Vec::new();
@@ -741,9 +733,44 @@ fn test_validate_segwit_block() {
             outputs: vec![TransactionOutput {
                 value: 5000000000,
                 script_pubkey: vec![
-                    0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    OP_RETURN,
+                    PUSH_36_BYTES,
+                    0xaa,
+                    0x21,
+                    0xa9,
+                    0xed,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x00,
                 ],
             }]
             .into(),
@@ -770,7 +797,7 @@ fn test_validate_taproot_transaction() {
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey: vec![
-                0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                OP_1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             ],
@@ -791,7 +818,7 @@ fn test_is_taproot_output() {
     let taproot_output = TransactionOutput {
         value: 1000,
         script_pubkey: vec![
-            0x51, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            OP_1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ],

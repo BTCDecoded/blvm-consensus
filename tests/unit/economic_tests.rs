@@ -1,6 +1,7 @@
 //! Unit tests for economic model functions
 
 use blvm_consensus::economic::*;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::orange_paper_constants::{C, H};
 
 #[test]
@@ -70,7 +71,7 @@ fn test_calculate_fee() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 800,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -80,7 +81,7 @@ fn test_calculate_fee() {
         outpoint,
         std::sync::Arc::new(UTXO {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 1,
             is_coinbase: false,
         }),
@@ -107,7 +108,7 @@ fn test_calculate_fee_zero() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -117,7 +118,7 @@ fn test_calculate_fee_zero() {
         outpoint,
         std::sync::Arc::new(UTXO {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 1,
             is_coinbase: false,
         }),

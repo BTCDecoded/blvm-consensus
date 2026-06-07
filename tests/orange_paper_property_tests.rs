@@ -4,6 +4,9 @@
 //! ensuring mathematical correctness and serving as regression tests for formula changes.
 
 use blvm_consensus::economic;
+use blvm_consensus::opcodes::{
+    OP_1, OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES,
+};
 use blvm_consensus::orange_paper_constants::*;
 use blvm_consensus::orange_paper_property_helpers::*;
 use blvm_consensus::types::*;
@@ -235,7 +238,7 @@ proptest! {
             };
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
                 height: 1,
                 is_coinbase: false,
             }));
@@ -1886,10 +1889,10 @@ proptest! {
         use blvm_consensus::script;
 
         // Create a simple script (OP_DUP OP_HASH160)
-        let mut script = vec![0x76u8, 0xa9u8]; // OP_DUP, OP_HASH160
-        script.extend(vec![0x14u8; script_len.min(20)]); // 20-byte hash
-        script.push(0x88u8); // OP_EQUALVERIFY
-        script.push(0xacu8); // OP_CHECKSIG
+        let mut script = vec![OP_DUP, OP_HASH160]; // OP_DUP, OP_HASH160
+        script.extend(vec![PUSH_20_BYTES; script_len.min(20)]); // 20-byte hash
+        script.push(OP_EQUALVERIFY); // OP_EQUALVERIFY
+        script.push(OP_CHECKSIG); // OP_CHECKSIG
 
         // Create a stack (StackElement = SmallVec in production)
         let stack1: Vec<script::StackElement> = (0..stack_size)
@@ -1938,7 +1941,7 @@ proptest! {
         // Create a script with multiple OP_CHECKSIG operations
         let mut script = Vec::new();
         for _ in 0..num_checksig.min(100) {
-            script.push(0xacu8); // OP_CHECKSIG
+            script.push(OP_CHECKSIG); // OP_CHECKSIG
         }
 
         let sigops = sigop::count_sigops_in_script(&script, false);
@@ -2266,7 +2269,7 @@ proptest! {
         use blvm_consensus::script;
 
         // Create script at boundary
-        let script = vec![0x51u8; script_len.min(L_SCRIPT as usize)]; // OP_1 repeated
+        let script = vec![OP_1; script_len.min(L_SCRIPT as usize)]; // OP_1 repeated
 
         let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
 
@@ -2299,7 +2302,7 @@ proptest! {
             .collect();
 
         // Simple script that doesn't modify stack much
-        let script = vec![0x51u8]; // OP_1
+        let script = vec![OP_1]; // OP_1
 
         // Script should execute or fail gracefully if stack too large
         let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
@@ -2327,7 +2330,7 @@ proptest! {
         // Create script with many operations (OP_DUP is a non-push opcode)
         let mut script = Vec::new();
         for _ in 0..num_ops.min(L_OPS as usize) {
-            script.push(0x76u8); // OP_DUP
+            script.push(OP_DUP); // OP_DUP
         }
 
         let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
@@ -2398,7 +2401,7 @@ proptest! {
         // Create script with bounded operations
         let mut script = Vec::new();
         for _ in 0..num_ops {
-            script.push(0x51u8); // OP_1 (push operation, doesn't count toward op limit)
+            script.push(OP_1); // OP_1 (push operation, doesn't count toward op limit)
         }
 
         let mut stack: Vec<script::StackElement> = Vec::new();
@@ -2450,7 +2453,7 @@ proptest! {
         use blvm_consensus::script;
 
         // Create script that operates on stack
-        let script = vec![0x76u8, 0x76u8]; // OP_DUP, OP_DUP
+        let script = vec![OP_DUP, OP_DUP]; // OP_DUP, OP_DUP
         let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..initial_stack_size {
             stack.push(script::to_stack_element(&[i as u8; 20]));
@@ -2484,7 +2487,7 @@ proptest! {
         use blvm_consensus::script;
 
         // Create simple script
-        let script = vec![0x51u8]; // OP_1
+        let script = vec![OP_1]; // OP_1
         let mut stack: Vec<script::StackElement> = Vec::new();
         for i in 0..stack_size {
             stack.push(script::to_stack_element(&[i as u8; 20]));
@@ -2511,7 +2514,7 @@ proptest! {
         use blvm_consensus::script;
 
         // Create script that processes input
-        let script = vec![0x76u8]; // OP_DUP
+        let script = vec![OP_DUP]; // OP_DUP
         let mut stack: Vec<script::StackElement> = Vec::new();
 
         // Add input of varying sizes

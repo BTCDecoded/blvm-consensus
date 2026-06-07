@@ -6,6 +6,7 @@
 //! Consensus-critical: Spending coinbase too early causes consensus violation.
 
 use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::{
     Block, BlockHeader, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,
     UtxoSet,
@@ -31,7 +32,7 @@ fn test_coinbase_maturity_exact_boundary() {
         }],
         outputs: blvm_consensus::tx_outputs![TransactionOutput {
             value: 50_0000_0000,       // 50 BTC
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![OP_1], // OP_1
         }],
         lock_time: 0,
     };
@@ -201,7 +202,7 @@ fn test_coinbase_maturity_block_validation() {
                 }],
                 outputs: blvm_consensus::tx_outputs![TransactionOutput {
                     value: 50_0000_0000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }],
                 lock_time: 0,
             },
@@ -218,7 +219,7 @@ fn test_coinbase_maturity_block_validation() {
                 }],
                 outputs: blvm_consensus::tx_outputs![TransactionOutput {
                     value: 25_0000_0000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }],
                 lock_time: 0,
             },

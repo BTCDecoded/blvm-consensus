@@ -6,6 +6,7 @@
 //!
 //! Consensus-critical: Incorrect weight calculation causes block rejection/acceptance divergence.
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::segwit::calculate_transaction_weight;
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
@@ -137,7 +138,7 @@ fn test_mixed_witness_weight() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51], // OP_1
+            script_sig: vec![OP_1], // OP_1
             sequence: 0xffffffff,
         }]
         .into(),

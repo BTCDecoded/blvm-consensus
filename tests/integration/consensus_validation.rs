@@ -1,5 +1,6 @@
 //! Integration tests for consensus validation
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
 use blvm_consensus::*;
 
@@ -15,13 +16,13 @@ fn test_consensus_proof_basic_functionality() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -42,13 +43,13 @@ fn test_consensus_proof_coinbase_validation() {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -69,13 +70,13 @@ fn test_consensus_proof_utxo_validation() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -88,7 +89,7 @@ fn test_consensus_proof_utxo_validation() {
     };
     let utxo = UTXO {
         value: 2000,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
     };
     utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
@@ -108,13 +109,13 @@ fn test_consensus_proof_insufficient_funds() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000, // More than available
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -127,7 +128,7 @@ fn test_consensus_proof_insufficient_funds() {
     };
     let utxo = UTXO {
         value: 1000, // Less than needed
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
     };
     utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
@@ -145,7 +146,7 @@ fn test_consensus_proof_invalid_transaction() {
         inputs: vec![].into(), // Empty inputs
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -175,13 +176,13 @@ fn test_consensus_proof_block_validation() {
                     hash: [0; 32].into(),
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -203,8 +204,8 @@ fn test_consensus_proof_block_validation() {
 fn test_consensus_proof_script_verification() {
     let consensus = ConsensusProof::new();
 
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     let result = consensus
         .verify_script(&script_sig, &script_pubkey, None, 0)

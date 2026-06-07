@@ -3,6 +3,7 @@
 #[cfg(feature = "production")]
 mod tests {
     use blvm_consensus::block::*;
+    use blvm_consensus::opcodes::OP_1;
     use blvm_consensus::script::*;
     use blvm_consensus::*;
 
@@ -15,7 +16,7 @@ mod tests {
                         hash: [1; 32].into(),
                         index: 0,
                     },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
@@ -23,7 +24,7 @@ mod tests {
                         hash: [2; 32],
                         index: 0,
                     },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
@@ -31,14 +32,14 @@ mod tests {
                         hash: [3; 32],
                         index: 0,
                     },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 },
             ]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -55,7 +56,7 @@ mod tests {
             };
             let utxo = UTXO {
                 value: 10000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
                 height: 0,
             };
             utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
@@ -89,13 +90,13 @@ mod tests {
                             hash: [0; 32].into(),
                             index: 0xffffffff,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }]
                     .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }]
                     .into(),
                     lock_time: 0,
@@ -162,7 +163,7 @@ mod tests {
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -185,13 +186,13 @@ mod tests {
                             hash: [0; 32].into(),
                             index: 0xffffffff,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }]
                     .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }]
                     .into(),
                     lock_time: 0,
@@ -249,13 +250,13 @@ mod tests {
                     hash: [0; 32].into(),
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 50_000_000_000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -297,7 +298,7 @@ mod tests {
         };
         let utxo = UTXO {
             value: 10000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         };
         utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
@@ -309,13 +310,13 @@ mod tests {
                     hash: [1; 32].into(),
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -338,13 +339,13 @@ mod tests {
                             hash: [0; 32].into(),
                             index: 0xffffffff,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }]
                     .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }]
                     .into(),
                     lock_time: 0,
@@ -390,13 +391,13 @@ mod tests {
                             hash: [0; 32].into(),
                             index: 0xffffffff,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }]
                     .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }]
                     .into(),
                     lock_time: 0,

@@ -1,33 +1,39 @@
 //! BIP65 (CLTV) Integration Tests
-//! 
+//!
 //! Tests for OP_CHECKLOCKTIMEVERIFY (CLTV) integration with transaction validation,
 //! block height context, and median time-past (BIP113).
 
-use blvm_consensus::*;
-use blvm_consensus::constants::LOCKTIME_THRESHOLD;
 use super::bip_test_helpers::*;
+use blvm_consensus::constants::LOCKTIME_THRESHOLD;
+use blvm_consensus::opcodes::*;
+use blvm_consensus::script::verify_script_with_context;
+use blvm_consensus::*;
 
 #[test]
 fn test_cltv_block_height_validation_passes() {
     // Transaction with block-height locktime that should pass
     let block_height: u32 = 500000; // Below threshold = block height
     let required_locktime: u32 = 400000; // Lower than transaction locktime
-    
-    let tx = create_cltv_transaction(block_height, required_locktime, vec![0x51]); // OP_1
-    
+
+    let tx = create_cltv_transaction(block_height, required_locktime, vec![OP_1]); // OP_1
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(), // OP_1
+            script_pubkey: vec![OP_1].into(), // OP_1
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
+
     // Validate at block height >= required locktime
-    let result = validate_with_context(&tx, &utxo_set, block_height as u64, 0);
-    
+    let result = validate_with_context(&tx, &utxo_set, block_height as u64, 0, 0x200);
+
     // Should pass: tx.lock_time (500000) >= required_locktime (400000) and types match
     assert!(result.is_ok());
     // Note: Current implementation checks tx.lock_time >= required, but doesn't validate
@@ -39,21 +45,25 @@ fn test_cltv_block_height_type_mismatch_fails() {
     // Transaction with block-height locktime but script requires timestamp
     let tx_locktime: u32 = 400000; // Block height (< 500000000)
     let required_locktime: u32 = 600000000; // Timestamp (>= 500000000)
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should fail: type mismatch (block height vs timestamp)
     assert!(result.is_ok()); // verify_script_with_context returns Ok(bool)
     assert!(!result.unwrap()); // Should return false (validation fails)
@@ -64,21 +74,25 @@ fn test_cltv_timestamp_type_mismatch_fails() {
     // Transaction with timestamp locktime but script requires block height
     let tx_locktime: u32 = 600000000; // Timestamp (>= 500000000)
     let required_locktime: u32 = 400000; // Block height (< 500000000)
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should fail: type mismatch (timestamp vs block height)
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -89,21 +103,25 @@ fn test_cltv_zero_locktime_fails() {
     // Transaction with zero locktime should fail CLTV
     let tx_locktime: u32 = 0;
     let required_locktime: u32 = 400000;
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should fail: BIP65 requires tx.lock_time != 0
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -114,21 +132,25 @@ fn test_cltv_insufficient_locktime_fails() {
     // Transaction locktime < required locktime should fail
     let tx_locktime: u32 = 300000;
     let required_locktime: u32 = 400000;
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should fail: tx.lock_time (300000) < required_locktime (400000)
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -138,21 +160,25 @@ fn test_cltv_insufficient_locktime_fails() {
 fn test_cltv_exact_locktime_passes() {
     // Transaction locktime == required locktime should pass
     let locktime: u32 = 400000;
-    
-    let tx = create_cltv_transaction(locktime, locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(locktime, locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should pass: tx.lock_time (400000) >= required_locktime (400000)
     assert!(result.is_ok());
     // Note: This will pass the basic check, but full validation would need block height
@@ -163,23 +189,27 @@ fn test_cltv_timestamp_validation() {
     // Transaction with timestamp locktime
     let tx_locktime: u32 = 1609459200; // 2021-01-01 00:00:00 UTC
     let required_locktime: u32 = 1577836800; // 2020-01-01 00:00:00 UTC (before tx locktime)
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
+
     // For timestamp validation, we'd need median time-past >= tx_locktime
     // Current implementation checks tx.lock_time >= required, which should pass
-    let result = validate_with_context(&tx, &utxo_set, 0, tx_locktime as u64);
-    
+    let result = validate_with_context(&tx, &utxo_set, 0, tx_locktime as u64, 0x200);
+
     // Should pass: tx.lock_time (1609459200) >= required_locktime (1577836800)
     assert!(result.is_ok());
 }
@@ -189,21 +219,25 @@ fn test_cltv_boundary_block_height() {
     // Test boundary value: LOCKTIME_THRESHOLD - 1 (last block height value)
     let tx_locktime: u32 = LOCKTIME_THRESHOLD - 1;
     let required_locktime: u32 = LOCKTIME_THRESHOLD - 2;
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should pass: both are block heights, tx >= required
     assert!(result.is_ok());
 }
@@ -213,21 +247,25 @@ fn test_cltv_boundary_timestamp() {
     // Test boundary value: LOCKTIME_THRESHOLD (first timestamp value)
     let tx_locktime: u32 = LOCKTIME_THRESHOLD;
     let required_locktime: u32 = LOCKTIME_THRESHOLD;
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should pass: both are timestamps, tx >= required
     assert!(result.is_ok());
 }
@@ -238,32 +276,40 @@ fn test_cltv_empty_stack_fails() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-            script_sig: vec![0xb1], // Just CLTV opcode, no value on stack
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_CHECKLOCKTIMEVERIFY], // Just CLTV opcode, no value on stack
             sequence: 0xffffffff,
-        }].into(),
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
-        }].into(),
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
         lock_time: 400000,
     };
-    
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
-    // Should fail: empty stack
-    assert!(result.is_ok());
-    assert!(!result.unwrap());
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
+    // Should fail: empty stack (either error or false)
+    assert!(matches!(result, Ok(false) | Err(_)));
 }
 
 #[test]
@@ -272,32 +318,46 @@ fn test_cltv_invalid_encoding_fails() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
             script_sig: vec![
-                0x51, 0x51, 0x51, 0x51, 0x51, 0x51, // 6 bytes (too many)
-                0xb1, // CLTV
+                OP_1,
+                OP_1,
+                OP_1,
+                OP_1,
+                OP_1,
+                OP_1,                   // 6 bytes (too many)
+                OP_CHECKLOCKTIMEVERIFY, // CLTV
             ],
             sequence: 0xffffffff,
-        }].into(),
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
-        }].into(),
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
         lock_time: 400000,
     };
-    
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should fail: invalid encoding (script integer must be <= 4 bytes)
     assert!(result.is_ok());
     assert!(!result.unwrap());
@@ -308,21 +368,25 @@ fn test_cltv_max_u32_value() {
     // Test with maximum u32 value
     let tx_locktime: u32 = u32::MAX;
     let required_locktime: u32 = u32::MAX;
-    
-    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![0x51]);
-    
+
+    let tx = create_cltv_transaction(tx_locktime, required_locktime, vec![OP_1]);
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should pass: tx.lock_time (u32::MAX) >= required_locktime (u32::MAX)
     // Both are timestamps (>= LOCKTIME_THRESHOLD)
     assert!(result.is_ok());
@@ -335,66 +399,88 @@ fn test_cltv_multiple_inputs_context() {
         version: 1,
         inputs: vec![
             TransactionInput {
-                prevout: OutPoint { hash: [1; 32].into(), index: 0 },
+                prevout: OutPoint {
+                    hash: [1; 32].into(),
+                    index: 0,
+                },
                 script_sig: {
-                    let mut script = vec![0x51];
+                    let mut script = vec![OP_1];
                     script.extend_from_slice(&encode_script_int(400000));
-                    script.push(0xb1); // CLTV
+                    script.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
                     script
                 },
                 sequence: 0xffffffff,
             },
             TransactionInput {
-                prevout: OutPoint { hash: [2; 32], index: 0 },
-                script_sig: vec![0x51], // No CLTV
+                prevout: OutPoint {
+                    hash: [2; 32],
+                    index: 0,
+                },
+                script_sig: vec![OP_1], // No CLTV
                 sequence: 0xffffffff,
             },
-        ].into(),
+        ]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
-        }].into(),
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
         lock_time: 500000,
     };
-    
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
     utxo_set.insert(
-        OutPoint { hash: [2; 32], index: 0 },
+        OutPoint {
+            hash: [2; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 500000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
+
     // Validate first input (with CLTV)
-    let input = &tx.inputs[0];
-    let utxo = utxo_set.get(&input.prevout).unwrap();
-    let prevouts = vec![TransactionOutput {
-        value: utxo.value,
-        script_pubkey: utxo.script_pubkey.clone(),
-    }];
-    
+    let utxo1 = utxo_set.get(&tx.inputs[0].prevout).unwrap();
+    let utxo2 = utxo_set.get(&tx.inputs[1].prevout).unwrap();
+    let prevouts = vec![
+        TransactionOutput {
+            value: utxo1.value,
+            script_pubkey: utxo1.script_pubkey.to_vec(),
+        },
+        TransactionOutput {
+            value: utxo2.value,
+            script_pubkey: utxo2.script_pubkey.to_vec(),
+        },
+    ];
+
     let result = verify_script_with_context(
-        &input.script_sig,
-        &utxo.script_pubkey,
+        &tx.inputs[0].script_sig,
+        &utxo1.script_pubkey,
         None,
-        0,
+        0x200,
         &tx,
-        0, // First input
+        0,
         &prevouts,
-        Some(500_000u64), // block_height
+        Some(500_000u64),
         Network::Regtest,
     );
-    
+
     // Should pass: CLTV validation for first input
     assert!(result.is_ok());
 }
@@ -403,37 +489,45 @@ fn test_cltv_multiple_inputs_context() {
 fn test_cltv_in_script_pubkey() {
     // CLTV can be in scriptPubkey (output locking script)
     let required_locktime: u32 = 400000;
-    let mut script_pubkey = vec![0x51]; // OP_1
+    let mut script_pubkey = vec![OP_1]; // OP_1
     script_pubkey.extend_from_slice(&encode_script_int(required_locktime));
-    script_pubkey.push(0xb1); // CLTV
-    
+    script_pubkey.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
+
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [1; 32].into(), index: 0 },
-            script_sig: vec![0x51], // OP_1 (unlocks scriptPubkey)
+            prevout: OutPoint {
+                hash: [1; 32].into(),
+                index: 0,
+            },
+            script_sig: vec![OP_1], // OP_1 (unlocks scriptPubkey)
             sequence: 0xffffffff,
-        }].into(),
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
             script_pubkey,
-        }].into(),
+        }]
+        .into(),
         lock_time: 500000, // >= required_locktime
     };
-    
+
     let mut utxo_set = UtxoSet::default();
     utxo_set.insert(
-        OutPoint { hash: [1; 32], index: 0 },
+        OutPoint {
+            hash: [1; 32],
+            index: 0,
+        },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(), // Previous output script
+            script_pubkey: vec![OP_1].into(), // Previous output script
+            is_coinbase: false,
             height: 0,
         }),
     );
-    
-    let result = validate_with_context(&tx, &utxo_set, 0, 0);
-    
+
+    let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
+
     // Should pass: CLTV in scriptPubkey validates correctly
     assert!(result.is_ok());
 }
-

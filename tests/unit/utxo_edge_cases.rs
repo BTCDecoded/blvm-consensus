@@ -3,13 +3,14 @@
 //! Comprehensive property-based tests covering UTXO set operations,
 //! consistency during block connection, and edge cases.
 
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::types::*;
 use proptest::prelude::*;
 
 fn make_utxo(value: i64, height: u64) -> UTXO {
     UTXO {
         value,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height,
         is_coinbase: false,
     }
@@ -139,7 +140,7 @@ proptest! {
         utxo_set.insert(outpoint, std::sync::Arc::new(make_utxo(initial_value, 1)));
         utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
             value: new_value,
-            script_pubkey: vec![0x52].into(),
+            script_pubkey: vec![OP_2].into(),
             height: 2,
             is_coinbase: false,
         }));

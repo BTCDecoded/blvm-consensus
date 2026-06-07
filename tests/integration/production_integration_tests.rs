@@ -2,6 +2,7 @@
 
 #[cfg(feature = "production")]
 mod tests {
+    use blvm_consensus::opcodes::OP_1;
     use blvm_consensus::*;
     use blvm_consensus::block::*;
     use std::time::Instant;
@@ -18,12 +19,12 @@ mod tests {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 50_000_000_000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![OP_1].into(),
                 }].into(),
                 lock_time: 0,
             },
@@ -36,7 +37,7 @@ mod tests {
             let outpoint = OutPoint { hash: [i as u8; 32], index: 0 };
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value: 10000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
                 height: 0,
             }));
             
@@ -44,12 +45,12 @@ mod tests {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: outpoint,
-                    script_sig: vec![0x51].into(),
+                    script_sig: vec![OP_1].into(),
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![OP_1].into(),
                 }].into(),
                 lock_time: 0,
             });
@@ -126,12 +127,12 @@ mod tests {
                     version: 1,
                     inputs: vec![TransactionInput {
                         prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }].into(),
                     lock_time: 0,
                 },

@@ -110,10 +110,61 @@ fn test_batch_operations_consistency() {
     assert_eq!(batch_results[0].as_slice(), individual.as_slice());
 }
 
+#[cfg(feature = "production")]
+#[test]
+fn test_constant_folding_hash_helpers() {
+    use blvm_consensus::optimizations::constant_folding::{
+        is_empty_double_hash, is_empty_hash, is_zero_hash, EMPTY_STRING_DOUBLE_HASH,
+        EMPTY_STRING_HASH,
+    };
+
+    assert!(is_empty_hash(&EMPTY_STRING_HASH));
+    assert!(is_empty_double_hash(&EMPTY_STRING_DOUBLE_HASH));
+    assert!(is_zero_hash(&[0u8; 32]));
+    assert!(!is_empty_hash(&[1u8; 32]));
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_proven_bounds_slice_access() {
+    use blvm_consensus::optimizations::optimized_access::{get_proven, prealloc_proven};
+
+    let data = vec![1u8, 2, 3];
+    assert_eq!(get_proven(&data, 1), Some(&2u8));
+    assert!(get_proven(&data, 9).is_none());
+    let buf = prealloc_proven::<u8>(16);
+    assert!(buf.capacity() >= 16);
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_double_sha256_aligned() {
+    use blvm_consensus::optimizations::simd_vectorization::batch_double_sha256_aligned;
+
+    let inputs = vec![b"a".as_slice(), b"b".as_slice()];
+    let aligned = batch_double_sha256_aligned(&inputs);
+    let plain = batch_double_sha256(&inputs);
+    assert_eq!(aligned.len(), plain.len());
+    for (a, p) in aligned.iter().zip(plain.iter()) {
+        assert_eq!(a.as_bytes(), p);
+    }
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_prefetch_helpers_do_not_panic() {
+    use blvm_consensus::optimizations::prefetch::{prefetch_ahead, prefetch_slice};
+
+    let data = vec![1u8, 2, 3, 4, 5];
+    prefetch_slice(&data, 0);
+    prefetch_ahead(&data, 0, 2);
+}
+
 #[cfg(not(feature = "production"))]
 #[test]
 fn test_optimizations_require_production_feature() {
-    // When production feature is not enabled, optimization functions are not available
-    // This test verifies the feature gating works
-    assert!(true);
+    assert!(
+        !cfg!(feature = "production"),
+        "this test only runs when production feature is disabled"
+    );
 }

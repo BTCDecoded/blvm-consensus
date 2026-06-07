@@ -5,6 +5,9 @@
 //!
 //! Consensus-critical: P2SH redeem script bugs can cause consensus divergence.
 
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_2, OP_EQUAL, OP_HASH160, PUSH_20_BYTES, PUSH_32_BYTES,
+};
 use blvm_consensus::script::verify_script;
 
 /// Maximum redeem script size: 520 bytes
@@ -14,13 +17,13 @@ pub const MAX_REDEEM_SCRIPT_SIZE: usize = 520;
 #[test]
 fn test_redeem_script_size_limits() {
     // Create redeem script at size limit
-    let redeem_script_max = vec![0x51; MAX_REDEEM_SCRIPT_SIZE];
+    let redeem_script_max = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE];
 
     // Create redeem script exceeding limit
-    let redeem_script_too_large = vec![0x51; MAX_REDEEM_SCRIPT_SIZE + 1];
+    let redeem_script_too_large = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE + 1];
 
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0xa9, 0x14]; // OP_HASH160, push 20 bytes (P2SH)
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_HASH160, PUSH_20_BYTES]; // OP_HASH160, push 20 bytes (P2SH)
 
     // Script at limit should work (may fail due to other reasons)
     let result_max = verify_script(&script_sig, &script_pubkey, Some(&redeem_script_max), 0x01); // P2SH flag
@@ -44,14 +47,33 @@ fn test_redeem_script_size_limits() {
 fn test_redeem_script_evaluation_order() {
     // P2SH scriptPubKey: OP_HASH160 <20-byte-hash> OP_EQUAL
     let script_pubkey = vec![
-        0xa9, // OP_HASH160
-        0x14, // Push 20 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x87, // OP_EQUAL
+        OP_HASH160,    // OP_HASH160
+        PUSH_20_BYTES, // Push 20 bytes
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL, // OP_EQUAL
     ];
 
     // Redeem script: OP_1
-    let redeem_script = vec![0x51]; // OP_1
+    let redeem_script = vec![OP_1]; // OP_1
 
     // ScriptSig: <redeem_script>
     let script_sig = redeem_script.clone();
@@ -76,19 +98,67 @@ fn test_redeem_script_with_segwit() {
 
     // P2SH scriptPubKey
     let script_pubkey = vec![
-        0xa9, // OP_HASH160
-        0x14, // Push 20 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x87, // OP_EQUAL
+        OP_HASH160,    // OP_HASH160
+        PUSH_20_BYTES, // Push 20 bytes
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL, // OP_EQUAL
     ];
 
     // Redeem script: P2WSH scriptPubKey (OP_0 <32-byte-hash>)
     let redeem_script = vec![
-        0x00, // OP_0
-        0x20, // Push 32 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
+        OP_0,
+        PUSH_32_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     ];
 
     let script_sig = redeem_script.clone();
@@ -110,8 +180,29 @@ fn test_redeem_script_disabled_opcodes() {
         let redeem_script = vec![opcode];
         let script_sig = redeem_script.clone();
         let script_pubkey = vec![
-            0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87,
+            OP_HASH160,
+            PUSH_20_BYTES,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            OP_EQUAL,
         ];
 
         let flags = 0x01; // P2SH
@@ -131,13 +222,34 @@ fn test_redeem_script_stack_size() {
     // Create a script that would exceed stack size
     let mut redeem_script = Vec::new();
     for _ in 0..=MAX_STACK_SIZE {
-        redeem_script.push(0x51); // OP_1
+        redeem_script.push(OP_1); // OP_1
     }
 
-    let script_sig = vec![0x51];
+    let script_sig = vec![OP_1];
     let script_pubkey = vec![
-        0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87,
+        OP_HASH160,
+        PUSH_20_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL,
     ];
 
     let flags = 0x01; // P2SH
@@ -154,14 +266,33 @@ fn test_invalid_redeem_script_rejection() {
     // If hash doesn't match, script should be rejected
 
     let script_pubkey = vec![
-        0xa9, // OP_HASH160
-        0x14, // Push 20 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x87, // OP_EQUAL
+        OP_HASH160,    // OP_HASH160
+        PUSH_20_BYTES, // Push 20 bytes
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL, // OP_EQUAL
     ];
 
     // Wrong redeem script (doesn't hash to scriptPubKey value)
-    let wrong_redeem_script = vec![0x52]; // OP_2
+    let wrong_redeem_script = vec![OP_2]; // OP_2
 
     let script_sig = wrong_redeem_script.clone();
     let flags = 0x01; // P2SH
@@ -181,18 +312,39 @@ fn test_invalid_redeem_script_rejection() {
 #[test]
 fn test_redeem_script_boundaries() {
     // Test at exact boundary (520 bytes)
-    let redeem_script_exact = vec![0x51; MAX_REDEEM_SCRIPT_SIZE];
+    let redeem_script_exact = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE];
 
     // Test just under boundary (519 bytes)
-    let redeem_script_under = vec![0x51; MAX_REDEEM_SCRIPT_SIZE - 1];
+    let redeem_script_under = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE - 1];
 
     // Test just over boundary (521 bytes)
-    let redeem_script_over = vec![0x51; MAX_REDEEM_SCRIPT_SIZE + 1];
+    let redeem_script_over = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE + 1];
 
-    let script_sig = vec![0x51];
+    let script_sig = vec![OP_1];
     let script_pubkey = vec![
-        0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87,
+        OP_HASH160,
+        PUSH_20_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL,
     ];
     let flags = 0x01; // P2SH
 

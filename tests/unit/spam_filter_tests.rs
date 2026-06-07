@@ -2,6 +2,9 @@
 
 #[cfg(feature = "utxo-commitments")]
 mod tests {
+    use blvm_consensus::opcodes::{
+        OP_0, OP_1, OP_DUP, OP_HASH160, OP_IF, OP_RETURN, PUSH_20_BYTES, PUSH_32_BYTES,
+    };
     use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput, OutPoint, ByteString};
     use blvm_consensus::spam_filter::*;
 
@@ -30,7 +33,7 @@ mod tests {
         
         // OP_RETURN with large data (typical Ordinals)
         let ordinal_script = {
-            let mut script = vec![0x6a]; // OP_RETURN
+            let mut script = vec![OP_RETURN]; // OP_RETURN
             script.extend(vec![0x00; 100]); // Large data push
             script
         };
@@ -74,7 +77,7 @@ mod tests {
         let filter = SpamFilter::new();
         
         // Normal transaction with sufficient value
-        let normal_script = vec![0x76, 0xa9, 0x14]; // P2PKH pattern
+        let normal_script = vec![OP_DUP, OP_HASH160, PUSH_20_BYTES]; // P2PKH pattern
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
@@ -103,7 +106,7 @@ mod tests {
         
         // BRC-20 transaction with JSON pattern
         let brc20_script = {
-            let mut script = vec![0x6a]; // OP_RETURN
+            let mut script = vec![OP_RETURN]; // OP_RETURN
             let json_data = b"{\"p\":\"brc-20\",\"op\":\"mint\"}";
             script.extend(json_data);
             script
@@ -122,13 +125,13 @@ mod tests {
         
         // Create mix of spam and non-spam transactions
         let transactions = vec![
-            create_test_transaction(vec![0x76, 0xa9]), // Non-spam
+            create_test_transaction(vec![OP_DUP, OP_HASH160]), // Non-spam
             create_test_transaction({
-                let mut script = vec![0x6a];
+                let mut script = vec![OP_RETURN];
                 script.extend(vec![0x00; 100]);
                 script
             }), // Ordinals spam
-            create_test_transaction(vec![0x76, 0xa9]), // Non-spam
+            create_test_transaction(vec![OP_DUP, OP_HASH160]), // Non-spam
             Transaction {
                 version: 1,
                 inputs: vec![TransactionInput {
@@ -176,7 +179,7 @@ mod tests {
         
         // Ordinals should not be detected
         let ordinal_script = {
-            let mut script = vec![0x6a];
+            let mut script = vec![OP_RETURN];
             script.extend(vec![0x00; 100]);
             script
         };
@@ -195,7 +198,7 @@ mod tests {
         let filter = SpamFilter::new();
         
         // Create transaction with large witness data
-        let tx = create_test_transaction(vec![0x76, 0xa9]);
+        let tx = create_test_transaction(vec![OP_DUP, OP_HASH160]);
         
         // Create large witness stack (>1000 bytes total)
         let large_witness: Witness = vec![
@@ -218,7 +221,7 @@ mod tests {
         let filter = SpamFilter::new();
         
         // Create transaction
-        let tx = create_test_transaction(vec![0x76, 0xa9]);
+        let tx = create_test_transaction(vec![OP_DUP, OP_HASH160]);
         
         // Create witness with envelope protocol (OP_0 OP_IF ... OP_ENDIF) - inscription pattern
         // With ordinals_strict_mode, only envelope/pattern triggers Ordinals; large witness alone is LargeWitness
@@ -243,7 +246,7 @@ mod tests {
         // With ordinals_strict_mode (default), large witness alone → LargeWitness, NOT Ordinals
         let filter = SpamFilter::new();
         
-        let tx = create_test_transaction(vec![0x76, 0xa9]);
+        let tx = create_test_transaction(vec![OP_DUP, OP_HASH160]);
         // Large witness but NO envelope - could be Miniscript/vault (1200 bytes > 1000 threshold)
         let large_witness: Witness = vec![
             vec![0x30; 600], // DER-like
@@ -333,12 +336,12 @@ mod tests {
                     hash: [0; 32].into(),
                     index: 0,
                 },
-                script_sig: vec![0x00, 0x63, 0x01, 0x02, 0x03].into(), // OP_FALSE OP_IF pattern
+                script_sig: vec![OP_FALSE, OP_IF, 0x01, 0x02, 0x03].into(), // OP_FALSE OP_IF pattern
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x76, 0xa9].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160].into(),
             }].into(),
             lock_time: 0,
         };
@@ -360,7 +363,7 @@ mod tests {
         // Test Disabled preset
         let disabled = SpamFilter::with_preset(SpamFilterPreset::Disabled);
         let tx = create_test_transaction({
-            let mut script = vec![0x6a]; // OP_RETURN
+            let mut script = vec![OP_RETURN]; // OP_RETURN
             script.extend(vec![0x00; 100]);
             script
         });
@@ -401,7 +404,7 @@ mod tests {
             outputs: vec![
                 TransactionOutput {
                     value: 100000,
-                    script_pubkey: vec![0x76, 0xa9].into(),
+                    script_pubkey: vec![OP_DUP, OP_HASH160].into(),
                 }
             ].into(),
             lock_time: 0,
@@ -421,7 +424,7 @@ mod tests {
             }).collect(),
             outputs: (0..10).map(|_| TransactionOutput {
                 value: 10000, // Similar values
-                script_pubkey: vec![0x76, 0xa9].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160].into(),
             }).collect(),
             lock_time: 0,
         };
@@ -440,7 +443,7 @@ mod tests {
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 100000,
-                script_pubkey: vec![0x76, 0xa9].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160].into(),
             }].into(),
             lock_time: 0,
         };
@@ -471,7 +474,7 @@ mod tests {
             outputs: vec![TransactionOutput {
                 value: 100000,
                 // P2WPKH: OP_0 + 0x14 + 20-byte hash
-                script_pubkey: [0x00, 0x14].iter().chain(&[0u8; 20]).copied().collect::<Vec<_>>().into(),
+                script_pubkey: [OP_0, PUSH_20_BYTES].iter().chain(&[0u8; 20]).copied().collect::<Vec<_>>().into(),
             }].into(),
             lock_time: 0,
         };
@@ -511,8 +514,8 @@ mod tests {
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 100000,
-                // P2TR: OP_1 + 0x20 + 32-byte x-only pubkey
-                script_pubkey: [0x51, 0x20].iter().chain(&[0u8; 32]).copied().collect::<Vec<_>>().into(),
+                // P2TR: OP_1 + PUSH_32_BYTES + 32-byte x-only pubkey
+                script_pubkey: [OP_1, PUSH_32_BYTES].iter().chain(&[0u8; 32]).copied().collect::<Vec<_>>().into(),
             }].into(),
             lock_time: 0,
         };
@@ -547,7 +550,7 @@ mod tests {
             }).collect(),
             outputs: vec![TransactionOutput {
                 value: 100000, // Small value relative to size
-                script_pubkey: vec![0x76, 0xa9].into(),
+                script_pubkey: vec![OP_DUP, OP_HASH160].into(),
             }].into(),
             lock_time: 0,
         };

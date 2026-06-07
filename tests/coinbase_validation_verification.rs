@@ -11,6 +11,7 @@
 
 use blvm_consensus::constants::*;
 use blvm_consensus::economic::get_block_subsidy;
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::test_utils::create_coinbase_tx;
 use blvm_consensus::transaction::is_coinbase;
 use blvm_consensus::types::*;
@@ -27,13 +28,13 @@ fn test_coinbase_script_sig_minimum_length() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51, 0x52], // Exactly 2 bytes (minimum)
+            script_sig: vec![OP_1, OP_2], // Exactly 2 bytes (minimum)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -58,13 +59,13 @@ fn test_coinbase_script_sig_below_minimum() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51], // 1 byte (below minimum)
+            script_sig: vec![OP_1], // 1 byte (below minimum)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -94,13 +95,13 @@ fn test_coinbase_script_sig_maximum_length() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51; 100], // Exactly 100 bytes (maximum)
+            script_sig: vec![OP_1; 100], // Exactly 100 bytes (maximum)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -129,13 +130,13 @@ fn test_coinbase_script_sig_above_maximum() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51; 101], // 101 bytes (above maximum)
+            script_sig: vec![OP_1; 101], // 101 bytes (above maximum)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -240,13 +241,13 @@ fn test_coinbase_identification_valid() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51, 0x52],
+            script_sig: vec![OP_1, OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -268,7 +269,7 @@ fn test_coinbase_identification_multiple_inputs() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -276,14 +277,14 @@ fn test_coinbase_identification_multiple_inputs() {
                     hash: [2; 32],
                     index: 0,
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -307,13 +308,13 @@ fn test_coinbase_identification_non_null_prevout() {
                 hash: [1; 32], // Non-null hash
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

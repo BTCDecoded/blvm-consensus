@@ -7,6 +7,11 @@ use blvm_consensus::constants::MAX_STACK_SIZE;
 use blvm_consensus::script;
 use proptest::prelude::*;
 
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_1_RANGE_END, OP_1_RANGE_START, OP_2DROP, OP_CHECKSIG, OP_DUP, OP_EQUAL,
+    OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_N_BASE, OP_RETURN, OP_RIPEMD160, OP_SHA256, OP_SWAP,
+    OP_VERIFY,
+};
 // Note: execute_opcode is private, so we'll use eval_script instead
 // which is the public API for script execution
 
@@ -21,7 +26,7 @@ proptest! {
         // Build script: push item, then OP_DUP
         let mut script = vec![item.len() as u8]; // Push opcode
         script.extend_from_slice(&item);
-        script.push(0x76); // OP_DUP
+        script.push(OP_DUP); // OP_DUP
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -48,7 +53,7 @@ proptest! {
         script.extend_from_slice(&item1);
         script.push(item2.len() as u8);
         script.extend_from_slice(&item2);
-        script.push(0x88); // OP_EQUALVERIFY
+        script.push(OP_EQUALVERIFY); // OP_EQUALVERIFY
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -71,7 +76,7 @@ proptest! {
         let mut script = Vec::new();
         script.push(input.len() as u8);
         script.extend_from_slice(&input);
-        script.push(0xa9); // OP_HASH160
+        script.push(OP_HASH160);
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -98,7 +103,7 @@ proptest! {
         script.extend_from_slice(&sig);
         script.push(pubkey.len() as u8);
         script.extend_from_slice(&pubkey);
-        script.push(0xac); // OP_CHECKSIG
+        script.push(OP_CHECKSIG);
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -112,7 +117,7 @@ proptest! {
 proptest! {
     #[test]
     fn prop_op_1_to_16_values(
-        opcode in 0x51u8..=0x60u8 // OP_1 (0x51) to OP_16 (0x60)
+        opcode in OP_1_RANGE_START..=OP_1_RANGE_END // OP_1 to OP_16
     ) {
         let script = vec![opcode];
         let mut stack = Vec::new();
@@ -132,7 +137,7 @@ proptest! {
 /// OP_0 pushes empty array
 #[test]
 fn prop_op_0_pushes_empty() {
-    let script = vec![0x00]; // OP_0
+    let script = vec![OP_0]; // OP_0
     let mut stack = Vec::new();
     let result = script::eval_script(
         &script,
@@ -156,7 +161,7 @@ proptest! {
         let mut script = Vec::new();
         script.push(condition.len() as u8);
         script.extend_from_slice(&condition);
-        script.push(0x63); // OP_IF
+        script.push(OP_IF); // OP_IF
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -200,7 +205,7 @@ proptest! {
         b in 0u8..=10u8
     ) {
         // Build script: OP_a, OP_b, arithmetic opcode
-        let script = vec![0x51 + a.min(16), 0x51 + b.min(16), opcode];
+        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), opcode];
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
@@ -217,7 +222,7 @@ proptest! {
         b in 0u8..=16u8
     ) {
         // Build script: OP_a, OP_b, OP_EQUAL
-        let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x87]; // OP_EQUAL
+        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_EQUAL];
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
@@ -232,7 +237,7 @@ proptest! {
         value in 1u8..=16u8
     ) {
         // Build script: OP_value, OP_VERIFY
-        let script = vec![0x51 + value.min(16), 0x69]; // OP_VERIFY
+        let script = vec![OP_N_BASE + value.min(16), OP_VERIFY];
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
@@ -244,7 +249,7 @@ proptest! {
 /// OP_RETURN always fails
 #[test]
 fn prop_script_op_return_always_fails() {
-    let script = vec![0x51, 0x6a]; // OP_1, OP_RETURN
+    let script = vec![OP_1, OP_RETURN];
     let mut stack = Vec::new();
     let result = script::eval_script(
         &script,
@@ -268,7 +273,7 @@ proptest! {
         let mut script = Vec::new();
         script.push(input.len() as u8);
         script.extend_from_slice(&input);
-        script.push(0xa8); // OP_SHA256
+        script.push(OP_SHA256); // OP_SHA256
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -292,7 +297,7 @@ proptest! {
         let mut script = Vec::new();
         script.push(input.len() as u8);
         script.extend_from_slice(&input);
-        script.push(0xa6); // OP_RIPEMD160
+        script.push(OP_RIPEMD160); // OP_RIPEMD160
 
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
@@ -315,7 +320,7 @@ proptest! {
         // Build script with many pushes
         let mut script = Vec::new();
         for _ in 0..push_count {
-            script.push(0x51); // OP_1
+            script.push(OP_1);
         }
 
         let mut stack = Vec::new();
@@ -339,7 +344,7 @@ proptest! {
         b in 1u8..=16u8
     ) {
         // Build script: OP_a, OP_b, OP_2DROP
-        let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x6d]; // OP_2DROP
+        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_2DROP];
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 
@@ -355,7 +360,7 @@ proptest! {
         b in 1u8..=16u8
     ) {
         // Build script: OP_a, OP_b, OP_SWAP
-        let script = vec![0x51 + a.min(16), 0x51 + b.min(16), 0x7c]; // OP_SWAP
+        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_SWAP];
         let mut stack = Vec::new();
         let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
 

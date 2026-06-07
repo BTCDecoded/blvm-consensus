@@ -156,7 +156,6 @@ jobs:
           name: test-attestation-data
           path: |
             test_output.txt
-            coverage/cobertura.xml
           retention-days: 90
       
       - name: Save Cargo cache

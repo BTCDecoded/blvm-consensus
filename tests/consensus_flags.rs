@@ -21,6 +21,7 @@
 //! - SCRIPT_VERIFY_WITNESS_PUBKEYTYPE (0x8000)
 //! - SCRIPT_VERIFY_TAPROOT (0x20000)  ← bit 17, matching Bitcoin Core
 
+use blvm_consensus::opcodes::{OP_0, OP_1, OP_DUP, OP_EQUAL, OP_HASH160, PUSH_20_BYTES};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
 use blvm_consensus::script::{eval_script, verify_script, SigVersion};
 
@@ -79,7 +80,7 @@ pub fn generate_all_flag_combinations() -> Vec<u32> {
 #[test]
 fn test_all_flag_combinations_simple() {
     let flag_combinations = generate_all_flag_combinations();
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
 
     for flags in flag_combinations {
         let mut stack = Vec::new();
@@ -100,13 +101,32 @@ fn test_flag_combinations_p2sh() {
 
     // P2SH script: OP_HASH160 <hash> OP_EQUAL
     let script_pubkey = vec![
-        0xa9, // OP_HASH160
-        0x14, // Push 20 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x87, // OP_EQUAL
+        OP_HASH160,
+        PUSH_20_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        OP_EQUAL,
     ];
 
-    let script_sig = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
 
     for flags in flag_combinations {
         let result = verify_script(&script_sig, &script_pubkey, None, flags);
@@ -126,21 +146,21 @@ fn test_flag_combinations_p2sh() {
 fn test_flag_interactions() {
     // Test P2SH + WITNESS combination
     let flags = 0x01 | 0x800; // P2SH + WITNESS
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Test STRICTENC + DERSIG combination
     let flags = 0x02 | 0x04; // STRICTENC + DERSIG
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Test TAPROOT + WITNESS combination
     let flags = SCRIPT_VERIFY_TAPROOT | 0x800; // TAPROOT (0x20000) + WITNESS (0x800)
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
@@ -156,21 +176,21 @@ fn test_flag_interactions() {
 fn test_historical_flag_changes() {
     // Pre-SegWit flags (no WITNESS)
     let pre_segwit_flags = 0x01 | 0x02 | 0x04; // P2SH + STRICTENC + DERSIG
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, pre_segwit_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Post-SegWit flags (WITNESS enabled)
     let post_segwit_flags = 0x01 | 0x02 | 0x04 | 0x800; // + WITNESS
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, post_segwit_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
 
     // Post-Taproot flags (TAPROOT enabled)
     let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | SCRIPT_VERIFY_TAPROOT; // + TAPROOT (0x20000)
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, post_taproot_flags, SigVersion::Base);
     assert!(result.is_ok() || result.is_err());
@@ -186,7 +206,7 @@ fn test_flag_inheritance() {
     // (e.g., P2SH redeem script execution)
 
     let flags = 0x01; // P2SH
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
 
@@ -200,7 +220,7 @@ fn test_flag_inheritance() {
 #[test]
 fn test_individual_flags() {
     for &flag in ALL_FLAGS {
-        let script = vec![0x51]; // OP_1
+        let script = vec![OP_1]; // OP_1
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, flag, SigVersion::Base);
 
@@ -222,8 +242,8 @@ fn test_flag_combinations_edge_cases() {
     // Edge case scripts
     let edge_case_scripts = vec![
         vec![],         // Empty script
-        vec![0x51; 10], // Repeated opcodes
-        vec![0x00],     // OP_0
+        vec![OP_1; 10], // Repeated opcodes
+        vec![OP_0],     // OP_0
         vec![0xff],     // Invalid opcode
     ];
 
@@ -247,9 +267,9 @@ fn test_comprehensive_flag_combinations() {
 
     // Test scripts
     let test_scripts = vec![
-        (vec![0x51], vec![0x51]),       // Simple: OP_1, OP_1
-        (vec![0x51, 0x76], vec![0x51]), // OP_1 OP_DUP, OP_1
-        (vec![], vec![0x51]),           // Empty scriptSig, OP_1 scriptPubKey
+        (vec![OP_1], vec![OP_1]),         // Simple: OP_1, OP_1
+        (vec![OP_1, OP_DUP], vec![OP_1]), // OP_1 OP_DUP, OP_1
+        (vec![], vec![OP_1]),             // Empty scriptSig, OP_1 scriptPubKey
     ];
 
     for (script_sig, script_pubkey) in test_scripts {

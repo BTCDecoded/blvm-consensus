@@ -2,6 +2,7 @@
 
 use blvm_consensus::mempool::*;
 use blvm_consensus::mining::*;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
 use blvm_consensus::*;
 
@@ -19,13 +20,13 @@ fn test_mempool_to_block_integration() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -38,13 +39,13 @@ fn test_mempool_to_block_integration() {
                 hash: [2; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -75,8 +76,8 @@ fn test_mempool_to_block_integration() {
             100,
             &prev_header,
             &prev_headers,
-            &vec![0x51],
-            &vec![0x51],
+            &vec![OP_1],
+            &vec![OP_1],
         )
         .unwrap();
 
@@ -112,8 +113,8 @@ fn test_economic_mining_integration() {
             0,
             &prev_header,
             &prev_headers,
-            &vec![0x51],
-            &vec![0x51],
+            &vec![OP_1],
+            &vec![OP_1],
         )
         .unwrap();
 
@@ -133,13 +134,13 @@ fn test_script_transaction_integration() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51], // OP_1
+            script_sig: vec![OP_1], // OP_1
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(), // OP_1
+            script_pubkey: vec![OP_1].into(), // OP_1
         }]
         .into(),
         lock_time: 0,
@@ -182,13 +183,13 @@ fn test_pow_block_integration() {
                     hash: [0; 32].into(),
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -221,7 +222,7 @@ fn test_cross_system_error_handling() {
         inputs: vec![].into(), // Invalid: empty inputs
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -254,8 +255,8 @@ fn test_cross_system_error_handling() {
         100,
         &prev_header,
         &prev_headers,
-        &vec![0x51],
-        &vec![0x51],
+        &vec![OP_1],
+        &vec![OP_1],
     );
     assert!(block_result.is_err());
 }
@@ -274,13 +275,13 @@ fn test_performance_integration() {
                     hash: [i as u8; 32].into(),
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -312,8 +313,8 @@ fn test_performance_integration() {
             100,
             &prev_header,
             &prev_headers,
-            &vec![0x51],
-            &vec![0x51],
+            &vec![OP_1],
+            &vec![OP_1],
         )
         .unwrap();
 

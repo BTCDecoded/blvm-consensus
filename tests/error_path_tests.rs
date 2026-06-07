@@ -18,7 +18,10 @@ fn test_transaction_validation_errors() {
 
     let result = consensus.validate_transaction(&empty_tx);
     assert!(result.is_ok());
-    // Should be invalid due to empty inputs
+    assert!(
+        matches!(result.unwrap(), ValidationResult::Invalid(_)),
+        "empty inputs and outputs must be invalid"
+    );
 }
 
 #[test]
@@ -40,11 +43,10 @@ fn test_block_validation_errors() {
 
     let utxo_set = UtxoSet::default();
     let result = consensus.validate_block(&invalid_block, utxo_set, 0);
-    // This might fail due to invalid header, which is expected
-    match result {
-        Ok(_) => assert!(true),
-        Err(_) => assert!(true),
-    }
+    assert!(
+        result.is_err() || matches!(result, Ok((ValidationResult::Invalid(_), _))),
+        "timestamp=0 block must not validate as accepted"
+    );
 }
 
 #[test]

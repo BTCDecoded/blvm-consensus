@@ -12,6 +12,7 @@
 //! - CVE-2012-2459: Merkle tree duplicate hash vulnerability
 
 use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_4};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
@@ -50,13 +51,13 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -69,13 +70,13 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
                 hash: [2; 32],
                 index: 0,
             },
-            script_sig: vec![0x52],
+            script_sig: vec![OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -88,13 +89,13 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
                 hash: [3; 32],
                 index: 0,
             },
-            script_sig: vec![0x53],
+            script_sig: vec![OP_3],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 3000,
-            script_pubkey: vec![0x53],
+            script_pubkey: vec![OP_3],
         }]
         .into(),
         lock_time: 0,
@@ -126,13 +127,13 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
                 hash: [4; 32],
                 index: 0,
             },
-            script_sig: vec![0x54],
+            script_sig: vec![OP_4],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 4000,
-            script_pubkey: vec![0x54],
+            script_pubkey: vec![OP_4],
         }]
         .into(),
         lock_time: 0,
@@ -167,13 +168,13 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51, 0x51],
+            script_sig: vec![OP_1, OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -215,7 +216,7 @@ fn test_cve_2018_17144_double_spend_in_block() {
         prevout,
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
             is_coinbase: false,
         }),
@@ -226,13 +227,13 @@ fn test_cve_2018_17144_double_spend_in_block() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: prevout,
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 500000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -243,13 +244,13 @@ fn test_cve_2018_17144_double_spend_in_block() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: prevout, // Same prevout as tx1!
-            script_sig: vec![0x52],
+            script_sig: vec![OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 600000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -274,13 +275,13 @@ fn test_cve_2018_17144_double_spend_in_block() {
                         hash: [0; 32],
                         index: 0xffffffff,
                     },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![OP_1, OP_1],
                     sequence: 0xffffffff,
                 }]
                 .into(),
                 outputs: vec![TransactionOutput {
                     value: 5000000000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }]
                 .into(),
                 lock_time: 0,

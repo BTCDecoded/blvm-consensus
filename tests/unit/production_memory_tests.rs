@@ -3,13 +3,14 @@
 #[cfg(feature = "production")]
 mod tests {
     use blvm_consensus::constants::*;
+    use blvm_consensus::opcodes::{OP_1, OP_2};
     use blvm_consensus::script::*;
 
     #[test]
     fn test_stack_preallocation_capacity() {
         // Verify stack pre-allocation uses correct capacity
         let mut stack = Vec::new();
-        let script = vec![0x51]; // OP_1
+        let script = vec![OP_1]; // OP_1
 
         eval_script(&script, &mut stack, 0).unwrap();
 
@@ -27,7 +28,7 @@ mod tests {
     fn test_stack_preallocation_no_overallocation() {
         // Verify capacity doesn't cause memory issues
         let mut stack = Vec::new();
-        let script = vec![0x51, 0x51, 0x51]; // OP_1, OP_1, OP_1
+        let script = vec![OP_1, OP_1, OP_1]; // OP_1, OP_1, OP_1
 
         eval_script(&script, &mut stack, 0).unwrap();
 
@@ -44,7 +45,7 @@ mod tests {
         // Create script that will exceed initial capacity
         let mut script = Vec::new();
         for _ in 0..30 {
-            script.push(0x51); // OP_1 (pushes to stack)
+            script.push(OP_1); // OP_1 (pushes to stack)
         }
 
         let mut stack = Vec::new();
@@ -58,7 +59,7 @@ mod tests {
     #[test]
     fn test_memory_allocation_parity() {
         // Compare memory behavior with production optimizations
-        let script = vec![0x51, 0x51, 0x52, 0x52];
+        let script = vec![OP_1, OP_1, OP_2, OP_2];
 
         // First execution
         let mut stack1 = Vec::new();
@@ -85,8 +86,8 @@ mod tests {
     #[test]
     fn test_verify_script_memory_optimization() {
         // Test verify_script uses pre-allocated stack
-        let script_sig = vec![0x51];
-        let script_pubkey = vec![0x51, 0x51];
+        let script_sig = vec![OP_1];
+        let script_pubkey = vec![OP_1, OP_1];
 
         let result1 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
         let result2 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
@@ -103,7 +104,7 @@ mod tests {
         // Test memory handling with large scripts
         let mut large_script = Vec::new();
         for _ in 0..100 {
-            large_script.push(0x51); // OP_1
+            large_script.push(OP_1); // OP_1
         }
 
         let mut stack = Vec::new();

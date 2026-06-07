@@ -4,6 +4,7 @@
 //! witness validation, Taproot output validation, and related edge cases.
 
 use blvm_consensus::constants::MAX_BLOCK_SIZE;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::segwit;
 use blvm_consensus::types::*;
 use proptest::prelude::*;
@@ -26,7 +27,7 @@ proptest! {
         for i in 0..input_count {
             tx.inputs.push(TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                script_sig: vec![0x51; 50],
+                script_sig: vec![OP_1; 50],
                 sequence: 0xffffffff,
             });
         }
@@ -39,7 +40,7 @@ proptest! {
             });
         }
 
-        let witness: segwit::Witness = vec![vec![0x51; 50]; input_count];
+        let witness: segwit::Witness = vec![vec![OP_1; 50]; input_count];
 
         // Calculate weight (API no longer takes Network parameter)
         let result = segwit::calculate_transaction_weight(&tx, Some(&witness));
@@ -63,12 +64,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             })
@@ -126,7 +127,7 @@ proptest! {
     ) {
         // Create witness with multiple items
         let witness: Vec<Vec<u8>> = (0..witness_item_count)
-            .map(|_| vec![0x51; witness_item_size])
+            .map(|_| vec![OP_1; witness_item_size])
             .collect();
 
         let total_witness_size: usize = witness.iter().map(|w| w.len()).sum();
@@ -229,12 +230,12 @@ proptest! {
                     version: 1,
                     inputs: vec![TransactionInput {
                         prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
                         value: 1000,
-                        script_pubkey: vec![0x51],
+                        script_pubkey: vec![OP_1],
                     }].into(),
                     lock_time: 0,
                 })
@@ -255,7 +256,7 @@ proptest! {
             let mut witnesses: Vec<segwit::Witness> = Vec::new();
             for i in 0..total_tx_count {
                 if i < segwit_tx_count {
-                    witnesses.push(vec![vec![0x51; 50]]);
+                    witnesses.push(vec![vec![OP_1; 50]]);
                 } else {
                     witnesses.push(vec![vec![]]);
                 }

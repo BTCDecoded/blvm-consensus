@@ -1075,14 +1075,14 @@ mod tests {
         let utxo_set = create_test_utxo_set();
         let mempool = Mempool::new();
 
-        // This will fail on script validation, but that's expected
+        // Script: sig=OP_1, spk=OP_1 (UTXO). Stack after: [[1],[1]], top truthy → Accepted.
         let time_context = Some(TimeContext {
             network_time: 1234567890,
             median_time_past: 1234567890,
         });
         let result =
             accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
-        assert!(matches!(result, MempoolResult::Rejected(_)));
+        assert!(matches!(result, MempoolResult::Accepted));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! **CRITICAL**: These tests will FAIL if BIP checks are removed from connect_block,
 //! providing an alarm bell for missing consensus rules.
 
+use blvm_consensus::opcodes::*;
 use blvm_consensus::*;
 use blvm_consensus::block::connect_block;
 use blvm_consensus::block::calculate_tx_id;
@@ -476,11 +477,11 @@ fn test_script_verification_rejects_bip66_violation() {
     let mut script_sig = vec![0x47]; // Push 71 bytes
     script_sig.extend_from_slice(&invalid_der_sig);
     script_sig.resize(72, 0); // Pad to 72 bytes
-    script_sig.push(0x21); // Push 33 bytes (compressed pubkey)
+    script_sig.push(PUSH_33_BYTES); // Push 33 bytes (compressed pubkey)
     script_sig.extend_from_slice(&[0x02; 33]); // Dummy pubkey
     
     // P2PKH scriptPubkey
-    let script_pubkey = vec![0x76, 0xa9, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0xac].into();
+    let script_pubkey = vec![OP_DUP, OP_HASH160, PUSH_20_BYTES, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, OP_EQUALVERIFY, OP_CHECKSIG].into();
     
     let tx = Transaction {
         version: 1,
@@ -555,13 +556,13 @@ fn test_script_verification_rejects_bip147_violation() {
     let height = 481_825; // Just after BIP147 activation (481,824)
     
     // Create a multisig scriptPubkey: OP_2 <pubkey1> <pubkey2> OP_2 OP_CHECKMULTISIG
-    let mut script_pubkey = vec![0x52]; // OP_2 (2-of-2 multisig)
-    script_pubkey.push(0x21); // Push 33 bytes
+    let mut script_pubkey = vec![OP_2]; // OP_2 (2-of-2 multisig)
+    script_pubkey.push(PUSH_33_BYTES); // Push 33 bytes
     script_pubkey.extend_from_slice(&[0x02; 33]); // Dummy pubkey 1
-    script_pubkey.push(0x21); // Push 33 bytes
+    script_pubkey.push(PUSH_33_BYTES); // Push 33 bytes
     script_pubkey.extend_from_slice(&[0x03; 33]); // Dummy pubkey 2
-    script_pubkey.push(0x52); // OP_2
-    script_pubkey.push(0xae); // OP_CHECKMULTISIG
+    script_pubkey.push(OP_2); // OP_2
+    script_pubkey.push(OP_CHECKMULTISIG); // OP_CHECKMULTISIG
     
     // Create scriptSig with non-empty dummy (violates BIP147)
     // Stack: [dummy] [sig1] [sig2] [2] [pubkey1] [pubkey2] [2]
@@ -569,7 +570,7 @@ fn test_script_verification_rejects_bip147_violation() {
     let mut script_sig = vec![0x01, 0x01]; // Non-empty dummy (violates BIP147)
     script_sig.push(0x00); // Empty signature 1
     script_sig.push(0x00); // Empty signature 2
-    script_sig.push(0x52); // OP_2 (2 signatures)
+    script_sig.push(OP_2); // OP_2 (2 signatures)
     
     let tx = Transaction {
         version: 1,
@@ -643,19 +644,19 @@ fn test_script_verification_allows_bip147_before_activation() {
     let height = 481_823; // Just before BIP147 activation (481,824)
     
     // Create a multisig scriptPubkey
-    let mut script_pubkey = vec![0x52]; // OP_2
-    script_pubkey.push(0x21);
+    let mut script_pubkey = vec![OP_2]; // OP_2
+    script_pubkey.push(PUSH_33_BYTES);
     script_pubkey.extend_from_slice(&[0x02; 33]);
-    script_pubkey.push(0x21);
+    script_pubkey.push(PUSH_33_BYTES);
     script_pubkey.extend_from_slice(&[0x03; 33]);
-    script_pubkey.push(0x52);
-    script_pubkey.push(0xae); // OP_CHECKMULTISIG
+    script_pubkey.push(OP_2);
+    script_pubkey.push(OP_CHECKMULTISIG); // OP_CHECKMULTISIG
     
     // Create scriptSig with non-empty dummy (allowed before BIP147 activation)
     let mut script_sig = vec![0x01, 0x01]; // Non-empty dummy (allowed before activation)
-    script_sig.push(0x00); // Empty signature 1
-    script_sig.push(0x00); // Empty signature 2
-    script_sig.push(0x52); // OP_2
+    script_sig.push(OP_0); // Empty signature 1
+    script_sig.push(OP_0); // Empty signature 2
+    script_sig.push(OP_2); // OP_2
     
     let tx = Transaction {
         version: 1,

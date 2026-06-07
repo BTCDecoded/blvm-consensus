@@ -1,5 +1,6 @@
 //! Unit tests for transaction validation functions
 
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3};
 use blvm_consensus::transaction::*;
 use blvm_consensus::types::*;
 use blvm_consensus::*;
@@ -13,13 +14,13 @@ fn test_check_transaction_valid() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -36,7 +37,7 @@ fn test_check_transaction_empty_inputs() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -55,7 +56,7 @@ fn test_check_transaction_too_many_inputs() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -65,7 +66,7 @@ fn test_check_transaction_too_many_inputs() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -81,7 +82,7 @@ fn test_check_transaction_too_many_outputs() {
     for _ in 0..=MAX_OUTPUTS {
         outputs.push(TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         });
     }
 
@@ -92,7 +93,7 @@ fn test_check_transaction_too_many_outputs() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
@@ -113,13 +114,13 @@ fn test_check_transaction_negative_output() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: -1000, // Negative value
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -138,13 +139,13 @@ fn test_check_transaction_excessive_output() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1, // Exceeds max money
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -163,13 +164,13 @@ fn test_is_coinbase() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -184,13 +185,13 @@ fn test_is_coinbase() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -208,13 +209,13 @@ fn test_calculate_transaction_size() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51, 0x52],
+            script_sig: vec![OP_1, OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51, 0x52, 0x53],
+            script_pubkey: vec![OP_1, OP_2, OP_3],
         }]
         .into(),
         lock_time: 0,

@@ -247,9 +247,11 @@ fn test_real_world_transaction_patterns() {
     let test_heights = vec![100000, 200000, 300000, 400000, 500000, 600000];
 
     let mut patterns_found = std::collections::HashSet::new();
+    let mut blocks_loaded = 0usize;
 
-    for height in test_heights {
-        if let Ok((block, _witnesses)) = load_mainnet_block_from_disk(&block_dir, height) {
+    for height in &test_heights {
+        if let Ok((block, _witnesses)) = load_mainnet_block_from_disk(&block_dir, *height) {
+            blocks_loaded += 1;
             // Analyze transaction patterns in this block
             for tx in &block.transactions {
                 if is_coinbase(tx) {
@@ -318,8 +320,17 @@ fn test_real_world_transaction_patterns() {
     // This test verifies that our deserialization can handle real-world transaction formats
     println!("Transaction patterns found: {patterns_found:?}");
 
-    // Test passes if we can load and analyze blocks (even if no patterns found)
-    assert!(true);
+    let has_fixtures = block_dir.exists()
+        && test_heights.iter().any(|h| {
+            block_dir.join(format!("block_{h}.bin")).exists()
+                || block_dir.join(format!("block_{h}.hex")).exists()
+        });
+    if has_fixtures {
+        assert!(
+            blocks_loaded > 0,
+            "mainnet block fixtures exist but none loaded"
+        );
+    }
 }
 
 /// Load a mainnet block from disk

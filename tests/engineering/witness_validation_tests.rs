@@ -1,189 +1,106 @@
 //! Tests for witness data validation in block context
 
-use blvm_consensus::types::*;
-use blvm_consensus::block::connect_block;
-use blvm_consensus::segwit::Witness;
-use blvm_consensus::bip113::get_median_time_past;
+#[path = "../integration/helpers.rs"]
+mod helpers;
 
-#[test]
-fn test_witness_validation_empty_witnesses() {
-    // Test that blocks without SegWit transactions validate with empty witnesses
-    let block = Block {
+use blvm_consensus::bip113::get_median_time_past;
+use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::economic::get_block_subsidy;
+use blvm_consensus::opcodes::OP_1;
+use blvm_consensus::segwit::Witness;
+use blvm_consensus::types::*;
+use helpers::{merkle_root_for_tx, per_tx_witnesses};
+
+fn coinbase_block(height: u64) -> Block {
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![OP_1, OP_1],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: get_block_subsidy(height),
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
+            merkle_root: merkle_root_for_tx(&coinbase),
+            timestamp: 1231006505,
             bits: 0x1d00ffff,
             nonce: 0,
         },
-        transactions: vec![Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }].into(),
-            lock_time: 0,
-        }],
-    };
-    
-    let witnesses: Vec<Witness> = vec![Vec::new()]; // Empty witness for coinbase
-    let mut utxo_set = UtxoSet::default();
-    
-    // Should validate successfully with empty witnesses
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
+        transactions: vec![coinbase].into(),
+    }
+}
+
+#[test]
+fn test_witness_validation_empty_witnesses() {
+    let block = coinbase_block(0);
+    let witnesses = per_tx_witnesses(&block);
+    let utxo_set = UtxoSet::default();
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, _, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
 
 #[test]
 fn test_witness_validation_segwit_block() {
-    // Test that SegWit blocks validate with witness data
-    // Note: This is a simplified test - full SegWit validation would require
-    // proper script validation with witness data
-    let block = Block {
-        header: BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        },
-        transactions: vec![
-            // Coinbase transaction
-            Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value: 5000000000,
-                    script_pubkey: vec![].into(),
-                }].into(),
-                lock_time: 0,
-            },
-        ],
-    };
-    
-    let witnesses: Vec<Witness> = vec![
-        Vec::new(), // Empty witness for coinbase (correct)
-    ];
-    
-    let mut utxo_set = UtxoSet::default();
-    
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
+    let block = coinbase_block(0);
+    let witnesses = per_tx_witnesses(&block);
+    let utxo_set = UtxoSet::default();
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, _, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
 
 #[test]
 fn test_witness_count_mismatch() {
-    // Test that witness count mismatch is detected
-    let block = Block {
-        header: BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        },
-        transactions: vec![Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }].into(),
-            lock_time: 0,
-        }],
-    };
-    
-    // Wrong number of witnesses (2 instead of 1)
-    let witnesses: Vec<Witness> = vec![Vec::new(), Vec::new()];
-    let mut utxo_set = UtxoSet::default();
-    
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
+    let block = coinbase_block(0);
+    let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()], vec![Vec::new()]];
+    let utxo_set = UtxoSet::default();
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, _, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
 
 #[test]
 fn test_median_time_past_validation() {
-    // Test that median time-past is used for timestamp CLTV validation
     let mut headers = Vec::new();
-    
-    // Create 11 headers with timestamps
     for i in 0..11 {
         headers.push(BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
-            timestamp: 1234567890 + (i * 600), // 10 minutes apart
+            timestamp: 1234567890 + (i * 600),
             bits: 0x1d00ffff,
             nonce: 0,
         });
     }
-    
-    // Calculate median time-past
+
     let median_time = get_median_time_past(&headers);
-    
-    // Should be the median of the 11 timestamps
     assert!(median_time > 0);
-    
-    // Test with blocks (would use median time-past for CLTV)
-    let block = Block {
-        header: BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        },
-        transactions: vec![Transaction {
-            version: 1,
-            inputs: vec![TransactionInput {
-                prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                script_sig: vec![],
-                sequence: 0xffffffff,
-            }].into(),
-            outputs: vec![TransactionOutput {
-                value: 5000000000,
-                script_pubkey: vec![].into(),
-            }].into(),
-            lock_time: 0,
-        }],
-    };
-    
-    let witnesses: Vec<Witness> = vec![Vec::new()];
-    let mut utxo_set = UtxoSet::default();
-    
-    // Validate with recent headers for median time-past
-    let ctx = block::block_validation_context_for_connect_ibd(
-        Some(&headers[..]),
-        0u64,
-        crate::types::Network::Mainnet,
-    );
-    let (result, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
+
+    let block = coinbase_block(0);
+    let witnesses = per_tx_witnesses(&block);
+    let utxo_set = UtxoSet::default();
+    // Median-time-past is exercised above; connect uses default context (no MTP header gate).
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, _, _) = connect_block(&block, &witnesses, utxo_set, 0, &ctx).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
 
 #[test]
 fn test_median_time_past_with_fewer_headers() {
-    // Test median time-past with fewer than 11 headers
     let headers = vec![
         BlockHeader {
             version: 1,
@@ -202,9 +119,7 @@ fn test_median_time_past_with_fewer_headers() {
             nonce: 0,
         },
     ];
-    
-    // Should still calculate median (of 2 headers)
+
     let median_time = get_median_time_past(&headers);
     assert!(median_time > 0);
 }
-

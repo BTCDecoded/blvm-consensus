@@ -8,18 +8,18 @@
 
 use blvm_consensus::block::{connect_block, BlockValidationContext};
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
-use blvm_consensus::serialization::transaction::deserialize_transaction;
 use blvm_consensus::transaction::check_transaction;
 use blvm_consensus::types::Network;
 use blvm_consensus::*;
 use std::fs;
 use std::path::PathBuf;
 
+#[path = "../core_test_vectors/tx_loader.rs"]
+mod tx_loader;
+
 /// Test directory for reference test vectors
-///
-/// To use this, download consensus test vectors to:
-/// `tests/test_data/core_vectors/`
 const CORE_VECTORS_DIR: &str = "tests/test_data/core_vectors";
+const TX_VECTORS_DIR: &str = "tests/test_data/core_vectors/transactions";
 
 /// Check if test vectors are available
 fn test_vectors_available() -> bool {
@@ -27,50 +27,13 @@ fn test_vectors_available() -> bool {
     base_path.exists() && base_path.is_dir()
 }
 
-/// Load transaction test vectors
+/// Load transaction test vectors (Core nested JSON under `transactions/`).
 fn load_transaction_vectors() -> Result<Vec<(Transaction, bool)>, Box<dyn std::error::Error>> {
-    let tx_valid_path = PathBuf::from(CORE_VECTORS_DIR).join("tx_valid.json");
-    let tx_invalid_path = PathBuf::from(CORE_VECTORS_DIR).join("tx_invalid.json");
-
-    let mut vectors = Vec::new();
-
-    // Load valid transactions
-    if tx_valid_path.exists() {
-        let content = fs::read_to_string(&tx_valid_path)?;
-        let json: serde_json::Value = serde_json::from_str(&content)?;
-
-        if let Some(array) = json.as_array() {
-            for item in array {
-                if let Some(hex_str) = item.as_str() {
-                    if let Ok(tx_bytes) = hex::decode(hex_str) {
-                        if let Ok(tx) = deserialize_transaction(&tx_bytes) {
-                            vectors.push((tx, true)); // true = should be valid
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Load invalid transactions
-    if tx_invalid_path.exists() {
-        let content = fs::read_to_string(&tx_invalid_path)?;
-        let json: serde_json::Value = serde_json::from_str(&content)?;
-
-        if let Some(array) = json.as_array() {
-            for item in array {
-                if let Some(hex_str) = item.as_str() {
-                    if let Ok(tx_bytes) = hex::decode(hex_str) {
-                        if let Ok(tx) = deserialize_transaction(&tx_bytes) {
-                            vectors.push((tx, false)); // false = should be invalid
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(vectors)
+    let vectors = tx_loader::load_transaction_test_vectors(TX_VECTORS_DIR)?;
+    Ok(vectors
+        .into_iter()
+        .map(|v| (v.transaction, v.expected_result))
+        .collect())
 }
 
 /// Load block test vectors

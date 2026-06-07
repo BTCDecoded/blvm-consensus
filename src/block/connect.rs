@@ -998,6 +998,18 @@ pub(crate) fn connect_block_inner<'a>(
                                         break;
                                     }
                                 };
+                            if let Some(msg) = check_bip54_sigop_limit(
+                                bip54_active,
+                                tx,
+                                &overlay,
+                                wits_i,
+                                tx_flags_i,
+                                tx_ids,
+                            )? {
+                                early_return =
+                                    Some(Ok(ConnectQueueEarlyExit::Invalid(msg.to_string())));
+                                break;
+                            }
                             (input_valid, fee, (0, 0), (0, 0))
                         } else {
                             // Full path: build utxo_refs for sigop + script check buffers.
@@ -1061,6 +1073,18 @@ pub(crate) fn connect_block_inner<'a>(
                                     early_return = Some(Err(e));
                                     break;
                                 }
+                            }
+                            if let Some(msg) = check_bip54_sigop_limit(
+                                bip54_active,
+                                tx,
+                                &overlay,
+                                wits_i,
+                                tx_flags_i,
+                                tx_ids,
+                            )? {
+                                early_return =
+                                    Some(Ok(ConnectQueueEarlyExit::Invalid(msg.to_string())));
+                                break;
                             }
                             drop(utxo_refs);
                             let (input_valid, fee) =

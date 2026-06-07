@@ -304,14 +304,35 @@ impl U256 {
         self.0[0]
     }
 
-    #[cfg(test)]
-    fn to_bytes(&self) -> [u8; 32] {
+    /// Serialize as 32 little-endian bytes (Bitcoin `uint256` wire layout).
+    pub fn to_le_bytes(&self) -> [u8; 32] {
         let mut bytes = [0u8; 32];
         for (i, &word) in self.0.iter().enumerate() {
             let word_bytes = word.to_le_bytes();
             bytes[i * 8..(i + 1) * 8].copy_from_slice(&word_bytes);
         }
         bytes
+    }
+
+    /// Bitcoin RPC `GetHex()` / getblocktemplate `target` (byte-reversed display hex).
+    pub fn gbt_target_hex(&self) -> String {
+        let mut bytes = self.to_le_bytes();
+        bytes.reverse();
+        hex::encode(bytes)
+    }
+
+    /// Low 128 bits (legacy `BlockTemplate.target` summary field).
+    pub fn low_u128(&self) -> u128 {
+        self.0[0] as u128 | ((self.0[1] as u128) << 64)
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0.iter().all(|&w| w == 0)
+    }
+
+    #[cfg(test)]
+    fn to_bytes(&self) -> [u8; 32] {
+        self.to_le_bytes()
     }
 
     fn shl(&self, shift: u32) -> Self {
@@ -541,11 +562,6 @@ impl U256 {
             }
         }
         None
-    }
-
-    /// Check if the value is zero
-    fn is_zero(&self) -> bool {
-        self.0.iter().all(|&x| x == 0)
     }
 
     /// Convert U256 to f64 for difficulty display.
@@ -1158,6 +1174,16 @@ mod tests {
         // Regtest minimum-difficulty ceiling uses nBits like 0x207fffff (exponent 32).
         let result = expand_target(0x2000ffff).unwrap();
         assert!(!result.is_zero());
+    }
+
+    #[test]
+    fn test_gbt_target_hex_regtest_minimum_difficulty() {
+        let target = expand_target(0x207fffff).expect("regtest nBits");
+        let hex = target.gbt_target_hex();
+        assert_eq!(hex.len(), 64);
+        assert_ne!(hex, "0".repeat(64));
+        // Bitcoin display order: high limbs appear first in the hex string.
+        assert!(hex.starts_with("7fffff"));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! for transaction validation, ensuring 99% coverage of possible input combinations.
 
 use blvm_consensus::constants::{MAX_INPUTS, MAX_MONEY, MAX_OUTPUTS};
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::types::*;
 use blvm_consensus::ConsensusProof;
 use proptest::prelude::*;
@@ -23,7 +24,7 @@ proptest! {
             }].into(),
             outputs: vec![TransactionOutput {
                 value,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -54,7 +55,7 @@ proptest! {
         for i in 0..input_count {
             inputs.push(TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             });
         }
@@ -85,7 +86,7 @@ proptest! {
         for i in 0..input_count {
             inputs.push(TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             });
         }
@@ -95,7 +96,7 @@ proptest! {
             inputs: inputs.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -166,7 +167,7 @@ proptest! {
             }].into(),
             outputs: vec![TransactionOutput {
                 value,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -194,7 +195,7 @@ proptest! {
         for _ in 0..output_count {
             outputs.push(TransactionOutput {
                 value: output_value,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             });
         }
 
@@ -202,7 +203,7 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: [0; 32], index: 0xffffffff }, // Coinbase marker
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }].into(),
             outputs: outputs.into(),
@@ -230,18 +231,18 @@ proptest! {
             inputs: vec![
                 TransactionInput {
                     prevout: prevout,
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 },
                 TransactionInput {
                     prevout: prevout, // Duplicate!
-                    script_sig: vec![0x52],
+                    script_sig: vec![OP_2],
                     sequence: 0xffffffff,
                 },
             ].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -266,7 +267,7 @@ proptest! {
         for i in 0..input_count {
             inputs.push(TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
-                script_sig: vec![0x51; 50], // Fixed script size
+                script_sig: vec![OP_1; 50], // Fixed script size
                 sequence: 0xffffffff,
             });
         }

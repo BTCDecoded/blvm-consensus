@@ -183,7 +183,14 @@ pub fn create_block_template(
         coinbase_address,
     )?;
 
-    let target = expand_target(block.header.bits)?;
+    let target_u256 = crate::pow::expand_target(block.header.bits)?;
+    let target = if target_u256.is_zero() {
+        0
+    } else if target_u256.low_u128() > 0 {
+        target_u256.low_u128()
+    } else {
+        1
+    };
 
     let header = block.header.clone();
 
@@ -542,29 +549,10 @@ fn encode_varint(value: u64) -> Vec<u8> {
     }
 }
 
-/// Orange Paper 7.2: Block hash = SHA256d(header) for PoW validation
+/// Orange Paper 7.2: Block hash = SHA256d(serialize(header)) — same as blockstore / PoW.
 fn calculate_block_hash(header: &BlockHeader) -> Hash {
-    let mut data = Vec::new();
-
-    // Version (4 bytes, little-endian)
-    data.extend_from_slice(&(header.version as u32).to_le_bytes());
-
-    // Previous block hash (32 bytes)
-    data.extend_from_slice(&header.prev_block_hash);
-
-    // Merkle root (32 bytes)
-    data.extend_from_slice(&header.merkle_root);
-
-    // Timestamp (4 bytes, little-endian)
-    data.extend_from_slice(&(header.timestamp as u32).to_le_bytes());
-
-    // Bits (4 bytes, little-endian)
-    data.extend_from_slice(&(header.bits as u32).to_le_bytes());
-
-    // Nonce (4 bytes, little-endian)
-    data.extend_from_slice(&(header.nonce as u32).to_le_bytes());
-
-    sha256_hash(&data)
+    let wire = crate::serialization::block::serialize_block_header(header);
+    double_sha256_hash(&wire)
 }
 
 /// Simple SHA256 hash function
@@ -957,6 +945,41 @@ mod tests {
         let bits = 0x2000ffff; // exponent = 32, would cause shift >= 104
         let result = expand_target(bits);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_pow_expand_target_regtest_minimum_difficulty() {
+        let target = crate::pow::expand_target(0x207fffff).expect("regtest nBits");
+        assert!(!target.is_zero());
+        assert_eq!(target.gbt_target_hex().len(), 64);
+    }
+
+    #[test]
+    fn test_create_block_template_regtest_nbits() {
+        let utxo_set = UtxoSet::default();
+        let prev_header = BlockHeader {
+            version: 4,
+            prev_block_hash: [0u8; 32],
+            merkle_root: [0u8; 32],
+            timestamp: 1_600_000_000,
+            bits: 0x207fffff,
+            nonce: 0,
+        };
+        let prev_headers = vec![prev_header.clone(), prev_header.clone()];
+
+        let template = create_block_template(
+            &utxo_set,
+            &[],
+            1,
+            &prev_header,
+            &prev_headers,
+            &vec![],
+            &vec![0x51],
+        )
+        .expect("create_block_template must not fail on regtest nBits");
+
+        assert_eq!(template.header.bits, 0x207fffff);
+        assert!(template.target > 0);
     }
 
     #[test]

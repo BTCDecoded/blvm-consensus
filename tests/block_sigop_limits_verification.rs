@@ -8,6 +8,7 @@
 //! - Cost = (legacy_sigops × 4) + (p2sh_sigops × 4) + witness_sigops
 
 use blvm_consensus::constants::*;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
 
 /// Create a transaction with specified sigop count
@@ -21,13 +22,13 @@ fn create_tx_with_sigops(_legacy_sigops: usize) -> Transaction {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

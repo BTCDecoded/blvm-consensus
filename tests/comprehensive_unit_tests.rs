@@ -1,6 +1,7 @@
 //! Comprehensive unit tests for blvm-consensus modules
 
 use blvm_consensus::economic::*;
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_NOP};
 use blvm_consensus::pow::*;
 use blvm_consensus::script::*;
 use blvm_consensus::transaction::*;
@@ -87,7 +88,7 @@ fn test_check_transaction_too_many_outputs() {
     for _ in 0..=MAX_OUTPUTS {
         outputs.push(TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         });
     }
 
@@ -214,13 +215,13 @@ fn test_calculate_transaction_size() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51, 0x52],
+            script_sig: vec![OP_1, OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51, 0x52, 0x53],
+            script_pubkey: vec![OP_1, OP_2, OP_3],
         }]
         .into(),
         lock_time: 0,
@@ -238,7 +239,7 @@ fn test_calculate_transaction_size() {
 
 #[test]
 fn test_eval_script_simple() {
-    let script = vec![0x51, 0x52]; // OP_1, OP_2
+    let script = vec![OP_1, OP_2]; // OP_1, OP_2
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, crate::script::SigVersion::Base).unwrap();
     // The result is a boolean indicating success/failure
@@ -251,7 +252,7 @@ fn test_eval_script_overflow() {
     let mut script = Vec::new();
     // Create a script that would cause stack overflow
     for _ in 0..=MAX_STACK_SIZE {
-        script.push(0x51); // OP_1
+        script.push(OP_1); // OP_1
     }
 
     let mut stack = Vec::new();
@@ -261,8 +262,8 @@ fn test_eval_script_overflow() {
 
 #[test]
 fn test_verify_script_simple() {
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
     // The result depends on the simplified script logic
@@ -273,9 +274,9 @@ fn test_verify_script_simple() {
 
 #[test]
 fn test_verify_script_with_witness() {
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
-    let witness = Some(vec![0x52]); // OP_2
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
+    let witness = Some(vec![OP_2]); // OP_2
 
     let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
     // The result depends on the simplified script logic
@@ -300,8 +301,8 @@ fn test_verify_script_large_scripts() {
 
     // Create scripts that exceed MAX_SCRIPT_SIZE
     for _ in 0..=MAX_SCRIPT_SIZE {
-        script_sig.push(0x51);
-        script_pubkey.push(0x51);
+        script_sig.push(OP_1);
+        script_pubkey.push(OP_1);
     }
 
     let result = verify_script(&script_sig, &script_pubkey, None, 0);
@@ -346,7 +347,7 @@ fn test_calculate_fee() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
@@ -384,7 +385,7 @@ fn test_calculate_fee_negative() {
     };
     let utxo = UTXO {
         value: 500, // Less than output
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
@@ -422,7 +423,7 @@ fn test_calculate_fee_zero() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
@@ -556,7 +557,7 @@ fn test_transaction_size_boundaries() {
     // Test transaction at maximum size limit
     let mut large_script = Vec::new();
     for _ in 0..MAX_SCRIPT_SIZE {
-        large_script.push(0x51);
+        large_script.push(OP_1);
     }
 
     let tx = Transaction {
@@ -632,7 +633,7 @@ fn test_maximum_input_output_counts() {
     for _ in 0..num_outputs {
         outputs.push(TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         });
     }
 
@@ -706,10 +707,10 @@ fn test_monetary_boundaries() {
 
 #[test]
 fn test_script_operation_limits() {
-    // Test script with maximum number of non-push operations (OP_NOP = 0x61 counts)
+    // Test script with maximum number of non-push operations (OP_NOP counts)
     let mut script = Vec::new();
     for _ in 0..MAX_SCRIPT_OPS {
-        script.push(0x61); // OP_NOP - non-push, counts toward limit
+        script.push(OP_NOP); // OP_NOP - non-push, counts toward limit
     }
 
     let empty: Vec<u8> = vec![];
@@ -720,7 +721,7 @@ fn test_script_operation_limits() {
     // Test script exceeding operation limit (MAX_SCRIPT_OPS + 1 non-push opcodes)
     let mut large_script = Vec::new();
     for _ in 0..=MAX_SCRIPT_OPS {
-        large_script.push(0x61); // OP_NOP - non-push, counts toward limit
+        large_script.push(OP_NOP); // OP_NOP - non-push, counts toward limit
     }
 
     let result = verify_script(&large_script, &empty, None, 0);
@@ -732,7 +733,7 @@ fn test_stack_size_limits() {
     // Test script that would cause stack overflow
     let mut script = Vec::new();
     for _ in 0..=MAX_STACK_SIZE {
-        script.push(0x51); // OP_1
+        script.push(OP_1); // OP_1
     }
 
     let result = verify_script(&script, &script, None, 0);

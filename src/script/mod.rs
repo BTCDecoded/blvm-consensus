@@ -358,7 +358,8 @@ pub enum SigVersion {
 ///    - If operation count > L_ops: return false (operation limit exceeded)
 ///    - Execute op with current stack state
 ///    - If execution fails: return false
-/// 3. Return |S| = 1 ∧ S\[0\] ≠ 0 (exactly one non-zero value on stack)
+/// 3. Return true if execution completed without error (final stack shape is
+///    checked by [`verify_script`] / [`verify_script_with_context_full`], not here).
 ///
 /// Performance: Pre-allocates stack with capacity hint to reduce allocations
 ///
@@ -491,9 +492,9 @@ fn eval_script_inner(
     let mut control_stack: Vec<control_flow::ControlBlock> = Vec::new();
     let mut altstack: Vec<StackElement> = Vec::new();
 
-    for opcode in script {
-        let opcode = *opcode;
-
+    let mut i = 0;
+    while i < script.len() {
+        let opcode = script[i];
         let in_false_branch = control_flow::in_false_branch(&control_stack);
 
         // Count non-push opcodes toward op limit, regardless of branch
@@ -514,69 +515,118 @@ fn eval_script_inner(
             return Err(make_stack_overflow_error());
         }
 
+        // Handle push opcodes with embedded data (0x01-0x4b direct, OP_PUSHDATA1/2/4).
+        if (0x01..=OP_PUSHDATA4).contains(&opcode) {
+            let (data, advance) = if opcode <= 0x4b {
+                let len = opcode as usize;
+                if i + 1 + len > script.len() {
+                    return Ok(false);
+                }
+                (&script[i + 1..i + 1 + len], 1 + len)
+            } else if opcode == OP_PUSHDATA1 {
+                if i + 1 >= script.len() {
+                    return Ok(false);
+                }
+                let len = script[i + 1] as usize;
+                if i + 2 + len > script.len() {
+                    return Ok(false);
+                }
+                (&script[i + 2..i + 2 + len], 2 + len)
+            } else if opcode == OP_PUSHDATA2 {
+                if i + 2 >= script.len() {
+                    return Ok(false);
+                }
+                let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
+                if i + 3 + len > script.len() {
+                    return Ok(false);
+                }
+                (&script[i + 3..i + 3 + len], 3 + len)
+            } else {
+                if i + 4 >= script.len() {
+                    return Ok(false);
+                }
+                let len = u32::from_le_bytes([
+                    script[i + 1],
+                    script[i + 2],
+                    script[i + 3],
+                    script[i + 4],
+                ]) as usize;
+                let data_start = i.saturating_add(5);
+                let data_end = data_start.saturating_add(len);
+                let advance = 5usize.saturating_add(len);
+                if advance < 5 || data_end > script.len() || data_end < data_start {
+                    return Ok(false);
+                }
+                (&script[data_start..data_end], advance)
+            };
+
+            if !in_false_branch {
+                stack.push(to_stack_element(data));
+            }
+            i += advance;
+            continue;
+        }
+
         match opcode {
             // OP_IF
             OP_IF => {
                 if in_false_branch {
                     control_stack.push(control_flow::ControlBlock::If { executing: false });
-                    continue;
-                }
-
-                if stack.is_empty() {
+                } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
                         message: "OP_IF: empty stack".into(),
                     });
-                }
-                let condition_bytes = stack.pop().unwrap();
-                let condition = cast_to_bool(&condition_bytes);
+                } else {
+                    let condition_bytes = stack.pop().unwrap();
+                    let condition = cast_to_bool(&condition_bytes);
 
-                // MINIMALIF (0x2000) for WitnessV0/Tapscript
-                const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
-                    && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !control_flow::is_minimal_if_condition(&condition_bytes)
-                {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::MinimalIf,
-                        message: "OP_IF condition must be minimally encoded".into(),
+                    const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
+                    if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
+                        && (sigversion == SigVersion::WitnessV0
+                            || sigversion == SigVersion::Tapscript)
+                        && !control_flow::is_minimal_if_condition(&condition_bytes)
+                    {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::MinimalIf,
+                            message: "OP_IF condition must be minimally encoded".into(),
+                        });
+                    }
+
+                    control_stack.push(control_flow::ControlBlock::If {
+                        executing: condition,
                     });
                 }
-
-                control_stack.push(control_flow::ControlBlock::If {
-                    executing: condition,
-                });
             }
             // OP_NOTIF
             OP_NOTIF => {
                 if in_false_branch {
                     control_stack.push(control_flow::ControlBlock::NotIf { executing: false });
-                    continue;
-                }
-
-                if stack.is_empty() {
+                } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
                         message: "OP_NOTIF: empty stack".into(),
                     });
-                }
-                let condition_bytes = stack.pop().unwrap();
-                let condition = cast_to_bool(&condition_bytes);
+                } else {
+                    let condition_bytes = stack.pop().unwrap();
+                    let condition = cast_to_bool(&condition_bytes);
 
-                const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
-                    && (sigversion == SigVersion::WitnessV0 || sigversion == SigVersion::Tapscript)
-                    && !control_flow::is_minimal_if_condition(&condition_bytes)
-                {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::MinimalIf,
-                        message: "OP_NOTIF condition must be minimally encoded".into(),
+                    const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
+                    if (flags & SCRIPT_VERIFY_MINIMALIF) != 0
+                        && (sigversion == SigVersion::WitnessV0
+                            || sigversion == SigVersion::Tapscript)
+                        && !control_flow::is_minimal_if_condition(&condition_bytes)
+                    {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::MinimalIf,
+                            message: "OP_NOTIF condition must be minimally encoded".into(),
+                        });
+                    }
+
+                    control_stack.push(control_flow::ControlBlock::NotIf {
+                        executing: !condition,
                     });
                 }
-
-                control_stack.push(control_flow::ControlBlock::NotIf {
-                    executing: !condition,
-                });
             }
             // OP_ELSE
             OP_ELSE => {
@@ -605,32 +655,31 @@ fn eval_script_inner(
             }
             // OP_TOALTSTACK - move top stack item to altstack
             OP_TOALTSTACK => {
-                if in_false_branch {
-                    continue;
+                if !in_false_branch {
+                    if stack.is_empty() {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::InvalidStackOperation,
+                            message: "OP_TOALTSTACK: empty stack".into(),
+                        });
+                    }
+                    altstack.push(stack.pop().unwrap());
                 }
-                if stack.is_empty() {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::InvalidStackOperation,
-                        message: "OP_TOALTSTACK: empty stack".into(),
-                    });
-                }
-                altstack.push(stack.pop().unwrap());
             }
             // OP_FROMALTSTACK - move top altstack item to stack
             OP_FROMALTSTACK => {
-                if in_false_branch {
-                    continue;
+                if !in_false_branch {
+                    if altstack.is_empty() {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::InvalidAltstackOperation,
+                            message: "OP_FROMALTSTACK: empty altstack".into(),
+                        });
+                    }
+                    stack.push(altstack.pop().unwrap());
                 }
-                if altstack.is_empty() {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::InvalidAltstackOperation,
-                        message: "OP_FROMALTSTACK: empty altstack".into(),
-                    });
-                }
-                stack.push(altstack.pop().unwrap());
             }
             _ => {
                 if in_false_branch {
+                    i += 1;
                     continue;
                 }
 
@@ -643,6 +692,7 @@ fn eval_script_inner(
                 }
             }
         }
+        i += 1;
     }
 
     if !control_stack.is_empty() {
@@ -652,21 +702,8 @@ fn eval_script_inner(
         });
     }
 
-    // Final stack check: exactly one non-zero value
-    // Optimization: Use bounds-optimized access in production
-    #[cfg(feature = "production")]
-    {
-        if stack.len() == 1 {
-            Ok(cast_to_bool(&stack[0]))
-        } else {
-            Ok(false)
-        }
-    }
-
-    #[cfg(not(feature = "production"))]
-    {
-        Ok(stack.len() == 1 && cast_to_bool(&stack[0]))
-    }
+    // No final stack check — EvalScript behavior (VerifyScript checks stack afterward).
+    Ok(true)
 }
 
 /// VerifyScript: 𝒮𝒞 × 𝒮𝒞 × 𝒲 × ℕ → {true, false}
@@ -735,7 +772,7 @@ pub fn verify_script(
                     }
                     false
                 } else {
-                    let res = stack.len() == 1 && cast_to_bool(&stack[0]);
+                    let res = !stack.is_empty() && cast_to_bool(&stack[stack.len() - 1]);
                     if !is_caching_disabled() {
                         let mut cache = get_script_cache()
                             .write()
@@ -745,7 +782,7 @@ pub fn verify_script(
                     res
                 }
             } else {
-                let res = stack.len() == 1 && cast_to_bool(&stack[0]);
+                let res = !stack.is_empty() && cast_to_bool(&stack[stack.len() - 1]);
                 if !is_caching_disabled() {
                     let mut cache = get_script_cache()
                         .write()
@@ -784,8 +821,8 @@ pub fn verify_script(
             }
         }
 
-        // Final validation
-        Ok(stack.len() == 1 && cast_to_bool(&stack[0]))
+        // Final validation: top of stack must be truthy (Core VerifyScript: CastToBool(stack.back()))
+        Ok(!stack.is_empty() && cast_to_bool(&stack[stack.len() - 1]))
     }
 }
 
@@ -4002,7 +4039,8 @@ fn execute_opcode(
         // OP_HASH256 - SHA256(SHA256(x))
         OP_HASH256 => crypto_ops::op_hash256(stack),
 
-        // OP_EQUAL - check if top two stack items are equal
+        // OP_EQUAL - check if top two stack items are equal.
+        // Pushes [] (empty = false) or [0x01] (true), matching Core's vchFalse/vchTrue.
         OP_EQUAL => {
             if stack.len() < 2 {
                 return Err(ConsensusError::ScriptErrorWithCode {
@@ -4012,7 +4050,7 @@ fn execute_opcode(
             }
             let a = stack.pop().unwrap();
             let b = stack.pop().unwrap();
-            stack.push(to_stack_element(&[if a == b { 1 } else { 0 }]));
+            stack.push(to_stack_element(if a == b { &[1u8] } else { &[] }));
             Ok(true)
         }
 
@@ -4061,21 +4099,27 @@ fn execute_opcode(
         }
 
         // OP_CHECKLOCKTIMEVERIFY (BIP65)
-        // Note: Requires transaction context for proper validation.
-        // This basic implementation will fail - use verify_script_with_context for proper CLTV validation.
+        // When SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY flag is not set, behaves as NOP (BIP65 rule).
+        // With the flag set but no tx context, fails. Use verify_script_with_context for full CLTV.
         OP_CHECKLOCKTIMEVERIFY => {
-            // CLTV requires transaction locktime and block context, so it always fails here
-            // Proper implementation is in execute_opcode_with_context
-            Ok(false)
+            const SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY: u32 = 0x200;
+            if (flags & SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
 
         // OP_CHECKSEQUENCEVERIFY (BIP112)
-        // Note: Requires transaction context for proper validation.
-        // This basic implementation will fail - use verify_script_with_context for proper CSV validation.
+        // When SCRIPT_VERIFY_CHECKSEQUENCEVERIFY flag is not set, behaves as NOP (BIP112 rule).
+        // With the flag set but no tx context, fails. Use verify_script_with_context for full CSV.
         OP_CHECKSEQUENCEVERIFY => {
-            // CSV requires transaction sequence and block context, so it always fails here
-            // Proper implementation is in execute_opcode_with_context
-            Ok(false)
+            const SCRIPT_VERIFY_CHECKSEQUENCEVERIFY: u32 = 0x400;
+            if (flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY) == 0 {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
         }
 
         // OP_IFDUP - duplicate top stack item if it's non-zero
@@ -4288,13 +4332,17 @@ fn execute_opcode(
             }
         }
 
-        // OP_2ROT - rotate second pair of stack items to top
+        // OP_2ROT - move the pair at positions 5 and 6 from top to top.
+        // Before: [... a b c d e f] (f=top). After: [... c d e f a b] (b=top).
         OP_2ROT => {
             if stack.len() >= 6 {
-                let sixth = stack.remove(stack.len() - 6);
-                let fifth = stack.remove(stack.len() - 5);
-                stack.push(fifth);
+                // Remove from bottom-most of the pair first (index 0 = 6th from top).
+                let sixth = stack.remove(stack.len() - 6); // a
+                                                           // After first remove the stack shrank; 5th from original top is now at index 0.
+                let fifth = stack.remove(stack.len() - 5); // b
+                                                           // Push in original order: sixth (a) below, fifth (b) on top.
                 stack.push(sixth);
+                stack.push(fifth);
                 Ok(true)
             } else {
                 Ok(false)
@@ -4438,22 +4486,19 @@ fn execute_opcode(
         // Note: OP_NOP4 (0xb3) is used for OP_CHECKTEMPLATEVERIFY (BIP119)
         OP_NOP1 | OP_NOP5..=OP_NOP10 => Ok(true),
 
-        // OP_CHECKTEMPLATEVERIFY - requires transaction context
+        // OP_CHECKTEMPLATEVERIFY (NOP4 / BIP 119)
+        // Treated as NOP when the CTV flag is not in the verification flags.
+        // Full validation requires tx context and the SCRIPT_VERIFY_CHECKTEMPLATEVERIFY flag.
         OP_CHECKTEMPLATEVERIFY => {
-            #[cfg(not(feature = "ctv"))]
-            {
-                // Without feature flag, treat as NOP4
-                Ok(true)
-            }
-
+            const SCRIPT_VERIFY_CHECKTEMPLATEVERIFY: u32 = 0x8000;
             #[cfg(feature = "ctv")]
-            {
-                // CTV requires transaction context - cannot execute without it
+            if (flags & SCRIPT_VERIFY_CHECKTEMPLATEVERIFY) != 0 {
                 return Err(ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::TxInvalid,
                     message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
                 });
             }
+            Ok(true)
         }
 
         // Disabled string opcodes - must return error per consensus
@@ -4463,6 +4508,93 @@ fn execute_opcode(
                 code: ScriptErrorCode::DisabledOpcode,
                 message: format!("Disabled opcode 0x{opcode:02x}").into(),
             })
+        }
+
+        // OP_1NEGATE - push -1 onto stack
+        OP_1NEGATE => {
+            stack.push(to_stack_element(&[0x81]));
+            Ok(true)
+        }
+
+        // OP_CHECKMULTISIG - verify m-of-n multisig without transaction context.
+        // Handles stack mechanics correctly for all cases; succeeds only when m=0
+        // (no signatures to verify). Vectors requiring real ECDSA verification need
+        // verify_script_with_context_full.
+        OP_CHECKMULTISIG => {
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            let n_bytes = stack.pop().unwrap();
+            let n = match script_num_decode(&n_bytes, 4) {
+                Ok(v) if (0..=20).contains(&v) => v as usize,
+                _ => return Ok(false),
+            };
+            if stack.len() < n {
+                return Ok(false);
+            }
+            for _ in 0..n {
+                stack.pop();
+            }
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            let m_bytes = stack.pop().unwrap();
+            let m = match script_num_decode(&m_bytes, 4) {
+                Ok(v) if v >= 0 && v as usize <= n => v as usize,
+                _ => return Ok(false),
+            };
+            if stack.len() < m {
+                return Ok(false);
+            }
+            for _ in 0..m {
+                stack.pop();
+            }
+            // Pop the mandatory dummy element (Bitcoin off-by-one quirk)
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            stack.pop();
+            // Without tx context only 0-sig multisig can succeed
+            stack.push(to_stack_element(&[if m == 0 { 1 } else { 0 }]));
+            Ok(true)
+        }
+
+        // OP_CHECKMULTISIGVERIFY - CHECKMULTISIG then VERIFY
+        OP_CHECKMULTISIGVERIFY => {
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            let n_bytes = stack.pop().unwrap();
+            let n = match script_num_decode(&n_bytes, 4) {
+                Ok(v) if (0..=20).contains(&v) => v as usize,
+                _ => return Ok(false),
+            };
+            if stack.len() < n {
+                return Ok(false);
+            }
+            for _ in 0..n {
+                stack.pop();
+            }
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            let m_bytes = stack.pop().unwrap();
+            let m = match script_num_decode(&m_bytes, 4) {
+                Ok(v) if v >= 0 && v as usize <= n => v as usize,
+                _ => return Ok(false),
+            };
+            if stack.len() < m {
+                return Ok(false);
+            }
+            for _ in 0..m {
+                stack.pop();
+            }
+            if stack.is_empty() {
+                return Ok(false);
+            }
+            stack.pop();
+            // Verify: succeed only if m == 0
+            Ok(m == 0)
         }
 
         // Unknown opcode
@@ -6356,7 +6488,7 @@ mod tests {
         let script = vec![OP_0]; // OP_0
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // OP_0 pushes empty array, which is "false"
+        assert!(result); // eval_script always succeeds; stack has empty item (falsy but not an error)
         assert_eq!(stack.len(), 1);
         assert!(stack[0].is_empty());
     }
@@ -6380,7 +6512,7 @@ mod tests {
         let script = vec![0x51, 0x76]; // OP_1, OP_DUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 2 items (EvalScript doesn't check count)
         assert_eq!(stack.len(), 2);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[1]);
@@ -6445,9 +6577,9 @@ mod tests {
         let script = vec![0x51, 0x52, 0x87]; // OP_1, OP_2, OP_EQUAL
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // False value (0) is not considered "true"
+        assert!(result); // eval_script succeeds; OP_EQUAL pushes [] (empty = falsy, like Core's vchFalse)
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[0]); // False
+        assert!(stack[0].is_empty()); // False is [] (empty), not [0x00]
     }
 
     #[test]
@@ -6473,7 +6605,7 @@ mod tests {
         let script = vec![0x51, 0x69]; // OP_1, OP_VERIFY
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack is empty, not exactly 1 item
+        assert!(result); // eval_script succeeds; OP_VERIFY consumed the truthy item
         assert_eq!(stack.len(), 0); // OP_VERIFY consumes the top item
     }
 
@@ -6498,7 +6630,7 @@ mod tests {
         let script = vec![0x51, 0x51, 0x88]; // OP_1, OP_1, OP_EQUALVERIFY
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack is empty, not exactly 1 item
+        assert!(result); // eval_script succeeds; OP_EQUALVERIFY consumed both equal items
         assert_eq!(stack.len(), 0); // OP_EQUALVERIFY consumes both items
     }
 
@@ -6527,7 +6659,7 @@ mod tests {
         let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // OP_CHECKSIG returns false for invalid signatures (expected in test)
+        assert!(result); // eval_script succeeds; CHECKSIG pushes [] (invalid sig = falsy) but no error
         assert_eq!(stack.len(), 1);
         // Production code validates signatures using secp256k1; test uses simplified inputs
     }
@@ -6592,40 +6724,45 @@ mod tests {
 
     #[test]
     fn test_final_stack_empty() {
+        // eval_script (EvalScript) does not check the final stack — VerifyScript does.
         let script = vec![0x51, 0x52]; // OP_1, OP_2 (two items on final stack)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result);
+        assert!(result); // eval_script succeeds; final stack check is VerifyScript's responsibility
+        assert_eq!(stack.len(), 2);
     }
 
     #[test]
     fn test_final_stack_false() {
+        // eval_script (EvalScript) does not check top-of-stack truthiness — VerifyScript does.
         let script = vec![OP_0]; // OP_0 (false on final stack)
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result);
+        assert!(result); // eval_script succeeds; verify_script would return false here
     }
 
     #[test]
     fn test_verify_script_with_witness() {
+        // OP_1 sig + OP_1 pubkey + OP_1 witness leaves 3 truthy items; top is truthy → success.
         let script_sig = vec![OP_1]; // OP_1
         let script_pubkey = vec![OP_1]; // OP_1
         let witness = vec![OP_1]; // OP_1
         let flags = 0;
 
         let result = verify_script(&script_sig, &script_pubkey, Some(&witness), flags).unwrap();
-        assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
+        assert!(result); // VerifyScript: top of stack is truthy regardless of stack size
     }
 
     #[test]
     fn test_verify_script_failure() {
-        let script_sig = vec![OP_1]; // OP_1
-        let script_pubkey = vec![OP_2]; // OP_2
+        // OP_0 pubkey pushes empty (falsy) item on top; verify_script returns false.
+        let script_sig = vec![OP_1]; // OP_1 (truthy)
+        let script_pubkey = vec![OP_0]; // OP_0 (pushes empty = falsy)
         let witness = None;
         let flags = 0;
 
         let result = verify_script(&script_sig, &script_pubkey, witness, flags).unwrap();
-        assert!(!result);
+        assert!(!result); // VerifyScript: top of stack is [] (falsy) → fail
     }
 
     // ============================================================================
@@ -6637,7 +6774,7 @@ mod tests {
         let script = vec![OP_1, OP_IFDUP]; // OP_1, OP_IFDUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 2 items after dup
         assert_eq!(stack.len(), 2);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[1]);
@@ -6648,7 +6785,7 @@ mod tests {
         let script = vec![OP_0, OP_IFDUP]; // OP_0, OP_IFDUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 1 item [0], which is false
+        assert!(result); // eval_script succeeds; IFDUP doesn't dup falsy items
         assert_eq!(stack.len(), 1);
         assert_eq!(stack[0].as_ref(), &[] as &[u8]);
     }
@@ -6658,7 +6795,7 @@ mod tests {
         let script = vec![OP_1, OP_1, OP_DEPTH]; // OP_1, OP_1, OP_DEPTH
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 3 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
         assert_eq!(stack[2].as_ref(), &[2]); // Depth should be 2 (before OP_DEPTH)
     }
@@ -6706,7 +6843,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_OVER]; // OP_1, OP_2, OP_OVER
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 3 items [1, 2, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[2]);
@@ -6727,7 +6864,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_1, OP_PICK]; // OP_1, OP_2, OP_3, OP_1, OP_PICK
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 4 items [1, 2, 3, 2], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
         assert_eq!(stack[3].as_ref(), &[2]); // Should pick index 1 (OP_2)
     }
@@ -6738,7 +6875,7 @@ mod tests {
         let script = vec![OP_1, OP_0, OP_PICK];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 2 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 2 items
         assert_eq!(stack.len(), 2);
         assert_eq!(stack[1].as_ref(), &[1]); // Picked the top (OP_1 value)
     }
@@ -6757,7 +6894,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_1, OP_ROLL]; // OP_1, OP_2, OP_3, OP_1, OP_ROLL
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 3 items [1, 3, 2], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[3]);
@@ -6789,7 +6926,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_ROT]; // OP_1, OP_2, OP_3, OP_ROT
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 3 items [2, 3, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
         assert_eq!(stack[0].as_ref(), &[2]);
         assert_eq!(stack[1].as_ref(), &[3]);
@@ -6810,7 +6947,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_SWAP]; // OP_1, OP_2, OP_SWAP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 2 items [2, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 2 items
         assert_eq!(stack.len(), 2);
         assert_eq!(stack[0].as_ref(), &[2]);
         assert_eq!(stack[1].as_ref(), &[1]);
@@ -6830,7 +6967,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_TUCK]; // OP_1, OP_2, OP_TUCK
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 3 items [2, 1, 2], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
         assert_eq!(stack[0].as_ref(), &[2]);
         assert_eq!(stack[1].as_ref(), &[1]);
@@ -6870,7 +7007,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_2DUP]; // OP_1, OP_2, OP_2DUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 4 items [1, 2, 1, 2], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[2]);
@@ -6892,7 +7029,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_3DUP]; // OP_1, OP_2, OP_3, OP_3DUP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 6 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[2]);
@@ -6916,7 +7053,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_4, OP_2OVER]; // OP_1, OP_2, OP_3, OP_4, OP_2OVER
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 6 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
         assert_eq!(stack[4].as_ref(), &[1]); // Should copy second pair
         assert_eq!(stack[5].as_ref(), &[2]);
@@ -6933,13 +7070,16 @@ mod tests {
 
     #[test]
     fn test_op_2rot() {
+        // Stack before: [1,2,3,4,5,6] (1=bottom, 6=top)
+        // 2ROT moves 6th and 5th from top (=1 and 2) to top preserving order.
+        // Stack after:  [3,4,5,6,1,2] (2=top, 1=second)
         let script = vec![OP_1, OP_2, OP_3, OP_4, OP_5, OP_6, OP_2ROT]; // 6 items, OP_2ROT
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 6 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
-        assert_eq!(stack[4].as_ref(), &[2]); // Should rotate second pair to top
-        assert_eq!(stack[5].as_ref(), &[1]);
+        assert_eq!(stack[4].as_ref(), &[1]); // OP_1 moved to second-from-top
+        assert_eq!(stack[5].as_ref(), &[2]); // OP_2 moved to top
     }
 
     #[test]
@@ -6956,7 +7096,7 @@ mod tests {
         let script = vec![OP_1, OP_2, OP_3, OP_4, OP_2SWAP]; // OP_1, OP_2, OP_3, OP_4, OP_2SWAP
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 4 items, not exactly 1
+        assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
         assert_eq!(stack[0].as_ref(), &[3]); // Should swap second pair
         assert_eq!(stack[1].as_ref(), &[4]);
@@ -6978,7 +7118,7 @@ mod tests {
         let script = vec![OP_1, OP_SIZE]; // OP_1, OP_SIZE
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(!result); // Final stack has 2 items [1, 1], not exactly 1
+        assert!(result); // eval_script succeeds; stack has 2 items (original + size)
         assert_eq!(stack.len(), 2);
         assert_eq!(stack[0].as_ref(), &[1]);
         assert_eq!(stack[1].as_ref(), &[1]); // Size of [1] is 1

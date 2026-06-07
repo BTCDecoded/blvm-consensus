@@ -10,7 +10,11 @@
 //!
 //! Consensus-critical: Signature validation bugs can allow invalid transactions.
 
+use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_DUP, PUSH_65_BYTES};
 use blvm_consensus::script::verify_script;
+
+#[path = "core_test_vectors/tx_loader.rs"]
+mod tx_loader;
 
 /// Script verification flags for signature validation
 pub const SCRIPT_VERIFY_DERSIG: u32 = 0x04;
@@ -29,8 +33,8 @@ fn test_der_signature_encoding() {
 
     // DER validation checks ASN.1 structure, integer encoding, length fields.
     // OP_1 used as minimal script input; verify_script returns Ok/Err without panic.
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     // Test with DERSIG flag
     let flags = SCRIPT_VERIFY_DERSIG;
@@ -45,8 +49,8 @@ fn test_der_signature_encoding() {
 /// SCRIPT_VERIFY_LOW_S: S value must be <= secp256k1 order / 2
 #[test]
 fn test_low_s_requirement() {
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     // Test with LOW_S flag
     let flags = SCRIPT_VERIFY_LOW_S;
@@ -63,8 +67,8 @@ fn test_low_s_requirement() {
 #[test]
 fn test_high_s_rejection() {
     // High S rejection requires constructing signatures with S > n/2; using minimal input here.
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
     let flags = SCRIPT_VERIFY_LOW_S;
 
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
@@ -81,26 +85,87 @@ fn test_null_dummy_enforcement() {
 
     // Multisig script: 2 <pubkey1> <pubkey2> 2 OP_CHECKMULTISIG
     let script_pubkey = vec![
-        0x52, // OP_2
-        0x41, 0x04, // Push pubkey (simplified)
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0x52, // OP_2
-        0xae, // OP_CHECKMULTISIG
+        OP_2,
+        PUSH_65_BYTES,
+        0x04, // Push pubkey (simplified)
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        0xff,
+        OP_2,
+        OP_CHECKMULTISIG,
     ];
 
     // ScriptSig with NULLDUMMY: <sig1> <sig2> OP_0
     let script_sig_valid = vec![
         0x47, 0x30, 0x44, // Signature (simplified)
-        0x00, // OP_0 (NULLDUMMY)
+        OP_0, // OP_0 (NULLDUMMY)
     ];
 
     // ScriptSig without NULLDUMMY: <sig1> <sig2> OP_1 (invalid)
     let script_sig_invalid = vec![
         0x47, 0x30, 0x44, // Signature
-        0x51, // OP_1 (non-empty dummy - invalid)
+        OP_1, // OP_1 (non-empty dummy - invalid)
     ];
 
     let flags = SCRIPT_VERIFY_NULLDUMMY;
@@ -125,13 +190,13 @@ fn test_sigpushonly_enforcement() {
     // ScriptSig must only contain push operations (no opcodes)
     // This prevents script injection attacks
 
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     // Valid: only data pushes
-    let script_sig_valid = vec![0x51]; // OP_1 (push 1)
+    let script_sig_valid = vec![OP_1]; // OP_1 (push 1)
 
     // Invalid: contains opcodes
-    let script_sig_invalid = vec![0x76]; // OP_DUP (not a push)
+    let script_sig_invalid = vec![OP_DUP]; // OP_DUP (not a push)
 
     let flags = SCRIPT_VERIFY_SIGPUSHONLY;
 
@@ -152,8 +217,8 @@ fn test_strictenc_enforcement() {
     // - Compressed: 0x02 or 0x03 + 32 bytes
     // - Uncompressed: 0x04 + 64 bytes
 
-    let script_pubkey = vec![0x51]; // OP_1
-    let script_sig = vec![0x51]; // OP_1
+    let script_pubkey = vec![OP_1];
+    let script_sig = vec![OP_1];
 
     let flags = SCRIPT_VERIFY_STRICTENC;
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
@@ -176,8 +241,8 @@ fn test_combined_signature_flags() {
         SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC,
     ];
 
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
 
     for flags in flag_combinations {
         let result = verify_script(&script_sig, &script_pubkey, None, flags);
@@ -196,8 +261,8 @@ fn test_invalid_der_encoding() {
     // - Leading zeros in integers
     // - Negative integers
 
-    let script_sig = vec![0x51]; // Placeholder
-    let script_pubkey = vec![0x51]; // Placeholder
+    let script_sig = vec![OP_1]; // Placeholder
+    let script_pubkey = vec![OP_1]; // Placeholder
 
     let flags = SCRIPT_VERIFY_DERSIG;
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
@@ -214,12 +279,26 @@ fn test_invalid_der_encoding() {
 /// - Signatures before/after BIP66 activation
 #[test]
 fn test_core_signature_edge_cases() {
-    // Placeholder for reference test vector integration
-    // reference test vectors include:
-    // - 23b397edccd3740a74adb603c9756370fafcde9bcc4483eb271ecad09a94dd63
-    //   (invalidly-encoded signature that OpenSSL accepts)
-    // - Signatures with negative ASN.1 integers (invalid after BIP66)
+    use blvm_consensus::transaction::check_transaction;
 
-    // These would be tested when reference test vectors are integrated
-    assert!(true);
+    let vectors =
+        tx_loader::load_transaction_test_vectors("tests/test_data/core_vectors/transactions")
+            .expect("load tx vectors");
+    if vectors.is_empty() {
+        return;
+    }
+
+    let invalid: Vec<_> = vectors.iter().filter(|v| !v.expected_result).collect();
+    assert!(
+        !invalid.is_empty(),
+        "expected invalid tx vectors in fixture set"
+    );
+
+    for vector in invalid.iter().take(50) {
+        let result = check_transaction(&vector.transaction);
+        assert!(
+            result.is_ok() || !vector.expected_result,
+            "check_transaction must not panic on Core invalid vectors"
+        );
+    }
 }

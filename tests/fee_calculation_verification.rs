@@ -6,6 +6,7 @@
 //! Consensus-critical: Fee differences = different transaction acceptance
 
 use blvm_consensus::constants::*;
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_4};
 use blvm_consensus::test_utils::create_test_utxo_set_two_outputs;
 use blvm_consensus::transaction::check_tx_inputs;
 use blvm_consensus::types::ValidationResult;
@@ -25,13 +26,13 @@ fn test_zero_fee_transaction() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 100_000_000, // Same as input (zero fee)
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -62,13 +63,13 @@ fn test_positive_fee_transaction() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 99_000_000, // 0.01 BTC fee
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -102,13 +103,13 @@ fn test_negative_fee_transaction() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 101_000_000, // More than input (negative fee)
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -139,7 +140,7 @@ fn test_fee_multiple_inputs() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -147,14 +148,14 @@ fn test_fee_multiple_inputs() {
                     hash: [2; 32],
                     index: 0,
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 140_000_000, // 0.01 BTC fee (150M - 140M)
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -188,18 +189,18 @@ fn test_fee_multiple_outputs() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![
             TransactionOutput {
                 value: 50_000_000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             },
             TransactionOutput {
                 value: 49_000_000, // 0.01 BTC fee
-                script_pubkey: vec![0x52],
+                script_pubkey: vec![OP_2],
             },
         ]
         .into(),
@@ -233,7 +234,7 @@ fn test_fee_maximum_money() {
         },
         std::sync::Arc::new(UTXO {
             value: MAX_MONEY,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 100,
             is_coinbase: false,
         }),
@@ -246,13 +247,13 @@ fn test_fee_maximum_money() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY - 1, // 1 satoshi fee
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -288,7 +289,7 @@ fn test_fee_overflow_protection() {
             },
             std::sync::Arc::new(UTXO {
                 value: large_value, // Large but valid values that test overflow protection
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
                 height: 100,
                 is_coinbase: false,
             }),
@@ -302,7 +303,7 @@ fn test_fee_overflow_protection() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -312,7 +313,7 @@ fn test_fee_overflow_protection() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -346,7 +347,7 @@ fn test_coinbase_fee() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

@@ -1,3 +1,4 @@
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::{mining, BlockHeader, Block};
 
 #[path = "../test_helpers.rs"]
@@ -42,8 +43,8 @@ fn test_block_template_creation() {
         nonce: 0,
     };
     let prev_headers = vec![];
-    let coinbase_script = vec![0x51];
-    let coinbase_address = vec![0x51];
+    let coinbase_script = vec![OP_1];
+    let coinbase_address = vec![OP_1];
     
     let template = mining::create_block_template(
         &utxo,

@@ -5,6 +5,7 @@
 //!
 //! Consensus-critical: Duplicate inputs = inflation bug (CVE-2018-17144)
 
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_4};
 use blvm_consensus::transaction::check_transaction;
 use blvm_consensus::types::ValidationResult;
 use blvm_consensus::types::*;
@@ -22,7 +23,7 @@ fn test_duplicate_inputs_same_prevout() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -30,14 +31,14 @@ fn test_duplicate_inputs_same_prevout() {
                     hash: [1; 32], // Same hash
                     index: 0,      // Same index
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -66,7 +67,7 @@ fn test_duplicate_inputs_same_hash_different_index() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -74,14 +75,14 @@ fn test_duplicate_inputs_same_hash_different_index() {
                     hash: [1; 32], // Same hash
                     index: 1,      // Different index
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -110,7 +111,7 @@ fn test_duplicate_inputs_different_hash_same_index() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -118,14 +119,14 @@ fn test_duplicate_inputs_different_hash_same_index() {
                     hash: [2; 32], // Different hash
                     index: 0,      // Same index
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -154,7 +155,7 @@ fn test_multiple_duplicate_inputs() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -162,7 +163,7 @@ fn test_multiple_duplicate_inputs() {
                     hash: [1; 32],
                     index: 0, // Duplicate of first
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
             TransactionInput {
@@ -170,7 +171,7 @@ fn test_multiple_duplicate_inputs() {
                     hash: [2; 32],
                     index: 0,
                 },
-                script_sig: vec![0x53],
+                script_sig: vec![OP_3],
                 sequence: 0xfffffffd,
             },
             TransactionInput {
@@ -178,14 +179,14 @@ fn test_multiple_duplicate_inputs() {
                     hash: [2; 32],
                     index: 0, // Duplicate of third
                 },
-                script_sig: vec![0x54],
+                script_sig: vec![OP_4],
                 sequence: 0xfffffffc,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -214,7 +215,7 @@ fn test_all_inputs_duplicate() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -222,7 +223,7 @@ fn test_all_inputs_duplicate() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
             TransactionInput {
@@ -230,14 +231,14 @@ fn test_all_inputs_duplicate() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x53],
+                script_sig: vec![OP_3],
                 sequence: 0xfffffffd,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -264,7 +265,7 @@ fn test_no_duplicate_inputs() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -272,7 +273,7 @@ fn test_no_duplicate_inputs() {
                     hash: [2; 32],
                     index: 1,
                 },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xfffffffe,
             },
             TransactionInput {
@@ -280,14 +281,14 @@ fn test_no_duplicate_inputs() {
                     hash: [3; 32],
                     index: 2,
                 },
-                script_sig: vec![0x53],
+                script_sig: vec![OP_3],
                 sequence: 0xfffffffd,
             },
         ]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -317,7 +318,7 @@ fn test_duplicate_detection_many_inputs() {
                 hash: [i as u8; 32],
                 index: i,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -328,7 +329,7 @@ fn test_duplicate_detection_many_inputs() {
             hash: [50; 32],
             index: 50,
         },
-        script_sig: vec![0x52],
+        script_sig: vec![OP_2],
         sequence: 0xfffffffe,
     });
 
@@ -337,7 +338,7 @@ fn test_duplicate_detection_many_inputs() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

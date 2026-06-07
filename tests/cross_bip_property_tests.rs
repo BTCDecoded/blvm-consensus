@@ -6,6 +6,10 @@
 use blvm_consensus::bip113;
 use blvm_consensus::locktime;
 use blvm_consensus::mempool;
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_2, OP_CHECKLOCKTIMEVERIFY, OP_CHECKMULTISIG, OP_CHECKSEQUENCEVERIFY,
+    PUSH_20_BYTES, PUSH_32_BYTES,
+};
 use blvm_consensus::witness;
 use blvm_consensus::*;
 use proptest::prelude::*;
@@ -43,18 +47,18 @@ proptest! {
         // Push CLTV value (minimal encoding)
         let cltv_bytes = locktime::encode_locktime_value(cltv_value);
         script.extend_from_slice(&cltv_bytes);
-        script.push(0xb1); // OP_CHECKLOCKTIMEVERIFY
+        script.push(OP_CHECKLOCKTIMEVERIFY);
 
         // Push CSV value (minimal encoding)
         let csv_bytes = locktime::encode_locktime_value(csv_value);
         script.extend_from_slice(&csv_bytes);
-        script.push(0xb2); // OP_CHECKSEQUENCEVERIFY
+        script.push(OP_CHECKSEQUENCEVERIFY);
 
         // Note: This is a simplified test - full validation would require
         // proper script execution with transaction context, block height, and median time-past
         // The property test verifies that both opcodes can coexist in a script
-        assert!(script.contains(&0xb1)); // CLTV opcode present
-        assert!(script.contains(&0xb2)); // CSV opcode present
+        assert!(script.contains(&OP_CHECKLOCKTIMEVERIFY)); // CLTV opcode present
+        assert!(script.contains(&OP_CHECKSEQUENCEVERIFY)); // CSV opcode present
     }
 }
 
@@ -98,8 +102,8 @@ proptest! {
         // For CLTV timestamp validation: tx.locktime should be <= median_time_past
         // and tx.locktime should be >= cltv_value
         if tx_locktime as u64 <= calculated_median && tx_locktime >= cltv_value {
-            // This combination would pass CLTV validation with BIP113
-            assert!(true);
+            prop_assert!(calculated_median >= *min_timestamp);
+            prop_assert!(calculated_median <= *max_timestamp);
         }
     }
 }
@@ -143,9 +147,9 @@ proptest! {
         if segwit_valid && taproot_valid {
             // Both are valid - verify they use different witness versions.
             // extract_witness_version requires full BIP141/BIP341 program lengths.
-            let mut segwit_script = vec![0x00, 0x14]; // OP_0 PUSH_20
+            let mut segwit_script = vec![OP_0, PUSH_20_BYTES]; // OP_0 PUSH_20
             segwit_script.extend([0u8; 20]);
-            let mut taproot_script = vec![0x51, 0x20]; // OP_1 PUSH_32
+            let mut taproot_script = vec![OP_1, PUSH_32_BYTES];
             taproot_script.extend([0u8; 32]);
 
             assert_eq!(

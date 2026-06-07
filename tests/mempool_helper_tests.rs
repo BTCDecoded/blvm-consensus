@@ -2,6 +2,7 @@
 
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::mempool::*;
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::transaction::is_coinbase;
 use blvm_consensus::*;
 
@@ -14,13 +15,13 @@ fn test_mempool_basic_operations() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -44,13 +45,13 @@ fn test_mempool_conflict_detection() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -63,13 +64,13 @@ fn test_mempool_conflict_detection() {
                 hash: [1; 32],
                 index: 0,
             }, // Same input as tx1
-            script_sig: vec![0x52],
+            script_sig: vec![OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 900,
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -94,13 +95,13 @@ fn test_mempool_rbf_sequence() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: SEQUENCE_RBF as u64, // RBF sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -113,13 +114,13 @@ fn test_mempool_rbf_sequence() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: SEQUENCE_FINAL as u64, // Final sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -139,13 +140,13 @@ fn test_mempool_fee_calculation() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 800,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -158,7 +159,7 @@ fn test_mempool_fee_calculation() {
     };
     let utxo = UTXO {
         value: 1000,
-        script_pubkey: vec![0x51].into(),
+        script_pubkey: vec![OP_1].into(),
         height: 100,
         is_coinbase: false,
     };
@@ -177,13 +178,13 @@ fn test_mempool_dependency_creation() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -196,13 +197,13 @@ fn test_mempool_dependency_creation() {
                 hash: calculate_tx_id(&tx1),
                 index: 0,
             },
-            script_sig: vec![0x52],
+            script_sig: vec![OP_2],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 900,
-            script_pubkey: vec![0x52],
+            script_pubkey: vec![OP_2],
         }]
         .into(),
         lock_time: 0,
@@ -220,7 +221,7 @@ fn test_mempool_dependency_creation() {
 
 #[test]
 fn test_mempool_standard_script() {
-    let standard_script = [0x51]; // OP_1
+    let standard_script = [OP_1]; // OP_1
     let non_standard_script = vec![0x00; 10001]; // Very long script
 
     // Test script length limits
@@ -237,13 +238,13 @@ fn test_mempool_transaction_id() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -262,13 +263,13 @@ fn test_mempool_transaction_size() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -289,13 +290,13 @@ fn test_mempool_coinbase_detection() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_000_000_000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -308,13 +309,13 @@ fn test_mempool_coinbase_detection() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

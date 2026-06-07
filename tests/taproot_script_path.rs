@@ -10,6 +10,7 @@
 //!
 //! Consensus-critical: Taproot validation bugs can cause consensus divergence.
 
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::taproot::{
     compute_taproot_tweak, validate_taproot_key_aggregation, validate_taproot_script_path,
 };
@@ -19,7 +20,7 @@ use blvm_consensus::types::Hash;
 #[test]
 fn test_taproot_script_path_merkle_proof() {
     // Create a script
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
 
     // Create merkle proof (empty for single script)
     let merkle_proof: Vec<Hash> = vec![];
@@ -37,7 +38,7 @@ fn test_taproot_script_path_merkle_proof() {
 /// Test Taproot script path with invalid merkle proof
 #[test]
 fn test_taproot_script_path_invalid_proof() {
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
 
     // Create invalid merkle proof (wrong hash)
     let invalid_proof: Vec<Hash> = vec![[0xff; 32]];
@@ -76,7 +77,7 @@ fn test_taproot_script_path_depth_limits() {
     // Taproot merkle tree can have up to 128 levels (2^128 scripts)
     // Test with various proof depths
 
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
 
     // Test with shallow proof (few levels)
     let shallow_proof: Vec<Hash> = vec![[0x01; 32], [0x02; 32]];
@@ -173,8 +174,8 @@ fn test_taproot_script_path_multiple_scripts() {
     // Taproot can have multiple script paths in merkle tree
     // Each script needs its own merkle proof
 
-    let script1 = vec![0x51]; // OP_1
-    let script2 = vec![0x52]; // OP_2
+    let script1 = vec![OP_1]; // OP_1
+    let script2 = vec![OP_2]; // OP_2
 
     // Each script has its own merkle proof
     let proof1: Vec<Hash> = vec![[0x01; 32]];
@@ -223,7 +224,7 @@ fn test_taproot_key_aggregation_empty_merkle() {
 #[test]
 fn test_taproot_script_path_boundaries() {
     // Test merkle proof with single hash
-    let script = vec![0x51];
+    let script = vec![OP_1];
     let single_proof: Vec<Hash> = vec![[0x01; 32]];
     let merkle_root: Hash = [0x42; 32];
 

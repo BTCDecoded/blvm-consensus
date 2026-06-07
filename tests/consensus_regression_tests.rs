@@ -12,6 +12,9 @@
 
 use blvm_consensus::bip_validation::check_bip30_network;
 use blvm_consensus::constants::*;
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_2, OP_ADD, OP_EQUAL, OP_HASH160, PUSH_20_BYTES, PUSH_32_BYTES,
+};
 use blvm_consensus::script::{
     flags::SCRIPT_VERIFY_TAPROOT, verify_script, verify_script_with_context_full, SigVersion,
 };
@@ -35,13 +38,13 @@ use blvm_consensus::types::*;
 #[test]
 fn test_p2sh_scriptsig_push_only_validation() {
     // Create P2SH scriptPubkey
-    let mut script_pubkey = vec![0xa9, 0x14]; // OP_HASH160, push 20
+    let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES]; // OP_HASH160, push 20
     script_pubkey.extend_from_slice(&[0u8; 20]);
-    script_pubkey.push(0x87); // OP_EQUAL
+    script_pubkey.push(OP_EQUAL); // OP_EQUAL
 
     // Valid: scriptSig with only push operations
-    let valid_script_sig = vec![0x51, 0x52]; // OP_1, OP_2 (both push)
-    let redeem_script = vec![0x51]; // OP_1
+    let valid_script_sig = vec![OP_1, OP_2]; // OP_1, OP_2 (both push)
+    let redeem_script = vec![OP_1]; // OP_1
 
     let flags = 0x01; // SCRIPT_VERIFY_P2SH
     let result = verify_script(
@@ -52,8 +55,8 @@ fn test_p2sh_scriptsig_push_only_validation() {
     );
     // Should pass push-only check (may fail for other reasons, but not push-only)
 
-    // Invalid: scriptSig with non-push opcode (OP_ADD = 0x93)
-    let invalid_script_sig = vec![0x51, 0x93]; // OP_1, OP_ADD (OP_ADD is not push)
+    // Invalid: scriptSig with non-push opcode (OP_ADD = OP_ADD)
+    let invalid_script_sig = vec![OP_1, OP_ADD]; // OP_1, OP_ADD (OP_ADD is not push)
 
     let tx = Transaction {
         version: 1,
@@ -130,8 +133,8 @@ fn test_p2sh_scriptsig_push_only_validation() {
 /// **Test:** Verify that non-empty scriptSig in Taproot transactions is rejected.
 #[test]
 fn test_taproot_empty_scriptsig_requirement() {
-    // Create P2TR scriptPubkey: [0x51, 0x20, <32 bytes>]
-    let mut script_pubkey = vec![0x51, 0x20]; // OP_1, push 32
+    // Create P2TR scriptPubkey: [OP_1, PUSH_32_BYTES, <32 bytes>]
+    let mut script_pubkey = vec![OP_1, PUSH_32_BYTES]; // OP_1, push 32
     script_pubkey.extend_from_slice(&[0u8; 32]);
 
     let tx = Transaction {
@@ -141,7 +144,7 @@ fn test_taproot_empty_scriptsig_requirement() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51], // Non-empty scriptSig (should be rejected)
+            script_sig: vec![OP_1], // Non-empty scriptSig (should be rejected)
             sequence: 0xffffffff,
         }]
         .into(),
@@ -164,8 +167,8 @@ fn test_taproot_empty_scriptsig_requirement() {
     if height >= TAPROOT_ACTIVATION_MAINNET {
         for output in &tx.outputs {
             if output.script_pubkey.len() == 34
-                && output.script_pubkey[0] == 0x51
-                && output.script_pubkey[1] == 0x20
+                && output.script_pubkey[0] == OP_1
+                && output.script_pubkey[1] == PUSH_32_BYTES
             {
                 flags |= 0x8000; // SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
                 flags |= SCRIPT_VERIFY_TAPROOT; // 0x20000
@@ -232,28 +235,28 @@ fn test_p2sh_redeem_script_sighash() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
     };
 
-    let mut script_pubkey_vec = vec![0xa9, 0x14]; // OP_HASH160, push 20
+    let mut script_pubkey_vec = vec![OP_HASH160, PUSH_20_BYTES]; // OP_HASH160, push 20
     script_pubkey_vec.extend_from_slice(&[0u8; 20]);
-    script_pubkey_vec.push(0x87); // OP_EQUAL
+    script_pubkey_vec.push(OP_EQUAL); // OP_EQUAL
 
     let prevouts = [TransactionOutput {
         value: 1000000,
         script_pubkey: script_pubkey_vec.clone(),
     }];
 
-    let redeem_script = vec![0x51, 0x52]; // Redeem script (different from scriptPubkey)
+    let redeem_script = vec![OP_1, OP_2]; // Redeem script (different from scriptPubkey)
     let script_pubkey = script_pubkey_vec;
 
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
@@ -316,18 +319,18 @@ fn test_p2sh_redeem_script_sighash() {
 #[test]
 fn test_nested_segwit_detection() {
     // P2SH scriptPubkey
-    let mut script_pubkey = vec![0xa9, 0x14]; // OP_HASH160, push 20
+    let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES]; // OP_HASH160, push 20
     script_pubkey.extend_from_slice(&[0u8; 20]);
-    script_pubkey.push(0x87); // OP_EQUAL
+    script_pubkey.push(OP_EQUAL); // OP_EQUAL
 
-    // Redeem script: P2WSH-in-P2SH [0x00, 0x20, <32 bytes>]
-    let mut redeem_script = vec![0x00, 0x20]; // OP_0, push 32
+    // Redeem script: P2WSH-in-P2SH [OP_0, PUSH_32_BYTES, <32 bytes>]
+    let mut redeem_script = vec![OP_0, PUSH_32_BYTES];
     redeem_script.extend_from_slice(&[0u8; 32]);
 
     // Verify that this is detected as nested SegWit
     let is_nested_segwit = redeem_script.len() >= 3
-        && redeem_script[0] == 0x00  // OP_0
-        && redeem_script[1] == 0x20  // Push 32 bytes
+        && redeem_script[0] == OP_0
+        && redeem_script[1] == PUSH_32_BYTES  // Push 32 bytes
         && redeem_script.len() == 34; // Total length
 
     assert!(
@@ -335,13 +338,13 @@ fn test_nested_segwit_detection() {
         "P2WSH-in-P2SH redeem script must be detected"
     );
 
-    // P2WPKH-in-P2SH: [0x00, 0x14, <20 bytes>]
-    let mut redeem_script_p2wpkh = vec![0x00, 0x14]; // OP_0, push 20
+    // P2WPKH-in-P2SH: [0x00, PUSH_20_BYTES, <20 bytes>]
+    let mut redeem_script_p2wpkh = vec![OP_0, PUSH_20_BYTES]; // OP_0, push 20
     redeem_script_p2wpkh.extend_from_slice(&[0u8; 20]);
 
     let is_p2wpkh_in_p2sh = redeem_script_p2wpkh.len() >= 3
-        && redeem_script_p2wpkh[0] == 0x00  // OP_0
-        && redeem_script_p2wpkh[1] == 0x14  // Push 20 bytes
+        && redeem_script_p2wpkh[0] == OP_0
+        && redeem_script_p2wpkh[1] == PUSH_20_BYTES  // Push 20 bytes
         && redeem_script_p2wpkh.len() == 22; // Total length
 
     assert!(
@@ -434,13 +437,13 @@ fn test_sighash_alllegacy() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -448,7 +451,7 @@ fn test_sighash_alllegacy() {
 
     let prevouts = [TransactionOutput {
         value: 1000000,
-        script_pubkey: vec![0x51],
+        script_pubkey: vec![OP_1],
     }];
 
     let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
@@ -526,7 +529,7 @@ fn test_script_flags_per_transaction() {
     let height = TAPROOT_ACTIVATION_MAINNET + 1000; // After Taproot activation
 
     // Transaction with P2TR output: should have Taproot flag set during validation
-    let mut script_pubkey_taproot = vec![0x51, 0x20]; // OP_1, push 32
+    let mut script_pubkey_taproot = vec![OP_1, PUSH_32_BYTES]; // OP_1, push 32
     script_pubkey_taproot.extend_from_slice(&[0u8; 32]);
 
     let tx_with_taproot = Transaction {
@@ -613,7 +616,7 @@ fn test_script_flags_per_transaction() {
 #[test]
 fn test_segwit_deserialization() {
     // Create a SegWit transaction (P2WPKH)
-    let mut script_pubkey = vec![0x00, 0x14]; // OP_0, push 20
+    let mut script_pubkey = vec![OP_0, PUSH_20_BYTES]; // OP_0, push 20
     script_pubkey.extend_from_slice(&[0u8; 20]);
 
     let tx = Transaction {
@@ -663,7 +666,7 @@ fn test_transaction_limits() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         })
         .collect();
@@ -673,7 +676,7 @@ fn test_transaction_limits() {
         inputs: many_inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -695,7 +698,7 @@ fn test_transaction_limits() {
     let many_outputs: Vec<TransactionOutput> = (0..5000)
         .map(|_| TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         })
         .collect();
 
@@ -706,7 +709,7 @@ fn test_transaction_limits() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),

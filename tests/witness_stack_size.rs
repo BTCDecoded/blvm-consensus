@@ -5,6 +5,7 @@
 //!
 //! Consensus-critical: Witness stack overflow can cause consensus divergence.
 
+use blvm_consensus::opcodes::{OP_0, OP_1, PUSH_32_BYTES};
 use blvm_consensus::script::verify_script;
 use blvm_consensus::types::ByteString;
 
@@ -17,11 +18,11 @@ fn test_witness_stack_size_boundary() {
     // Create witness with exactly 100 items
     let mut witness = Vec::new();
     for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![0x51]); // Each item is OP_1
+        witness.push(vec![OP_1]); // Each item is OP_1
     }
 
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
 
     // Convert witness to ByteString for verification
     // Note: Actual implementation may handle witness differently
@@ -45,11 +46,11 @@ fn test_witness_stack_size_exceeding() {
     // Create witness with 101 items (exceeding limit)
     let mut witness = Vec::new();
     for _ in 0..=MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![0x51]);
+        witness.push(vec![OP_1]);
     }
 
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
     let witness_byte_string: ByteString = witness[0].clone();
 
     let flags = 0x800; // WITNESS
@@ -70,11 +71,40 @@ fn test_witness_stack_size_p2wsh() {
     // P2WSH (Pay-to-Witness-Script-Hash) can have witness stack
     // ScriptPubKey: OP_0 <32-byte-script-hash>
     let script_pubkey = vec![
-        0x00, // OP_0
-        0x20, // Push 32 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
+        OP_0,
+        PUSH_32_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     ];
 
     // Create witness stack for P2WSH
@@ -104,17 +134,46 @@ fn test_witness_stack_size_taproot() {
     // Taproot script path spending uses witness stack
     // ScriptPubKey: OP_1 <32-byte-taproot-hash>
     let script_pubkey = vec![
-        0x51, // OP_1
-        0x20, // Push 32 bytes
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
+        OP_1,
+        PUSH_32_BYTES,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
     ];
 
     // Create witness stack for Taproot
     let mut witness = Vec::new();
     for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![0x51]);
+        witness.push(vec![OP_1]);
     }
 
     let script_sig = vec![]; // Empty for Taproot
@@ -143,8 +202,8 @@ fn test_witness_stack_size_large_elements() {
         witness.push(vec![0x42; 520]); // Maximum-size element
     }
 
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
     let witness_byte_string: ByteString = witness[0].clone();
 
     let flags = 0x800; // WITNESS
@@ -171,13 +230,13 @@ fn test_witness_stack_vs_regular_stack() {
     // This is important for P2WSH scripts where witness provides data
     // that gets pushed onto regular stack
 
-    let script_sig = vec![0x51];
-    let script_pubkey = vec![0x51];
+    let script_sig = vec![OP_1];
+    let script_pubkey = vec![OP_1];
 
     // Witness stack with 100 items
     let mut witness = Vec::new();
     for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![0x51]);
+        witness.push(vec![OP_1]);
     }
 
     let witness_byte_string: ByteString = witness[0].clone();

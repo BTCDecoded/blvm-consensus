@@ -3,6 +3,7 @@
 //! Tests for compliance with consensus rules for BIPs.
 //! These tests verify that our BIP implementations match BIP specification validation logic.
 
+use blvm_consensus::opcodes::*;
 use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
 use blvm_consensus::*;
 use blvm_consensus::bip113::get_median_time_past;
@@ -18,16 +19,16 @@ fn test_bip65_cltv_compliance_basic() {
         inputs: vec![TransactionInput {
             prevout: OutPoint { hash: [1; 32].into(), index: 0 },
             script_sig: {
-                let mut script = vec![0x51]; // OP_1
+                let mut script = vec![OP_1]; // OP_1
                 script.extend_from_slice(&encode_varint(400000)); // Required locktime
-                script.push(0xb1); // CLTV
+                script.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
                 script
             },
             sequence: 0xffffffff,
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }].into(),
         lock_time: 500000, // >= required
     };
@@ -37,7 +38,7 @@ fn test_bip65_cltv_compliance_basic() {
         OutPoint { hash: [1; 32], index: 0 },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         }),
     );
@@ -82,16 +83,16 @@ fn test_bip112_csv_compliance_basic() {
         inputs: vec![TransactionInput {
             prevout: OutPoint { hash: [1; 32].into(), index: 0 },
             script_sig: {
-                let mut script = vec![0x51]; // OP_1
+                let mut script = vec![OP_1]; // OP_1
                 script.extend_from_slice(&encode_varint(0x00040000)); // 4 blocks required
-                script.push(0xb2); // CSV
+                script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                 script
             },
             sequence: 0x00050000, // 5 blocks (>= required)
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }].into(),
         lock_time: 0,
     };
@@ -101,7 +102,7 @@ fn test_bip112_csv_compliance_basic() {
         OutPoint { hash: [1; 32], index: 0 },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         }),
     );
@@ -171,16 +172,16 @@ fn test_bip65_cltv_type_mismatch_rejection() {
         inputs: vec![TransactionInput {
             prevout: OutPoint { hash: [1; 32].into(), index: 0 },
             script_sig: {
-                let mut script = vec![0x51];
+                let mut script = vec![OP_1];
                 script.extend_from_slice(&encode_varint(600000000)); // Timestamp (>= threshold)
-                script.push(0xb1); // CLTV
+                script.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
                 script
             },
             sequence: 0xffffffff,
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }].into(),
         lock_time: 400000, // Block height (< threshold)
     };
@@ -190,7 +191,7 @@ fn test_bip65_cltv_type_mismatch_rejection() {
         OutPoint { hash: [1; 32], index: 0 },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         }),
     );
@@ -234,16 +235,16 @@ fn test_bip112_csv_disabled_sequence_rejection() {
         inputs: vec![TransactionInput {
             prevout: OutPoint { hash: [1; 32].into(), index: 0 },
             script_sig: {
-                let mut script = vec![0x51];
+                let mut script = vec![OP_1];
                 script.extend_from_slice(&encode_varint(0x00040000));
-                script.push(0xb2); // CSV
+                script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                 script
             },
             sequence: 0x80000000, // Sequence disabled
         }].into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
         }].into(),
         lock_time: 0,
     };
@@ -253,7 +254,7 @@ fn test_bip112_csv_disabled_sequence_rejection() {
         OutPoint { hash: [1; 32], index: 0 },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         }),
     );

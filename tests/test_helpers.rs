@@ -40,6 +40,7 @@ pub fn adjusted_timeout(base_timeout_ms: u64) -> u64 {
 // Transaction Creation Helpers
 // ============================================================================
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
 
 /// Create a test transaction with configurable parameters
@@ -62,13 +63,13 @@ pub fn create_test_tx(
                 hash: prevout_hash.unwrap_or([1; 32]),
                 index: prevout_index.unwrap_or(0) as u32,
             },
-            script_sig: vec![0x51], // OP_1
+            script_sig: vec![OP_1], // OP_1
             sequence: sequence.unwrap_or(0xffffffff),
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![OP_1], // OP_1
         }]
         .into(),
         lock_time: 0,
@@ -94,13 +95,13 @@ pub fn create_coinbase_tx(value: i64) -> Transaction {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -121,7 +122,7 @@ pub fn create_test_utxo(value: i64) -> (UtxoSet, OutPoint) {
         op,
         std::sync::Arc::new(UTXO {
             value,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 1,
             is_coinbase: false,
         }),
@@ -142,7 +143,7 @@ pub fn create_invalid_transaction() -> Transaction {
         inputs: vec![].into(), // Empty inputs - invalid
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

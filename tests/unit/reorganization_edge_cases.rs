@@ -1,5 +1,6 @@
 //! Property tests for chain reorganization edge cases
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::reorganization;
 use blvm_consensus::types::*;
 use proptest::prelude::*;
@@ -18,7 +19,7 @@ fn make_block(i: usize, bits: u64) -> Block {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -98,7 +99,7 @@ proptest! {
                 OutPoint { hash: [i as u8; 32], index: 0u32 },
                 std::sync::Arc::new(UTXO {
                     value: 1000 * (i as i64 + 1),
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![OP_1].into(),
                     height: initial_height,
                     is_coinbase: false,
                 })

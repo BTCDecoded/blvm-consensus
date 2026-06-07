@@ -1,3 +1,4 @@
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::economic;
 use blvm_consensus::{UtxoSet, OutPoint};
 
@@ -25,7 +26,7 @@ fn test_calculate_fee_negative() {
     // Create UTXO with less value than transaction output
     utxo.insert(
         OutPoint { hash: [1; 32], index: 0 },
-        blvm_consensus::UTXO { value: 500, script_pubkey: vec![0x51], height: 1 }
+        blvm_consensus::UTXO { value: 500, script_pubkey: vec![OP_1], height: 1 }
     );
     
     let fee = economic::calculate_fee(&tx, &utxo);

@@ -10,27 +10,31 @@
 //! - prev_utxo_set: Optional previous UTXO set (empty if not provided)
 //! - expected: Expected validation result
 
-use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
+use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
-use blvm_consensus::block::connect_block;
-use std::path::PathBuf;
-use std::fs;
-use serde_json::Value;
+use blvm_consensus::types::Network;
+use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
 use hex;
+use serde_json::Value;
+use std::fs;
+use std::path::PathBuf;
 
 /// Load test vectors from a directory
 ///
 /// Expected format: JSON files containing block test vectors from consensus
-pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dyn std::error::Error>> {
+pub fn load_block_test_vectors(
+    dir: &str,
+) -> Result<Vec<BlockTestVector>, Box<dyn std::error::Error>> {
     let mut vectors = Vec::new();
     let path = PathBuf::from(dir);
-    
+
     if !path.exists() {
         // If test vectors directory doesn't exist, return empty (not an error)
         // Test vectors need to be downloaded from consensus repository
         return Ok(vectors);
     }
-    
+
     // Try to load block_valid.json
     let valid_path = path.join("block_valid.json");
     if valid_path.exists() {
@@ -41,19 +45,20 @@ pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dy
                 if let Value::Array(test_case) = case {
                     if test_case.len() >= 2 {
                         // Parse block hex
-                        let block_hex = test_case[0].as_str()
+                        let block_hex = test_case[0]
+                            .as_str()
                             .ok_or_else(|| format!("Invalid block hex at index {}", i))?;
                         let block_bytes = hex::decode(block_hex)?;
-                        
+
                         // Deserialize block (witness data is parsed but not used in validation)
                         let (block, _witnesses) = deserialize_block_with_witnesses(&block_bytes)
-                            .map_err(|e| format!("Failed to deserialize block at index {}: {}", i, e))?;
-                        
+                            .map_err(|e| {
+                                format!("Failed to deserialize block at index {}: {}", i, e)
+                            })?;
+
                         // Parse height
-                        let height = test_case.get(1)
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(0);
-                        
+                        let height = test_case.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
+
                         // Parse previous UTXO set if provided (otherwise use empty)
                         let prev_utxo_set = if test_case.len() > 2 {
                             // UTXO set might be provided as JSON or hex, but typically empty for test vectors
@@ -61,7 +66,7 @@ pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dy
                         } else {
                             UtxoSet::default()
                         };
-                        
+
                         vectors.push(BlockTestVector {
                             block,
                             expected_result: ValidationResult::Valid,
@@ -73,7 +78,7 @@ pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dy
             }
         }
     }
-    
+
     // Try to load block_invalid.json
     let invalid_path = path.join("block_invalid.json");
     if invalid_path.exists() {
@@ -84,24 +89,26 @@ pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dy
                 if let Value::Array(test_case) = case {
                     if test_case.len() >= 2 {
                         // Parse block hex
-                        let block_hex = test_case[0].as_str()
+                        let block_hex = test_case[0]
+                            .as_str()
                             .ok_or_else(|| format!("Invalid block hex at index {}", i))?;
                         let block_bytes = hex::decode(block_hex)?;
-                        
+
                         // Try to deserialize - invalid blocks may fail at deserialization
                         // or may deserialize but fail validation
-                        if let Ok((block, _witnesses)) = deserialize_block_with_witnesses(&block_bytes) {
+                        if let Ok((block, _witnesses)) =
+                            deserialize_block_with_witnesses(&block_bytes)
+                        {
                             // Parse height
-                            let height = test_case.get(1)
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0);
-                            
+                            let height = test_case.get(1).and_then(|v| v.as_u64()).unwrap_or(0);
+
                             // Parse description if provided
-                            let description = test_case.last()
+                            let description = test_case
+                                .last()
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("Invalid block")
                                 .to_string();
-                            
+
                             vectors.push(BlockTestVector {
                                 block,
                                 expected_result: ValidationResult::Invalid(description),
@@ -115,30 +122,82 @@ pub fn load_block_test_vectors(dir: &str) -> Result<Vec<BlockTestVector>, Box<dy
             }
         }
     }
-    
+
     Ok(vectors)
+}
+
+/// Score block vectors without failing early.
+pub fn score_core_block_tests(vectors: &[BlockTestVector]) -> (usize, usize) {
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for vector in vectors {
+        let witnesses: Vec<Vec<Witness>> = vector
+            .block
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+            .collect();
+        let ctx = BlockValidationContext::for_network(Network::Mainnet);
+        let result = connect_block(
+            &vector.block,
+            witnesses.as_slice(),
+            vector.prev_utxo_set.clone(),
+            vector.height,
+            &ctx,
+        );
+
+        let matches = match result {
+            Ok((validation_result, _, _)) => {
+                let is_valid = matches!(validation_result, ValidationResult::Valid);
+                is_valid == matches!(vector.expected_result, ValidationResult::Valid)
+            }
+            Err(_) => !matches!(vector.expected_result, ValidationResult::Valid),
+        };
+
+        if matches {
+            passed += 1;
+        } else {
+            failed += 1;
+        }
+    }
+
+    (passed, failed)
 }
 
 /// Run reference block test vectors
 pub fn run_core_block_tests(vectors: &[BlockTestVector]) -> Result<(), Box<dyn std::error::Error>> {
     let mut passed = 0;
     let mut failed = 0;
-    
+
     for (i, vector) in vectors.iter().enumerate() {
-        let witnesses: Vec<segwit::Witness> = vector.block.transactions.iter().map(|_| Vec::new()).collect();
-        let result = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&vector.block, &witnesses, vector.prev_utxo_set.clone(), vector.height, &ctx) };
-        
+        let witnesses: Vec<Vec<Witness>> = vector
+            .block
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+            .collect();
+        let ctx = BlockValidationContext::for_network(Network::Mainnet);
+        let result = connect_block(
+            &vector.block,
+            witnesses.as_slice(),
+            vector.prev_utxo_set.clone(),
+            vector.height,
+            &ctx,
+        );
+
         match result {
-            Ok((validation_result, _utxo_set)) => {
+            Ok((validation_result, _utxo_set, _undo)) => {
                 let is_valid = matches!(validation_result, ValidationResult::Valid);
                 let expected_valid = matches!(vector.expected_result, ValidationResult::Valid);
-                
+
                 if is_valid == expected_valid {
                     passed += 1;
                 } else {
                     failed += 1;
-                    eprintln!("Block test {} failed: expected {}, got {}. Height: {}", 
-                        i, 
+                    eprintln!(
+                        "Block test {} failed: expected {}, got {}. Height: {}",
+                        i,
                         if expected_valid { "valid" } else { "invalid" },
                         if is_valid { "valid" } else { "invalid" },
                         vector.height
@@ -152,16 +211,20 @@ pub fn run_core_block_tests(vectors: &[BlockTestVector]) -> Result<(), Box<dyn s
                     passed += 1;
                 } else {
                     failed += 1;
-                    eprintln!("Block test {} failed with error: {}. Height: {}", 
+                    eprintln!(
+                        "Block test {} failed with error: {}. Height: {}",
                         i, e, vector.height
                     );
                 }
             }
         }
     }
-    
-    println!("Reference block test vectors: {} passed, {} failed", passed, failed);
-    
+
+    println!(
+        "Reference block test vectors: {} passed, {} failed",
+        passed, failed
+    );
+
     if failed > 0 {
         Err(format!("{} test vectors failed", failed).into())
     } else {
@@ -184,14 +247,14 @@ pub struct BlockTestVector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_block_test_vector_loading() {
         // Test that loading works even if directory doesn't exist
         let vectors = load_block_test_vectors("tests/test_data/core_vectors/blocks");
         assert!(vectors.is_ok());
     }
-    
+
     #[test]
     fn test_block_vector_structure() {
         // Test minimal block vector structure
@@ -205,15 +268,14 @@ mod tests {
                     bits: 0x1d00ffff,
                     nonce: 0,
                 },
-            transactions: vec![].into(),
+                transactions: vec![].into(),
             },
             expected_result: ValidationResult::Invalid("Test block".to_string()),
             height: 0,
             prev_utxo_set: UtxoSet::default(),
         };
-        
+
         // Verify structure is valid
         assert_eq!(vector.height, 0);
     }
 }
-

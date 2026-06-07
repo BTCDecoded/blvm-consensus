@@ -5,6 +5,7 @@
 //!
 //! Requires: blvm-node running with RPC enabled (or in-process test node)
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::*;
 use blvm_consensus::serialization::transaction::serialize_transaction;
 use blvm_consensus::serialization::block::serialize_block_header;
@@ -209,7 +210,7 @@ mod tests {
             inputs: vec![].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(), // OP_1
+                script_pubkey: vec![OP_1].into(), // OP_1
             }].into(),
             lock_time: 0,
         };

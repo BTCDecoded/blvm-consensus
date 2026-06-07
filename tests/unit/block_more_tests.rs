@@ -1,3 +1,4 @@
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::*;
 
 fn tx_p2pkh(value: i64) -> Transaction {
@@ -5,10 +6,10 @@ fn tx_p2pkh(value: i64) -> Transaction {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint { hash: [0;32].into(), index: 0xffffffff },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }].into(),
-        outputs: vec![TransactionOutput { value, script_pubkey: vec![0x51].into() }].into(),
+        outputs: vec![TransactionOutput { value, script_pubkey: vec![OP_1].into() }].into(),
         lock_time: 0,
     }
 }

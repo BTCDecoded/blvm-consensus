@@ -4,6 +4,7 @@
 //! are actually being called during block validation. They serve as
 //! "alarm bells" that would fail if BIP checks are accidentally removed.
 
+use blvm_consensus::opcodes::*;
 use blvm_consensus::*;
 use blvm_consensus::block::connect_block;
 
@@ -219,13 +220,13 @@ fn smoke_test_bip147_enforced() {
     let height = 481_825; // After BIP147 activation
     
     // Create a multisig scriptPubkey
-    let mut script_pubkey = vec![0x52]; // OP_2
-    script_pubkey.push(0x21);
+    let mut script_pubkey = vec![OP_2]; // OP_2
+    script_pubkey.push(PUSH_33_BYTES);
     script_pubkey.extend_from_slice(&[0x02; 33]);
-    script_pubkey.push(0x21);
+    script_pubkey.push(PUSH_33_BYTES);
     script_pubkey.extend_from_slice(&[0x03; 33]);
-    script_pubkey.push(0x52);
-    script_pubkey.push(0xae); // OP_CHECKMULTISIG
+    script_pubkey.push(OP_2);
+    script_pubkey.push(OP_CHECKMULTISIG); // OP_CHECKMULTISIG
     
     let tx = Transaction {
         version: 1,

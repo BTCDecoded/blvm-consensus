@@ -2,6 +2,7 @@
 
 #[cfg(feature = "production")]
 mod tests {
+    use blvm_consensus::opcodes::{OP_1, OP_2, OP_CHECKSIG, OP_CHECKSIGVERIFY};
     use blvm_consensus::script::*;
     
     // Import CI-aware test helpers
@@ -13,7 +14,7 @@ mod tests {
     fn test_thread_local_context_reuse() {
         // Verify context is reused across multiple signature verifications
         // Test through eval_script which uses execute_opcode internally
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         
         let mut stack1 = Vec::new();
         let result1 = eval_script(&script, &mut stack1, 0).unwrap();
@@ -34,8 +35,8 @@ mod tests {
     #[test]
     fn test_context_isolation() {
         // Verify context state doesn't leak between operations
-        let script1 = vec![0x51, 0xac]; // OP_1, OP_CHECKSIG
-        let script2 = vec![0x52, 0xac]; // OP_2, OP_CHECKSIG
+        let script1 = vec![OP_1, OP_CHECKSIG]; // OP_1, OP_CHECKSIG
+        let script2 = vec![OP_2, OP_CHECKSIG]; // OP_2, OP_CHECKSIG
         
         let mut stack1 = Vec::new();
         let result1 = eval_script(&script1, &mut stack1, 0).unwrap();
@@ -54,7 +55,7 @@ mod tests {
     #[test]
     fn test_op_checksig_context_reuse() {
         // Specific test for OP_CHECKSIG using thread-local context
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         
         let results: Vec<bool> = (0..10)
             .map(|_| {
@@ -71,7 +72,7 @@ mod tests {
     #[test]
     fn test_op_checksigverify_context_reuse() {
         // Specific test for OP_CHECKSIGVERIFY using thread-local context
-        let script = vec![0x51, 0x51, 0xad]; // OP_1, OP_1, OP_CHECKSIGVERIFY
+        let script = vec![OP_1, OP_1, OP_CHECKSIGVERIFY]; // OP_1, OP_1, OP_CHECKSIGVERIFY
         
         let results: Vec<bool> = (0..10)
             .map(|_| {
@@ -91,7 +92,7 @@ mod tests {
         use std::time::Instant;
         
         let iterations = 100;
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         
         let start = Instant::now();
         for _ in 0..iterations {
@@ -112,7 +113,7 @@ mod tests {
     #[test]
     fn test_context_concurrent_operations() {
         // Test that context works correctly with rapid sequential operations
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         let mut results = Vec::new();
         
         for i in 0..50 {

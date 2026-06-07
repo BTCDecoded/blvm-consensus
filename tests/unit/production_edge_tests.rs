@@ -3,6 +3,7 @@
 #[cfg(feature = "production")]
 mod tests {
     use blvm_consensus::block::*;
+    use blvm_consensus::opcodes::{OP_1, OP_2, OP_CHECKSIG};
     use blvm_consensus::script::*;
     use blvm_consensus::*;
 
@@ -25,13 +26,13 @@ mod tests {
                         hash: [0; 32].into(),
                         index: 0xffffffff,
                     },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }]
                 .into(),
                 outputs: vec![TransactionOutput {
                     value: 50_000_000_000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![OP_1].into(),
                 }]
                 .into(),
                 lock_time: 0,
@@ -68,7 +69,7 @@ mod tests {
             };
             inputs.push(TransactionInput {
                 prevout: outpoint,
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             });
 
@@ -76,7 +77,7 @@ mod tests {
                 outpoint,
                 std::sync::Arc::new(UTXO {
                     value: 10000,
-                    script_pubkey: vec![0x51].into(),
+                    script_pubkey: vec![OP_1].into(),
                     height: 0,
                 }),
             );
@@ -87,7 +88,7 @@ mod tests {
             inputs: inputs.into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
             }]
             .into(),
             lock_time: 0,
@@ -110,13 +111,13 @@ mod tests {
                             hash: [0; 32].into(),
                             index: 0xffffffff,
                         },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }]
                     .into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }]
                     .into(),
                     lock_time: 0,
@@ -144,7 +145,7 @@ mod tests {
     #[test]
     fn test_production_concurrent_signatures() {
         // Multiple signature operations in sequence
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         let mut results = Vec::new();
 
         for _ in 0..20 {
@@ -163,8 +164,8 @@ mod tests {
     #[test]
     fn test_production_context_cleanup() {
         // Verify context doesn't retain state between operations
-        let script1 = vec![0x51, 0xac]; // OP_1, OP_CHECKSIG
-        let script2 = vec![0x52, 0xac]; // OP_2, OP_CHECKSIG
+        let script1 = vec![OP_1, OP_CHECKSIG]; // OP_1, OP_CHECKSIG
+        let script2 = vec![OP_2, OP_CHECKSIG]; // OP_2, OP_CHECKSIG
 
         // Execute script1 multiple times
         let mut stack1_a = Vec::new();
@@ -213,7 +214,7 @@ mod tests {
     fn test_production_error_recovery() {
         // Test that errors don't affect subsequent operations
         let invalid_script = vec![0xff; MAX_SCRIPT_OPS + 1];
-        let valid_script = vec![0x51];
+        let valid_script = vec![OP_1];
 
         // First operation fails
         let mut stack1 = Vec::new();

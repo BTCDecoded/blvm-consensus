@@ -6,6 +6,7 @@
 use blvm_consensus::constants::*;
 use blvm_consensus::crypto::OptimizedSha256;
 use blvm_consensus::economic;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::orange_paper_constants::H;
 use blvm_consensus::pow;
 use blvm_consensus::segwit::Witness;
@@ -347,7 +348,7 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        let script = vec![0x51; script_size]; // OP_1 repeated
+        let script = vec![OP_1; script_size]; // OP_1 repeated
         let mut stack = Vec::new();
         let flags = 0u32;
 
@@ -493,7 +494,7 @@ proptest! {
         use std::time::Instant;
         use blvm_consensus::script;
 
-        let script = vec![0x51; script_size]; // OP_1 repeated
+        let script = vec![OP_1; script_size]; // OP_1 repeated
         let mut stack = Vec::new();
         let flags = 0u32;
 
@@ -898,12 +899,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                    script_sig: vec![0x51, 0x51], // 2 bytes for valid coinbase
+                    script_sig: vec![OP_1, OP_1], // 2 bytes for valid coinbase
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: economic::get_block_subsidy(height1 as u64),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -922,12 +923,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![OP_1, OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: economic::get_block_subsidy(height2 as u64),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -999,12 +1000,12 @@ proptest! {
                     version: 1,
                     inputs: vec![TransactionInput {
                         prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                        script_sig: vec![0x51, 0x51],
+                        script_sig: vec![OP_1, OP_1],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
                         value: economic::get_block_subsidy(i as u64),
-                        script_pubkey: vec![0x51],
+                        script_pubkey: vec![OP_1],
                     }].into(),
                     lock_time: 0,
                 }].into_boxed_slice(),
@@ -1026,12 +1027,12 @@ proptest! {
                     version: 1,
                     inputs: vec![TransactionInput {
                         prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                        script_sig: vec![0x51, 0x51],
+                        script_sig: vec![OP_1, OP_1],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
                         value: economic::get_block_subsidy(i as u64),
-                        script_pubkey: vec![0x51],
+                        script_pubkey: vec![OP_1],
                     }].into(),
                     lock_time: 0,
                 }].into_boxed_slice(),
@@ -1140,12 +1141,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![OP_1, OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: economic::get_block_subsidy(height1 as u64),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1164,12 +1165,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![OP_1, OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: economic::get_block_subsidy(height2 as u64),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1241,12 +1242,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [0; 32], index: 0xffffffff },
-                    script_sig: vec![0x51, 0x51],
+                    script_sig: vec![OP_1, OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: economic::get_block_subsidy(height as u64),
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             }].into_boxed_slice(),
@@ -1746,12 +1747,12 @@ proptest! {
                     hash: [i as u8; 32],
                     index: i as u32,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }).collect(),
             lock_time,
         };
@@ -1936,12 +1937,12 @@ proptest! {
                     hash: [i as u8; 32],
                     index: i as u32,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1),
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }).collect(),
             lock_time: 0,
         };
@@ -1993,7 +1994,7 @@ proptest! {
             let value = (MAX_MONEY / (input_count.max(1) as i64)).min(MAX_MONEY);
             utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
                 value,
-                script_pubkey: vec![0x51].into(),
+                script_pubkey: vec![OP_1].into(),
                 height: 0,
                 is_coinbase: false,
             }));
@@ -2006,12 +2007,12 @@ proptest! {
                     hash: [i as u8; 32],
                     index: i as u32,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: (0..output_count).map(|i| TransactionOutput {
                 value: 1000 * (i as i64 + 1), // Small outputs
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }).collect(),
             lock_time: 0,
         };

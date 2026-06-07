@@ -7,6 +7,7 @@
 #[cfg(feature = "production")]
 mod tests {
     use blvm_consensus::*;
+    use blvm_consensus::opcodes::{OP_1, OP_2, OP_CHECKSIG};
     use blvm_consensus::script::*;
     use blvm_consensus::block::*;
     use std::time::Instant;
@@ -31,12 +32,12 @@ mod tests {
                     version: 1,
                     inputs: vec![TransactionInput {
                         prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                        script_sig: vec![0x51],
+                        script_sig: vec![OP_1],
                         sequence: 0xffffffff,
                     }].into(),
                     outputs: vec![TransactionOutput {
                         value: 50_000_000_000,
-                        script_pubkey: vec![0x51].into(),
+                        script_pubkey: vec![OP_1].into(),
                     }].into(),
                     lock_time: 0,
                 },
@@ -47,8 +48,8 @@ mod tests {
     #[test]
     fn test_production_script_verification_parity() {
         // Test that production optimizations produce correct script verification results
-        let script_sig = vec![0x51]; // OP_1
-        let script_pubkey = vec![0x51, 0x51]; // OP_1 OP_1
+        let script_sig = vec![OP_1]; // OP_1
+        let script_pubkey = vec![OP_1, OP_1]; // OP_1 OP_1
         
         let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
         
@@ -83,7 +84,7 @@ mod tests {
     #[test]
     fn test_production_signature_verification_parity() {
         // Test OP_CHECKSIG operations with thread-local context
-        let script = vec![0x51, 0x51, 0xac]; // OP_1, OP_1, OP_CHECKSIG
+        let script = vec![OP_1, OP_1, OP_CHECKSIG]; // OP_1, OP_1, OP_CHECKSIG
         
         // Test multiple signature operations to verify context reuse doesn't affect results
         let results: Vec<bool> = (0..10)
@@ -104,8 +105,8 @@ mod tests {
     #[test]
     fn test_production_context_independence() {
         // Verify thread-local context doesn't affect results across calls
-        let script1 = vec![0x51, 0x52]; // OP_1, OP_2
-        let script2 = vec![0x51, 0x51]; // OP_1, OP_1
+        let script1 = vec![OP_1, OP_2]; // OP_1, OP_2
+        let script2 = vec![OP_1, OP_1]; // OP_1, OP_1
         
         let result1_a = eval_script(&script1, &mut Vec::new(), 0).unwrap();
         let result2 = eval_script(&script2, &mut Vec::new(), 0).unwrap();
@@ -122,7 +123,7 @@ mod tests {
     #[test]
     fn test_production_memory_preallocation_parity() {
         // Verify stack pre-allocation doesn't change script execution results
-        let script = vec![0x51, 0x51, 0x52, 0x52]; // OP_1, OP_1, OP_2, OP_2
+        let script = vec![OP_1, OP_1, OP_2, OP_2]; // OP_1, OP_1, OP_2, OP_2
         
         // First execution (will trigger pre-allocation)
         let mut stack1 = Vec::new();
@@ -163,12 +164,12 @@ mod tests {
     #[test]
     fn test_production_multiple_signatures_deterministic() {
         // Test that multiple signature verifications are deterministic
-        let mut stack = vec![vec![0x51], vec![0x51]];
+        let mut stack = vec![vec![OP_1], vec![OP_1]];
         
         let results: Vec<bool> = (0..20)
             .map(|_| {
                 let mut s = stack.clone();
-                execute_opcode(0xac, &mut s, 0).unwrap_or(false)
+                execute_opcode(OP_CHECKSIG, &mut s, 0).unwrap_or(false)
             })
             .collect();
         
@@ -180,9 +181,9 @@ mod tests {
     #[test]
     fn test_production_witness_handling() {
         // Test witness script verification with production optimizations
-        let script_sig = vec![0x51];
-        let script_pubkey = vec![0x51];
-        let witness = Some(vec![0x52]);
+        let script_sig = vec![OP_1];
+        let script_pubkey = vec![OP_1];
+        let witness = Some(vec![OP_2]);
         
         let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
         

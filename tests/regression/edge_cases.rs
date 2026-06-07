@@ -1,6 +1,7 @@
 //! Regression tests for edge cases and boundary conditions
 
 use blvm_consensus::constants::*;
+use blvm_consensus::opcodes::{OP_1, OP_NOP};
 use blvm_consensus::types::*;
 use blvm_consensus::*;
 
@@ -11,7 +12,7 @@ fn test_transaction_size_boundaries() {
     // Test transaction at maximum size limit
     let mut large_script = Vec::new();
     for _ in 0..MAX_SCRIPT_SIZE {
-        large_script.push(0x51);
+        large_script.push(OP_1);
     }
 
     let tx = Transaction {
@@ -57,7 +58,7 @@ fn test_maximum_input_output_counts() {
                 hash: [(i % 256) as u8; 32],
                 index: i as u32,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -67,7 +68,7 @@ fn test_maximum_input_output_counts() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -88,7 +89,7 @@ fn test_maximum_input_output_counts() {
     for _ in 0..safe_output_count {
         outputs.push(TransactionOutput {
             value: 1,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         });
     }
 
@@ -99,7 +100,7 @@ fn test_maximum_input_output_counts() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
@@ -129,13 +130,13 @@ fn test_monetary_boundaries() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -152,13 +153,13 @@ fn test_monetary_boundaries() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: MAX_MONEY + 1,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -175,18 +176,18 @@ fn test_script_operation_limits() {
     // Test script with maximum number of operations
     let mut script = Vec::new();
     for _ in 0..MAX_SCRIPT_OPS {
-        script.push(0x51); // OP_1
+        script.push(OP_1); // OP_1
     }
 
     let result = consensus.verify_script(&script, &script, None, 0).unwrap();
     assert!(result || !result);
 
     // Test script exceeding operation limit.
-    // OP_NOP (0x61) is a counted non-pushdata opcode, unlike OP_1 (0x51) which is a push.
+    // OP_NOP is a counted non-pushdata opcode, unlike OP_1 which is a push.
     // MAX_SCRIPT_OPS + 1 OP_NOPs should trigger the opcode limit.
     let mut large_script = Vec::new();
     for _ in 0..=MAX_SCRIPT_OPS {
-        large_script.push(0x61); // OP_NOP
+        large_script.push(OP_NOP); // OP_NOP
     }
 
     let result = consensus.verify_script(&large_script, &large_script, None, 0);
@@ -204,7 +205,7 @@ fn test_stack_size_limits() {
     // Test script that would cause stack overflow
     let mut script = Vec::new();
     for _ in 0..=MAX_STACK_SIZE {
-        script.push(0x51); // OP_1
+        script.push(OP_1); // OP_1
     }
 
     let result = consensus.verify_script(&script, &script, None, 0);
@@ -225,13 +226,13 @@ fn test_block_size_boundaries() {
                     hash: [i as u8; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }]
             .into(),
             lock_time: 0,
@@ -376,13 +377,13 @@ fn test_sequence_number_boundaries() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff, // Maximum sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -399,13 +400,13 @@ fn test_sequence_number_boundaries() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: SEQUENCE_RBF as u64, // RBF sequence
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

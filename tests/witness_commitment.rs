@@ -6,7 +6,7 @@
 //!
 //! Consensus-critical: Incorrect witness commitment causes consensus violation.
 
-use blvm_consensus::opcodes::OP_RETURN;
+use blvm_consensus::opcodes::{OP_1, OP_RETURN, PUSH_36_BYTES};
 use blvm_consensus::segwit::{compute_witness_merkle_root, validate_witness_commitment, Witness};
 use blvm_consensus::types::{
     Block, BlockHeader, Hash, OutPoint, Transaction, TransactionInput, TransactionOutput,
@@ -40,7 +40,7 @@ fn test_witness_commitment_segwit_block() {
                 outputs: blvm_consensus::tx_outputs![
                     TransactionOutput {
                         value: 12_5000_0000,       // 12.5 BTC
-                        script_pubkey: vec![0x51], // Regular output
+                        script_pubkey: vec![OP_1], // Regular output
                     },
                     // Witness commitment would be in second output
                 ],
@@ -175,7 +175,7 @@ fn test_invalid_witness_commitment_rejection() {
     let witness_root = compute_witness_merkle_root(&block, &witnesses).unwrap();
 
     // BIP141 OP_RETURN witness commitment with an incorrect 32-byte payload (not sha256d(root||nonce))
-    let mut bad_commitment_script = vec![OP_RETURN, 0x24, 0xaa, 0x21, 0xa9, 0xed];
+    let mut bad_commitment_script = vec![OP_RETURN, PUSH_36_BYTES, 0xaa, 0x21, 0xa9, 0xed];
     bad_commitment_script.extend_from_slice(&[0xff; 32]);
 
     let coinbase = Transaction {
@@ -205,7 +205,7 @@ fn test_invalid_witness_commitment_rejection() {
 
 /// Test witness commitment format
 ///
-/// Witness commitment format: OP_RETURN (0x6a) + 0x24 + 0xaa21a9ed + 32-byte hash
+/// Witness commitment format: OP_RETURN + PUSH_36_BYTES + 0xaa21a9ed + 32-byte hash
 #[test]
 fn test_witness_commitment_format() {
     // Witness commitment should be: 6a 24 aa21a9ed <32-byte-hash>
@@ -213,8 +213,8 @@ fn test_witness_commitment_format() {
 
     // Construct witness commitment script
     let mut commitment_script = Vec::new();
-    commitment_script.push(0x6a); // OP_RETURN
-    commitment_script.push(0x24); // Push 36 bytes
+    commitment_script.push(OP_RETURN);
+    commitment_script.push(PUSH_36_BYTES); // Push 36 bytes
     commitment_script.push(0xaa); // Magic bytes
     commitment_script.push(0x21);
     commitment_script.push(0xa9);

@@ -1,5 +1,6 @@
 //! Property tests for block validation edge cases
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
 use blvm_consensus::ConsensusProof;
 use proptest::prelude::*;
@@ -18,7 +19,7 @@ fn make_coinbase() -> Transaction {
         .into(),
         outputs: vec![TransactionOutput {
             value: 5000000000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -43,12 +44,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [i as u8; 32], index: 0u32 },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             });

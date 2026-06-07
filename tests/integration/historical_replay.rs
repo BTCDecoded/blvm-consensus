@@ -10,6 +10,7 @@
 //! 4. Compares UTXO set hashes at checkpoints with known values
 //! 5. Reports any validation failures or divergences
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -262,7 +263,7 @@ mod tests {
         let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
         let utxo1 = UTXO {
             value: 1000,
-            script_pubkey: vec![0x51].into(),
+            script_pubkey: vec![OP_1].into(),
             height: 0,
         };
         utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));

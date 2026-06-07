@@ -122,11 +122,7 @@ fn test_eval_script_stack_overflow() {
     let script = vec![OP_1; MAX_STACK_SIZE + 1]; // Too many stack elements
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-    // This should return an error due to stack overflow
-    match result {
-        Ok(_) => assert!(true),
-        Err(_) => assert!(true),
-    }
+    assert!(result.is_err(), "stack overflow must error");
 }
 
 #[test]

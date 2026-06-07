@@ -5,6 +5,7 @@
 
 use blvm_consensus::constants::MAX_INPUTS;
 use blvm_consensus::mempool;
+use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::types::*;
 use proptest::prelude::*;
 
@@ -21,12 +22,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: [1; 32], index: 0 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -109,7 +110,7 @@ proptest! {
         for i in 0..input_count.min(MAX_INPUTS) {
             inputs.push(TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: i as u32 },
-                script_sig: vec![0x51; 50],
+                script_sig: vec![OP_1; 50],
                 sequence: 0xffffffff,
             });
         }
@@ -151,12 +152,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: prevout_hash, index: prevout_index },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -166,12 +167,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: prevout_hash, index: prevout_index },
-                script_sig: vec![0x52],
+                script_sig: vec![OP_2],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -216,12 +217,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: [1; 32], index: 0 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: output,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -250,12 +251,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             };
@@ -287,12 +288,12 @@ proptest! {
                 version: 1,
                 inputs: vec![TransactionInput {
                     prevout: OutPoint { hash: [i as u8; 32], index: 0 },
-                    script_sig: vec![0x51],
+                    script_sig: vec![OP_1],
                     sequence: 0xffffffff,
                 }].into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![0x51],
+                    script_pubkey: vec![OP_1],
                 }].into(),
                 lock_time: 0,
             };

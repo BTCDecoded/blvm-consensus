@@ -3,6 +3,7 @@
 //! Additional property tests to push toward 100+ property test target and 99% coverage.
 
 use blvm_consensus::constants::MAX_MONEY;
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
 use proptest::prelude::*;
 
@@ -25,13 +26,13 @@ fn make_tx(version: u64, lock_time: u64) -> Transaction {
                 hash: [0; 32],
                 index: 0u32,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time,
@@ -71,12 +72,12 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: [0; 32], index: 0u32 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -132,7 +133,7 @@ proptest! {
     ) {
         let output = TransactionOutput {
             value,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         };
         prop_assert!(output.value >= 0);
         prop_assert!(output.value <= MAX_MONEY);
@@ -145,7 +146,7 @@ proptest! {
     fn prop_script_pubkey_size_bounds(
         script_size in 0usize..1000usize
     ) {
-        let script_pubkey = vec![0x51; script_size];
+        let script_pubkey = vec![OP_1; script_size];
         prop_assert!(script_pubkey.len() <= 10000);
         prop_assert_eq!(script_pubkey.len(), script_size);
     }
@@ -160,7 +161,7 @@ proptest! {
     ) {
         let input = TransactionInput {
             prevout: OutPoint { hash: hash_bytes, index },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         };
         prop_assert_eq!(input.prevout.hash, hash_bytes);
@@ -252,7 +253,7 @@ proptest! {
             }].into(),
             outputs: vec![TransactionOutput {
                 value: subsidy,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -272,7 +273,7 @@ proptest! {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint { hash: [0; 32], index: 0u32 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }].into(),
             outputs: (0..output_count).map(|i| TransactionOutput {
@@ -297,12 +298,12 @@ proptest! {
             version: 1,
             inputs: (0..input_count).map(|i| TransactionInput {
                 prevout: OutPoint { hash: [i as u8; 32], index: 0u32 },
-                script_sig: vec![0x51],
+                script_sig: vec![OP_1],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: vec![TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -320,13 +321,13 @@ fn make_simple_tx(i: usize) -> Transaction {
                 hash: [i as u8; 32],
                 index: 0u32,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -348,7 +349,7 @@ proptest! {
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x51],
+                script_pubkey: vec![OP_1],
             }].into(),
             lock_time: 0,
         };
@@ -379,7 +380,7 @@ proptest! {
     fn prop_script_sig_size_bounds(
         script_sig_size in 0usize..1000usize
     ) {
-        let script_sig = vec![0x51; script_sig_size];
+        let script_sig = vec![OP_1; script_sig_size];
         prop_assert!(script_sig.len() <= 10000);
         prop_assert_eq!(script_sig.len(), script_sig_size);
     }

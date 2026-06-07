@@ -1,5 +1,6 @@
 use blvm_consensus::config::MempoolConfig;
 use blvm_consensus::mempool;
+use blvm_consensus::opcodes::{OP_0, OP_1, OP_ENDIF, OP_IF, OP_PUSHDATA1, OP_RETURN, PUSH_1_BYTE};
 use blvm_consensus::{Transaction, TransactionInput, TransactionOutput};
 
 #[path = "../test_helpers.rs"]
@@ -13,13 +14,13 @@ fn test_negative_fee_rejected() {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: prev,
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 2000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -39,7 +40,7 @@ fn test_non_standard_script_flagged() {
         inputs: vec![].into(),
         outputs: vec![TransactionOutput {
             value: 0,
-            script_pubkey: vec![0x6a],
+            script_pubkey: vec![OP_RETURN],
         }]
         .into(), // OP_RETURN only
         lock_time: 0,
@@ -52,8 +53,8 @@ fn test_non_standard_script_flagged() {
 
 #[test]
 fn test_op_return_within_size_limit() {
-    // OP_RETURN (0x6a) + push opcode (0x4c = OP_PUSHDATA1) + 80 bytes data
-    let mut script = vec![0x6a, 0x4c, 80];
+    // OP_RETURN (OP_RETURN) + push opcode (OP_PUSHDATA1 = OP_PUSHDATA1) + 80 bytes data
+    let mut script = vec![OP_RETURN, OP_PUSHDATA1, 80];
     script.extend(vec![0x00; 80]);
 
     let tx = Transaction {
@@ -75,8 +76,8 @@ fn test_op_return_within_size_limit() {
 
 #[test]
 fn test_op_return_exceeds_size_limit() {
-    // OP_RETURN (0x6a) + push opcode (0x4c) + 81 bytes data (exceeds 80 byte limit)
-    let mut script = vec![0x6a, 0x4c, 81];
+    // OP_RETURN (OP_RETURN) + push opcode (OP_PUSHDATA1) + 81 bytes data (exceeds 80 byte limit)
+    let mut script = vec![OP_RETURN, OP_PUSHDATA1, 81];
     script.extend(vec![0x00; 81]);
 
     let tx = Transaction {
@@ -99,7 +100,7 @@ fn test_op_return_exceeds_size_limit() {
 #[test]
 fn test_multiple_op_return_rejected() {
     // Two OP_RETURN outputs
-    let op_return_script = vec![0x6a, 0x01, 0x00]; // OP_RETURN + push 1 byte + 1 byte data
+    let op_return_script = vec![OP_RETURN, PUSH_1_BYTE, 0x00]; // OP_RETURN + push 1 byte + 1 byte data
 
     let tx = Transaction {
         version: 1,
@@ -130,7 +131,7 @@ fn test_op_return_config_custom_limit() {
     config.max_op_return_size = 40; // Stricter limit
 
     // OP_RETURN with 41 bytes (should be rejected with custom limit)
-    let mut script = vec![0x6a, 0x4c, 41];
+    let mut script = vec![OP_RETURN, OP_PUSHDATA1, 41];
     script.extend(vec![0x00; 41]);
 
     let tx = Transaction {
@@ -155,7 +156,7 @@ fn test_op_return_config_allow_multiple() {
     let mut config = MempoolConfig::default();
     config.reject_multiple_op_return = false; // Allow multiple
 
-    let op_return_script = vec![0x6a, 0x01, 0x00];
+    let op_return_script = vec![OP_RETURN, PUSH_1_BYTE, 0x00];
 
     let tx = Transaction {
         version: 1,
@@ -184,8 +185,8 @@ fn test_op_return_config_allow_multiple() {
 
 #[test]
 fn test_envelope_protocol_rejected() {
-    // OP_FALSE (0x00) OP_IF (0x63) - envelope protocol used by Ordinals
-    let script = vec![0x00, 0x63, 0x01, 0x00, 0x68]; // OP_FALSE OP_IF ... OP_ENDIF
+    // OP_FALSE OP_IF - envelope protocol used by Ordinals
+    let script = vec![OP_0, OP_IF, PUSH_1_BYTE, 0x00, OP_ENDIF]; // OP_FALSE OP_IF ... OP_ENDIF
 
     let tx = Transaction {
         version: 1,
@@ -209,7 +210,7 @@ fn test_envelope_protocol_config_allow() {
     let mut config = MempoolConfig::default();
     config.reject_envelope_protocol = false; // Allow envelope protocol
 
-    let script = vec![0x00, 0x63, 0x01, 0x00, 0x68];
+    let script = vec![OP_0, OP_IF, PUSH_1_BYTE, 0x00, OP_ENDIF];
 
     let tx = Transaction {
         version: 1,
@@ -236,7 +237,7 @@ fn test_large_script_rejected() {
     config.max_standard_script_size = 200;
 
     // Script larger than 200 bytes
-    let script = vec![0x51; 201]; // 201 bytes of OP_1
+    let script = vec![OP_1; 201]; // 201 bytes of OP_1
 
     let tx = Transaction {
         version: 1,
@@ -261,7 +262,7 @@ fn test_script_at_limit_accepted() {
     config.max_standard_script_size = 200;
 
     // Script exactly at limit
-    let script = vec![0x51; 200]; // 200 bytes of OP_1
+    let script = vec![OP_1; 200]; // 200 bytes of OP_1
 
     let tx = Transaction {
         version: 1,

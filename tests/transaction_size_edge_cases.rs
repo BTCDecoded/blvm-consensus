@@ -5,6 +5,7 @@
 //!
 //! Consensus-critical: Size calculation differences can cause different validation results.
 
+use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_4, OP_5};
 use blvm_consensus::serialization::transaction::serialize_transaction;
 use blvm_consensus::transaction::calculate_transaction_size;
 use blvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
@@ -23,13 +24,13 @@ fn test_transaction_size_matches_serialization() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51], // OP_1
+            script_sig: vec![OP_1], // OP_1
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51], // OP_1
+            script_pubkey: vec![OP_1], // OP_1
         }]
         .into(),
         lock_time: 0,
@@ -61,13 +62,13 @@ fn test_transaction_size_varint_script_lengths() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51; 0xfc], // 252 bytes (0xfc)
+            script_sig: vec![OP_1; 0xfc], // 252 bytes (0xfc)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -89,13 +90,13 @@ fn test_transaction_size_varint_script_lengths() {
                 hash: [1; 32],
                 index: 0,
             },
-            script_sig: vec![0x51; 0xfd], // 253 bytes (0xfd)
+            script_sig: vec![OP_1; 0xfd], // 253 bytes (0xfd)
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -121,7 +122,7 @@ fn test_transaction_size_varint_counts() {
                 hash: [i as u8; 32],
                 index: 0,
             },
-            script_sig: vec![0x51],
+            script_sig: vec![OP_1],
             sequence: 0xffffffff,
         });
     }
@@ -131,7 +132,7 @@ fn test_transaction_size_varint_counts() {
         inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -190,7 +191,7 @@ fn test_transaction_size_no_witness() {
                     hash: [1; 32],
                     index: 0,
                 },
-                script_sig: vec![0x51, 0x52, 0x53],
+                script_sig: vec![OP_1, OP_2, OP_3],
                 sequence: 0xffffffff,
             },
             TransactionInput {
@@ -198,7 +199,7 @@ fn test_transaction_size_no_witness() {
                     hash: [2; 32],
                     index: 1,
                 },
-                script_sig: vec![0x54, 0x55],
+                script_sig: vec![OP_4, OP_5],
                 sequence: 0xfffffffe,
             },
         ]
@@ -206,11 +207,11 @@ fn test_transaction_size_no_witness() {
         outputs: vec![
             TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0x51, 0x52],
+                script_pubkey: vec![OP_1, OP_2],
             },
             TransactionOutput {
                 value: 2000,
-                script_pubkey: vec![0x53, 0x54, 0x55],
+                script_pubkey: vec![OP_3, OP_4, OP_5],
             },
         ]
         .into(),
@@ -243,7 +244,7 @@ fn test_transaction_size_coinbase() {
         .into(),
         outputs: vec![TransactionOutput {
             value: 50_0000_0000, // 50 BTC
-            script_pubkey: vec![0x51],
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,

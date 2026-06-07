@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    
+
     #[test]
     fn test_run_all_core_vectors() {
         // Try to load and run transaction test vectors
@@ -25,7 +25,7 @@ mod tests {
                 eprintln!("Could not load transaction test vectors: {}", e);
             }
         }
-        
+
         // Try to load and run block test vectors
         match load_block_test_vectors("tests/test_data/core_vectors/blocks") {
             Ok(vectors) if !vectors.is_empty() => {
@@ -44,9 +44,3 @@ mod tests {
         }
     }
 }
-
-
-
-
-
-

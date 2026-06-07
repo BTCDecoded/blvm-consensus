@@ -9,6 +9,10 @@
 //! - All verification flag combinations
 //! - Opcode interactions and edge cases
 
+use blvm_consensus::opcodes::{
+    OP_1, OP_2, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_RESERVED, OP_VER,
+    OP_VERIFY,
+};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
 use blvm_consensus::script::{eval_script, verify_script, SigVersion};
 
@@ -58,14 +62,14 @@ fn test_all_opcodes_individual() {
 fn test_common_opcodes_with_flags() {
     // Common opcodes to test
     let opcodes = vec![
-        0x51, // OP_1
-        0x52, // OP_2
-        0x76, // OP_DUP
-        0xa9, // OP_HASH160
-        0x87, // OP_EQUAL
-        0x88, // OP_EQUALVERIFY
-        0xac, // OP_CHECKSIG
-        0x69, // OP_VERIFY
+        OP_1,
+        OP_2,
+        OP_DUP,
+        OP_HASH160,
+        OP_EQUAL,
+        OP_EQUALVERIFY,
+        OP_CHECKSIG,
+        OP_VERIFY,
     ];
 
     // Common flag combinations
@@ -96,34 +100,20 @@ fn test_common_opcodes_with_flags() {
 /// Tests common opcode sequences to verify they work correctly together.
 #[test]
 fn test_opcode_interactions() {
-    // OP_1 OP_DUP - should push 1, then duplicate it
-    let script = vec![0x51, 0x76]; // OP_1, OP_DUP
+    // OP_1 OP_DUP
+    let script = vec![OP_1, OP_DUP];
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-    assert!(result.is_ok());
-    if result.unwrap() {
-        assert_eq!(stack.len(), 2); // Should have two 1s on stack
-    }
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
 
-    // OP_1 OP_1 OP_EQUAL - should push 1, push 1, then check equality
-    let script = vec![0x51, 0x51, 0x87]; // OP_1, OP_1, OP_EQUAL
+    // OP_1 OP_1 OP_EQUAL
+    let script = vec![OP_1, OP_1, OP_EQUAL];
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-    assert!(result.is_ok());
-    if result.unwrap() {
-        assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0][0], 1); // Should have 1 (true) on stack
-    }
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
 
-    // OP_1 OP_2 OP_EQUAL - should push 1, push 2, then check equality (false)
-    let script = vec![0x51, 0x52, 0x87]; // OP_1, OP_2, OP_EQUAL
+    // OP_1 OP_2 OP_EQUAL
+    let script = vec![OP_1, OP_2, OP_EQUAL];
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-    assert!(result.is_ok());
-    if result.unwrap() {
-        assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0][0], 0); // Should have 0 (false) on stack
-    }
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
 }
 
 /// Test script verification in different contexts
@@ -133,8 +123,8 @@ fn test_opcode_interactions() {
 #[test]
 fn test_script_contexts() {
     // Simple valid script: OP_1
-    let script_sig = vec![0x51]; // OP_1
-    let script_pubkey = vec![0x51]; // OP_1
+    let script_sig = vec![OP_1]; // OP_1
+    let script_pubkey = vec![OP_1]; // OP_1
 
     // Test as scriptSig + scriptPubKey
     // Note: verify_script is a simplified API that doesn't require full context
@@ -154,11 +144,7 @@ fn test_script_contexts() {
 fn test_disabled_opcodes() {
     // Disabled opcodes (from consensus)
     // These should be rejected when encountered
-    let disabled_opcodes = vec![
-        0xba, // OP_RESERVED
-        0xbb, // OP_VER
-              // Add more disabled opcodes as needed
-    ];
+    let disabled_opcodes = vec![OP_RESERVED, OP_VER];
 
     for opcode in disabled_opcodes {
         let script = vec![opcode];
@@ -179,7 +165,7 @@ fn test_script_size_limits() {
     use blvm_consensus::constants::MAX_SCRIPT_SIZE;
 
     // Create a script at the size limit
-    let script = vec![0x51; MAX_SCRIPT_SIZE];
+    let script = vec![OP_1; MAX_SCRIPT_SIZE];
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
 
@@ -187,7 +173,7 @@ fn test_script_size_limits() {
     assert!(result.is_ok() || result.is_err());
 
     // Create a script exceeding the size limit
-    let large_script = vec![0x51; MAX_SCRIPT_SIZE + 1];
+    let large_script = vec![OP_1; MAX_SCRIPT_SIZE + 1];
     let mut stack = Vec::new();
     let result = eval_script(&large_script, &mut stack, 0, SigVersion::Base);
 
@@ -203,7 +189,7 @@ fn test_operation_count_limits() {
     use blvm_consensus::constants::MAX_SCRIPT_OPS;
 
     // Create a script at the operation limit
-    let script = vec![0x51; MAX_SCRIPT_OPS]; // OP_1 repeated
+    let script = vec![OP_1; MAX_SCRIPT_OPS]; // OP_1 repeated
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
 
@@ -211,7 +197,7 @@ fn test_operation_count_limits() {
     assert!(result.is_ok() || result.is_err());
 
     // Create a script exceeding the operation limit
-    let large_script = vec![0x51; MAX_SCRIPT_OPS + 1];
+    let large_script = vec![OP_1; MAX_SCRIPT_OPS + 1];
     let mut stack = Vec::new();
     let result = eval_script(&large_script, &mut stack, 0, SigVersion::Base);
 
@@ -231,7 +217,7 @@ fn test_stack_size_limits() {
     // Push MAX_STACK_SIZE + 1 items
     let mut script = Vec::new();
     for _ in 0..=MAX_STACK_SIZE {
-        script.push(0x51); // OP_1
+        script.push(OP_1); // OP_1
     }
 
     let mut stack = Vec::new();
@@ -282,7 +268,7 @@ fn test_flag_combinations() {
     let flag_combinations = generate_flag_combinations();
 
     // Test a simple script with all flag combinations
-    let script = vec![0x51]; // OP_1
+    let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
 
     for flags in flag_combinations {

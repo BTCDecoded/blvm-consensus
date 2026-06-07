@@ -3,6 +3,7 @@
 //! Tests verify that BLVM optimizations (pre-allocation, cache alignment)
 //! maintain correctness while improving performance.
 
+use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::{
     mining::calculate_merkle_root,
     optimizations::{prealloc_block_buffer, prealloc_tx_buffer},
@@ -43,13 +44,13 @@ fn create_test_transaction() -> Transaction {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![0x51], // OP_1
+            script_sig: vec![OP_1], // OP_1
             sequence: 0xffffffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![0x51].into(), // OP_1
+            script_pubkey: vec![OP_1].into(), // OP_1
         }]
         .into(),
         lock_time: 0,
