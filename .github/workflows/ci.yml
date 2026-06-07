@@ -95,7 +95,7 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
-       !contains(github.event.head_commit.message, '[skip_tests]'))
+       !contains(github.event.head_commit.message, '[skip_tests]')) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true')
     steps:
       - uses: actions/checkout@v6
@@ -175,7 +175,7 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
-       !contains(github.event.head_commit.message, '[skip_tests]'))
+       !contains(github.event.head_commit.message, '[skip_tests]')) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true')
     steps:
       - uses: actions/checkout@v6
@@ -220,7 +220,7 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
-       !contains(github.event.head_commit.message, '[skip_verify]'))
+       !contains(github.event.head_commit.message, '[skip_verify]')) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true')
     steps:
       - uses: actions/checkout@v6
@@ -543,7 +543,7 @@ jobs:
         !contains(github.event.head_commit.message, '[ci skip]') &&
         !contains(github.event.head_commit.message, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
-       !contains(github.event.head_commit.message, '[skip_tests]'))
+       !contains(github.event.head_commit.message, '[skip_tests]')) &&
       (github.event_name != 'workflow_dispatch' || github.event.inputs.skip_tests != 'true')
     steps:
       - uses: actions/checkout@v6
