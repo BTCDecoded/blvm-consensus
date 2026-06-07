@@ -81,7 +81,7 @@ Canonical spec repository: **[github.com/BTCDecoded/blvm-spec](https://github.co
 - The `local-spec-lock` feature in `Cargo.toml` is reserved for optional local path workflows
 - To see what Cargo resolves: `cargo tree -i blvm-spec-lock`
 - **Governance tooling list:** **`governance/config/repos/blvm-consensus.yml`** lists **`cargo spec-lock verify`** with **`--spec-path`** (**merged `F_*` registry + Rust rows**; **`--json-out spec_lock_verify.json`**) and **`check-drift`**. If your spec checkout is **`THE_ORANGE_PAPER.md`** only, use that path in the YAML stub instead.
-- **Phase 5 formula anchor witness:** **`src/spec_lock_formula_witness.rs`** references **`PROTOCOL.md` §13.3.6 — `F_SpecLockWitness`** via **`#[spec_locked("13.3", "F_SpecLockWitness")]`** (§ **13.3** subsumes §**13.3.6**). Confirms **`cargo spec-lock verify --strict`** (or **`SPEC_LOCK_STRICT=1`**) derives obligations from **`Formula`** blocks alongside traditional **`Function`** headings.
+- **Named-formula anchor witness:** **`src/spec_lock_formula_witness.rs`** references **`PROTOCOL.md` §13.3.6 — `F_SpecLockWitness`** via **`#[spec_locked("13.3", "F_SpecLockWitness")]`** (§ **13.3** subsumes §**13.3.6**). Confirms **`cargo spec-lock verify --strict`** (or **`SPEC_LOCK_STRICT=1`**) derives obligations from **`Formula`** blocks alongside traditional **`Function`** headings.
 
 ## Attestation and `verify` machine output
 
