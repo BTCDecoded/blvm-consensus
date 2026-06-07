@@ -125,6 +125,31 @@ fn test_calculate_tx_id_stable() {
 }
 
 #[test]
+fn test_apply_spend_coinbase_utxo_updates_set() {
+    let fund = coinbase(5);
+    let (set, _) = apply_transaction(&fund, UtxoSet::default(), 5).unwrap();
+    let fund_id = calculate_tx_id(&fund);
+    let prevout = OutPoint {
+        hash: fund_id,
+        index: 0,
+    };
+    assert!(set.get(&prevout).unwrap().is_coinbase);
+
+    let mut spend_tx = spend(0x00, fund.outputs[0].value, fund.outputs[0].value - 500);
+    spend_tx.inputs[0].prevout = prevout;
+    let (set, undo) = apply_transaction(&spend_tx, set, 6).unwrap();
+    assert!(set.get(&prevout).is_none());
+    assert_eq!(undo.len(), 2);
+    let spend_id = calculate_tx_id(&spend_tx);
+    assert!(set
+        .get(&OutPoint {
+            hash: spend_id,
+            index: 0
+        })
+        .is_some());
+}
+
+#[test]
 fn test_apply_coinbase_multiple_outputs() {
     let mut tx = coinbase(1);
     tx.outputs = vec![

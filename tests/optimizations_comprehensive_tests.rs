@@ -49,6 +49,74 @@ fn test_batch_sha256_multiple() {
 
 #[cfg(feature = "production")]
 #[test]
+fn test_batch_sha256_medium_and_large_batches() {
+    let medium_owned: Vec<String> = (0..6).map(|i| format!("medium-{i}")).collect();
+    let medium: Vec<&[u8]> = medium_owned.iter().map(|s| s.as_bytes()).collect();
+    let medium_results = batch_sha256(&medium);
+    assert_eq!(medium_results.len(), 6);
+    assert_eq!(batch_sha256(&medium), medium_results);
+
+    let large_owned: Vec<String> = (0..12).map(|i| format!("large-{i}")).collect();
+    let large: Vec<&[u8]> = large_owned.iter().map(|s| s.as_bytes()).collect();
+    let large_results = batch_sha256(&large);
+    assert_eq!(large_results.len(), 12);
+    assert_ne!(large_results[0], large_results[1]);
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_double_sha256_medium_batch() {
+    let owned: Vec<String> = (0..6).map(|i| format!("dhash-{i}")).collect();
+    let inputs: Vec<&[u8]> = owned.iter().map(|s| s.as_bytes()).collect();
+    let results = batch_double_sha256(&inputs);
+    assert_eq!(results.len(), 6);
+    for r in &results {
+        assert_eq!(r.len(), 32);
+    }
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_hash160_medium_batch() {
+    let owned: Vec<String> = (0..6).map(|i| format!("h160-{i}")).collect();
+    let inputs: Vec<&[u8]> = owned.iter().map(|s| s.as_bytes()).collect();
+    let results = batch_hash160(&inputs);
+    assert_eq!(results.len(), 6);
+    for r in &results {
+        assert_eq!(r.len(), 20);
+    }
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_ripemd160_medium_and_large_batches() {
+    let medium_owned: Vec<String> = (0..6).map(|i| format!("rmd-{i}")).collect();
+    let medium: Vec<&[u8]> = medium_owned.iter().map(|s| s.as_bytes()).collect();
+    assert_eq!(batch_ripemd160(&medium).len(), 6);
+
+    let large_owned: Vec<String> = (0..12).map(|i| format!("rmd-large-{i}")).collect();
+    let large: Vec<&[u8]> = large_owned.iter().map(|s| s.as_bytes()).collect();
+    assert_eq!(batch_ripemd160(&large).len(), 12);
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_hash160_large_batch() {
+    let owned: Vec<String> = (0..12).map(|i| format!("h160-large-{i}")).collect();
+    let inputs: Vec<&[u8]> = owned.iter().map(|s| s.as_bytes()).collect();
+    assert_eq!(batch_hash160(&inputs).len(), 12);
+}
+
+#[cfg(feature = "production")]
+#[test]
+fn test_batch_double_sha256_large_batch() {
+    let owned: Vec<String> = (0..12).map(|i| format!("dhash-large-{i}")).collect();
+    let inputs: Vec<&[u8]> = owned.iter().map(|s| s.as_bytes()).collect();
+    assert_eq!(batch_double_sha256(&inputs).len(), 12);
+}
+
+#[cfg(feature = "production")]
+#[test]
 fn test_batch_double_sha256() {
     let inputs = vec![b"test1".as_slice(), b"test2".as_slice()];
     let results = batch_double_sha256(&inputs);

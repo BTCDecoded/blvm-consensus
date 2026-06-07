@@ -509,3 +509,33 @@ fn test_accept_rejects_empty_inputs_and_outputs() {
         "completely empty tx should be rejected: {res:?}"
     );
 }
+
+#[test]
+fn test_replacement_checks_rejects_coinbase_new_tx() {
+    let coinbase = create_coinbase_tx(1);
+    let existing = create_test_tx(1_000, Some(0xfffffffe), None, None);
+    let (set, _) = create_test_utxo(10_000);
+    let pool: Mempool = HashSet::new();
+    assert!(replacement_checks(&coinbase, &existing, &set, &pool).is_err());
+}
+
+#[test]
+fn test_replacement_checks_rejects_coinbase_existing_tx() {
+    let new_tx = create_test_tx(1_000, Some(0xfffffffe), None, None);
+    let coinbase = create_coinbase_tx(1);
+    let (set, _) = create_test_utxo(10_000);
+    let pool: Mempool = HashSet::new();
+    assert!(replacement_checks(&new_tx, &coinbase, &set, &pool).is_err());
+}
+
+#[test]
+#[should_panic(expected = "Witness count")]
+fn test_accept_rejects_witness_count_mismatch() {
+    let (set, prev) = create_test_utxo(10_000);
+    let tx = create_test_tx(9_000, Some(0xffffffff), None, None);
+    let mut tx = tx;
+    tx.inputs[0].prevout = prev;
+    let pool: Mempool = HashSet::new();
+    let witnesses = vec![vec![vec![0u8; 32]], vec![vec![0u8; 32]]];
+    let _ = accept_to_memory_pool(&tx, Some(&witnesses), &set, &pool, 1_000_000, None);
+}

@@ -168,3 +168,37 @@ fn test_checkqueue_run_check_with_refs_direct() {
     .unwrap();
     assert!(valid);
 }
+
+#[test]
+fn test_checkqueue_run_check_with_bad_script_pubkey_bounds() {
+    let session = minimal_block_session();
+    let mut check = op1_script_check();
+    check.spk_offset = 100;
+    check.spk_len = 10;
+    let ctx = &session.tx_contexts[0];
+    let buffer = session.script_pubkey_buffer.as_slice();
+    let refs: Vec<&[u8]> = vec![&buffer[0..1]];
+    let valid = ScriptCheckQueue::run_check_with_refs(
+        &check,
+        &session,
+        ctx,
+        &refs,
+        buffer,
+        None,
+        Some(&[]),
+        Some(&[10_000i64]),
+    )
+    .unwrap();
+    // Exercises spk_offset/spk_len out-of-bounds fallback (empty scriptPubKey slice).
+    let _ = valid;
+}
+
+#[test]
+fn test_checkqueue_add_empty_is_noop() {
+    let session = minimal_block_session();
+    let queue = ScriptCheckQueue::new(1, Some(4));
+    queue.start_session(session);
+    queue.add(vec![]);
+    let results = queue.complete().unwrap();
+    assert!(results.is_empty());
+}
