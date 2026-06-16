@@ -18,10 +18,6 @@ arbitrary = { version = "1", features = ["derive"] }
 
 [patch.crates-io]
 blvm-consensus = { path = ".." }
-# blvm-protocol's #[spec_locked] proc-macro looks for ../blvm-spec/PROTOCOL.md
-# relative to the source root. The registry copy resolves a wrong path; point
-# at the local checkout so the spec is found during nightly fuzz builds.
-blvm-protocol = { path = "../../blvm-protocol" }
 
 # Prevent warnings in generated code
 [profile.release]

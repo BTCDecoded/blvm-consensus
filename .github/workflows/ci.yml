@@ -689,7 +689,13 @@ jobs:
       - name: Build fuzz binaries
         working-directory: fuzz
         run: |
+          set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
+          # blvm-protocol from crates.io resolves ../blvm-spec relative to its
+          # registry cache path, which doesn't exist. SPEC_LOCK_SPEC_PATH (absolute)
+          # overrides the proc-macro lookup for every crate in the build graph.
+          SPEC_DIR="$(realpath ../../blvm-spec)"
+          export SPEC_LOCK_SPEC_PATH="${SPEC_DIR}/PROTOCOL.md:${SPEC_DIR}/ARCHITECTURE.md"
           cargo +nightly fuzz build
 
       - name: Run all libFuzzer binaries in parallel
