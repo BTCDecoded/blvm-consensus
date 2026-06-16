@@ -139,14 +139,6 @@ echo "76a914..." > fuzz/corpus/script_execution/p2pkh.hex
 
 ### Build Issues
 
-Install **cargo-fuzz** with the crate's pinned stable toolchain (see `rust-toolchain.toml`).
-Version **0.12.0** is required: **0.13+** needs rustc ≥ 1.91 while this repo pins **1.88**.
-
-```bash
-CHANNEL=$(grep -E '^channel\s*=' ../rust-toolchain.toml | sed -E 's/.*=\s*"([^"]+)".*/\1/')
-rustup run "$CHANNEL" cargo install cargo-fuzz --version 0.12.0 --locked
-```
-
 ```bash
 # Clean build
 cargo clean
