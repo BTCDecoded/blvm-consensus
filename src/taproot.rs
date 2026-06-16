@@ -1,5 +1,7 @@
 //! Taproot functions from Orange Paper Section 11.2
 
+use std::borrow::Cow;
+
 use crate::error::Result;
 use crate::types::*;
 use crate::types::{ByteString, Hash};
@@ -123,6 +125,42 @@ pub fn compute_script_merkle_root(
     Ok(current_hash)
 }
 
+/// BIP341 annex tag (first byte of optional annex witness element).
+pub const TAPROOT_ANNEX_TAG: u8 = 0x50;
+
+/// Strip optional BIP341 annex from the end of a Taproot witness stack.
+///
+/// Core `VerifyWitnessProgram` (v1): if there are at least two stack elements and the
+/// last begins with `0x50`, it is an annex and removed before key/script path dispatch.
+/// Returns the stripped witness and the annex sighash hash when present.
+/// Borrows the stack when no annex is present (avoids cloning the full witness).
+#[spec_locked("11.2.4", "StripTaprootAnnex")]
+pub fn strip_taproot_annex(witness: &Witness) -> (Cow<'_, Witness>, Option<Hash>) {
+    if witness.len() >= 2
+        && witness
+            .last()
+            .and_then(|a| a.first())
+            .is_some_and(|&b| b == TAPROOT_ANNEX_TAG)
+    {
+        let annex = &witness[witness.len() - 1];
+        let annex_hash = compute_taproot_annex_sighash_hash(annex);
+        let stripped = witness[..witness.len() - 1].to_vec();
+        return (Cow::Owned(stripped), Some(annex_hash));
+    }
+    (Cow::Borrowed(witness), None)
+}
+
+/// SHA256 of the annex element for Taproot sighash (matches Core `HashWriter << annex`).
+fn compute_taproot_annex_sighash_hash(annex: &[u8]) -> Hash {
+    use sha2::{Digest, Sha256};
+    let mut buf = encode_varint(annex.len() as u64);
+    buf.extend_from_slice(annex);
+    let digest = Sha256::digest(&buf);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
 /// Parsed control block from Taproot script-path witness.
 #[derive(Debug)]
 pub struct TaprootControlBlock {
@@ -180,9 +218,21 @@ pub fn parse_taproot_script_path_witness(
     let tapscript = witness[script_idx].clone();
     let stack_items: Vec<ByteString> = witness[..script_idx].to_vec();
 
-    let merkle_root = compute_script_merkle_root(&tapscript, &merkle_proof, leaf_version)?;
-    // BIP341: verify output key x-coordinate and parity both match the commitment.
-    if !validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, output_key, parity)? {
+    let merkle_root = match compute_script_merkle_root(&tapscript, &merkle_proof, leaf_version) {
+        Ok(root) => root,
+        Err(_) => return Ok(None),
+    };
+    // Invalid tweak / aggregation mismatch → script invalid (Ok(false)), not consensus Err.
+    let valid = match validate_taproot_key_aggregation(
+        &internal_pubkey,
+        &merkle_root,
+        output_key,
+        parity,
+    ) {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
+    if !valid {
         return Ok(None);
     }
 
@@ -292,6 +342,7 @@ pub fn compute_taproot_signature_hash(
     prevout_values: &[i64],
     prevout_script_pubkeys: &[&[u8]],
     sighash_type: u8,
+    annex_hash: Option<&Hash>,
 ) -> Result<Hash> {
     use sha2::{Digest, Sha256};
 
@@ -346,8 +397,9 @@ pub fn compute_taproot_signature_hash(
         sigmsg.extend_from_slice(&sha_outputs);
     }
 
-    // spend_type: ext_flag=0 (key path), annex_present=0 → 0x00
-    sigmsg.push(0x00u8);
+    // spend_type: ext_flag=0 (key path), annex_present in low bit (BIP341)
+    let spend_type = if annex_hash.is_some() { 0x01u8 } else { 0x00u8 };
+    sigmsg.push(spend_type);
 
     if input_type == 0x80 {
         // ANYONECANPAY: include this input's outpoint + amount + scriptpubkey + sequence
@@ -374,6 +426,10 @@ pub fn compute_taproot_signature_hash(
     } else {
         // include input_index
         sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
+    }
+
+    if let Some(h) = annex_hash {
+        sigmsg.extend_from_slice(h);
     }
 
     if output_type == 0x03 {
@@ -404,6 +460,7 @@ pub fn compute_tapscript_signature_hash(
     leaf_version: u8,
     codesep_pos: u32,
     sighash_type: u8,
+    annex_hash: Option<&Hash>,
 ) -> Result<Hash> {
     use sha2::{Digest, Sha256};
 
@@ -444,8 +501,9 @@ pub fn compute_tapscript_signature_hash(
         sigmsg.extend_from_slice(&sha_outputs);
     }
 
-    // spend_type: ext_flag=1 (script path), annex_present=0 → 0x02
-    sigmsg.push(0x02u8);
+    // spend_type: ext_flag=1 (script path); annex_present in low bit (BIP341)
+    let spend_type = if annex_hash.is_some() { 0x03u8 } else { 0x02u8 };
+    sigmsg.push(spend_type);
 
     if input_type == 0x80 {
         let input = tx.inputs.get(input_index).ok_or_else(|| {
@@ -469,6 +527,10 @@ pub fn compute_tapscript_signature_hash(
         sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     } else {
         sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
+    }
+
+    if let Some(h) = annex_hash {
+        sigmsg.extend_from_slice(h);
     }
 
     if output_type == 0x03 {
@@ -656,7 +718,7 @@ mod tests {
             .iter()
             .map(|p| p.script_pubkey.as_slice())
             .collect();
-        let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01).unwrap();
+        let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None).unwrap();
         assert_eq!(sig_hash.len(), 32);
     }
 
@@ -691,7 +753,7 @@ mod tests {
             .map(|p| p.script_pubkey.as_slice())
             .collect();
         // Use invalid input index (out of bounds)
-        let sig_hash = compute_taproot_signature_hash(&tx, 1, &pv, &psp, 0x01).unwrap();
+        let sig_hash = compute_taproot_signature_hash(&tx, 1, &pv, &psp, 0x01, None).unwrap();
         assert_eq!(sig_hash.len(), 32);
     }
 
@@ -724,7 +786,7 @@ mod tests {
             .iter()
             .map(|p| p.script_pubkey.as_slice())
             .collect();
-        let result = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01);
+        let result = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None);
         assert!(
             result.is_err(),
             "empty prevouts shorter than tx.inputs must return Err, not silently use zeros"
@@ -1011,8 +1073,8 @@ mod property_tests {
         ) {
             let prevout_values: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
             let prevout_script_pubkeys: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_slice()).collect();
-            let result1 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
-            let result2 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type);
+            let result1 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type, None);
+            let result2 = compute_taproot_signature_hash(&tx, input_index, &prevout_values, &prevout_script_pubkeys, sighash_type, None);
 
             assert_eq!(result1.is_ok(), result2.is_ok());
             if let (Ok(hash1), Ok(hash2)) = (&result1, &result2) {

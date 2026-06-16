@@ -156,24 +156,25 @@ impl SchnorrSignatureCollector {
         signature: &[u8],
     ) {
         if let Some(ref soa) = self.soa {
-            if message.len() != 32 || pubkey.len() != 32 || signature.len() != 64 {
-                return;
-            }
-            let slot = soa.next_slot.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut inner) = soa.inner.lock() {
-                if slot < inner.indices.len() {
-                    inner.indices[slot] = global_index;
-                    inner.msgs[slot].copy_from_slice(message);
-                    inner.pubkeys[slot].copy_from_slice(pubkey);
-                    inner.sigs[slot].copy_from_slice(signature);
+            if message.len() == 32 && pubkey.len() == 32 && signature.len() == 64 {
+                let slot = soa.next_slot.fetch_add(1, Ordering::Relaxed);
+                if let Ok(mut inner) = soa.inner.lock() {
+                    if slot < inner.indices.len() {
+                        inner.indices[slot] = global_index;
+                        inner.msgs[slot].copy_from_slice(message);
+                        inner.pubkeys[slot].copy_from_slice(pubkey);
+                        inner.sigs[slot].copy_from_slice(signature);
+                        return;
+                    }
                 }
+                // SoA full (more Schnorr sigs than input slots): fall back to SegQueue.
             }
-        } else {
-            self.tasks.push((
-                global_index,
-                (message.to_vec(), pubkey.to_vec(), signature.to_vec()),
-            ));
+            // Invalid SoA component lengths: fall through to SegQueue (batch verify fails closed).
         }
+        self.tasks.push((
+            global_index,
+            (message.to_vec(), pubkey.to_vec(), signature.to_vec()),
+        ));
     }
 
     /// Batch verify all collected signatures
@@ -182,10 +183,39 @@ impl SchnorrSignatureCollector {
     pub fn verify_batch(&self) -> Result<Vec<bool>> {
         if let Some(ref soa) = self.soa {
             let count = soa.next_slot.load(Ordering::Relaxed);
-            if count == 0 {
+            if count == 0 && self.tasks.is_empty() {
                 return Ok(Vec::new());
             }
-            return Self::verify_soa_batch(soa, count);
+            let soa_count = soa
+                .inner
+                .lock()
+                .map(|inner| count.min(inner.msgs.len()))
+                .unwrap_or(0);
+            let mut merged: Vec<(usize, bool)> = if soa_count > 0 {
+                Self::verify_soa_batch(soa, soa_count)?
+            } else {
+                Vec::new()
+            };
+            // Verify any signatures that overflowed the SoA into the SegQueue.
+            let mut tasks: Vec<_> = std::iter::from_fn(|| self.tasks.pop()).collect();
+            if !tasks.is_empty() {
+                tasks.sort_by_key(|t| t.0);
+                let indices: Vec<usize> = tasks.iter().map(|(i, _)| *i).collect();
+                let task_vecs: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> =
+                    tasks.into_iter().map(|(_, t)| t).collect();
+                let task_refs: Vec<(&[u8], &[u8], &[u8])> = task_vecs
+                    .iter()
+                    .map(|(msg, pk, sig)| (msg.as_slice(), pk.as_slice(), sig.as_slice()))
+                    .collect();
+                let results = batch_verify_signatures_from_stack(&task_refs)?;
+                merged.extend(indices.into_iter().zip(results));
+            }
+            #[cfg(all(feature = "production", feature = "rayon"))]
+            for partial in std::iter::from_fn(|| self.streaming_results.pop()) {
+                merged.extend(partial);
+            }
+            merged.sort_by_key(|(i, _)| *i);
+            return Ok(merged.into_iter().map(|(_, v)| v).collect());
         }
 
         #[cfg(all(feature = "production", feature = "rayon"))]
@@ -222,12 +252,16 @@ impl SchnorrSignatureCollector {
         Ok(merged.into_iter().map(|(_, v)| v).collect())
     }
 
-    fn verify_soa_batch(soa: &SchnorrSoAStorage, count: usize) -> Result<Vec<bool>> {
+    fn verify_soa_batch(soa: &SchnorrSoAStorage, count: usize) -> Result<Vec<(usize, bool)>> {
         let inner = soa
             .inner
             .lock()
             .map_err(|_| ConsensusError::BlockValidation("SoA lock poisoned".into()))?;
-        let task_refs: Vec<(&[u8], &[u8], &[u8])> = (0..count)
+        let n = count.min(inner.msgs.len());
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let task_refs: Vec<(&[u8], &[u8], &[u8])> = (0..n)
             .map(|slot| {
                 (
                     inner.msgs[slot].as_slice(),
@@ -237,11 +271,9 @@ impl SchnorrSignatureCollector {
             })
             .collect();
         let results = batch_verify_signatures_from_stack(&task_refs)?;
-        let mut merged: Vec<(usize, bool)> = (0..count)
+        Ok((0..n)
             .map(|slot| (inner.indices[slot], results[slot]))
-            .collect();
-        merged.sort_by_key(|(i, _)| *i);
-        Ok(merged.into_iter().map(|(_, v)| v).collect())
+            .collect())
     }
 
     /// Clear all collected signatures and streaming results
@@ -509,6 +541,31 @@ pub fn batch_verify_signatures_from_stack(
     Ok(results)
 }
 
+/// Parse a BIP340 Schnorr signature from a Taproot witness stack element.
+///
+/// Bitcoin Core `CheckSchnorrSignature`: 64 bytes → `SIGHASH_DEFAULT` (`0x00`);
+/// 65 bytes → last byte is sighash type (explicit `SIGHASH_DEFAULT` is invalid).
+#[spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig")]
+pub fn try_parse_taproot_schnorr_witness_sig(sig_bytes: &[u8]) -> Option<([u8; 64], u8)> {
+    match sig_bytes.len() {
+        64 => {
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(sig_bytes);
+            Some((sig, 0x00))
+        }
+        65 => {
+            let hashtype = sig_bytes[64];
+            if hashtype == 0x00 {
+                return None;
+            }
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(&sig_bytes[..64]);
+            Some((sig, hashtype))
+        }
+        _ => None,
+    }
+}
+
 /// Verify Tapscript Schnorr signature (BIP 340/342)
 ///
 /// Verifies a BIP 340 Schnorr signature for Tapscript OP_CHECKSIG.
@@ -537,15 +594,15 @@ pub fn verify_tapscript_schnorr_signature(
         return Ok(false);
     }
 
-    // Signature must be 64 bytes (BIP 340 Schnorr)
-    if signature.len() != 64 {
-        return Ok(false);
-    }
+    let sig_arr: [u8; 64] = match signature.try_into() {
+        Ok(a) => a,
+        Err(_) => return Ok(false),
+    };
 
     // OPTIMIZATION: If collector is provided, defer verification for batch processing
     if let Some(c) = collector {
         // Collect signature for batch verification
-        c.collect(sighash, pubkey, signature);
+        c.collect(sighash, pubkey, &sig_arr);
         // Return true for now - actual verification happens in batch
         return Ok(true);
     }
@@ -553,10 +610,6 @@ pub fn verify_tapscript_schnorr_signature(
     // Immediate verification (fallback when no collector)
     #[cfg(feature = "blvm-secp256k1")]
     {
-        let sig_arr: [u8; 64] = match signature.try_into() {
-            Ok(a) => a,
-            Err(_) => return Ok(false),
-        };
         let pk_arr: [u8; 32] = match pubkey.try_into() {
             Ok(a) => a,
             Err(_) => return Ok(false),
@@ -571,8 +624,7 @@ pub fn verify_tapscript_schnorr_signature(
             Ok(pk) => pk,
             Err(_) => return Ok(false),
         };
-        // Parse Schnorr signature (64 bytes)
-        let sig = match Signature::from_slice(signature) {
+        let sig = match Signature::from_slice(&sig_arr) {
             Ok(s) => s,
             Err(_) => return Ok(false),
         };

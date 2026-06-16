@@ -163,12 +163,12 @@ fn test_taproot_signature_hash() {
     let pv = prevouts.iter().map(|p| p.value).collect::<Vec<i64>>();
     let ps: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
 
-    let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01).unwrap();
+    let sig_hash = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01, None).unwrap();
 
     assert_eq!(sig_hash.len(), 32);
 
     // Same inputs should produce same hash (deterministic)
-    let sig_hash2 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01).unwrap();
+    let sig_hash2 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01, None).unwrap();
     assert_eq!(sig_hash, sig_hash2);
 }
 
@@ -402,8 +402,8 @@ fn test_taproot_sighash_types() {
     let ps: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
 
     // Test different sighash types
-    let sig_hash_all = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01).unwrap(); // SIGHASH_ALL
-    let sig_hash_none = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x03).unwrap(); // SIGHASH_NONE
+    let sig_hash_all = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01, None).unwrap(); // SIGHASH_ALL
+    let sig_hash_none = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x03, None).unwrap(); // SIGHASH_NONE
 
     // Different sighash types should produce different hashes
     assert_ne!(sig_hash_all, sig_hash_none);
@@ -564,8 +564,8 @@ fn test_taproot_signature_hash_different_inputs() {
     let pv = prevouts.iter().map(|p| p.value).collect::<Vec<i64>>();
     let ps: Vec<&[u8]> = prevouts.iter().map(|p| p.script_pubkey.as_ref()).collect();
 
-    let sig_hash_input0 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01).unwrap();
-    let sig_hash_input1 = compute_taproot_signature_hash(&tx, 1, &pv, &ps, 0x01).unwrap();
+    let sig_hash_input0 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01, None).unwrap();
+    let sig_hash_input1 = compute_taproot_signature_hash(&tx, 1, &pv, &ps, 0x01, None).unwrap();
 
     // Different input indices should produce different signature hashes
     assert_ne!(sig_hash_input0, sig_hash_input1);

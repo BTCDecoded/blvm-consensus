@@ -168,7 +168,10 @@ fn test_collector_soa_capacity_and_verify_batch() {
 fn test_collector_soa_skips_invalid_lengths() {
     let collector = SchnorrSignatureCollector::new_with_capacity(4);
     collector.collect_with_index(0, b"short", &[1u8; 32], &[0u8; 64]);
-    assert!(collector.verify_batch().unwrap().is_empty());
+    // Invalid SoA dimensions fall through to SegQueue; batch verify fails closed.
+    let results = collector.verify_batch().unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(!results[0]);
 }
 
 #[test]

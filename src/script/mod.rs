@@ -55,6 +55,13 @@ fn make_stack_overflow_error() -> ConsensusError {
     }
 }
 
+#[inline]
+fn bip143_p2wpkh_script_code(pubkey_hash: &[u8]) -> [u8; 25] {
+    let mut hash = [0u8; 20];
+    hash.copy_from_slice(pubkey_hash);
+    crate::transaction_hash::derive_bip143_script_code_p2wpkh(&hash)
+}
+
 #[cfg(feature = "production")]
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
@@ -481,7 +488,9 @@ fn eval_script_inner(
     use crate::constants::MAX_SCRIPT_SIZE;
     use crate::error::{ConsensusError, ScriptErrorCode};
 
-    if script.len() > MAX_SCRIPT_SIZE {
+    if (sigversion == SigVersion::Base || sigversion == SigVersion::WitnessV0)
+        && script.len() > MAX_SCRIPT_SIZE
+    {
         return Err(ConsensusError::ScriptErrorWithCode {
             code: ScriptErrorCode::ScriptSize,
             message: "Script size exceeds maximum".into(),
@@ -497,8 +506,9 @@ fn eval_script_inner(
         let opcode = script[i];
         let in_false_branch = control_flow::in_false_branch(&control_stack);
 
-        // Count non-push opcodes toward op limit, regardless of branch
-        if !is_push_opcode(opcode) {
+        // Count non-push opcodes toward op limit (Base/WitnessV0 only; BIP342 Tapscript has no 201-op cap).
+        // Bitcoin Core: interpreter.cpp EvalScript — nOpCount only for BASE || WITNESS_V0.
+        if sigversion != SigVersion::Tapscript && !is_push_opcode(opcode) {
             op_count += 1;
             if op_count > MAX_SCRIPT_OPS {
                 return Err(make_operation_limit_error());
@@ -1816,6 +1826,7 @@ fn try_verify_p2sh_fast_path(
         SigVersion::Base,
         Some(redeem.as_ref()),
         None, // script_sig_for_sighash (P2SH redeem context)
+        None, // taproot_annex_hash
         #[cfg(feature = "production")]
         None, // schnorr_collector
         None, // precomputed_bip143 - Base sigversion
@@ -1871,6 +1882,9 @@ fn try_verify_p2wpkh_fast_path(
         return Some(Ok(false));
     }
 
+    // BIP143 §4.3: for P2WPKH the scriptCode is the P2PKH expansion, not the witness program.
+    let p2pkh_script_code = bip143_p2wpkh_script_code(expected_hash);
+
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash = if sighash_byte == 0x01 {
         // Roadmap #12: use precomputed SIGHASH_ALL when available
@@ -1882,7 +1896,7 @@ fn try_verify_p2wpkh_fast_path(
             match crate::transaction_hash::calculate_bip143_sighash(
                 tx,
                 input_index,
-                script_pubkey,
+                &p2pkh_script_code,
                 amount,
                 sighash_byte,
                 precomputed_bip143,
@@ -1897,7 +1911,7 @@ fn try_verify_p2wpkh_fast_path(
             match crate::transaction_hash::calculate_bip143_sighash(
                 tx,
                 input_index,
-                script_pubkey,
+                &p2pkh_script_code,
                 amount,
                 sighash_byte,
                 precomputed_bip143,
@@ -1911,7 +1925,7 @@ fn try_verify_p2wpkh_fast_path(
         match crate::transaction_hash::calculate_bip143_sighash(
             tx,
             input_index,
-            script_pubkey,
+            &p2pkh_script_code,
             amount,
             sighash_byte,
             precomputed_bip143,
@@ -1995,12 +2009,15 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
         return Some(Ok(false));
     }
 
+    // BIP143 §4.3: P2WPKH-in-P2SH scriptCode is the P2PKH expansion of the 20-byte program.
+    let p2pkh_script_code = bip143_p2wpkh_script_code(expected_pubkey_hash);
+
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let amount = prevout_values.get(input_index).copied().unwrap_or(0);
     let sighash = match crate::transaction_hash::calculate_bip143_sighash(
         tx,
         input_index,
-        redeem.as_ref(),
+        &p2pkh_script_code,
         amount,
         sighash_byte,
         precomputed_bip143,
@@ -2283,6 +2300,7 @@ fn try_verify_p2wsh_fast_path(
         witness_sigversion,
         None, // redeem_script_for_sighash
         None, // script_sig_for_sighash (witness script context)
+        None, // taproot_annex_hash
         schnorr_collector,
         precomputed_bip143,
         #[cfg(feature = "production")]
@@ -2325,7 +2343,8 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
     }
     let mut output_key = [0u8; 32];
     output_key.copy_from_slice(&script_pubkey[2..34]);
-    let parsed = match parse_taproot_script_path_witness(witness, &output_key) {
+    let (witness_body, annex_hash) = crate::taproot::strip_taproot_annex(witness);
+    let parsed = match parse_taproot_script_path_witness(&witness_body, &output_key) {
         Ok(Some(p)) => p,
         Ok(None) | Err(_) => return None,
     };
@@ -2333,10 +2352,11 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
     if tapscript.len() != 34 || tapscript[0] != PUSH_32_BYTES || tapscript[33] != OP_CHECKSIG {
         return None;
     }
-    if stack_items.len() != 1 || stack_items[0].len() != 64 {
+    if stack_items.len() != 1 {
         return None;
     }
-    let sig = stack_items[0].as_ref();
+    let (sig_bytes, sighash_type) =
+        crate::bip348::try_parse_taproot_schnorr_witness_sig(stack_items[0].as_ref())?;
     let pubkey_32 = &tapscript[1..33];
     let sighash = crate::taproot::compute_tapscript_signature_hash(
         tx,
@@ -2346,13 +2366,14 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
         &tapscript,
         control_block.leaf_version,
         0xffff_ffff,
-        0x00,
+        sighash_type,
+        annex_hash.as_ref(),
     )
     .ok()?;
     let result = crate::bip348::verify_tapscript_schnorr_signature(
         &sighash,
         pubkey_32,
-        sig,
+        &sig_bytes,
         schnorr_collector,
     );
     Some(result)
@@ -2360,6 +2381,41 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
 
 /// Taproot (P2TR) key-path fast-path. ScriptPubKey OP_1 <32-byte output key>, witness [64-byte sig].
 /// Skips interpreter; verifies Schnorr directly. Returns None for script-path or pre-activation.
+#[cfg(feature = "production")]
+#[allow(clippy::too_many_arguments)]
+fn verify_p2tr_keypath_witness(
+    script_pubkey: &[u8],
+    witness: &crate::witness::Witness,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
+) -> Result<bool> {
+    use crate::bip348::{
+        try_parse_taproot_schnorr_witness_sig, verify_tapscript_schnorr_signature,
+    };
+
+    let (witness_body, annex_hash) = crate::taproot::strip_taproot_annex(witness);
+    if witness_body.len() != 1 {
+        return Ok(false);
+    }
+    let Some((sig_bytes, sighash_type)) = try_parse_taproot_schnorr_witness_sig(&witness_body[0])
+    else {
+        return Ok(false);
+    };
+    let output_key = &script_pubkey[2..34];
+    let sighash = crate::taproot::compute_taproot_signature_hash(
+        tx,
+        input_index,
+        prevout_values,
+        prevout_script_pubkeys,
+        sighash_type,
+        annex_hash.as_ref(),
+    )?;
+    verify_tapscript_schnorr_signature(&sighash, output_key, &sig_bytes, schnorr_collector)
+}
+
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
 fn try_verify_p2tr_keypath_fast_path(
@@ -2387,27 +2443,21 @@ fn try_verify_p2tr_keypath_fast_path(
     if !script_sig.is_empty() {
         return None;
     }
-    // Key-path: single 64-byte Schnorr signature
-    if witness.len() != 1 || witness[0].len() != 64 {
+    // Key-path: one stack element after optional annex strip (Core CheckSchnorrSignature).
+    let (witness_body, _) = crate::taproot::strip_taproot_annex(witness);
+    if witness_body.len() != 1 {
         return None;
     }
-    let output_key = &script_pubkey[2..34];
-    let sig = &witness[0];
-    let sighash = crate::taproot::compute_taproot_signature_hash(
+    crate::bip348::try_parse_taproot_schnorr_witness_sig(&witness_body[0])?;
+    Some(verify_p2tr_keypath_witness(
+        script_pubkey,
+        witness,
         tx,
         input_index,
         prevout_values,
         prevout_script_pubkeys,
-        0x00, // SIGHASH_DEFAULT for key-path
-    )
-    .ok()?;
-    let result = crate::bip348::verify_tapscript_schnorr_signature(
-        &sighash,
-        output_key,
-        sig,
         schnorr_collector,
-    );
-    Some(result)
+    ))
 }
 
 #[spec_locked("5.2", "VerifyScript")]
@@ -2782,6 +2832,7 @@ pub fn verify_script_with_context_full(
         network,
         SigVersion::Base,
         None, // script_sig not needed when executing scriptSig
+        None, // taproot_annex_hash
         #[cfg(feature = "production")]
         schnorr_collector,
         None, // precomputed_bip143 - Base sigversion
@@ -2880,12 +2931,38 @@ pub fn verify_script_with_context_full(
         let Some(witness_stack) = witness else {
             return Ok(false);
         };
-        if witness_stack.len() < 2 {
+        if witness_stack.is_empty() {
+            return Ok(false);
+        }
+        // After optional annex strip: 1 element = key-path; 2+ = script-path (Core VerifyWitnessProgram).
+        let (witness_body, annex_hash) = crate::taproot::strip_taproot_annex(witness_stack);
+        if witness_body.is_empty() {
+            return Ok(false);
+        }
+        if witness_body.len() == 1 {
+            #[cfg(feature = "production")]
+            {
+                return verify_p2tr_keypath_witness(
+                    script_pubkey,
+                    witness_stack,
+                    tx,
+                    input_index,
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    schnorr_collector,
+                );
+            }
+            #[cfg(not(feature = "production"))]
+            {
+                return Ok(false);
+            }
+        }
+        if witness_body.len() < 2 {
             return Ok(false);
         }
         let mut output_key = [0u8; 32];
         output_key.copy_from_slice(&script_pubkey[2..34]);
-        match crate::taproot::parse_taproot_script_path_witness(witness_stack, &output_key)? {
+        match crate::taproot::parse_taproot_script_path_witness(&witness_body, &output_key)? {
             None => return Ok(false),
             Some((tapscript, stack_items, _control_block)) => {
                 for item in &stack_items {
@@ -2905,6 +2982,7 @@ pub fn verify_script_with_context_full(
                     network,
                     SigVersion::Tapscript,
                     None,
+                    annex_hash.as_ref(),
                     #[cfg(feature = "production")]
                     schnorr_collector,
                     None,
@@ -2937,6 +3015,7 @@ pub fn verify_script_with_context_full(
         network,
         SigVersion::Base,
         Some(script_sig),
+        None, // taproot_annex_hash
         #[cfg(feature = "production")]
         schnorr_collector,
         None, // precomputed_bip143 - Base sigversion
@@ -2968,6 +3047,7 @@ pub fn verify_script_with_context_full(
             network,
             witness_sigversion,
             None, // witness script, no script_sig for sighash
+            None, // taproot_annex_hash
             #[cfg(feature = "production")]
             schnorr_collector,
             precomputed_bip143, // WitnessV0 uses BIP143
@@ -3051,11 +3131,9 @@ pub fn verify_script_with_context_full(
                     }
 
                     // Execute the witness script with witness stack elements on the stack
-                    let witness_sigversion = if flags & 0x8000 != 0 {
-                        SigVersion::Tapscript
-                    } else {
-                        SigVersion::WitnessV0 // P2WSH-in-P2SH: WitnessV0
-                    };
+                    // P2WSH-in-P2SH always uses WitnessV0 (BIP143). 0x8000 = WITNESS_PUBKEYTYPE
+                    // is a key-type strictness flag and does not select Tapscript semantics.
+                    let witness_sigversion = SigVersion::WitnessV0;
 
                     // Interpreter path: no collection (P2WSH-in-P2SH).
                     if !eval_script_with_context_full(
@@ -3071,6 +3149,7 @@ pub fn verify_script_with_context_full(
                         network,
                         witness_sigversion,
                         None, // witness script
+                        None, // taproot_annex_hash
                         #[cfg(feature = "production")]
                         schnorr_collector,
                         precomputed_bip143, // WitnessV0 uses BIP143
@@ -3083,14 +3162,65 @@ pub fn verify_script_with_context_full(
                     return Ok(false); // P2WSH requires witness
                 }
             } else if redeem[1] == PUSH_20_BYTES {
-                // P2WPKH-in-P2SH: program is 20 bytes (pubkey hash)
-                // Witness contains signature and pubkey, no witness script to verify
-                // Clear stack for witness execution
-                stack.clear();
+                // P2WPKH-in-P2SH (BIP141): the redeem script is OP_0 <20-byte-pubkey-hash>.
+                // Witness must be exactly [signature, pubkey].
+                // Verify pubkey hashes to the program, then check BIP143 signature.
+                let pubkey_hash = &redeem[2..22]; // 20-byte hash from redeem script
+
+                let witness_stack = match witness {
+                    Some(w) => w,
+                    None => return Ok(false), // P2WPKH-in-P2SH requires witness
+                };
+                if witness_stack.len() != 2 {
+                    return Ok(false); // Must be exactly [sig, pubkey]
+                }
+                let signature_bytes = &witness_stack[0];
+                let pubkey_bytes = &witness_stack[1];
+
+                if signature_bytes.is_empty() {
+                    return Ok(false);
+                }
+                if pubkey_bytes.len() != 33 && pubkey_bytes.len() != 65 {
+                    return Ok(false);
+                }
+
+                // Verify pubkey hash matches program
+                let pubkey_sha256 = OptimizedSha256::new().hash(pubkey_bytes);
+                let computed_hash = Ripemd160::digest(pubkey_sha256);
+                if &computed_hash[..] != pubkey_hash {
+                    return Ok(false);
+                }
+
+                // BIP143 §4.3: scriptCode for P2WPKH is the P2PKH expansion, not the witness program.
+                let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+                let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+                let p2pkh_script_code = bip143_p2wpkh_script_code(pubkey_hash);
+                let sighash = crate::transaction_hash::calculate_bip143_sighash(
+                    tx,
+                    input_index,
+                    &p2pkh_script_code,
+                    amount,
+                    sighash_byte,
+                    precomputed_bip143,
+                )?;
+
+                let height = block_height.unwrap_or(0);
+                return signature::with_secp_context(|secp| {
+                    signature::verify_signature(
+                        secp,
+                        pubkey_bytes,
+                        signature_bytes,
+                        &sighash,
+                        flags,
+                        height,
+                        network,
+                        SigVersion::WitnessV0,
+                    )
+                });
             } else {
                 return Ok(false); // Invalid witness program format
             }
-            // The witness execution will happen below
+            // P2WSH-in-P2SH path falls through to final stack check above
         } else {
             // Regular P2SH: execute the redeem script with the remaining stack (signatures pushed by scriptSig)
             // The redeem script will consume the signatures and should leave exactly one true value
@@ -3109,6 +3239,7 @@ pub fn verify_script_with_context_full(
                 SigVersion::Base,
                 Some(redeem.as_ref()), // Pass redeem script for sighash
                 Some(script_sig), // Use same script_sig for legacy sighash pattern (e.g. P2PKH inside P2SH)
+                None,             // taproot_annex_hash
                 #[cfg(feature = "production")]
                 None, // schnorr_collector
                 None,             // precomputed_bip143 - Base sigversion
@@ -3132,7 +3263,7 @@ pub fn verify_script_with_context_full(
     // CRITICAL:
     // - Direct P2WPKH/P2WSH: Already handled above (witness stack pushed before scriptPubkey, witness script executed after)
     // - P2WSH-in-P2SH: Handled in P2SH section above (witness script executed with witness stack elements)
-    // - P2WPKH-in-P2SH: Handled in P2SH section above (witness stack cleared, scriptPubkey handles it via redeem script)
+    // - P2WPKH-in-P2SH: Handled in P2SH section above (BIP143 sig/pubkey check via implicit P2PKH scriptCode)
     // - Regular scripts: No witness execution needed
     //
     // All witness execution should be complete by this point
@@ -3187,6 +3318,7 @@ fn eval_script_with_context(
         network,
         SigVersion::Base,
         None, // script_sig_for_sighash
+        None, // taproot_annex_hash
         #[cfg(feature = "production")]
         None, // schnorr_collector - No collector in this context
         None, // precomputed_bip143 - Base sigversion
@@ -3210,6 +3342,7 @@ fn eval_script_with_context_full(
     network: crate::types::Network,
     sigversion: SigVersion,
     script_sig_for_sighash: Option<&ByteString>,
+    taproot_annex_hash: Option<&Hash>,
     #[cfg(feature = "production")] schnorr_collector: Option<
         &crate::bip348::SchnorrSignatureCollector,
     >,
@@ -3234,6 +3367,7 @@ fn eval_script_with_context_full(
         sigversion,
         None,
         script_sig_for_sighash,
+        taproot_annex_hash,
         #[cfg(feature = "production")]
         schnorr_collector,
         precomputed_bip143,
@@ -3260,6 +3394,7 @@ fn eval_script_with_context_full_inner(
     sigversion: SigVersion,
     redeem_script_for_sighash: Option<&[u8]>,
     script_sig_for_sighash: Option<&ByteString>,
+    taproot_annex_hash: Option<&Hash>,
     #[cfg(feature = "production")] schnorr_collector: Option<
         &crate::bip348::SchnorrSignatureCollector,
     >,
@@ -3270,25 +3405,30 @@ fn eval_script_with_context_full_inner(
 ) -> Result<bool> {
     // Precondition assertions: input_index and prevout lengths validated by caller (verify_script_with_context_full).
     // 6d: Removed redundant assert! for input_index and prevout lengths — caller returns error on mismatch.
-    assert!(
-        script.len() <= 10000,
-        "Script length {} exceeds reasonable maximum",
-        script.len()
-    );
+    use crate::constants::MAX_SCRIPT_SIZE;
+    use crate::error::{ConsensusError, ScriptErrorCode};
+
+    // Core: MAX_SCRIPT_SIZE applies to Base and WitnessV0 only; Tapscript may exceed 10k.
+    if (sigversion == SigVersion::Base || sigversion == SigVersion::WitnessV0)
+        && script.len() > MAX_SCRIPT_SIZE
+    {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::ScriptSize,
+            message: "Script size exceeds maximum".into(),
+        });
+    }
     assert!(
         stack.len() <= 1000,
         "Stack size {} exceeds reasonable maximum at start",
         stack.len()
     );
 
-    use crate::error::{ConsensusError, ScriptErrorCode};
-
     // BIP342: In Tapscript, pre-scan the entire script for OP_SUCCESSx opcodes.
     // If any OP_SUCCESSx is encountered (even in unexecuted branches), the whole
     // script succeeds immediately. This must happen before any opcode is executed.
     // Reference: Bitcoin Core ExecuteWitnessScript (interpreter.cpp:1836–1851).
     if sigversion == SigVersion::Tapscript {
-        const SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS: u32 = 1 << 17;
+        use crate::script::flags::SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS;
         let mut pc = 0usize;
         while pc < script.len() {
             let opcode = script[pc];
@@ -3356,8 +3496,8 @@ fn eval_script_with_context_full_inner(
         // Cache in_false_branch state - only recompute when control stack changes
         let in_false_branch = control_flow::in_false_branch(&control_stack);
 
-        // Count non-push opcodes toward op limit
-        if !is_push_opcode(opcode) {
+        // Count non-push opcodes toward op limit (Base/WitnessV0 only; BIP342 Tapscript has no 201-op cap).
+        if sigversion != SigVersion::Tapscript && !is_push_opcode(opcode) {
             op_count += 1;
             // Invariant assertion: Op count must not exceed limit
             assert!(
@@ -3554,6 +3694,7 @@ fn eval_script_with_context_full_inner(
                     script_sig_for_sighash,
                     tapscript_for_sighash: tapscript,
                     tapscript_codesep_pos: codesep,
+                    taproot_annex_hash,
                     #[cfg(feature = "production")]
                     schnorr_collector,
                     #[cfg(feature = "production")]
@@ -3787,6 +3928,7 @@ fn eval_script_with_context_full_inner(
                     script_sig_for_sighash,
                     tapscript_for_sighash: tapscript,
                     tapscript_codesep_pos: codesep,
+                    taproot_annex_hash,
                     #[cfg(feature = "production")]
                     schnorr_collector,
                     #[cfg(feature = "production")]
@@ -4630,6 +4772,7 @@ fn execute_opcode_with_context(
         script_sig_for_sighash: None,
         tapscript_for_sighash: None,
         tapscript_codesep_pos: None,
+        taproot_annex_hash: None,
         #[cfg(feature = "production")]
         schnorr_collector: None,
         #[cfg(feature = "production")]
@@ -5081,12 +5224,12 @@ fn execute_opcode_with_context_full(
                     return Ok(true);
                 }
 
-                // Tapscript (BIP 342): Uses BIP 340 Schnorr signatures (64 bytes, not DER)
-                // and 32-byte x-only pubkeys. Signature format is just 64 bytes (no sighash byte).
-                if sigversion == SigVersion::Tapscript {
-                    // Tapscript: signature is 64-byte BIP 340 Schnorr, pubkey is 32-byte x-only
-                    if signature_bytes.len() == 64 && pubkey_bytes.len() == 32 {
-                        let sighash_byte = 0x00;
+                // Tapscript (BIP 342): BIP 340 Schnorr (64 bytes, or 65 with explicit sighash byte).
+                if sigversion == SigVersion::Tapscript && pubkey_bytes.len() == 32 {
+                    use crate::bip348::try_parse_taproot_schnorr_witness_sig;
+                    if let Some((sig_bytes, sighash_byte)) =
+                        try_parse_taproot_schnorr_witness_sig(&signature_bytes)
+                    {
                         let (tapscript, codesep_pos) = tapscript_for_sighash
                             .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
                             .unwrap_or((&[] as &[u8], 0xffff_ffff));
@@ -5097,6 +5240,7 @@ fn execute_opcode_with_context_full(
                                 prevout_values,
                                 prevout_script_pubkeys,
                                 sighash_byte,
+                                None,
                             )?
                         } else {
                             crate::taproot::compute_tapscript_signature_hash(
@@ -5108,17 +5252,17 @@ fn execute_opcode_with_context_full(
                                 crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
                                 codesep_pos,
                                 sighash_byte,
+                                ctx.taproot_annex_hash,
                             )?
                         };
 
-                        // OPTIMIZATION: Use collector for batch verification if available
                         #[cfg(feature = "production")]
                         let is_valid = {
                             use crate::bip348::verify_tapscript_schnorr_signature;
                             verify_tapscript_schnorr_signature(
                                 &sighash,
                                 &pubkey_bytes,
-                                &signature_bytes,
+                                &sig_bytes,
                                 schnorr_collector,
                             )
                             .unwrap_or(false)
@@ -5132,7 +5276,7 @@ fn execute_opcode_with_context_full(
                                 verify_tapscript_schnorr_signature(
                                     &sighash,
                                     &pubkey_bytes,
-                                    &signature_bytes,
+                                    &sig_bytes,
                                     None,
                                 )
                                 .unwrap_or(false)
@@ -5145,7 +5289,14 @@ fn execute_opcode_with_context_full(
                         stack.push(to_stack_element(&[if is_valid { 1 } else { 0 }]));
                         return Ok(true);
                     }
-                    // Fall through to ECDSA path for non-Tapscript signatures
+                    // Invalid Schnorr encoding for 32-byte x-only pubkey → failed check.
+                    stack.push(to_stack_element(&[0]));
+                    return Ok(true);
+                }
+                if sigversion == SigVersion::Tapscript {
+                    // Non-32-byte pubkeys succeed without verification (BIP 342).
+                    stack.push(to_stack_element(&[1]));
+                    return Ok(true);
                 }
 
                 // Extract sighash type from last byte of signature
@@ -5265,66 +5416,74 @@ fn execute_opcode_with_context_full(
 
                 // BIP342 Tapscript: Schnorr path (same as OP_CHECKSIG Tapscript branch).
                 if sigversion == SigVersion::Tapscript {
-                    if signature_bytes.len() == 64 && pubkey_bytes.len() == 32 {
-                        let sighash_byte = 0x00u8;
-                        let (tapscript, codesep_pos) = tapscript_for_sighash
-                            .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
-                            .unwrap_or((&[] as &[u8], 0xffff_ffff));
-                        let sighash = if tapscript.is_empty() {
-                            crate::taproot::compute_taproot_signature_hash(
-                                tx,
-                                input_index,
-                                prevout_values,
-                                prevout_script_pubkeys,
-                                sighash_byte,
-                            )?
-                        } else {
-                            crate::taproot::compute_tapscript_signature_hash(
-                                tx,
-                                input_index,
-                                prevout_values,
-                                prevout_script_pubkeys,
-                                tapscript,
-                                crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
-                                codesep_pos,
-                                sighash_byte,
-                            )?
-                        };
-                        #[cfg(feature = "production")]
-                        let is_valid = {
-                            use crate::bip348::verify_tapscript_schnorr_signature;
-                            verify_tapscript_schnorr_signature(
-                                &sighash,
-                                &pubkey_bytes,
-                                &signature_bytes,
-                                schnorr_collector,
-                            )
-                            .unwrap_or(false)
-                        };
-                        #[cfg(not(feature = "production"))]
-                        let is_valid = {
-                            #[cfg(feature = "csfs")]
-                            let x = {
+                    if pubkey_bytes.len() == 32 {
+                        use crate::bip348::try_parse_taproot_schnorr_witness_sig;
+                        if let Some((sig_bytes, sighash_byte)) =
+                            try_parse_taproot_schnorr_witness_sig(&signature_bytes)
+                        {
+                            let (tapscript, codesep_pos) = tapscript_for_sighash
+                                .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
+                                .unwrap_or((&[] as &[u8], 0xffff_ffff));
+                            let sighash = if tapscript.is_empty() {
+                                crate::taproot::compute_taproot_signature_hash(
+                                    tx,
+                                    input_index,
+                                    prevout_values,
+                                    prevout_script_pubkeys,
+                                    sighash_byte,
+                                    None,
+                                )?
+                            } else {
+                                crate::taproot::compute_tapscript_signature_hash(
+                                    tx,
+                                    input_index,
+                                    prevout_values,
+                                    prevout_script_pubkeys,
+                                    tapscript,
+                                    crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
+                                    codesep_pos,
+                                    sighash_byte,
+                                    ctx.taproot_annex_hash,
+                                )?
+                            };
+                            #[cfg(feature = "production")]
+                            let is_valid = {
                                 use crate::bip348::verify_tapscript_schnorr_signature;
                                 verify_tapscript_schnorr_signature(
                                     &sighash,
                                     &pubkey_bytes,
-                                    &signature_bytes,
-                                    None,
+                                    &sig_bytes,
+                                    schnorr_collector,
                                 )
                                 .unwrap_or(false)
                             };
-                            #[cfg(not(feature = "csfs"))]
-                            let x = false;
-                            x
-                        };
-                        if !is_valid {
-                            return Ok(false); // OP_CHECKSIGVERIFY: fail script on invalid sig
+                            #[cfg(not(feature = "production"))]
+                            let is_valid = {
+                                #[cfg(feature = "csfs")]
+                                let x = {
+                                    use crate::bip348::verify_tapscript_schnorr_signature;
+                                    verify_tapscript_schnorr_signature(
+                                        &sighash,
+                                        &pubkey_bytes,
+                                        &sig_bytes,
+                                        None,
+                                    )
+                                    .unwrap_or(false)
+                                };
+                                #[cfg(not(feature = "csfs"))]
+                                let x = false;
+                                x
+                            };
+                            if !is_valid {
+                                return Ok(false); // OP_CHECKSIGVERIFY: fail script on invalid sig
+                            }
+                            return Ok(true);
                         }
-                        return Ok(true);
+                        // Invalid Schnorr encoding for 32-byte x-only pubkey → failed check.
+                        return Ok(false);
                     }
-                    // Non-standard pubkey size in Tapscript: fail per BIP342
-                    return Ok(false);
+                    // Non-32-byte pubkeys succeed without verification (BIP 342).
+                    return Ok(true);
                 }
 
                 // Legacy / SegWit v0: ECDSA path
@@ -5457,67 +5616,74 @@ fn execute_opcode_with_context_full(
             }
 
             // 32-byte pubkey + non-empty sig: validate. BIP 342: validation failure terminates script.
-            if pubkey_bytes.len() == 32 && signature_bytes.len() == 64 {
-                let sighash_byte = 0x00;
-                let (tapscript, codesep_pos) = tapscript_for_sighash
-                    .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
-                    .unwrap_or((&[] as &[u8], 0xffff_ffff));
-                let sighash = if tapscript.is_empty() {
-                    crate::taproot::compute_taproot_signature_hash(
-                        tx,
-                        input_index,
-                        prevout_values,
-                        prevout_script_pubkeys,
-                        sighash_byte,
-                    )?
-                } else {
-                    crate::taproot::compute_tapscript_signature_hash(
-                        tx,
-                        input_index,
-                        prevout_values,
-                        prevout_script_pubkeys,
-                        tapscript,
-                        crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
-                        codesep_pos,
-                        sighash_byte,
-                    )?
-                };
+            if pubkey_bytes.len() == 32 {
+                use crate::bip348::try_parse_taproot_schnorr_witness_sig;
+                if let Some((sig_bytes, sighash_byte)) =
+                    try_parse_taproot_schnorr_witness_sig(&signature_bytes)
+                {
+                    let (tapscript, codesep_pos) = tapscript_for_sighash
+                        .map(|s| (s, tapscript_codesep_pos.unwrap_or(0xffff_ffff)))
+                        .unwrap_or((&[] as &[u8], 0xffff_ffff));
+                    let sighash = if tapscript.is_empty() {
+                        crate::taproot::compute_taproot_signature_hash(
+                            tx,
+                            input_index,
+                            prevout_values,
+                            prevout_script_pubkeys,
+                            sighash_byte,
+                            None,
+                        )?
+                    } else {
+                        crate::taproot::compute_tapscript_signature_hash(
+                            tx,
+                            input_index,
+                            prevout_values,
+                            prevout_script_pubkeys,
+                            tapscript,
+                            crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT,
+                            codesep_pos,
+                            sighash_byte,
+                            ctx.taproot_annex_hash,
+                        )?
+                    };
 
-                #[cfg(feature = "production")]
-                let is_valid = {
-                    use crate::bip348::verify_tapscript_schnorr_signature;
-                    verify_tapscript_schnorr_signature(
-                        &sighash,
-                        &pubkey_bytes,
-                        &signature_bytes,
-                        schnorr_collector,
-                    )
-                    .unwrap_or(false)
-                };
-
-                #[cfg(not(feature = "production"))]
-                let is_valid = {
-                    #[cfg(feature = "csfs")]
-                    let x = {
+                    #[cfg(feature = "production")]
+                    let is_valid = {
                         use crate::bip348::verify_tapscript_schnorr_signature;
                         verify_tapscript_schnorr_signature(
                             &sighash,
                             &pubkey_bytes,
-                            &signature_bytes,
-                            None,
+                            &sig_bytes,
+                            schnorr_collector,
                         )
                         .unwrap_or(false)
                     };
-                    #[cfg(not(feature = "csfs"))]
-                    let x = false;
-                    x
-                };
 
-                if !is_valid {
-                    return Ok(false); // BIP 342: validation failure terminates script
+                    #[cfg(not(feature = "production"))]
+                    let is_valid = {
+                        #[cfg(feature = "csfs")]
+                        let x = {
+                            use crate::bip348::verify_tapscript_schnorr_signature;
+                            verify_tapscript_schnorr_signature(
+                                &sighash,
+                                &pubkey_bytes,
+                                &sig_bytes,
+                                None,
+                            )
+                            .unwrap_or(false)
+                        };
+                        #[cfg(not(feature = "csfs"))]
+                        let x = false;
+                        x
+                    };
+
+                    if !is_valid {
+                        return Ok(false); // BIP 342: validation failure terminates script
+                    }
+                    stack.push(to_stack_element(&script_num_encode(n + 1)));
+                    return Ok(true);
                 }
-                stack.push(to_stack_element(&script_num_encode(n + 1)));
-                return Ok(true);
+                return Ok(false); // invalid Schnorr encoding for 32-byte pubkey
             }
 
             // Unknown pubkey type (not 32 bytes): BIP 342 treats as always-valid, push n+1
@@ -5689,19 +5855,20 @@ fn execute_opcode_with_context_full(
                         )?
                     }
                 } else {
+                    // WitnessV0 (P2WSH): use BIP143 sighash, not legacy.
+                    let amount = prevout_values.get(input_index).copied().unwrap_or(0);
                     signatures
                         .iter()
                         .filter(|s| !s.is_empty())
                         .map(|sig_bytes| {
-                            let sighash_type =
-                                SighashType::from_byte(sig_bytes[sig_bytes.len() - 1]);
-                            calculate_transaction_sighash_single_input(
+                            let sighash_byte = sig_bytes[sig_bytes.len() - 1];
+                            crate::transaction_hash::calculate_bip143_sighash(
                                 tx,
                                 input_index,
                                 &cleaned_script_for_multisig,
-                                prevout_values[input_index],
-                                sighash_type,
-                                sighash_cache,
+                                amount,
+                                sighash_byte,
+                                precomputed_bip143,
                             )
                         })
                         .collect::<Result<Vec<_>>>()?
@@ -5782,6 +5949,7 @@ fn execute_opcode_with_context_full(
             } else {
                 let mut sig_index = 0;
                 let mut valid_sigs = 0;
+                let amount = prevout_values.get(input_index).copied().unwrap_or(0);
 
                 for pubkey_bytes in &pubkeys {
                     if sig_index >= signatures.len() {
@@ -5796,17 +5964,32 @@ fn execute_opcode_with_context_full(
 
                     let sig_len = signature_bytes.len();
                     let sighash_byte = signature_bytes[sig_len - 1];
-                    let sighash_type = SighashType::from_byte(sighash_byte);
 
-                    let sighash = calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        &cleaned_script_for_multisig,
-                        prevout_values[input_index],
-                        sighash_type,
-                        #[cfg(feature = "production")]
-                        sighash_cache,
-                    )?;
+                    // WitnessV0 (P2WSH): BIP143 sighash; Base (P2SH legacy): legacy sighash.
+                    let sighash = if sigversion == SigVersion::WitnessV0 {
+                        crate::transaction_hash::calculate_bip143_sighash(
+                            tx,
+                            input_index,
+                            &cleaned_script_for_multisig,
+                            amount,
+                            sighash_byte,
+                            #[cfg(feature = "production")]
+                            precomputed_bip143,
+                            #[cfg(not(feature = "production"))]
+                            None,
+                        )?
+                    } else {
+                        let sighash_type = SighashType::from_byte(sighash_byte);
+                        calculate_transaction_sighash_single_input(
+                            tx,
+                            input_index,
+                            &cleaned_script_for_multisig,
+                            prevout_values[input_index],
+                            sighash_type,
+                            #[cfg(feature = "production")]
+                            sighash_cache,
+                        )?
+                    };
 
                     #[cfg(feature = "production")]
                     let is_valid = signature::with_secp_context(|secp| {
@@ -5862,6 +6045,7 @@ fn execute_opcode_with_context_full(
             let (valid_sigs, _) = {
                 let mut sig_index = 0;
                 let mut valid_sigs = 0;
+                let amount = prevout_values.get(input_index).copied().unwrap_or(0);
 
                 for pubkey_bytes in &pubkeys {
                     if sig_index >= signatures.len() {
@@ -5872,16 +6056,28 @@ fn execute_opcode_with_context_full(
                         continue;
                     }
                     let sig_len = signature_bytes.len();
-                    let sighash_type = SighashType::from_byte(signature_bytes[sig_len - 1]);
-                    let sighash = calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        &cleaned_script_for_multisig,
-                        prevout_values[input_index],
-                        sighash_type,
-                        #[cfg(feature = "production")]
-                        sighash_cache,
-                    )?;
+                    let sighash_byte = signature_bytes[sig_len - 1];
+
+                    // WitnessV0 (P2WSH): BIP143 sighash; Base: legacy sighash.
+                    let sighash = if sigversion == SigVersion::WitnessV0 {
+                        crate::transaction_hash::calculate_bip143_sighash(
+                            tx,
+                            input_index,
+                            &cleaned_script_for_multisig,
+                            amount,
+                            sighash_byte,
+                            None,
+                        )?
+                    } else {
+                        let sighash_type = SighashType::from_byte(sighash_byte);
+                        calculate_transaction_sighash_single_input(
+                            tx,
+                            input_index,
+                            &cleaned_script_for_multisig,
+                            prevout_values[input_index],
+                            sighash_type,
+                        )?
+                    };
                     let secp = signature::new_secp();
                     let is_valid = signature::verify_signature(
                         &secp,
@@ -5934,6 +6130,7 @@ fn execute_opcode_with_context_full(
                 script_sig_for_sighash,
                 tapscript_for_sighash,
                 tapscript_codesep_pos,
+                taproot_annex_hash: None,
                 #[cfg(feature = "production")]
                 schnorr_collector: None,
                 #[cfg(feature = "production")]

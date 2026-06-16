@@ -70,11 +70,15 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
             return Ok(false);
         }
     } else {
-        // Key path: single Schnorr signature (64 bytes)
+        // Key path: single Schnorr signature (64 or 65 bytes per Core CheckSchnorrSignature)
         if witness.len() != 1 {
             return Ok(false);
         }
-        if witness[0].len() != 64 {
+        let len = witness[0].len();
+        if len != 64 && len != 65 {
+            return Ok(false);
+        }
+        if len == 65 && witness[0][64] == 0x00 {
             return Ok(false);
         }
     }
@@ -256,6 +260,20 @@ mod tests {
         // Invalid: wrong length
         let invalid = vec![vec![0x01; 63]];
         assert!(!validate_taproot_witness_structure(&invalid, false).unwrap());
+
+        // Valid: 65-byte sig with explicit SIGHASH_ALL (Core accepts)
+        let with_hashtype = vec![vec![0x01; 64]
+            .into_iter()
+            .chain([0x01u8])
+            .collect::<Vec<_>>()];
+        assert!(validate_taproot_witness_structure(&with_hashtype, false).unwrap());
+
+        // Invalid: explicit SIGHASH_DEFAULT suffix
+        let invalid_hashtype = vec![vec![0x01; 64]
+            .into_iter()
+            .chain([0x00u8])
+            .collect::<Vec<_>>()];
+        assert!(!validate_taproot_witness_structure(&invalid_hashtype, false).unwrap());
 
         // Invalid: multiple elements
         let invalid2 = vec![vec![0x01; 64], vec![0x02; 32]];

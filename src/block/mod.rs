@@ -13,6 +13,7 @@ pub use apply::{apply_transaction, calculate_tx_id};
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
     get_block_script_flags, get_block_script_verify_flags_core, script_flag_exceptions_lookup,
+    tx_has_nonempty_input_witness, tx_requires_witness_script_flags,
 };
 
 use crate::activation::{ForkActivationTable, IsForkActive};
@@ -150,6 +151,47 @@ pub fn connect_block(
     let block_arc = None;
     let (result, new_utxo_set, _tx_ids, undo_log, _delta) = connect::connect_block_inner(
         block, witnesses, utxo_set, None, height, context, None, None, block_arc, false, None,
+    )?;
+    Ok((result, new_utxo_set, undo_log))
+}
+
+/// ConnectBlock with explicit chainwork for assume-valid gating. Non-IBD mode: the returned
+/// `UtxoSet` is fully updated (outputs added, inputs removed) just like `connect_block`.
+/// The only difference from `connect_block` is that `best_header_chainwork` is forwarded to the
+/// assume-valid gate so scripts are skipped when `height < assume_valid_height`.
+///
+/// Use this instead of `connect_block_ibd` when the caller needs to apply the returned
+/// `UtxoSet` to persistent storage — `connect_block_ibd` sets `ibd_mode=true` which skips
+/// UTXO mutations on the returned set.
+#[cfg(feature = "benchmarking")]
+pub fn connect_block_with_chainwork(
+    block: &Block,
+    witnesses: &[Vec<Witness>],
+    utxo_set: UtxoSet,
+    height: Natural,
+    context: &BlockValidationContext,
+    best_header_chainwork: Option<u128>,
+) -> Result<(
+    ValidationResult,
+    UtxoSet,
+    crate::reorganization::BlockUndoLog,
+)> {
+    #[cfg(all(feature = "production", feature = "rayon"))]
+    let block_arc = Some(std::sync::Arc::new(block.clone()));
+    #[cfg(not(all(feature = "production", feature = "rayon")))]
+    let block_arc = None;
+    let (result, new_utxo_set, _tx_ids, undo_log, _delta) = connect::connect_block_inner(
+        block,
+        witnesses,
+        utxo_set,
+        None,
+        height,
+        context,
+        None,
+        None,
+        block_arc,
+        false,
+        best_header_chainwork,
     )?;
     Ok((result, new_utxo_set, undo_log))
 }

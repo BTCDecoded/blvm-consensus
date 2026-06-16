@@ -97,8 +97,8 @@ fn test_compute_taproot_signature_hash_smoke() {
     let spk = p2tr_scriptpubkey(&[0x02; 32]);
     let pv = vec![10_000i64];
     let ps: Vec<&[u8]> = vec![spk.as_slice()];
-    let h1 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x00).unwrap();
-    let h2 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01).unwrap();
+    let h1 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x00, None).unwrap();
+    let h2 = compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x01, None).unwrap();
     assert_ne!(h1, h2);
 }
 
@@ -118,6 +118,7 @@ fn test_compute_tapscript_signature_hash_smoke() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x00,
+        None,
     )
     .unwrap();
     assert_eq!(hash.len(), 32);
@@ -259,10 +260,10 @@ fn multi_input_tx() -> (Transaction, Vec<i64>, Vec<Vec<u8>>) {
 fn test_taproot_sighash_none_and_single_differ() {
     let (tx, pv, ps) = multi_input_tx();
     let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
-    let all = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x01).unwrap();
-    let none = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x02).unwrap();
-    let single = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x03).unwrap();
-    let single_in1 = compute_taproot_signature_hash(&tx, 1, &pv, &ps_refs, 0x03).unwrap();
+    let all = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x01, None).unwrap();
+    let none = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x02, None).unwrap();
+    let single = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x03, None).unwrap();
+    let single_in1 = compute_taproot_signature_hash(&tx, 1, &pv, &ps_refs, 0x03, None).unwrap();
     assert_ne!(all, none);
     assert_ne!(single, single_in1);
 }
@@ -271,8 +272,8 @@ fn test_taproot_sighash_none_and_single_differ() {
 fn test_taproot_sighash_anyonecanpay_differs() {
     let (tx, pv, ps) = multi_input_tx();
     let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
-    let all = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x01).unwrap();
-    let acp = compute_taproot_signature_hash(&tx, 1, &pv, &ps_refs, 0x81).unwrap();
+    let all = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x01, None).unwrap();
+    let acp = compute_taproot_signature_hash(&tx, 1, &pv, &ps_refs, 0x81, None).unwrap();
     assert_ne!(all, acp);
 }
 
@@ -282,7 +283,7 @@ fn test_taproot_sighash_invalid_type_errors() {
     let spk = p2tr_scriptpubkey(&[0x02; 32]);
     let pv = vec![10_000i64];
     let ps: Vec<&[u8]> = vec![spk.as_slice()];
-    assert!(compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x04).is_err());
+    assert!(compute_taproot_signature_hash(&tx, 0, &pv, &ps, 0x04, None).is_err());
 }
 
 #[test]
@@ -290,7 +291,7 @@ fn test_tapscript_sighash_differs_from_keypath() {
     let (tx, pv, ps) = multi_input_tx();
     let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
     let script_code = vec![OP_1, OP_2];
-    let keypath = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x00).unwrap();
+    let keypath = compute_taproot_signature_hash(&tx, 0, &pv, &ps_refs, 0x00, None).unwrap();
     let scriptpath = compute_tapscript_signature_hash(
         &tx,
         0,
@@ -300,6 +301,7 @@ fn test_tapscript_sighash_differs_from_keypath() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x00,
+        None,
     )
     .unwrap();
     assert_ne!(keypath, scriptpath);
@@ -382,6 +384,7 @@ fn test_tapscript_sighash_anyonecanpay_and_invalid_type() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x03,
+        None,
     )
     .unwrap();
     let acp = compute_tapscript_signature_hash(
@@ -393,6 +396,7 @@ fn test_tapscript_sighash_anyonecanpay_and_invalid_type() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x83,
+        None,
     )
     .unwrap();
     assert_ne!(all, acp);
@@ -405,6 +409,7 @@ fn test_tapscript_sighash_anyonecanpay_and_invalid_type() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x04,
+        None,
     )
     .is_err());
 }
@@ -423,6 +428,7 @@ fn test_tapscript_sighash_anyonecanpay_rejects_out_of_range_input() {
         TAPROOT_LEAF_VERSION_TAPSCRIPT,
         0xffffffff,
         0x83,
+        None,
     )
     .is_err());
 }
@@ -432,5 +438,5 @@ fn test_taproot_sighash_rejects_short_prevout_vectors() {
     let (tx, _, ps) = multi_input_tx();
     let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
     let short_values = vec![10_000i64];
-    assert!(compute_taproot_signature_hash(&tx, 0, &short_values, &ps_refs, 0x01).is_err());
+    assert!(compute_taproot_signature_hash(&tx, 0, &short_values, &ps_refs, 0x01, None).is_err());
 }

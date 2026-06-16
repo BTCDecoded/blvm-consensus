@@ -51,17 +51,15 @@ pub fn get_locktime_type_timestamp(locktime: u32) -> LocktimeType {
     }
 }
 
-/// BIP65 CLTV core check: validates that transaction locktime satisfies the script requirement.
-/// Returns true if valid: tx_locktime != 0, types match, and tx_locktime >= stack_locktime.
+/// BIP65 CLTV core check (matches Bitcoin Core `CheckLockTime`).
+///
+/// Valid when locktime types match, `stack_locktime <= tx_locktime`, and the spending
+/// input sequence is not `0xffffffff`. Core does **not** require `tx_locktime != 0`;
+/// `(tx=0, stack=0)` passes (mainnet block 659901 regression).
 #[inline]
-/// BIP65 safety: a transaction with nLockTime == 0 can never satisfy any CLTV script.
-/// If result is true, the first AND-term `tx_locktime != 0` must have been true.
 #[spec_locked("5.4.7", "BIP65Check")]
-#[blvm_spec_lock::ensures(result == false || tx_locktime != 0)]
 pub fn check_bip65(tx_locktime: u32, stack_locktime: u32) -> bool {
-    tx_locktime != 0
-        && locktime_types_match(tx_locktime, stack_locktime)
-        && tx_locktime >= stack_locktime
+    locktime_types_match(tx_locktime, stack_locktime) && tx_locktime >= stack_locktime
 }
 
 /// Check if two locktime values have matching types

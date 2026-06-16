@@ -51,5 +51,6 @@ fuzz_target!(|data: &[u8]| {
         leaf_version,
         codesep_pos,
         sighash_type,
+        None,
     );
 });

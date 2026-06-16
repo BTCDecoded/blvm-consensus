@@ -28,6 +28,157 @@ fn write_varint_to_vec(vec: &mut Vec<u8>, value: u64) {
     }
 }
 
+/// Serialize scriptCode bytes for legacy sighash, stripping OP_CODESEPARATOR (0xab) opcodes.
+///
+/// Bitcoin Core `CTransactionSignatureSerializer::SerializeScriptCode` removes each
+/// OP_CODESEPARATOR opcode from the byte stream (not bytes inside push-data payloads).
+#[spec_locked("5.1.1", "SerializeScriptCode")]
+pub fn serialize_script_code_for_legacy_sighash(script: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(script.len());
+    append_stripped_codeseparators(&mut out, script);
+    out
+}
+
+/// BIP143 scriptCode for P2WPKH: P2PKH expansion of the 20-byte pubkey hash (BIP143 §4.3).
+#[spec_locked("11.1.9.1", "DeriveWitnessScriptCode")]
+pub fn derive_bip143_script_code_p2wpkh(pubkey_hash: &[u8; 20]) -> [u8; 25] {
+    use crate::opcodes::{OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES};
+    let mut script_code = [0u8; 25];
+    script_code[0] = OP_DUP;
+    script_code[1] = OP_HASH160;
+    script_code[2] = PUSH_20_BYTES;
+    script_code[3..23].copy_from_slice(pubkey_hash);
+    script_code[23] = OP_EQUALVERIFY;
+    script_code[24] = OP_CHECKSIG;
+    script_code
+}
+
+/// Derive BIP143 scriptCode for SegWit v0 spends.
+///
+/// - P2WPKH program (`OP_0 PUSH_20`): P2PKH expansion via [`derive_bip143_script_code_p2wpkh`].
+/// - P2WSH program (`OP_0 PUSH_32`): full witness script (last witness stack element).
+#[spec_locked("11.1.9.1", "DeriveWitnessScriptCode")]
+pub fn derive_bip143_script_code(
+    witness_program: &[u8],
+    witness_script: Option<&[u8]>,
+) -> Option<Vec<u8>> {
+    use crate::opcodes::{OP_0, PUSH_20_BYTES, PUSH_32_BYTES};
+    if witness_program.len() == 22
+        && witness_program[0] == OP_0
+        && witness_program[1] == PUSH_20_BYTES
+    {
+        let mut hash = [0u8; 20];
+        hash.copy_from_slice(&witness_program[2..22]);
+        return Some(derive_bip143_script_code_p2wpkh(&hash).to_vec());
+    }
+    if witness_program.len() == 34
+        && witness_program[0] == OP_0
+        && witness_program[1] == PUSH_32_BYTES
+    {
+        return witness_script.map(|s| s.to_vec());
+    }
+    None
+}
+
+/// Write scriptCode into a legacy sighash preimage (varint length + bytes).
+///
+/// Bitcoin Core `CTransactionSignatureSerializer::SerializeScriptCode` strips each
+/// OP_CODESEPARATOR opcode from both the length prefix and the byte stream. Only
+/// bytes at actual opcode positions are removed — 0xab inside push-data payloads
+/// is preserved. Reference: Bitcoin Core `src/script/interpreter.cpp`.
+#[inline]
+fn write_script_code_for_sighash(preimage: &mut Vec<u8>, code: &[u8]) {
+    let n_codeseps = count_opcode_codeseparators(code);
+    write_varint_to_vec(preimage, (code.len() - n_codeseps) as u64);
+    if n_codeseps == 0 {
+        preimage.extend_from_slice(code);
+    } else {
+        append_stripped_codeseparators(preimage, code);
+    }
+}
+
+/// Count OP_CODESEPARATOR (0xab) opcodes in a script, skipping bytes inside push-data.
+#[inline]
+fn count_opcode_codeseparators(script: &[u8]) -> usize {
+    let mut count = 0usize;
+    let mut i = 0usize;
+    while i < script.len() {
+        let op = script[i];
+        let advance = if (0x01..=0x4b).contains(&op) {
+            1 + op as usize
+        } else if op == 0x4c {
+            if i + 1 >= script.len() {
+                break;
+            }
+            2 + script[i + 1] as usize
+        } else if op == 0x4d {
+            if i + 2 >= script.len() {
+                break;
+            }
+            3 + u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize
+        } else if op == 0x4e {
+            if i + 4 >= script.len() {
+                break;
+            }
+            5 + u32::from_le_bytes([script[i + 1], script[i + 2], script[i + 3], script[i + 4]])
+                as usize
+        } else {
+            if op == 0xab {
+                count += 1;
+            }
+            1
+        };
+        i += advance.min(script.len() - i);
+    }
+    count
+}
+
+/// Append script bytes to `out`, skipping OP_CODESEPARATOR opcode bytes.
+fn append_stripped_codeseparators(out: &mut Vec<u8>, code: &[u8]) {
+    let mut i = 0usize;
+    while i < code.len() {
+        let op = code[i];
+        if (0x01..=0x4b).contains(&op) {
+            let end = (i + 1 + op as usize).min(code.len());
+            out.extend_from_slice(&code[i..end]);
+            i = end;
+        } else if op == 0x4c {
+            if i + 1 >= code.len() {
+                out.push(op);
+                break;
+            }
+            let len = code[i + 1] as usize;
+            let end = (i + 2 + len).min(code.len());
+            out.extend_from_slice(&code[i..end]);
+            i = end;
+        } else if op == 0x4d {
+            if i + 2 >= code.len() {
+                out.extend_from_slice(&code[i..]);
+                break;
+            }
+            let len = u16::from_le_bytes([code[i + 1], code[i + 2]]) as usize;
+            let end = (i + 3 + len).min(code.len());
+            out.extend_from_slice(&code[i..end]);
+            i = end;
+        } else if op == 0x4e {
+            if i + 4 >= code.len() {
+                out.extend_from_slice(&code[i..]);
+                break;
+            }
+            let len =
+                u32::from_le_bytes([code[i + 1], code[i + 2], code[i + 3], code[i + 4]]) as usize;
+            let end = (i + 5 + len).min(code.len());
+            out.extend_from_slice(&code[i..end]);
+            i = end;
+        } else if op == 0xab {
+            i += 1; // skip OP_CODESEPARATOR
+        } else {
+            out.push(op);
+            i += 1;
+        }
+    }
+}
+
 #[cfg(feature = "production")]
 use lru::LruCache;
 #[cfg(feature = "production")]
@@ -60,10 +211,17 @@ pub type SighashMidstateCache =
 
 /// Thread-local midstate cache: (prevout, code_hash, sighash_byte) -> hash. Avoids Mutex contention
 /// across script-check workers. Used when block passes None (CCheckQueue/rayon path).
+/// LRU-bounded: unbounded growth OOM'd sort-merge step6 at ~450k blocks (~80 GiB RSS).
 #[cfg(feature = "production")]
 thread_local! {
-    static SIGHASH_MIDSTATE_CACHE: RefCell<FxHashMap<SighashCacheKey, [u8; 32]>> =
-        RefCell::new(FxHashMap::default());
+    static SIGHASH_MIDSTATE_CACHE: RefCell<LruCache<SighashCacheKey, [u8; 32]>> = RefCell::new({
+        let cap = std::env::var("BLVM_SIGHASH_MIDSTATE_CACHE_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(262_144)
+            .clamp(65_536, 2_097_152);
+        LruCache::new(std::num::NonZeroUsize::new(cap).unwrap())
+    });
 }
 
 #[cfg(feature = "production")]
@@ -84,7 +242,7 @@ fn insert_midstate_cache(
         let _ = c.lock().map(|mut g| g.insert(key, hash));
     } else {
         SIGHASH_MIDSTATE_CACHE.with(|cell| {
-            cell.borrow_mut().insert(key, hash);
+            cell.borrow_mut().put(key, hash);
         });
     }
 }
@@ -736,7 +894,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                 .ok()
                 .and_then(|guard| guard.get(&lookup_key).copied())
         } else {
-            SIGHASH_MIDSTATE_CACHE.with(|cell| cell.borrow().get(&lookup_key).copied())
+            SIGHASH_MIDSTATE_CACHE.with(|cell| cell.borrow_mut().get(&lookup_key).copied())
         };
         if let Some(cached) = cached {
             return Ok(cached);
@@ -926,8 +1084,7 @@ fn build_preimage_1in1out_sighash_all(
         preimage.push(1); // n_inputs
         preimage.extend_from_slice(&input.prevout.hash);
         preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
-        write_varint_to_vec(&mut preimage, code.len() as u64);
-        preimage.extend_from_slice(code);
+        write_script_code_for_sighash(&mut preimage, code);
         preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
         preimage.push(1); // n_outputs
         preimage.extend_from_slice(&output.value.to_le_bytes());
@@ -968,8 +1125,7 @@ fn build_preimage_1in_nout_sighash_all(
         preimage.push(1); // n_inputs
         preimage.extend_from_slice(&input.prevout.hash);
         preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
-        write_varint_to_vec(&mut preimage, code.len() as u64);
-        preimage.extend_from_slice(code);
+        write_script_code_for_sighash(&mut preimage, code);
         preimage.extend_from_slice(&(input.sequence as u32).to_le_bytes());
         write_varint_to_vec(&mut preimage, tx.outputs.len() as u64);
         for output in &tx.outputs {
@@ -1128,8 +1284,7 @@ fn build_preimage_and_hash(
                 Some(s) => s,
                 None => prevout_script_pubkeys[actual_i],
             };
-            write_varint_to_vec(preimage, code.len() as u64);
-            preimage.extend_from_slice(code);
+            write_script_code_for_sighash(preimage, code);
         } else {
             preimage.push(0); // empty script
         }
@@ -1282,8 +1437,7 @@ fn build_legacy_sighash_preimage_into(
         preimage.extend_from_slice(&input.prevout.hash);
         preimage.extend_from_slice(&input.prevout.index.to_le_bytes());
         if actual_i == input_index {
-            write_varint_to_vec(preimage, script_code.len() as u64);
-            preimage.extend_from_slice(script_code);
+            write_script_code_for_sighash(preimage, script_code);
         } else {
             preimage.push(0);
         }

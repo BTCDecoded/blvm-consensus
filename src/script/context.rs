@@ -23,6 +23,7 @@ pub struct ScriptContext<'a> {
     pub script_sig_for_sighash: Option<&'a ByteString>,
     pub tapscript_for_sighash: Option<&'a [u8]>,
     pub tapscript_codesep_pos: Option<u32>,
+    pub taproot_annex_hash: Option<&'a Hash>,
     #[cfg(feature = "production")]
     pub schnorr_collector: Option<&'a crate::bip348::SchnorrSignatureCollector>,
     #[cfg(feature = "production")]

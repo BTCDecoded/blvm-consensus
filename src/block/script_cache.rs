@@ -13,6 +13,7 @@ use crate::script::flags::{
 use crate::segwit::{is_segwit_transaction, Witness};
 use crate::transaction::is_coinbase;
 use crate::types::*;
+use crate::witness::is_witness_empty;
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -73,6 +74,22 @@ pub fn calculate_base_script_flags_for_block_network(
     calculate_base_script_flags_for_block(height, &table)
 }
 
+/// True when any input witness stack in a block has a non-empty element.
+///
+/// Witness-serialized blocks attach a witness vector per input even for legacy spends;
+/// those empty stacks must not alone trigger witness script rules (sort-merge step6 regression).
+#[spec_locked("5.2.5", "HasNonEmptyInputWitness")]
+pub fn tx_has_nonempty_input_witness(per_input_witnesses: Option<&[Witness]>) -> bool {
+    per_input_witnesses
+        .map(|ws| ws.iter().any(|w| !is_witness_empty(w)))
+        .unwrap_or(false)
+}
+
+/// Input to per-tx `SCRIPT_VERIFY_WITNESS` gating (Orange Paper §5.2.5 FlagCondition).
+pub fn tx_requires_witness_script_flags(tx: &Transaction, has_witness: bool) -> bool {
+    has_witness || is_segwit_transaction(tx)
+}
+
 /// Per-tx script flags (SegWit + Taproot). Add to base flags from `calculate_base_script_flags_for_block`.
 #[spec_locked("5.2.5", "CalculateScriptFlags")]
 #[inline]
@@ -85,7 +102,7 @@ fn add_per_tx_script_flags(
 ) -> u32 {
     let mut flags = base_flags;
     if activation.is_fork_active(ForkId::SegWit, height)
-        && (has_witness || is_segwit_transaction(tx))
+        && tx_requires_witness_script_flags(tx, has_witness)
     {
         flags |= 0x800;
     }
