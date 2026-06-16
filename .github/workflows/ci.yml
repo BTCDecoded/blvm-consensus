@@ -673,7 +673,8 @@ jobs:
           rustup toolchain install nightly
           rustup component add rustfmt --toolchain nightly 2>/dev/null || true
           export PATH="$HOME/.cargo/bin:$PATH"
-          cargo install cargo-fuzz
+          # cargo-fuzz 0.13.x deps (cargo-platform) require rustc >= 1.91; install with nightly.
+          cargo +nightly install cargo-fuzz --locked
 
       - name: Initialize corpus dirs
         working-directory: fuzz
