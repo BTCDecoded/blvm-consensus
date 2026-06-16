@@ -284,6 +284,7 @@ fuzz_target!(|data: &[u8]| {
                 &prevout_values,
                 &prevout_script_pubkeys,
                 sighash_type,
+                None,
             );
         }
     }

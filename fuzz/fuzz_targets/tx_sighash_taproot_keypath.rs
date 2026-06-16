@@ -43,5 +43,6 @@ fuzz_target!(|data: &[u8]| {
         &prevout_values,
         &refs,
         sighash_type,
+        None,
     );
 });
