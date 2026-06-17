@@ -2,19 +2,19 @@
 
 use blvm_consensus::activation::IsForkActive;
 use blvm_consensus::bip_validation::{
-    build_bip30_index, check_bip147, check_bip147_network, check_bip30, check_bip30_network,
-    check_bip34, check_bip34_network, check_bip54_coinbase, check_bip66, check_bip66_network,
-    check_bip90, check_bip90_network, is_bip54_active, is_bip54_active_at, Bip147Network,
+    Bip147Network, build_bip30_index, check_bip30, check_bip30_network, check_bip34,
+    check_bip34_network, check_bip54_coinbase, check_bip66, check_bip66_network, check_bip90,
+    check_bip90_network, check_bip147, check_bip147_network, is_bip54_active, is_bip54_active_at,
 };
-use blvm_consensus::block::{calculate_tx_id, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, calculate_tx_id};
 use blvm_consensus::mining::calculate_merkle_root;
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_CHECKSIG};
 use blvm_consensus::types::{ForkId, Network};
 use blvm_consensus::{
-    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
-    BIP147_ACTIVATION_TESTNET, BIP30_DEACTIVATION_MAINNET, BIP34_ACTIVATION_MAINNET,
-    BIP54_ACTIVATION_MAINNET, BIP65_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET,
-    SEGWIT_ACTIVATION_MAINNET, UTXO,
+    BIP30_DEACTIVATION_MAINNET, BIP34_ACTIVATION_MAINNET, BIP54_ACTIVATION_MAINNET,
+    BIP65_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET, BIP147_ACTIVATION_TESTNET, Block,
+    BlockHeader, OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput,
+    TransactionOutput, UTXO, UtxoSet,
 };
 use std::sync::Arc;
 
@@ -235,15 +235,17 @@ fn test_check_bip30_rejects_duplicate_coinbase_txid_in_utxo() {
 fn test_check_bip30_network_wrapper() {
     let height = 50_000u64;
     let block = block_with_coinbase(coinbase_at_height(height));
-    assert!(check_bip30_network(
-        &block,
-        &UtxoSet::default(),
-        None,
-        height,
-        Network::Mainnet,
-        None
-    )
-    .unwrap());
+    assert!(
+        check_bip30_network(
+            &block,
+            &UtxoSet::default(),
+            None,
+            height,
+            Network::Mainnet,
+            None
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -497,15 +499,17 @@ fn test_check_bip30_index_fast_path_accepts_new_coinbase() {
     let height = 50_000u64;
     let block = block_with_coinbase(coinbase_at_height(height));
     let index = build_bip30_index(&UtxoSet::default());
-    assert!(check_bip30(
-        &block,
-        &UtxoSet::default(),
-        Some(&index),
-        height,
-        &ctx(),
-        None
-    )
-    .unwrap());
+    assert!(
+        check_bip30(
+            &block,
+            &UtxoSet::default(),
+            Some(&index),
+            height,
+            &ctx(),
+            None
+        )
+        .unwrap()
+    );
 }
 
 #[test]

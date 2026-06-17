@@ -14,7 +14,7 @@
 #[path = "integration/helpers.rs"]
 mod helpers;
 
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::types::Network;
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 

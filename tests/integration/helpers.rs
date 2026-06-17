@@ -4,7 +4,7 @@ use blvm_consensus::opcodes::{OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4};
 use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
 };
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::types::{BlockHeader, ByteString, Network};
 use blvm_consensus::{Block, Transaction};

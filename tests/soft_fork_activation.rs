@@ -119,8 +119,8 @@ pub fn calculate_bip9_state(
 fn test_bip9_version_bits_extraction() {
     // Test extracting version bits from block version
     let version = 0x20000001u32; // Bit 29 (0x20000000) + bit 0 set
-                                 // Note: BIP9 version bits are bits 0-28, but SegWit uses bit 1 of the top 3 bits
-                                 // Bit 29 (0x20000000) is SegWit-related, not bit 31
+    // Note: BIP9 version bits are bits 0-28, but SegWit uses bit 1 of the top 3 bits
+    // Bit 29 (0x20000000) is SegWit-related, not bit 31
 
     // Extract bit 0
     let bit0 = version & 1;

@@ -6,9 +6,9 @@
 //! Note: Uses byte-level fuzzing since Transaction doesn't implement Arbitrary.
 
 #[cfg(feature = "bolero")]
-use blvm_consensus::transaction::check_transaction;
-#[cfg(feature = "bolero")]
 use blvm_consensus::Transaction;
+#[cfg(feature = "bolero")]
+use blvm_consensus::transaction::check_transaction;
 #[cfg(feature = "bolero")]
 use bolero::check;
 

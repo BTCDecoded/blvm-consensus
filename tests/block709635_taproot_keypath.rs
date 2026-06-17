@@ -3,7 +3,7 @@
 //! On-chain tx `83c8e0289fecf93b5a284705396f5a652d9886cbd26236b0d647655ad8a37d82`
 //! (block 709635, tx index 31, inputs 0–3). Post-Taproot activation coinjoin.
 
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::serialization::deserialize_transaction_with_witness;
 use blvm_consensus::types::Network;
 use blvm_consensus::witness::is_witness_empty;

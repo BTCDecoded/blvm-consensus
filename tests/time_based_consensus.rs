@@ -10,10 +10,10 @@
 //! - Locktime interactions with soft fork activation
 //! - Time-based consensus at exact boundaries
 
+use blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
 use blvm_consensus::bip113::get_median_time_past;
 use blvm_consensus::types::BlockHeader;
 use blvm_consensus::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
-use blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
 
 /// Test BIP65 CLTV (CheckLockTimeVerify) - height-based locktime
 ///

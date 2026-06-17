@@ -1,8 +1,8 @@
 //! Property tests for block validation edge cases
 
+use blvm_consensus::ConsensusProof;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::*;
-use blvm_consensus::ConsensusProof;
 use proptest::prelude::*;
 
 fn make_coinbase() -> Transaction {

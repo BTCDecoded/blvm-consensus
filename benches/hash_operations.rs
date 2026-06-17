@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use sha2::{Digest, Sha256};
 
 fn benchmark_sha256(c: &mut Criterion) {
@@ -280,7 +280,7 @@ fn benchmark_block_validation_tx_ids(c: &mut Criterion) {
 
 #[cfg(feature = "production")]
 fn benchmark_sighash_batching(c: &mut Criterion) {
-    use blvm_consensus::transaction_hash::{batch_compute_sighashes, SighashType};
+    use blvm_consensus::transaction_hash::{SighashType, batch_compute_sighashes};
     use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
     let input_counts = vec![2, 5, 10, 20];
@@ -333,8 +333,8 @@ fn benchmark_sighash_batching(c: &mut Criterion) {
 
 #[cfg(feature = "production")]
 fn benchmark_pow_batching(c: &mut Criterion) {
-    use blvm_consensus::pow::batch_check_proof_of_work;
     use blvm_consensus::BlockHeader;
+    use blvm_consensus::pow::batch_check_proof_of_work;
 
     let header_counts = vec![8, 16, 32, 64, 128];
 
@@ -364,7 +364,7 @@ fn benchmark_pow_batching(c: &mut Criterion) {
 fn benchmark_batch_ecdsa_verification(c: &mut Criterion) {
     use blvm_consensus::script::batch_verify_signatures;
     use blvm_consensus::types::Network;
-    use secp256k1::{ecdsa::Signature, Message, Secp256k1};
+    use secp256k1::{Message, Secp256k1, ecdsa::Signature};
 
     // Create test verification tasks with fixed test data
     // Using dummy but valid-format data for benchmarking (verification will fail but format is valid)
@@ -447,7 +447,7 @@ fn benchmark_batch_ecdsa_verification(c: &mut Criterion) {
 
 #[cfg(feature = "production")]
 fn benchmark_sighash_templates(c: &mut Criterion) {
-    use blvm_consensus::transaction_hash::{calculate_transaction_sighash, SighashType};
+    use blvm_consensus::transaction_hash::{SighashType, calculate_transaction_sighash};
     use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
     // Create standard transaction (1 input, 1 output) - most common pattern

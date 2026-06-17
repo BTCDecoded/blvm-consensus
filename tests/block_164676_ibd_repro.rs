@@ -9,10 +9,10 @@
 //! --ignored if the dump is present and you want it to run in CI).
 //! Set BLVM_IBD_DUMP_DIR to point at the dump root if not using default.
 
+use blvm_consensus::ValidationResult;
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::types::{Block, Network, UtxoSet, UTXO};
-use blvm_consensus::ValidationResult;
+use blvm_consensus::types::{Block, Network, UTXO, UtxoSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -59,7 +59,10 @@ fn load_dump(
 fn block_164676_connect_block_ibd_repro() {
     let dir = dump_dir();
     if !dir.join("block.bin").exists() {
-        eprintln!("Skip: dump not found at {} (set BLVM_IBD_DUMP_DIR or use repo tests/test_data/ibd_failure_height_164676)", dir.display());
+        eprintln!(
+            "Skip: dump not found at {} (set BLVM_IBD_DUMP_DIR or use repo tests/test_data/ibd_failure_height_164676)",
+            dir.display()
+        );
         return;
     }
 

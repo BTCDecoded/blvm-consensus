@@ -12,7 +12,7 @@ use crate::opcodes::*;
 use crate::types::*;
 use crate::types::{ByteString, Hash, Natural};
 use crate::witness;
-use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
+use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
 use blvm_spec_lock::spec_locked;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)

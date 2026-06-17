@@ -4,7 +4,7 @@ use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_2, OP_3, OP_ELSE, OP_ENDIF, OP_IF, OP_NOTIF, OP_VERIFY,
 };
 use blvm_consensus::script::flags::SCRIPT_VERIFY_MINIMALIF;
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 #[test]
 fn test_op_if_else_true_branch() {

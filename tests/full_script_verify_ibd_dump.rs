@@ -19,10 +19,10 @@
 //!   --ignored --exact ibd_dump_connect_full_script_verify --nocapture
 //! ```
 
+use blvm_consensus::ValidationResult;
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::types::{Block, Network, OutPoint, UtxoSet, UTXO};
-use blvm_consensus::ValidationResult;
+use blvm_consensus::types::{Block, Network, OutPoint, UTXO, UtxoSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ fn load_dump(
 #[ignore = "slow; requires ibd_failure_height_* binaries; forces full script verification"]
 fn ibd_dump_connect_full_script_verify() {
     // Must run before any consensus code touches GLOBAL_CONSENSUS_CONFIG (OnceLock).
-    std::env::set_var("BLVM_ASSUME_VALID_HEIGHT", "0");
+    unsafe { std::env::set_var("BLVM_ASSUME_VALID_HEIGHT", "0") };
 
     let h = height();
     let dir = dump_dir(h);

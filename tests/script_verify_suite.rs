@@ -1,7 +1,7 @@
 //! COV-C-02g: verify_script coverage for common success/failure combinations.
 
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_3, OP_ADD, OP_EQUALVERIFY, OP_NIP, OP_VERIFY};
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 #[test]
 fn test_verify_script_op_true_succeeds() {

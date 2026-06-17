@@ -3,8 +3,8 @@
 #![cfg(feature = "production")]
 
 use blvm_consensus::bip348::{
-    batch_verify_signatures_from_stack, verify_signature_from_stack,
-    verify_tapscript_schnorr_signature, SchnorrSignatureCollector,
+    SchnorrSignatureCollector, batch_verify_signatures_from_stack, verify_signature_from_stack,
+    verify_tapscript_schnorr_signature,
 };
 
 fn hex32(s: &str) -> [u8; 32] {
@@ -138,13 +138,10 @@ fn test_verify_tapscript_schnorr_collector_deferred_batch() {
     let collector = SchnorrSignatureCollector::new();
     assert!(collector.is_empty());
     assert!(!collector.uses_soa());
-    assert!(verify_tapscript_schnorr_signature(
-        &msg,
-        pk.as_slice(),
-        sig.as_slice(),
-        Some(&collector),
-    )
-    .unwrap());
+    assert!(
+        verify_tapscript_schnorr_signature(&msg, pk.as_slice(), sig.as_slice(), Some(&collector),)
+            .unwrap()
+    );
     let results = collector.verify_batch().unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0]);

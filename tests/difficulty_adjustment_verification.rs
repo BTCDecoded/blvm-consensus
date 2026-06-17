@@ -191,7 +191,10 @@ fn test_difficulty_off_by_one_bug() {
     // - So difficulty increases slightly (target decreases, bits decrease)
     // Note: bits are inverse of difficulty - lower bits = higher difficulty
     // This matches The specification's buggy behavior exactly
-    assert!(new_bits <= original_bits, "Off-by-one bug should cause slight difficulty increase (bits decrease as difficulty increases)");
+    assert!(
+        new_bits <= original_bits,
+        "Off-by-one bug should cause slight difficulty increase (bits decrease as difficulty increases)"
+    );
 }
 
 /// Test difficulty adjustment with insufficient headers

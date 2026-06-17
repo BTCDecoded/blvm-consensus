@@ -31,7 +31,7 @@ use crate::crypto::OptimizedSha256;
 use crate::error::{ConsensusError, Result};
 use blvm_spec_lock::spec_locked;
 #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
-use secp256k1::{schnorr::Signature, Message, XOnlyPublicKey};
+use secp256k1::{Message, XOnlyPublicKey, schnorr::Signature};
 #[cfg(feature = "production")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 

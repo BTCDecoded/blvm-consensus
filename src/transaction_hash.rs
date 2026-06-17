@@ -2384,8 +2384,10 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(sighash_ab, sighash_aa,
-            "2-input legacy: signing input 0 — input 1 script must be empty; changing input 1 scriptPubKey must not change sighash");
+        assert_eq!(
+            sighash_ab, sighash_aa,
+            "2-input legacy: signing input 0 — input 1 script must be empty; changing input 1 scriptPubKey must not change sighash"
+        );
     }
 
     #[cfg(feature = "production")]

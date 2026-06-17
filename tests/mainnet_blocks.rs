@@ -7,13 +7,13 @@
 //! - Genesis block (height 0)
 //! Eras use mainnet activation heights from `blvm_consensus` constants.
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    Block, BlockHeader, UtxoSet, ValidationResult, SEGWIT_ACTIVATION_MAINNET,
-    TAPROOT_ACTIVATION_MAINNET,
+    Block, BlockHeader, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, UtxoSet,
+    ValidationResult,
 };
 
 /// Genesis block (height 0) - the first Bitcoin block

@@ -3,8 +3,8 @@
 #[path = "core_test_vectors/block_tests.rs"]
 mod block_tests;
 
-use block_tests::{load_block_test_vectors, score_core_block_tests, BlockTestVector};
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use block_tests::{BlockTestVector, load_block_test_vectors, score_core_block_tests};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::mining::calculate_merkle_root;
 use blvm_consensus::opcodes::OP_1;

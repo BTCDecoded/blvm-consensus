@@ -4,10 +4,10 @@
 mod script_asm;
 
 use blvm_consensus::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS};
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::serialization::deserialize_transaction_with_witness;
 use blvm_consensus::types::Network;
-use blvm_consensus::{TransactionOutput, SEGWIT_ACTIVATION_MAINNET};
+use blvm_consensus::{SEGWIT_ACTIVATION_MAINNET, TransactionOutput};
 use hex;
 
 /// Core `tx_valid.json` row: "BIP143 example: P2SH-P2WSH 6-of-6 multisig signed with 6 different SIGHASH types"

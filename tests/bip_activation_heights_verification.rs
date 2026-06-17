@@ -12,7 +12,7 @@
 
 use blvm_consensus::types::*;
 use blvm_consensus::{
-    BIP147_ACTIVATION_MAINNET, BIP34_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET,
+    BIP34_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET, BIP147_ACTIVATION_MAINNET,
 };
 
 /// Test BIP34 activation height: before activation

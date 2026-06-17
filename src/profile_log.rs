@@ -7,8 +7,8 @@
 //! prefer `analyze_ibd_profile.py` over naive `grep` for `[IBD_VALIDATION]` phase=end splits.
 
 use std::io::Write;
-use std::sync::mpsc;
 use std::sync::OnceLock;
+use std::sync::mpsc;
 
 /// Capacity for the profile log channel. When full, new messages are dropped (non-blocking).
 const CHANNEL_CAPACITY: usize = 65_536;

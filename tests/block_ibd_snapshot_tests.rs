@@ -5,10 +5,10 @@
 //!
 //! Set BLVM_IBD_SNAPSHOT_DIR or defaults to ../ibd-snapshots-20260307-192410 relative to blvm-consensus.
 
+use blvm_consensus::ValidationResult;
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::types::{Block, Network, UtxoSet, UTXO};
-use blvm_consensus::ValidationResult;
+use blvm_consensus::types::{Block, Network, UTXO, UtxoSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;

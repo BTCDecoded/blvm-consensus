@@ -5,7 +5,7 @@ use blvm_consensus::opcodes::{
     OP_GREATERTHAN, OP_GREATERTHANOREQUAL, OP_LESSTHAN, OP_LESSTHANOREQUAL, OP_MAX, OP_MIN, OP_MOD,
     OP_MUL, OP_NUMEQUAL, OP_NUMEQUALVERIFY, OP_NUMNOTEQUAL, OP_SUB, OP_WITHIN,
 };
-use blvm_consensus::script::{eval_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script};
 
 #[test]
 fn test_op_sub_produces_difference() {

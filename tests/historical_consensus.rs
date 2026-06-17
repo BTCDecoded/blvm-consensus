@@ -11,12 +11,12 @@
 //! Also tests historical consensus bugs:
 //! - CVE-2012-2459: Merkle tree duplicate hash vulnerability
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_4};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
-    ValidationResult, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, UTXO,
+    Block, BlockHeader, OutPoint, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET,
+    Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet, ValidationResult,
 };
 
 /// Test CVE-2012-2459: Merkle tree duplicate hash vulnerability
@@ -204,7 +204,7 @@ fn test_cve_2012_2459_merkle_duplicate_hash() {
 /// The fix: Consensus validates that all transactions in a block spend unique UTXOs.
 #[test]
 fn test_cve_2018_17144_double_spend_in_block() {
-    use blvm_consensus::block::{connect_block, BlockValidationContext};
+    use blvm_consensus::block::{BlockValidationContext, connect_block};
 
     // Create a UTXO that will be spent twice
     let mut utxo_set = UtxoSet::default();

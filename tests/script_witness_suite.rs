@@ -3,13 +3,13 @@
 #[path = "integration/helpers.rs"]
 mod helpers;
 
-use bitcoin_hashes::{sha256, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, sha256};
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_ENDIF, OP_IF, PUSH_20_BYTES, PUSH_32_BYTES};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
-use blvm_consensus::script::{verify_script_with_context, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 
 #[path = "core_test_vectors/script_tests.rs"]
@@ -57,18 +57,20 @@ fn test_p2wsh_op_true_witness_succeeds() {
         value: 10_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        Some(&witness),
-        SCRIPT_VERIFY_WITNESS,
-        &tx,
-        0,
-        &prevouts,
-        Some(SEGWIT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -98,18 +100,20 @@ fn test_p2wsh_wrong_witness_script_fails() {
         value: 10_000,
         script_pubkey: script_pubkey.into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &prevouts[0].script_pubkey,
-        Some(&bad_witness),
-        SCRIPT_VERIFY_WITNESS,
-        &tx,
-        0,
-        &prevouts,
-        Some(SEGWIT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            Some(&bad_witness),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -138,18 +142,20 @@ fn test_p2wpkh_requires_witness() {
         value: 10_000,
         script_pubkey: script_pubkey.into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &prevouts[0].script_pubkey,
-        None,
-        SCRIPT_VERIFY_WITNESS,
-        &tx,
-        0,
-        &prevouts,
-        Some(SEGWIT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            None,
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]

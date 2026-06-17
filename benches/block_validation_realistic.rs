@@ -1,13 +1,13 @@
 //! Realistic Block Validation Benchmark
 //! Uses more realistic test data for fair comparison with consensus's ConnectBlock benchmark
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::types::Network;
 use blvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
 };
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 /// Create a realistic test block with actual transactions
 /// Similar to specification's CreateTestBlock which uses 1000 transactions

@@ -8,7 +8,7 @@
 
 use crate::serialization::serialize_transaction_with_witness;
 use crate::types::Transaction;
-use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
+use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
 use std::sync::OnceLock;
 
 /// Cache capacity (entries). Core uses ~16MB for script exec; we use 64k entries (~2MB for keys).

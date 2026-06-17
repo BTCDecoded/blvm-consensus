@@ -3,7 +3,7 @@
 #[cfg(feature = "production")]
 mod tests {
     use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_HASH160, OP_HASH256};
-    use blvm_consensus::script::{eval_script, verify_script, SigVersion, StackElement};
+    use blvm_consensus::script::{SigVersion, StackElement, eval_script, verify_script};
 
     fn push_stack_items(stack: &mut Vec<StackElement>, item: &[u8]) {
         for _ in 0..5 {

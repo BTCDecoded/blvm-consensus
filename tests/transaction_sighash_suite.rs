@@ -2,9 +2,9 @@
 
 use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_DUP, OP_HASH160, PUSH_20_BYTES};
 use blvm_consensus::transaction_hash::{
-    batch_compute_bip143_sighashes, batch_compute_sighashes, calculate_bip143_sighash,
+    SighashType, batch_compute_bip143_sighashes, batch_compute_sighashes, calculate_bip143_sighash,
     calculate_transaction_sighash, calculate_transaction_sighash_single_input,
-    calculate_transaction_sighash_with_script_code, SighashType,
+    calculate_transaction_sighash_with_script_code,
 };
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
@@ -519,14 +519,16 @@ fn test_sighash_apis_reject_out_of_range_input_index() {
     let prevouts = sample_prevouts();
     assert!(calculate_transaction_sighash(&tx, 99, &prevouts, SighashType::ALL).is_err());
     assert!(calculate_bip143_sighash(&tx, 99, &[OP_1], 1, SighashType::ALL.0, None).is_err());
-    assert!(calculate_transaction_sighash_single_input(
-        &tx,
-        99,
-        &[OP_1],
-        1,
-        SighashType::ALL,
-        #[cfg(feature = "production")]
-        None,
-    )
-    .is_err());
+    assert!(
+        calculate_transaction_sighash_single_input(
+            &tx,
+            99,
+            &[OP_1],
+            1,
+            SighashType::ALL,
+            #[cfg(feature = "production")]
+            None,
+        )
+        .is_err()
+    );
 }

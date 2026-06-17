@@ -12,12 +12,12 @@
 //! Run with: cargo bench --bench performance_focused --features production
 
 use blvm_consensus::{
-    block::{connect_block, BlockValidationContext},
+    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet,
+    block::{BlockValidationContext, connect_block},
     segwit::Witness,
     types::Network,
-    Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
 // ============================================================================
 // CRYPTOGRAPHIC OPERATIONS (SHA-NI + AVX2)

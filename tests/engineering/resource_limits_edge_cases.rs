@@ -7,7 +7,7 @@ use blvm_consensus::constants::{
     MAX_INPUTS, MAX_MONEY, MAX_OUTPUTS, MAX_SCRIPT_OPS, MAX_STACK_SIZE,
 };
 use blvm_consensus::opcodes::*;
-use blvm_consensus::script::{eval_script, SigVersion, StackElement};
+use blvm_consensus::script::{SigVersion, StackElement, eval_script};
 use blvm_consensus::transaction::{calculate_transaction_size, check_transaction};
 use blvm_consensus::*;
 

@@ -2,7 +2,7 @@
 
 use blvm_consensus::constants::MAX_STACK_SIZE;
 use blvm_consensus::opcodes::{OP_1, OP_2};
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 #[test]
 fn test_eval_script_single_true() {

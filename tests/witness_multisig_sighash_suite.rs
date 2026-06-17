@@ -7,11 +7,11 @@ use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
 use blvm_consensus::script::verify_script_with_context;
 use blvm_consensus::transaction_hash::{
-    calculate_bip143_sighash, calculate_transaction_sighash_single_input, SighashType,
+    SighashType, calculate_bip143_sighash, calculate_transaction_sighash_single_input,
 };
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 

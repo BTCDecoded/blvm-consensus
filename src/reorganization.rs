@@ -1066,7 +1066,7 @@ mod tests {
         let ancestor = create_test_block_at_height(0);
         let mut new_block = create_test_block_at_height(1);
         new_block.header.nonce = 42; // Different block than ancestor
-                                     // Recalculate merkle root (nonce doesn't affect it, but prev_block_hash irrelevant for connect_block)
+        // Recalculate merkle root (nonce doesn't affect it, but prev_block_hash irrelevant for connect_block)
 
         let new_chain = vec![ancestor.clone(), new_block];
         let current_chain = vec![ancestor];

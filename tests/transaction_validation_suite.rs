@@ -8,7 +8,7 @@ use blvm_consensus::transaction::{
 };
 use blvm_consensus::utxo_overlay::UtxoOverlay;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, ValidationResult, UTXO,
+    OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet, ValidationResult,
 };
 use std::sync::Arc;
 

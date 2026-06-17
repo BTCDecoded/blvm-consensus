@@ -4,8 +4,8 @@
 
 #[cfg(feature = "production")]
 use blvm_consensus::optimizations::{
-    simd_vectorization::{batch_double_sha256, batch_hash160, batch_ripemd160, batch_sha256},
     CacheAlignedHash,
+    simd_vectorization::{batch_double_sha256, batch_hash160, batch_ripemd160, batch_sha256},
 };
 
 #[cfg(feature = "production")]
@@ -182,8 +182,8 @@ fn test_batch_operations_consistency() {
 #[test]
 fn test_constant_folding_hash_helpers() {
     use blvm_consensus::optimizations::constant_folding::{
-        is_empty_double_hash, is_empty_hash, is_zero_hash, EMPTY_STRING_DOUBLE_HASH,
-        EMPTY_STRING_HASH,
+        EMPTY_STRING_DOUBLE_HASH, EMPTY_STRING_HASH, is_empty_double_hash, is_empty_hash,
+        is_zero_hash,
     };
 
     assert!(is_empty_hash(&EMPTY_STRING_HASH));

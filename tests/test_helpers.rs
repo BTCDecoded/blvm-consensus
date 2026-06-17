@@ -41,7 +41,7 @@ pub fn adjusted_timeout(base_timeout_ms: u64) -> u64 {
 // ============================================================================
 
 use blvm_consensus::opcodes::OP_1;
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet};
 
 /// Create a test transaction with configurable parameters
 ///

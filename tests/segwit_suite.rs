@@ -1,12 +1,12 @@
 //! COV-C-06d: SegWit weight, witness merkle, and commitment validation.
 
-use bitcoin_hashes::{sha256, sha256d, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, sha256, sha256d};
 use blvm_consensus::constants::MAX_BLOCK_WEIGHT;
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_CHECKSIG, OP_RETURN, PUSH_32_BYTES, PUSH_36_BYTES};
 use blvm_consensus::segwit::{
-    calculate_block_weight_from_nested, calculate_transaction_weight, compute_witness_merkle_root,
-    compute_witness_merkle_root_from_nested, is_segwit_transaction, validate_witness_commitment,
-    Witness,
+    Witness, calculate_block_weight_from_nested, calculate_transaction_weight,
+    compute_witness_merkle_root, compute_witness_merkle_root_from_nested, is_segwit_transaction,
+    validate_witness_commitment,
 };
 use blvm_consensus::{
     Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput,

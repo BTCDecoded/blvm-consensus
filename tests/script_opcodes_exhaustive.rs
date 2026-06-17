@@ -14,7 +14,7 @@ use blvm_consensus::opcodes::{
     OP_VERIFY,
 };
 use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 /// Script verification flags (values match Bitcoin Core script/interpreter.h)
 #[allow(dead_code)]

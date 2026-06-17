@@ -10,7 +10,7 @@
 //! - prev_utxo_set: Optional previous UTXO set (empty if not provided)
 //! - expected: Expected validation result
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::types::Network;

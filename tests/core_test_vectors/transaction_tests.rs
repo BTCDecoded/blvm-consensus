@@ -3,7 +3,7 @@
 #[path = "tx_loader.rs"]
 mod tx_loader;
 
-pub use tx_loader::{load_transaction_test_vectors, TransactionTestVector};
+pub use tx_loader::{TransactionTestVector, load_transaction_test_vectors};
 
 use blvm_consensus::serialization::transaction::deserialize_transaction;
 use blvm_consensus::transaction::check_transaction;

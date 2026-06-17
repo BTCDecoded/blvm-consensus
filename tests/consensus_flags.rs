@@ -23,7 +23,7 @@
 
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_DUP, OP_EQUAL, OP_HASH160, PUSH_20_BYTES};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 /// All script verification flags (values match Bitcoin Core script/interpreter.h)
 pub const ALL_FLAGS: &[u32] = &[

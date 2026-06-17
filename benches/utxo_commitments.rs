@@ -1,8 +1,8 @@
 // UTXO commitments implementation moved to blvm-protocol.
 // Bench with: cargo bench -p blvm-protocol (when protocol has utxo_commitments benches)
 #[cfg(feature = "utxo-commitments")]
-use blvm_consensus::{types::Natural, BlockHeader};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use blvm_consensus::{BlockHeader, types::Natural};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 #[cfg(feature = "utxo-commitments")]
 fn create_test_commitment(_height: Natural) -> [u8; 32] {

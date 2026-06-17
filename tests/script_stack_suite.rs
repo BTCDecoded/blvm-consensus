@@ -5,7 +5,7 @@ use blvm_consensus::opcodes::{
     OP_6, OP_DEPTH, OP_FROMALTSTACK, OP_IFDUP, OP_NIP, OP_OVER, OP_PICK, OP_ROLL, OP_ROT, OP_SIZE,
     OP_SWAP, OP_TOALTSTACK, OP_TUCK,
 };
-use blvm_consensus::script::{eval_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script};
 
 #[test]
 fn test_op_depth_pushes_stack_height() {

@@ -4,7 +4,7 @@
 //! mis-parsing the annex as a control block → `Invalid taproot tweak` Err on valid mainnet txs.
 //! See workspace `docs/BLOCK_812363_TAPROOT_ANNEX_SCRIPT_FAILURE.md`.
 
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::taproot::strip_taproot_annex;
 use blvm_consensus::types::{ByteString, OutPoint};
 use blvm_consensus::types::{Network, Transaction, TransactionInput, TransactionOutput};

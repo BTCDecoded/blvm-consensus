@@ -2,11 +2,11 @@
 
 use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::taproot::{
-    compute_script_merkle_root, compute_taproot_signature_hash, compute_taproot_tweak,
-    compute_tapscript_signature_hash, extract_taproot_output_key, is_taproot_output,
-    parse_taproot_script_path_witness, validate_taproot_key_aggregation, validate_taproot_script,
-    validate_taproot_script_path, validate_taproot_script_path_with_leaf_version,
-    validate_taproot_transaction, Witness, TAPROOT_LEAF_VERSION_TAPSCRIPT, TAPROOT_SCRIPT_PREFIX,
+    TAPROOT_LEAF_VERSION_TAPSCRIPT, TAPROOT_SCRIPT_PREFIX, Witness, compute_script_merkle_root,
+    compute_taproot_signature_hash, compute_taproot_tweak, compute_tapscript_signature_hash,
+    extract_taproot_output_key, is_taproot_output, parse_taproot_script_path_witness,
+    validate_taproot_key_aggregation, validate_taproot_script, validate_taproot_script_path,
+    validate_taproot_script_path_with_leaf_version, validate_taproot_transaction,
 };
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
@@ -82,13 +82,17 @@ fn test_script_path_two_leaf_tree() {
 fn test_parse_taproot_witness_rejects_short() {
     let key = [0x01; 32];
     let empty: Witness = vec![];
-    assert!(parse_taproot_script_path_witness(&empty, &key)
-        .unwrap()
-        .is_none());
+    assert!(
+        parse_taproot_script_path_witness(&empty, &key)
+            .unwrap()
+            .is_none()
+    );
     let short: Witness = vec![vec![OP_1]];
-    assert!(parse_taproot_script_path_witness(&short, &key)
-        .unwrap()
-        .is_none());
+    assert!(
+        parse_taproot_script_path_witness(&short, &key)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -154,13 +158,15 @@ fn test_validate_taproot_key_aggregation_smoke() {
 fn test_validate_taproot_script_path_with_leaf_version() {
     let script = vec![OP_1];
     let root = compute_script_merkle_root(&script, &[], TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
-    assert!(validate_taproot_script_path_with_leaf_version(
-        &script,
-        &[],
-        &root,
-        TAPROOT_LEAF_VERSION_TAPSCRIPT,
-    )
-    .unwrap());
+    assert!(
+        validate_taproot_script_path_with_leaf_version(
+            &script,
+            &[],
+            &root,
+            TAPROOT_LEAF_VERSION_TAPSCRIPT,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -345,9 +351,11 @@ fn test_parse_taproot_script_path_rejects_malformed_control_block() {
     bad_control.extend_from_slice(&[0x02; 32]);
     bad_control.push(0x03);
     let witness: Witness = vec![tapscript, bad_control];
-    assert!(parse_taproot_script_path_witness(&witness, &key)
-        .unwrap()
-        .is_none());
+    assert!(
+        parse_taproot_script_path_witness(&witness, &key)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -400,18 +408,20 @@ fn test_tapscript_sighash_anyonecanpay_and_invalid_type() {
     )
     .unwrap();
     assert_ne!(all, acp);
-    assert!(compute_tapscript_signature_hash(
-        &tx,
-        0,
-        &pv,
-        &ps_refs,
-        &script_code,
-        TAPROOT_LEAF_VERSION_TAPSCRIPT,
-        0xffffffff,
-        0x04,
-        None,
-    )
-    .is_err());
+    assert!(
+        compute_tapscript_signature_hash(
+            &tx,
+            0,
+            &pv,
+            &ps_refs,
+            &script_code,
+            TAPROOT_LEAF_VERSION_TAPSCRIPT,
+            0xffffffff,
+            0x04,
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -419,18 +429,20 @@ fn test_tapscript_sighash_anyonecanpay_rejects_out_of_range_input() {
     let (tx, pv, ps) = multi_input_tx();
     let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
     let script_code = vec![OP_1];
-    assert!(compute_tapscript_signature_hash(
-        &tx,
-        99,
-        &pv,
-        &ps_refs,
-        &script_code,
-        TAPROOT_LEAF_VERSION_TAPSCRIPT,
-        0xffffffff,
-        0x83,
-        None,
-    )
-    .is_err());
+    assert!(
+        compute_tapscript_signature_hash(
+            &tx,
+            99,
+            &pv,
+            &ps_refs,
+            &script_code,
+            TAPROOT_LEAF_VERSION_TAPSCRIPT,
+            0xffffffff,
+            0x83,
+            None,
+        )
+        .is_err()
+    );
 }
 
 #[test]

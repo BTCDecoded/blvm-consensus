@@ -3,7 +3,7 @@
 //! Tx `14ac3f7928038189d726b4c34928eab9ecf156a3729af62258582288fda3fb97` has a P2TR
 //! output, so step6 ORs 0x8000. Unrelated P2SH inputs must still use WitnessV0 for nested P2WSH.
 
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::serialization::deserialize_transaction_with_witness;
 use blvm_consensus::types::Network;
 use blvm_consensus::witness::is_witness_empty;

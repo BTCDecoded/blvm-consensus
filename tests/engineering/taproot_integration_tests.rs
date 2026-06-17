@@ -6,7 +6,7 @@
 use super::bip_test_helpers::*;
 use blvm_consensus::opcodes::*;
 use blvm_consensus::taproot::{
-    compute_script_merkle_root, validate_taproot_script_path, TAPROOT_LEAF_VERSION_TAPSCRIPT, *,
+    TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, validate_taproot_script_path, *,
 };
 use blvm_consensus::*;
 
@@ -356,20 +356,24 @@ fn test_taproot_invalid_key_aggregation() {
     // Use wrong output key
     let wrong_output_key = [0x99u8; 32];
 
-    assert!(!validate_taproot_key_aggregation(
-        &internal_pubkey,
-        &merkle_root,
-        &wrong_output_key,
-        parity
-    )
-    .unwrap());
-    assert!(validate_taproot_key_aggregation(
-        &internal_pubkey,
-        &merkle_root,
-        &correct_output_key,
-        parity
-    )
-    .unwrap());
+    assert!(
+        !validate_taproot_key_aggregation(
+            &internal_pubkey,
+            &merkle_root,
+            &wrong_output_key,
+            parity
+        )
+        .unwrap()
+    );
+    assert!(
+        validate_taproot_key_aggregation(
+            &internal_pubkey,
+            &merkle_root,
+            &correct_output_key,
+            parity
+        )
+        .unwrap()
+    );
 }
 
 #[test]

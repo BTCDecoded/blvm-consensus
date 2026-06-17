@@ -3,7 +3,7 @@
 use blvm_consensus::block::{apply_transaction, calculate_tx_id};
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::opcodes::OP_1;
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet};
 use std::sync::Arc;
 
 fn coinbase(height_byte: u8) -> Transaction {
@@ -81,12 +81,13 @@ fn test_apply_spend_moves_value() {
     let (set, undo) = apply_transaction(&spend_tx, set, 2).unwrap();
     assert!(set.get(&prevout).is_none());
     let spend_id = calculate_tx_id(&spend_tx);
-    assert!(set
-        .get(&OutPoint {
+    assert!(
+        set.get(&OutPoint {
             hash: spend_id,
             index: 0
         })
-        .is_some());
+        .is_some()
+    );
     assert_eq!(undo.len(), 2, "one removed input + one new output");
 }
 
@@ -109,12 +110,13 @@ fn test_apply_spend_missing_prevout_still_adds_outputs() {
     let spend_tx = spend(0x01, 10_000, 9_000);
     let (set, _) = apply_transaction(&spend_tx, set, 3).unwrap();
     let spend_id = calculate_tx_id(&spend_tx);
-    assert!(set
-        .get(&OutPoint {
+    assert!(
+        set.get(&OutPoint {
             hash: spend_id,
             index: 0
         })
-        .is_some());
+        .is_some()
+    );
 }
 
 #[test]
@@ -141,12 +143,13 @@ fn test_apply_spend_coinbase_utxo_updates_set() {
     assert!(set.get(&prevout).is_none());
     assert_eq!(undo.len(), 2);
     let spend_id = calculate_tx_id(&spend_tx);
-    assert!(set
-        .get(&OutPoint {
+    assert!(
+        set.get(&OutPoint {
             hash: spend_id,
             index: 0
         })
-        .is_some());
+        .is_some()
+    );
 }
 
 #[test]

@@ -12,7 +12,7 @@ use blvm_consensus::transaction_hash::{
 };
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 use ripemd::Ripemd160;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};

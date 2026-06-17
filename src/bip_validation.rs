@@ -618,7 +618,7 @@ pub enum Bip147Network {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::{BIP147_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET};
+    use crate::constants::{BIP66_ACTIVATION_MAINNET, BIP147_ACTIVATION_MAINNET};
 
     #[test]
     fn test_bip30_basic() {

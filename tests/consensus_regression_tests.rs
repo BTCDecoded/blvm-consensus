@@ -16,10 +16,10 @@ use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_2, OP_ADD, OP_EQUAL, OP_HASH160, PUSH_20_BYTES, PUSH_32_BYTES,
 };
 use blvm_consensus::script::{
-    flags::SCRIPT_VERIFY_TAPROOT, verify_script, verify_script_with_context_full, SigVersion,
+    SigVersion, flags::SCRIPT_VERIFY_TAPROOT, verify_script, verify_script_with_context_full,
 };
 use blvm_consensus::transaction_hash::{
-    calculate_transaction_sighash_with_script_code, SighashType,
+    SighashType, calculate_transaction_sighash_with_script_code,
 };
 use blvm_consensus::types::*;
 
@@ -162,7 +162,7 @@ fn test_taproot_empty_scriptsig_requirement() {
     }];
 
     let height = TAPROOT_ACTIVATION_MAINNET; // After Taproot activation
-                                             // Set WITNESS + WITNESS_PUBKEYTYPE + TAPROOT flags for a post-Taproot P2TR spend.
+    // Set WITNESS + WITNESS_PUBKEYTYPE + TAPROOT flags for a post-Taproot P2TR spend.
     let mut flags = 0x800u32; // SCRIPT_VERIFY_WITNESS
     if height >= TAPROOT_ACTIVATION_MAINNET {
         for output in &tx.outputs {

@@ -84,8 +84,10 @@ pub mod prefetch {
     #[cfg(target_arch = "x86_64")]
     #[inline(always)]
     pub unsafe fn prefetch_read(ptr: *const i8) {
-        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-        _mm_prefetch(ptr, _MM_HINT_T0);
+        use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+        unsafe {
+            _mm_prefetch(ptr, _MM_HINT_T0);
+        }
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -693,8 +695,7 @@ pub mod runtime_assertions {
 
         if let (Some(opt_val), Some(ref_val)) = (result_optimized, result_reference) {
             debug_assert_eq!(
-                opt_val as *const T,
-                ref_val as *const T,
+                opt_val as *const T, ref_val as *const T,
                 "Optimization correctness check failed: optimized and reference return different pointers"
             );
         }

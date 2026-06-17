@@ -1,6 +1,6 @@
 //! COV-C-02f: Production signature verification paths (`script/signature.rs`).
 
-use blvm_consensus::script::{batch_verify_signatures, SigVersion};
+use blvm_consensus::script::{SigVersion, batch_verify_signatures};
 use blvm_consensus::types::Network;
 
 #[test]

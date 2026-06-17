@@ -10,7 +10,7 @@ use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
 use blvm_consensus::types::Network;
 use blvm_consensus::witness::Witness;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 
 fn legacy_tx() -> Transaction {

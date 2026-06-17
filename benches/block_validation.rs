@@ -1,7 +1,7 @@
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::{types::Network, Block, BlockHeader, Transaction, UtxoSet};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use blvm_consensus::{Block, BlockHeader, Transaction, UtxoSet, types::Network};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn create_test_block() -> Block {
     Block {

@@ -8,16 +8,16 @@
 #[path = "integration/helpers.rs"]
 mod helpers;
 
-use bitcoin_hashes::{hash160, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, hash160};
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_EQUAL, OP_HASH160, PUSH_20_BYTES};
 use blvm_consensus::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS};
 use blvm_consensus::script::{
-    verify_script_with_context, verify_script_with_context_full, SigVersion,
+    SigVersion, verify_script_with_context, verify_script_with_context_full,
 };
 use blvm_consensus::transaction_hash::calculate_bip143_sighash;
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 use ripemd::Ripemd160;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};

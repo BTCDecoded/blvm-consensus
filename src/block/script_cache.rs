@@ -10,7 +10,7 @@ use crate::script::flags::{
     SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
     SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
 };
-use crate::segwit::{is_segwit_transaction, Witness};
+use crate::segwit::{Witness, is_segwit_transaction};
 use crate::transaction::is_coinbase;
 use crate::types::*;
 use crate::witness::is_witness_empty;

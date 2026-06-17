@@ -6,7 +6,7 @@
 //! Test vectors can be downloaded from consensus's test framework.
 //! If vectors are not available, tests will skip gracefully.
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::transaction::check_transaction;
 use blvm_consensus::types::Network;

@@ -6,8 +6,9 @@ mod test_helpers;
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::constants::{LOCKTIME_THRESHOLD, MIN_RELAY_FEE};
 use blvm_consensus::mempool::{
-    accept_to_memory_pool, has_conflict_with_tx, is_final_tx, replacement_checks, signals_rbf,
-    update_mempool_after_block, update_mempool_after_block_with_lookup, Mempool, MempoolResult,
+    Mempool, MempoolResult, accept_to_memory_pool, has_conflict_with_tx, is_final_tx,
+    replacement_checks, signals_rbf, update_mempool_after_block,
+    update_mempool_after_block_with_lookup,
 };
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::opcodes::{OP_0, OP_VERIFY};

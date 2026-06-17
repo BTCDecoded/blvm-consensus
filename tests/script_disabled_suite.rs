@@ -4,7 +4,7 @@ use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_2DIV, OP_2MUL, OP_AND, OP_CAT, OP_INVERT, OP_LEFT, OP_MUL, OP_OR, OP_RIGHT,
     OP_VER, OP_XOR,
 };
-use blvm_consensus::script::{eval_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script};
 
 #[test]
 fn test_disabled_string_opcodes_error() {

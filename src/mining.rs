@@ -59,7 +59,7 @@ pub fn create_new_block_with_time(
     coinbase_address: &ByteString,
     block_time: u64,
 ) -> Result<Block> {
-    use crate::mempool::{accept_to_memory_pool, Mempool, MempoolResult};
+    use crate::mempool::{Mempool, MempoolResult, accept_to_memory_pool};
 
     // 1. Create coinbase transaction
     let coinbase_tx = create_coinbase_transaction(
@@ -1106,7 +1106,7 @@ mod tests {
                 // This ensures transaction hash is unique without affecting script execution
                 script_sig: {
                     let mut sig = vec![OP_1]; // OP_1 pushes 1
-                                              // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
+                    // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
                     if counter > 0 {
                         sig.push(PUSH_1_BYTE); // Push 1 byte
                         sig.push((counter & 0xff) as u8); // Push counter byte

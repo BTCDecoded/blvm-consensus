@@ -58,7 +58,7 @@ fn test_transaction_invalid_length_fields() {
     data.extend_from_slice(&[0, 0, 0, 0]); // Index
     data.push(0xff); // Script length VarInt prefix (8-byte encoding)
     data.extend_from_slice(&[255, 255, 255, 255, 255, 255, 255, 255]); // u64::MAX length
-                                                                       // Not enough bytes for script
+    // Not enough bytes for script
     assert!(deserialize_transaction(&data).is_err());
 
     // Script length = 0 (valid case - empty script)

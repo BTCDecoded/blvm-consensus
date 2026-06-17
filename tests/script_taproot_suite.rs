@@ -2,11 +2,11 @@
 
 use blvm_consensus::opcodes::{OP_1, OP_2, OP_3, OP_ADD, PUSH_32_BYTES};
 use blvm_consensus::script::flags::{SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS};
-use blvm_consensus::script::{eval_script, verify_script_with_context, SigVersion};
-use blvm_consensus::taproot::{compute_script_merkle_root, TAPROOT_LEAF_VERSION_TAPSCRIPT};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script_with_context};
+use blvm_consensus::taproot::{TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, TAPROOT_ACTIVATION_MAINNET,
+    OutPoint, TAPROOT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 
 fn p2tr_scriptpubkey(key: &[u8; 32]) -> Vec<u8> {
@@ -64,18 +64,20 @@ fn test_p2tr_rejects_nonempty_scriptsig() {
         value: 10_000,
         script_pubkey: script_pubkey.into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &prevouts[0].script_pubkey,
-        Some(&vec![vec![0x40; 64]]),
-        SCRIPT_VERIFY_WITNESS,
-        &tx,
-        0,
-        &prevouts,
-        Some(TAPROOT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            Some(&vec![vec![0x40; 64]]),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(TAPROOT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -104,18 +106,20 @@ fn test_p2tr_rejects_missing_witness() {
         value: 10_000,
         script_pubkey: script_pubkey.into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &prevouts[0].script_pubkey,
-        None,
-        SCRIPT_VERIFY_WITNESS,
-        &tx,
-        0,
-        &prevouts,
-        Some(TAPROOT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            None,
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(TAPROOT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -151,16 +155,18 @@ fn test_p2tr_script_path_op_true_succeeds() {
         value: 10_000,
         script_pubkey: script_pubkey.into(),
     }];
-    assert!(verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &prevouts[0].script_pubkey,
-        Some(&witness),
-        SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT,
-        &tx,
-        0,
-        &prevouts,
-        Some(TAPROOT_ACTIVATION_MAINNET),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT,
+            &tx,
+            0,
+            &prevouts,
+            Some(TAPROOT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }

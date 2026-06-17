@@ -4,7 +4,7 @@
 mod helpers;
 
 use blvm_consensus::bip113::get_median_time_past;
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::segwit::Witness;

@@ -9,10 +9,10 @@
 //! large `*.bin` payloads are **gitignored** (see workspace `.gitignore`). Populate bins locally
 //! or via `scripts/ibd_failure_to_repro_test.sh`.
 
+use blvm_consensus::ValidationResult;
 use blvm_consensus::block::connect_block_ibd;
 use blvm_consensus::segwit::Witness;
-use blvm_consensus::types::{Block, Network, OutPoint, UtxoSet, UTXO};
-use blvm_consensus::ValidationResult;
+use blvm_consensus::types::{Block, Network, OutPoint, UTXO, UtxoSet};
 use std::path::Path;
 use std::sync::Arc;
 

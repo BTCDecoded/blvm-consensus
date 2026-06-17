@@ -9,14 +9,14 @@ use blvm_consensus::checkqueue::{
     BlockSessionContext, ScriptCheck, ScriptCheckQueue, TxScriptContext,
 };
 use blvm_consensus::opcodes::OP_1;
-use blvm_consensus::script::{batch_verify_signatures, SigVersion};
+use blvm_consensus::script::{SigVersion, batch_verify_signatures};
 use blvm_consensus::types::{
     Block, BlockHeader, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,
 };
 use blvm_consensus::witness::Witness;
 use crossbeam_queue::SegQueue;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 fn op1_true_tx() -> Transaction {
     Transaction {

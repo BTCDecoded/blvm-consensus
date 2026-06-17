@@ -28,7 +28,7 @@
 //! - Insert: O(1)
 //! - Memory: O(block_tx_count) instead of O(utxo_set_size)
 
-use crate::types::{OutPoint, UtxoSet, UTXO};
+use crate::types::{OutPoint, UTXO, UtxoSet};
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(not(feature = "production"))]

@@ -6,9 +6,9 @@
 //! Note: Uses byte-level fuzzing since BlockHeader doesn't implement Arbitrary.
 
 #[cfg(feature = "bolero")]
-use blvm_consensus::block::connect_block;
-#[cfg(feature = "bolero")]
 use blvm_consensus::block::BlockValidationContext;
+#[cfg(feature = "bolero")]
+use blvm_consensus::block::connect_block;
 #[cfg(feature = "bolero")]
 use blvm_consensus::pow::check_proof_of_work;
 #[cfg(feature = "bolero")]

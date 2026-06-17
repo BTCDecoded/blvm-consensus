@@ -77,9 +77,11 @@ fn test_transaction_size_varint_script_lengths() {
     let calculated = calculate_transaction_size(&tx_small_script);
     let serialized = serialize_transaction(&tx_small_script);
     assert_eq!(
-        calculated, serialized.len(),
+        calculated,
+        serialized.len(),
         "Size calculation must account for varint encoding (script length 0xfc): calculated={}, actual={}",
-        calculated, serialized.len()
+        calculated,
+        serialized.len()
     );
 
     // Test with script length = 0xfd (3 byte varint)
@@ -105,9 +107,11 @@ fn test_transaction_size_varint_script_lengths() {
     let calculated = calculate_transaction_size(&tx_medium_script);
     let serialized = serialize_transaction(&tx_medium_script);
     assert_eq!(
-        calculated, serialized.len(),
+        calculated,
+        serialized.len(),
         "Size calculation must account for varint encoding (script length 0xfd): calculated={}, actual={}",
-        calculated, serialized.len()
+        calculated,
+        serialized.len()
     );
 }
 
@@ -141,9 +145,11 @@ fn test_transaction_size_varint_counts() {
     let calculated = calculate_transaction_size(&tx);
     let serialized = serialize_transaction(&tx);
     assert_eq!(
-        calculated, serialized.len(),
+        calculated,
+        serialized.len(),
         "Size calculation must account for varint encoding of input count: calculated={}, actual={}",
-        calculated, serialized.len()
+        calculated,
+        serialized.len()
     );
 }
 
@@ -222,9 +228,11 @@ fn test_transaction_size_no_witness() {
     let serialized = serialize_transaction(&tx);
 
     assert_eq!(
-        calculated, serialized.len(),
+        calculated,
+        serialized.len(),
         "Size calculation must match non-witness serialization (TX_NO_WITNESS): calculated={}, actual={}",
-        calculated, serialized.len()
+        calculated,
+        serialized.len()
     );
 }
 

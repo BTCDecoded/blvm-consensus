@@ -3,9 +3,9 @@
 #[path = "integration/helpers.rs"]
 mod helpers;
 
-use bitcoin_hashes::{hash160, sha256, sha256d, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, hash160, sha256, sha256d};
 use blvm_consensus::block::{
-    calculate_tx_id, compute_block_tx_ids, connect_block, BlockValidationContext,
+    BlockValidationContext, calculate_tx_id, compute_block_tx_ids, connect_block,
 };
 use blvm_consensus::constants::{
     BIP34_ACTIVATION_MAINNET, BIP54_MAX_SIGOPS_PER_TX, BIP65_ACTIVATION_MAINNET,
@@ -14,14 +14,14 @@ use blvm_consensus::constants::{
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::mining::{calculate_merkle_root, compute_merkle_root_and_mutated};
 use blvm_consensus::opcodes::*;
-use blvm_consensus::segwit::{compute_witness_merkle_root_from_nested, Witness};
-use blvm_consensus::taproot::{compute_script_merkle_root, TAPROOT_LEAF_VERSION_TAPSCRIPT};
+use blvm_consensus::segwit::{Witness, compute_witness_merkle_root_from_nested};
+use blvm_consensus::taproot::{TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root};
 use blvm_consensus::transaction::calculate_transaction_size;
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    Bip54BoundaryTimestamps, Block, BlockHeader, OutPoint, Transaction, TransactionInput,
-    TransactionOutput, UtxoSet, ValidationResult, SEGWIT_ACTIVATION_MAINNET,
-    TAPROOT_ACTIVATION_MAINNET, UTXO,
+    Bip54BoundaryTimestamps, Block, BlockHeader, OutPoint, SEGWIT_ACTIVATION_MAINNET,
+    TAPROOT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet,
+    ValidationResult,
 };
 use helpers::{merkle_root_for_tx, per_tx_witnesses, push_data};
 use std::sync::Arc;
@@ -851,7 +851,7 @@ fn high_sigop_scriptpubkey(sigops: usize) -> Vec<u8> {
 #[test]
 fn test_connect_with_script_exec_cache_enabled() {
     // Cache lookup in connect_block requires segwit_active (post-activation height + spend tx).
-    std::env::set_var("BLVM_SCRIPT_EXEC_CACHE", "1");
+    unsafe { std::env::set_var("BLVM_SCRIPT_EXEC_CACHE", "1") };
     let height = SEGWIT_ACTIVATION_MAINNET;
     let mut utxo_set = UtxoSet::default();
     seed_op1_utxo(&mut utxo_set, 0x7e, 10_000, 0);
@@ -871,7 +871,7 @@ fn test_connect_with_script_exec_cache_enabled() {
         matches!(r2, ValidationResult::Valid),
         "cached replay: {r2:?}"
     );
-    std::env::remove_var("BLVM_SCRIPT_EXEC_CACHE");
+    unsafe { std::env::remove_var("BLVM_SCRIPT_EXEC_CACHE") };
 }
 
 #[test]

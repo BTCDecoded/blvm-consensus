@@ -3,10 +3,10 @@
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::utxo_overlay::{
-    apply_transaction_to_overlay, apply_transaction_to_overlay_no_undo, to_fast_utxo_set,
-    utxo_deletion_key_to_outpoint, UtxoOverlay,
+    UtxoOverlay, apply_transaction_to_overlay, apply_transaction_to_overlay_no_undo,
+    to_fast_utxo_set, utxo_deletion_key_to_outpoint,
 };
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet};
 use std::sync::Arc;
 
 fn seed_utxo(set: &mut UtxoSet, byte: u8, value: i64) {
@@ -79,18 +79,22 @@ fn test_apply_transaction_to_overlay_records_undo() {
     let mut overlay = UtxoOverlay::new(&base);
     let undo = apply_transaction_to_overlay(&mut overlay, &spend, tx_id, 100);
     assert_eq!(undo.len(), 2, "one spent input + one new output");
-    assert!(overlay
-        .get(&OutPoint {
-            hash: [0x01; 32],
-            index: 0
-        })
-        .is_none());
-    assert!(overlay
-        .get(&OutPoint {
-            hash: tx_id,
-            index: 0
-        })
-        .is_some());
+    assert!(
+        overlay
+            .get(&OutPoint {
+                hash: [0x01; 32],
+                index: 0
+            })
+            .is_none()
+    );
+    assert!(
+        overlay
+            .get(&OutPoint {
+                hash: tx_id,
+                index: 0
+            })
+            .is_some()
+    );
 }
 
 #[test]
@@ -120,12 +124,14 @@ fn test_apply_transaction_to_overlay_no_undo_fast_path() {
 
     let mut overlay = UtxoOverlay::new(&base);
     apply_transaction_to_overlay_no_undo(&mut overlay, &spend, tx_id, 200);
-    assert!(overlay
-        .get(&OutPoint {
-            hash: [0x02; 32],
-            index: 0
-        })
-        .is_none());
+    assert!(
+        overlay
+            .get(&OutPoint {
+                hash: [0x02; 32],
+                index: 0
+            })
+            .is_none()
+    );
     assert_eq!(
         overlay
             .get(&OutPoint {
@@ -204,12 +210,14 @@ fn test_overlay_intra_block_spend_from_addition() {
     apply_transaction_to_overlay_no_undo(&mut overlay, &spend, spend_id, 1);
 
     assert!(overlay.get(&prevout).is_none());
-    assert!(overlay
-        .get(&OutPoint {
-            hash: spend_id,
-            index: 0
-        })
-        .is_some());
+    assert!(
+        overlay
+            .get(&OutPoint {
+                hash: spend_id,
+                index: 0
+            })
+            .is_some()
+    );
 }
 
 #[test]

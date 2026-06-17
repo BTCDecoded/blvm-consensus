@@ -7,7 +7,7 @@ use blvm_consensus::opcodes::{OP_1, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERI
 use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
 };
-use blvm_consensus::script::{eval_script, verify_script_with_context, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script_with_context};
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 #[test]
@@ -35,18 +35,20 @@ fn test_cltv_success_with_context() {
         value: 1_000_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
-        &tx,
-        0,
-        &prevouts,
-        Some(500_000),
-        blvm_consensus::types::Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+            &tx,
+            0,
+            &prevouts,
+            Some(500_000),
+            blvm_consensus::types::Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -74,18 +76,20 @@ fn test_cltv_fails_when_locktime_too_low() {
         value: 1_000_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
-        &tx,
-        0,
-        &prevouts,
-        Some(500_000),
-        blvm_consensus::types::Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+            &tx,
+            0,
+            &prevouts,
+            Some(500_000),
+            blvm_consensus::types::Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -113,18 +117,20 @@ fn test_cltv_fails_with_final_sequence() {
         value: 1_000_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
-        &tx,
-        0,
-        &prevouts,
-        None,
-        blvm_consensus::types::Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+            &tx,
+            0,
+            &prevouts,
+            None,
+            blvm_consensus::types::Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -152,18 +158,20 @@ fn test_csv_success_with_context() {
         value: 1_000_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
-        &tx,
-        0,
-        &prevouts,
-        None,
-        blvm_consensus::types::Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+            &tx,
+            0,
+            &prevouts,
+            None,
+            blvm_consensus::types::Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]
@@ -191,18 +199,20 @@ fn test_csv_fails_when_sequence_too_low() {
         value: 1_000_000,
         script_pubkey: script_pubkey.clone().into(),
     }];
-    assert!(!verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
-        &tx,
-        0,
-        &prevouts,
-        None,
-        blvm_consensus::types::Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+            &tx,
+            0,
+            &prevouts,
+            None,
+            blvm_consensus::types::Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]

@@ -4,7 +4,7 @@
 //! block weight calculation, and witness handling.
 
 use super::bip_test_helpers::*;
-use bitcoin_hashes::{sha256d, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, sha256d};
 use blvm_consensus::constants::MAX_BLOCK_WEIGHT as u64;
 use blvm_consensus::opcodes::*;
 use blvm_consensus::script::verify_script_with_context_full;

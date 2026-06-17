@@ -124,11 +124,7 @@ pub(crate) fn _verify_f_stack_size_safe(depth: i64) -> i64 {
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_expand_target_zero_mantissa(bits: u64) -> i64 {
     let mantissa = bits & 0x007fffff;
-    if mantissa == 0 {
-        0
-    } else {
-        1
-    } // else branch is unreachable under requires
+    if mantissa == 0 { 0 } else { 1 } // else branch is unreachable under requires
 }
 
 /// Witness for **F_ExpandTargetExponent** (PROTOCOL.md §7.1).
@@ -160,11 +156,7 @@ pub(crate) fn _verify_f_expand_target_exponent(bits: i64) -> i64 {
 #[blvm_spec_lock::ensures(result != 0)]
 pub(crate) fn _verify_f_expand_target_non_zero_mantissa(bits: u64) -> i64 {
     let mantissa = bits & 0x007fffff;
-    if mantissa == 0 {
-        0
-    } else {
-        1
-    }
+    if mantissa == 0 { 0 } else { 1 }
 }
 
 // ─── §6.1 GetBlockSubsidy ────────────────────────────────────────────────────
@@ -707,11 +699,7 @@ pub(crate) fn _verify_f_eval_seq_locks_both_met(
 #[blvm_spec_lock::requires(block_version == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_header_version_floor(block_version: i64) -> i64 {
-    if block_version >= 1 {
-        1
-    } else {
-        0
-    }
+    if block_version >= 1 { 1 } else { 0 }
 }
 
 /// Witness for **F_HeaderBitsFloor** (PROTOCOL.md §5.3.1).
@@ -728,11 +716,7 @@ pub(crate) fn _verify_f_header_version_floor(block_version: i64) -> i64 {
 #[blvm_spec_lock::requires(bits == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_header_bits_floor(bits: i64) -> i64 {
-    if bits != 0 {
-        1
-    } else {
-        0
-    }
+    if bits != 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.1 BIP30: Duplicate Coinbase Prevention ──────────────────────────────
@@ -752,11 +736,7 @@ pub(crate) fn _verify_f_header_bits_floor(bits: i64) -> i64 {
 #[blvm_spec_lock::requires(bip30_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip30_deactivation_pass(bip30_active: i64) -> i64 {
-    if bip30_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip30_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.2 BIP34: Block Height in Coinbase ───────────────────────────────────
@@ -776,11 +756,7 @@ pub(crate) fn _verify_f_bip30_deactivation_pass(bip30_active: i64) -> i64 {
 #[blvm_spec_lock::requires(bip34_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip34_pre_activation_pass(bip34_active: i64) -> i64 {
-    if bip34_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip34_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.8 BIP348: CSFS Degenerate Case Algebra ────────────────────────────
@@ -852,11 +828,7 @@ pub(crate) fn _verify_f_csfs_empty_sig_valid(sig_len: u64, pk_len: u64) -> bool 
 #[blvm_spec_lock::requires(bip66_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
-    if bip66_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip66_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.4 BIP90: Block Version Enforcement ─────────────────────────────────
@@ -872,11 +844,7 @@ pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
 #[blvm_spec_lock::requires(bip90_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
-    if bip90_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip90_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.5 BIP147: NULLDUMMY Enforcement ────────────────────────────────────
@@ -893,11 +861,7 @@ pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
 #[blvm_spec_lock::requires(bip147_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip147_pre_activation_pass(bip147_active: i64) -> i64 {
-    if bip147_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip147_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.9 BIP54: Consensus Cleanup ─────────────────────────────────────────

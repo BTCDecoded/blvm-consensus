@@ -1,7 +1,7 @@
 //! COV-C-02g: OP_CHECKMULTISIG / CHECKMULTISIGVERIFY interpreter paths.
 
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_3, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY};
-use blvm_consensus::script::{eval_script, verify_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 #[test]
 fn test_checkmultisig_zero_of_zero_succeeds() {

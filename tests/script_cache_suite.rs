@@ -6,7 +6,7 @@ use blvm_consensus::block::{
     get_block_script_flags, get_block_script_verify_flags_core, script_flag_exceptions_lookup,
 };
 use blvm_consensus::constants::{
-    BIP112_CSV_ACTIVATION_MAINNET, BIP16_P2SH_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET,
+    BIP16_P2SH_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET, BIP112_CSV_ACTIVATION_MAINNET,
     SEGWIT_ACTIVATION_MAINNET,
 };
 use blvm_consensus::opcodes::OP_1;

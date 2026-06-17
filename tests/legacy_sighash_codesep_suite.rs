@@ -3,8 +3,8 @@
 
 use blvm_consensus::opcodes::{OP_CHECKSIG, OP_CODESEPARATOR, OP_DUP};
 use blvm_consensus::transaction_hash::{
-    calculate_transaction_sighash_single_input, serialize_script_code_for_legacy_sighash,
-    SighashType,
+    SighashType, calculate_transaction_sighash_single_input,
+    serialize_script_code_for_legacy_sighash,
 };
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 

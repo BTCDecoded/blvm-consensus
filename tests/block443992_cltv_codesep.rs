@@ -13,7 +13,7 @@ mod helpers;
 
 use blvm_consensus::script::flags::SCRIPT_VERIFY_P2SH;
 use blvm_consensus::script::{
-    verify_script_with_context, verify_script_with_context_full, SigVersion,
+    SigVersion, verify_script_with_context, verify_script_with_context_full,
 };
 use blvm_consensus::types::Network;
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
@@ -27,8 +27,7 @@ fn hex(s: &str) -> Vec<u8> {
 
 // Block 443992, input 0: prevout d014ff03ab6e7181...:7
 // scriptSig: PUSH(sig1) PUSH(pk2) PUSH(sig2) PUSHDATA1(redeem_210bytes)
-const SCRIPT_SIG_HEX: &str =
-    "483045022100ac4319cf798ab10d864ad5f206cd405b7a15957eef2b0094ab24ffcf2c28fbfb\
+const SCRIPT_SIG_HEX: &str = "483045022100ac4319cf798ab10d864ad5f206cd405b7a15957eef2b0094ab24ffcf2c28fbfb\
 022012053c8142d9e4f832d85c6ce7dba82d44d011c7713fb584771fb8770da97c0c01\
 2102c8662aaa171b5c98fef66c02138165f600c7c5743380686958e395edf8eb36bf\
 47304402202feedc3b54cd87868406e93ee650742b61ce39162d70b6fde5a805fd40a56c9\
@@ -235,7 +234,7 @@ fn test_block443992_sig_verification_direct() {
 #[test]
 fn test_block443992_sighash_debug() {
     use blvm_consensus::transaction_hash::{
-        calculate_transaction_sighash_single_input, SighashType,
+        SighashType, calculate_transaction_sighash_single_input,
     };
     let tx = make_tx();
     let prevout_script = hex(PREVOUT_SCRIPT_HEX);
@@ -284,8 +283,12 @@ ad74926404162c5658b15167762103db22e387923ad0552e1c4a4355324313af85926d4266c0eaa8
     // Expected values: BLVM strips OP_CODESEPARATOR from scriptCode (per Core SerializeScriptCode).
     // Gate: full 210B redeem → 5 OP_CODESEPARATOR stripped → 205B → sighash 1d893b45…
     // cond5: subscript redeem[199..] is 11B with no OP_CODESEPARATOR → unchanged → 6da9ad27…
-    eprintln!("Expected CHECKSIGVERIFY sighash: 1d893b45c5d005bf6a20a0ab1ad19c16e92da602e9984180d947e2798aef1e41");
-    eprintln!("Expected cond5 CHECKSIG sighash: 6da9ad27370c9788ac72fe032e22f9391fc492c3807d670328430bafbccca704");
+    eprintln!(
+        "Expected CHECKSIGVERIFY sighash: 1d893b45c5d005bf6a20a0ab1ad19c16e92da602e9984180d947e2798aef1e41"
+    );
+    eprintln!(
+        "Expected cond5 CHECKSIG sighash: 6da9ad27370c9788ac72fe032e22f9391fc492c3807d670328430bafbccca704"
+    );
 
     assert_eq!(
         hex::encode(h1),
@@ -340,9 +343,11 @@ fn test_block443992_via_context_full() {
 /// If both return INVALID, the bug is elsewhere (e.g. wrong sighash, wrong stack layout).
 #[test]
 fn test_block443992_secp256k1_c_vs_blvm_secp() {
-    use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
+    use secp256k1::{Message, PublicKey, Secp256k1, ecdsa::Signature};
 
-    let sig2_der = hex("304402202feedc3b54cd87868406e93ee650742b61ce39162d70b6fde5a805fd40a56c900220015970a2fc874c32edfcd6341981d35e5b019a14b17662e00f49e363db72b93c");
+    let sig2_der = hex(
+        "304402202feedc3b54cd87868406e93ee650742b61ce39162d70b6fde5a805fd40a56c900220015970a2fc874c32edfcd6341981d35e5b019a14b17662e00f49e363db72b93c",
+    );
     let pk1_bytes = hex("02fb6827937707bf432d85b094bc180ab93394ee013b3ecaafa04b9135e3ab6e50");
     // Correct gate sighash: full redeem with OP_CODESEPARATOR stripped (205B)
     let gate_hash = hex("1d893b45c5d005bf6a20a0ab1ad19c16e92da602e9984180d947e2798aef1e41");

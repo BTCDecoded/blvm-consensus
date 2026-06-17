@@ -4,11 +4,11 @@
 //! including block validation, merkle root calculation, and batch operations.
 
 use blvm_consensus::{
+    ConsensusProof, UtxoSet, ValidationResult,
     mining::{calculate_merkle_root, generate_block_template},
     optimizations::simd_vectorization,
     serialization::{block::serialize_block, transaction::serialize_transaction},
     types::{Block, BlockHeader, Transaction},
-    ConsensusProof, UtxoSet, ValidationResult,
 };
 
 /// Test that block validation produces identical results with/without production feature

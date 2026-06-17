@@ -1,7 +1,7 @@
 //! Shared Core transaction vector loader (tx_valid.json / tx_invalid.json).
 
-use blvm_consensus::serialization::transaction::deserialize_transaction;
 use blvm_consensus::Transaction;
+use blvm_consensus::serialization::transaction::deserialize_transaction;
 use hex;
 use serde_json::Value;
 use std::fs;

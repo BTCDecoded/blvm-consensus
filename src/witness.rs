@@ -262,17 +262,21 @@ mod tests {
         assert!(!validate_taproot_witness_structure(&invalid, false).unwrap());
 
         // Valid: 65-byte sig with explicit SIGHASH_ALL (Core accepts)
-        let with_hashtype = vec![vec![0x01; 64]
-            .into_iter()
-            .chain([0x01u8])
-            .collect::<Vec<_>>()];
+        let with_hashtype = vec![
+            vec![0x01; 64]
+                .into_iter()
+                .chain([0x01u8])
+                .collect::<Vec<_>>(),
+        ];
         assert!(validate_taproot_witness_structure(&with_hashtype, false).unwrap());
 
         // Invalid: explicit SIGHASH_DEFAULT suffix
-        let invalid_hashtype = vec![vec![0x01; 64]
-            .into_iter()
-            .chain([0x00u8])
-            .collect::<Vec<_>>()];
+        let invalid_hashtype = vec![
+            vec![0x01; 64]
+                .into_iter()
+                .chain([0x00u8])
+                .collect::<Vec<_>>(),
+        ];
         assert!(!validate_taproot_witness_structure(&invalid_hashtype, false).unwrap());
 
         // Invalid: multiple elements

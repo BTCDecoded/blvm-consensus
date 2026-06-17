@@ -2,7 +2,7 @@
 //!
 //! Regression for sort-merge step6 failures at blocks 812363–814371 (OpCount on inscription paths).
 
-use blvm_consensus::script::{eval_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script};
 use blvm_consensus::types::ByteString;
 
 #[test]

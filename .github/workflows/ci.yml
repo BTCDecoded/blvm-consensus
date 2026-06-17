@@ -204,7 +204,7 @@ jobs:
         run: |
           if ! cargo clippy --version >/dev/null 2>&1; then
             echo "Skipping Clippy (cargo-clippy not installed for the active toolchain)"
-            exit 0
+            exit 1
           fi
           cargo clippy --lib --bins -- -D warnings
 
@@ -856,27 +856,6 @@ jobs:
             git log "$COMMIT_RANGE" --pretty=format:"  - %s" | grep -iE "(breaking|!|major|incompatible)" || true
           else
             echo "✅ No obvious breaking changes detected"
-          fi
-      
-      - name: Check CHANGELOG
-        if: env.CARGO_REGISTRY_TOKEN != ''
-        run: |
-          echo "📝 Checking CHANGELOG.md..."
-          if [ ! -f "CHANGELOG.md" ]; then
-            echo "⚠️  CHANGELOG.md not found (optional but recommended)"
-            exit 0
-          fi
-          
-          # Check if there's an [Unreleased] section with content
-          if grep -q "^## \[Unreleased\]" CHANGELOG.md; then
-            UNRELEASED_LINES=$(sed -n '/^## \[Unreleased\]/,/^## /p' CHANGELOG.md | grep -c "^-" || echo "0")
-            if [ "$UNRELEASED_LINES" -gt 0 ]; then
-              echo "✅ CHANGELOG.md has [Unreleased] entries ($UNRELEASED_LINES items)"
-            else
-              echo "⚠️  CHANGELOG.md has [Unreleased] section but no entries"
-            fi
-          else
-            echo "⚠️  CHANGELOG.md doesn't have [Unreleased] section"
           fi
       
       - name: Determine version

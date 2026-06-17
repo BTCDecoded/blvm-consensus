@@ -10,9 +10,9 @@ use digest::Digest;
 use ripemd::Ripemd160;
 use sha1::Sha1;
 
-use super::signature;
-use super::stack::{to_stack_element, StackElement};
 use super::SigVersion;
+use super::signature;
+use super::stack::{StackElement, to_stack_element};
 
 const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
 

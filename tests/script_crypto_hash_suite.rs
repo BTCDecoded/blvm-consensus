@@ -1,8 +1,8 @@
 //! COV-C-02f: Hash opcode coverage (SHA256, RIPEMD160, HASH160, HASH256).
 
-use bitcoin_hashes::{hash160, ripemd160, sha256, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, hash160, ripemd160, sha256};
 use blvm_consensus::opcodes::{OP_HASH160, OP_HASH256, OP_PUSHDATA1, OP_RIPEMD160, OP_SHA256};
-use blvm_consensus::script::{eval_script, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script};
 
 fn push_bytes(script: &mut Vec<u8>, data: &[u8]) {
     let len = data.len();

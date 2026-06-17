@@ -5,7 +5,7 @@ mod core_script_tests;
 
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_NOT};
 use blvm_consensus::script::flags::{SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_STRICTENC};
-use blvm_consensus::script::{eval_script, verify_script, verify_script_with_context, SigVersion};
+use blvm_consensus::script::{SigVersion, eval_script, verify_script, verify_script_with_context};
 use blvm_consensus::types::Network;
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 use core_script_tests::{load_default_script_vectors, parse_flag_string, score_core_script_tests};
@@ -69,13 +69,15 @@ fn test_op_checksig_nullfail_rejects_failed_nonempty_sig() {
     stack.push(vec![OP_0].into());
     stack.push(vec![0x02, 0x01, 0x01].into());
     let script = vec![OP_CHECKSIG];
-    assert!(eval_script(
-        &script,
-        &mut stack,
-        blvm_consensus::script::flags::SCRIPT_VERIFY_NULLFAIL,
-        SigVersion::Base,
-    )
-    .is_err());
+    assert!(
+        eval_script(
+            &script,
+            &mut stack,
+            blvm_consensus::script::flags::SCRIPT_VERIFY_NULLFAIL,
+            SigVersion::Base,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -104,18 +106,20 @@ fn test_checksig_not_with_transaction_context() {
     script_pubkey.push(OP_NOT);
 
     let (tx, prevouts) = sample_tx(script_sig.clone(), script_pubkey.clone());
-    assert!(verify_script_with_context(
-        &tx.inputs[0].script_sig,
-        &script_pubkey,
-        None,
-        flags,
-        &tx,
-        0,
-        &prevouts,
-        Some(500_000),
-        Network::Mainnet,
-    )
-    .unwrap());
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            flags,
+            &tx,
+            0,
+            &prevouts,
+            Some(500_000),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
 }
 
 #[test]

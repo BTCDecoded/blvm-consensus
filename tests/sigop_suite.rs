@@ -1,6 +1,6 @@
 //! COV-C-05b: Sigop counting and cost coverage (legacy, P2SH, witness, tapscript).
 
-use bitcoin_hashes::{hash160, sha256, Hash as BitcoinHash};
+use bitcoin_hashes::{Hash as BitcoinHash, hash160, sha256};
 use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_3, OP_CHECKMULTISIG, OP_CHECKSIG, OP_CHECKSIGADD, OP_EQUAL, OP_HASH160,
     PUSH_20_BYTES, PUSH_32_BYTES,
@@ -13,7 +13,7 @@ use blvm_consensus::sigop::{
     get_transaction_sigop_cost_with_utxos, get_transaction_sigop_count,
     get_transaction_sigop_count_for_bip54, is_pay_to_script_hash,
 };
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet};
 use std::sync::Arc;
 
 fn p2sh_scriptpubkey(redeem_script: &[u8]) -> Vec<u8> {

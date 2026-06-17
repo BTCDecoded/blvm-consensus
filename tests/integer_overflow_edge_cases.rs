@@ -10,7 +10,7 @@ use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::transaction::check_transaction;
 use blvm_consensus::transaction::check_tx_inputs;
 use blvm_consensus::types::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
+    OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet,
 };
 
 /// Test that output value sum overflow is detected correctly

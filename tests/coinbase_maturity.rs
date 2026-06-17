@@ -5,7 +5,7 @@
 //!
 //! Consensus-critical: Spending coinbase too early causes consensus violation.
 
-use blvm_consensus::block::{connect_block, BlockValidationContext};
+use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::{
     Block, BlockHeader, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,

@@ -12,20 +12,20 @@ use crate::opcodes::*;
 use crate::profile_log;
 #[cfg(not(feature = "production"))]
 use crate::script::verify_script_with_context_full;
-use crate::segwit::{validate_witness_commitment, Witness};
+use crate::segwit::{Witness, validate_witness_commitment};
 #[cfg(not(feature = "production"))]
 use crate::transaction::check_tx_inputs;
 use crate::transaction::{check_transaction, is_coinbase};
 use crate::types::*;
-use crate::utxo_overlay::{apply_transaction_to_overlay_no_undo, UtxoOverlay};
+use crate::utxo_overlay::{UtxoOverlay, apply_transaction_to_overlay_no_undo};
 use crate::witness::is_witness_empty;
 use std::borrow::Cow;
 
 #[cfg(feature = "production")]
 use super::script_cache;
 use super::{
-    apply, header, script_cache::get_block_script_verify_flags_core, BlockValidationContext,
-    UtxoDelta,
+    BlockValidationContext, UtxoDelta, apply, header,
+    script_cache::get_block_script_verify_flags_core,
 };
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -1694,7 +1694,16 @@ pub(crate) fn connect_block_inner<'a>(
                     let pct = |n: u64| (100.0 * n as f64 / total as f64).round() as u32;
                     eprintln!(
                         "[FAST_PATH] Block {}: p2pk={}% p2pkh={}% p2sh={}% p2wpkh={}% p2wsh={}% p2tr={}% bare_ms={}% interpreter={}% (n={})",
-                        height, pct(p2pk), pct(p2pkh), pct(p2sh), pct(p2wpkh), pct(p2wsh), pct(p2tr), pct(bare_ms), pct(interp), total
+                        height,
+                        pct(p2pk),
+                        pct(p2pkh),
+                        pct(p2sh),
+                        pct(p2wpkh),
+                        pct(p2wsh),
+                        pct(p2tr),
+                        pct(bare_ms),
+                        pct(interp),
+                        total
                     );
                 }
             }
@@ -1813,19 +1822,38 @@ pub(crate) fn connect_block_inner<'a>(
                     let drain_secp_ms = drain_secp_ns as f64 / 1_000_000.0;
                     // script_checks_queued = inputs sent to CCheckQueue (0 when assume-valid skips signatures).
                     // (Former field ecdsa_sigs was always 0 here — misleading vs real verification.)
-                    profile_log!("[PERF] Block {}: total={:?} (validation_loop={:?} batch={:?}), script_sub: sighash={:.2}ms interpreter={:.2}ms multisig={:.2}ms p2pkh_entry={:.2}ms p2pkh_parse={:.2}ms p2pkh_hash160={:.2}ms p2pkh_bip66={:.2}ms p2pkh_collect={:.2}ms p2pkh_secp={:.2}ms collect_slot={:.2}ms collect_lock={:.2}ms collect_copy={:.2}ms collect_chunk={:.2}ms worker_refs={:.2}ms worker_p2pkh={:.2}ms worker_refs_lock={:.2}ms run_check_loop={:.2}ms results_extend={:.2}ms batch_extract={:.2}ms batch_secp={:.2}ms batch_cache={:.2}ms drain_copy={:.2}ms drain_parse={:.2}ms drain_secp={:.2}ms ecdsa_cache_hits={} ecdsa_cache_misses={}, structure={:?}, input_lookup={:?}, check_inputs={:?}, overlay_apply={:?}, txs={} inputs={} schnorr_batch_sigs={} script_checks_queued={}",
+                    profile_log!(
+                        "[PERF] Block {}: total={:?} (validation_loop={:?} batch={:?}), script_sub: sighash={:.2}ms interpreter={:.2}ms multisig={:.2}ms p2pkh_entry={:.2}ms p2pkh_parse={:.2}ms p2pkh_hash160={:.2}ms p2pkh_bip66={:.2}ms p2pkh_collect={:.2}ms p2pkh_secp={:.2}ms collect_slot={:.2}ms collect_lock={:.2}ms collect_copy={:.2}ms collect_chunk={:.2}ms worker_refs={:.2}ms worker_p2pkh={:.2}ms worker_refs_lock={:.2}ms run_check_loop={:.2}ms results_extend={:.2}ms batch_extract={:.2}ms batch_secp={:.2}ms batch_cache={:.2}ms drain_copy={:.2}ms drain_parse={:.2}ms drain_secp={:.2}ms ecdsa_cache_hits={} ecdsa_cache_misses={}, structure={:?}, input_lookup={:?}, check_inputs={:?}, overlay_apply={:?}, txs={} inputs={} schnorr_batch_sigs={} script_checks_queued={}",
                         height,
                         total_with_batch,
                         total_script_time,
                         total_batch_time,
-                        sighash_ms, interpreter_ms, multisig_ms,
-                        p2pkh_entry_ms, p2pkh_parse_ms, p2pkh_hash160_ms, p2pkh_bip66_ms, p2pkh_collect_ms, p2pkh_secp_ms,
-                        collect_slot_ms, collect_lock_ms, collect_copy_ms, collect_chunk_ms,
-                        worker_refs_ms, worker_p2pkh_ms,
-                        worker_refs_lock_ms, run_check_loop_ms, results_extend_ms,
-                        batch_extract_ms, batch_secp_ms, batch_cache_ms,
-                        drain_copy_ms, drain_parse_ms, drain_secp_ms,
-                        ecdsa_cache_hits, ecdsa_cache_misses,
+                        sighash_ms,
+                        interpreter_ms,
+                        multisig_ms,
+                        p2pkh_entry_ms,
+                        p2pkh_parse_ms,
+                        p2pkh_hash160_ms,
+                        p2pkh_bip66_ms,
+                        p2pkh_collect_ms,
+                        p2pkh_secp_ms,
+                        collect_slot_ms,
+                        collect_lock_ms,
+                        collect_copy_ms,
+                        collect_chunk_ms,
+                        worker_refs_ms,
+                        worker_p2pkh_ms,
+                        worker_refs_lock_ms,
+                        run_check_loop_ms,
+                        results_extend_ms,
+                        batch_extract_ms,
+                        batch_secp_ms,
+                        batch_cache_ms,
+                        drain_copy_ms,
+                        drain_parse_ms,
+                        drain_secp_ms,
+                        ecdsa_cache_hits,
+                        ecdsa_cache_misses,
                         total_tx_structure_time,
                         total_input_lookup_time,
                         total_check_tx_inputs_time,
@@ -1851,15 +1879,31 @@ pub(crate) fn connect_block_inner<'a>(
                         if perf_cliff_sample_height(height, perf_cliff_stride()) {
                             profile_log!(
                                 "[PERF_CLIFF] Block {}: total={:.1}ms | script={:.0}% batch={:.0}% input_lookup={:.0}% check_inputs={:.0}% overlay={:.0}% structure={:.0}% | txs={} inputs={}",
-                                height, total_ms, script_pct, batch_pct, input_lookup_pct, check_inputs_pct, overlay_pct, structure_pct,
-                                block_arc.transactions.len(), total_inputs
+                                height,
+                                total_ms,
+                                script_pct,
+                                batch_pct,
+                                input_lookup_pct,
+                                check_inputs_pct,
+                                overlay_pct,
+                                structure_pct,
+                                block_arc.transactions.len(),
+                                total_inputs
                             );
                         }
                         if total_ms > 20.0 {
                             profile_log!(
                                 "[PERF_SLOW] Block {}: total={:.1}ms | script={:.0}% batch={:.0}% input_lookup={:.0}% check_inputs={:.0}% overlay={:.0}% structure={:.0}% | txs={} inputs={}",
-                                height, total_ms, script_pct, batch_pct, input_lookup_pct, check_inputs_pct, overlay_pct, structure_pct,
-                                block_arc.transactions.len(), total_inputs
+                                height,
+                                total_ms,
+                                script_pct,
+                                batch_pct,
+                                input_lookup_pct,
+                                check_inputs_pct,
+                                overlay_pct,
+                                structure_pct,
+                                block_arc.transactions.len(),
+                                total_inputs
                             );
                         }
                     }
@@ -1952,7 +1996,9 @@ pub(crate) fn connect_block_inner<'a>(
                                 #[cfg(debug_assertions)]
                                 eprintln!(
                                     "   ⚠️ [UTXO MISSING] Block {} TX {} input {}: prevout {:?}:{} not found",
-                                    height, i, input_idx,
+                                    height,
+                                    i,
+                                    input_idx,
                                     hex::encode(&input.prevout.hash),
                                     input.prevout.index
                                 );
@@ -2084,13 +2130,8 @@ pub(crate) fn connect_block_inner<'a>(
                         // Reuse input_utxos instead of overlay.get()
                         if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
                             let witness_elem = tx_witnesses.and_then(|w| w.get(j));
-                            let witness_for_script = witness_elem.and_then(|w| {
-                                if is_witness_empty(w) {
-                                    None
-                                } else {
-                                    Some(w)
-                                }
-                            });
+                            let witness_for_script = witness_elem
+                                .and_then(|w| if is_witness_empty(w) { None } else { Some(w) });
 
                             if !verify_script_with_context_full(
                                 &input.script_sig,
@@ -2199,7 +2240,8 @@ pub(crate) fn connect_block_inner<'a>(
             let validation_elapsed = validation_start.elapsed();
             #[cfg(feature = "profile")]
             {
-                profile_log!("[PERF] Block {}: total={:?}, structure={:?}, input_lookup={:?}, script={:?}, overlay_apply={:?}, txs={}, inputs={}",
+                profile_log!(
+                    "[PERF] Block {}: total={:?}, structure={:?}, input_lookup={:?}, script={:?}, overlay_apply={:?}, txs={}, inputs={}",
                     height,
                     validation_elapsed,
                     total_tx_structure_time,
@@ -2207,7 +2249,12 @@ pub(crate) fn connect_block_inner<'a>(
                     total_script_time,
                     total_overlay_apply_time,
                     block.transactions.len(),
-                    block.transactions.iter().filter(|tx| !is_coinbase(tx)).map(|tx| tx.inputs.len()).sum::<usize>()
+                    block
+                        .transactions
+                        .iter()
+                        .filter(|tx| !is_coinbase(tx))
+                        .map(|tx| tx.inputs.len())
+                        .sum::<usize>()
                 );
                 profile_log!("[PERF_DEBUG] Profiling logged for block {}", height);
             }
@@ -2366,13 +2413,8 @@ pub(crate) fn connect_block_inner<'a>(
                         // witnesses is Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
                         // and each Witness is for one input
                         let witness_stack = tx_witnesses.and_then(|tx_wits| tx_wits.get(j));
-                        let witness_for_script = witness_stack.and_then(|w| {
-                            if is_witness_empty(w) {
-                                None
-                            } else {
-                                Some(w)
-                            }
-                        });
+                        let witness_for_script = witness_stack
+                            .and_then(|w| if is_witness_empty(w) { None } else { Some(w) });
 
                         // Use verify_script_with_context_full for BIP65/112 support
                         if !verify_script_with_context_full(

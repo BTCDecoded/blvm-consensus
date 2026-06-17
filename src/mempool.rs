@@ -1135,7 +1135,7 @@ mod tests {
         // 3. Has higher fee rate and absolute fee
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 8000; // Fee = 10000 - 8000 = 2000 sats
-                                        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
+        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
         new_tx.outputs[0].value = 7999; // Fee = 10000 - 7999 = 2001 sats
 
         // Should pass all BIP125 checks
@@ -1225,8 +1225,8 @@ mod tests {
 
         // Now with sufficient fee
         new_tx.outputs[0].value = 7999; // Fee = 2001 sats (sufficient)
-                                        // Should still fail on other checks (conflict, etc.), but fee check passes
-                                        // For full test, need to ensure conflict exists
+        // Should still fail on other checks (conflict, etc.), but fee check passes
+        // For full test, need to ensure conflict exists
     }
 
     // ============================================================================

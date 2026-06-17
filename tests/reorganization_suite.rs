@@ -2,8 +2,8 @@
 
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::reorganization::{
-    calculate_chain_work, reorganize_chain, reorganize_chain_with_witnesses, should_reorganize,
-    BlockUndoLog,
+    BlockUndoLog, calculate_chain_work, reorganize_chain, reorganize_chain_with_witnesses,
+    should_reorganize,
 };
 use blvm_consensus::types::{Hash, Network};
 use blvm_consensus::{
@@ -95,7 +95,7 @@ fn test_reorganize_chain_empty_chains_errors() {
 fn test_update_mempool_after_reorg_simple_removes_connected_tx() {
     use blvm_consensus::block::calculate_tx_id;
     use blvm_consensus::mempool::Mempool;
-    use blvm_consensus::reorganization::{update_mempool_after_reorg_simple, ReorganizationResult};
+    use blvm_consensus::reorganization::{ReorganizationResult, update_mempool_after_reorg_simple};
     use std::collections::{HashMap, HashSet};
 
     let block = chain(1).pop().expect("one block");
@@ -124,7 +124,7 @@ fn test_update_mempool_after_reorg_simple_removes_connected_tx() {
 fn test_update_mempool_after_reorg_with_lookup_removes_conflict() {
     use blvm_consensus::block::calculate_tx_id;
     use blvm_consensus::mempool::Mempool;
-    use blvm_consensus::reorganization::{update_mempool_after_reorg, ReorganizationResult};
+    use blvm_consensus::reorganization::{ReorganizationResult, update_mempool_after_reorg};
     use blvm_consensus::{
         Block, BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput,
     };
@@ -258,7 +258,7 @@ fn connect_regtest_blocks_from(
     mut prev_hash: Hash,
     nonce_offset: u64,
 ) -> (Vec<Block>, UtxoSet, HashMap<Hash, BlockUndoLog>) {
-    use blvm_consensus::block::{connect_block, BlockValidationContext};
+    use blvm_consensus::block::{BlockValidationContext, connect_block};
     use blvm_consensus::mining::calculate_merkle_root;
     use blvm_consensus::segwit::Witness;
 
@@ -312,7 +312,7 @@ fn extend_regtest_fork(
     extra_blocks: usize,
     nonce_offset: u64,
 ) -> (Vec<Block>, UtxoSet, HashMap<Hash, BlockUndoLog>) {
-    use blvm_consensus::block::{connect_block, BlockValidationContext};
+    use blvm_consensus::block::{BlockValidationContext, connect_block};
     use blvm_consensus::mining::calculate_merkle_root;
     use blvm_consensus::segwit::Witness;
 
@@ -497,7 +497,7 @@ fn test_reorganize_chain_rejects_empty_new_chain() {
 fn test_update_mempool_after_reorg_removes_spent_prevout_without_block_include() {
     use blvm_consensus::block::calculate_tx_id;
     use blvm_consensus::mempool::Mempool;
-    use blvm_consensus::reorganization::{update_mempool_after_reorg, ReorganizationResult};
+    use blvm_consensus::reorganization::{ReorganizationResult, update_mempool_after_reorg};
 
     let spent_prevout = OutPoint {
         hash: [0x88; 32],

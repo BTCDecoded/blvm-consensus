@@ -7,6 +7,14 @@ use blvm_consensus::config::{
     NetworkMessageLimits, PerformanceConfig,
 };
 
+fn env_set(key: &str, value: &str) {
+    unsafe { std::env::set_var(key, value) }
+}
+
+fn env_remove(key: &str) {
+    unsafe { std::env::remove_var(key) }
+}
+
 #[test]
 fn test_network_message_limits_default() {
     let limits = NetworkMessageLimits::default();
@@ -123,14 +131,14 @@ fn test_consensus_config_from_env_parses_values() {
         "BLVM_MAX_REORG_DEPTH",
     ];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_ASSUME_VALID_HEIGHT", "424242");
-    std::env::set_var("BLVM_MTP_HEADERS", "15");
-    std::env::set_var("BLVM_MEMPOOL_MB", "128");
-    std::env::set_var("BLVM_STRICT_MODE", "true");
-    std::env::set_var("BLVM_MAX_REORG_DEPTH", "144");
+    env_set("BLVM_ASSUME_VALID_HEIGHT", "424242");
+    env_set("BLVM_MTP_HEADERS", "15");
+    env_set("BLVM_MEMPOOL_MB", "128");
+    env_set("BLVM_STRICT_MODE", "true");
+    env_set("BLVM_MAX_REORG_DEPTH", "144");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.block_validation.assume_valid_height, 424_242);
@@ -140,17 +148,17 @@ fn test_consensus_config_from_env_parses_values() {
     assert_eq!(config.advanced.max_reorg_depth, 144);
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
 #[test]
 fn test_consensus_config_from_env_parses_debug_and_feature_flags() {
-    std::env::remove_var("BLVM_CONSENSUS_DEBUG");
-    std::env::remove_var("BLVM_CONSENSUS_FEATURES");
+    env_remove("BLVM_CONSENSUS_DEBUG");
+    env_remove("BLVM_CONSENSUS_FEATURES");
 
-    std::env::set_var("BLVM_CONSENSUS_DEBUG", "assertions,rejections");
-    std::env::set_var("BLVM_CONSENSUS_FEATURES", "batch_txid,simd_hash");
+    env_set("BLVM_CONSENSUS_DEBUG", "assertions,rejections");
+    env_set("BLVM_CONSENSUS_FEATURES", "batch_txid,simd_hash");
 
     let config = ConsensusConfig::from_env();
     assert!(config.debug.enable_runtime_assertions);
@@ -159,16 +167,16 @@ fn test_consensus_config_from_env_parses_debug_and_feature_flags() {
     assert!(config.features.enable_batch_tx_id_computation);
     assert!(config.features.enable_simd_hash_operations);
 
-    std::env::set_var("BLVM_CONSENSUS_DEBUG", "full");
-    std::env::set_var("BLVM_CONSENSUS_FEATURES", "full");
+    env_set("BLVM_CONSENSUS_DEBUG", "full");
+    env_set("BLVM_CONSENSUS_FEATURES", "full");
     let full = ConsensusConfig::from_env();
     assert!(full.debug.enable_runtime_invariants);
     assert!(full.debug.enable_performance_profiling);
     assert!(full.features.enable_aggressive_caching);
     assert!(full.features.enable_reference_checks);
 
-    std::env::remove_var("BLVM_CONSENSUS_DEBUG");
-    std::env::remove_var("BLVM_CONSENSUS_FEATURES");
+    env_remove("BLVM_CONSENSUS_DEBUG");
+    env_remove("BLVM_CONSENSUS_FEATURES");
 }
 
 #[test]
@@ -180,13 +188,13 @@ fn test_consensus_config_from_env_parses_performance_and_mempool_tuning() {
         "BLVM_CACHE_OPTIMIZATIONS",
     ];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_MEMPOOL_TXS", "50000");
-    std::env::set_var("BLVM_MEMPOOL_EXPIRY_HOURS", "48");
-    std::env::set_var("BLVM_SCRIPT_THREADS", "4");
-    std::env::set_var("BLVM_CACHE_OPTIMIZATIONS", "false");
+    env_set("BLVM_MEMPOOL_TXS", "50000");
+    env_set("BLVM_MEMPOOL_EXPIRY_HOURS", "48");
+    env_set("BLVM_SCRIPT_THREADS", "4");
+    env_set("BLVM_CACHE_OPTIMIZATIONS", "false");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.mempool.max_mempool_txs, 50_000);
@@ -195,24 +203,24 @@ fn test_consensus_config_from_env_parses_performance_and_mempool_tuning() {
     assert!(!config.performance.enable_cache_optimizations);
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
 #[test]
 fn test_consensus_config_from_env_parses_advanced_overrides() {
-    std::env::remove_var("BLVM_RBF");
-    std::env::remove_var("BLVM_MAX_BLOCK_SIZE");
+    env_remove("BLVM_RBF");
+    env_remove("BLVM_MAX_BLOCK_SIZE");
 
-    std::env::set_var("BLVM_RBF", "false");
-    std::env::set_var("BLVM_MAX_BLOCK_SIZE", "2000000");
+    env_set("BLVM_RBF", "false");
+    env_set("BLVM_MAX_BLOCK_SIZE", "2000000");
 
     let config = ConsensusConfig::from_env();
     assert!(!config.advanced.enable_rbf);
     assert_eq!(config.advanced.max_block_size_override, 2_000_000);
 
-    std::env::remove_var("BLVM_RBF");
-    std::env::remove_var("BLVM_MAX_BLOCK_SIZE");
+    env_remove("BLVM_RBF");
+    env_remove("BLVM_MAX_BLOCK_SIZE");
 }
 
 #[test]
@@ -223,12 +231,12 @@ fn test_consensus_config_from_env_parses_block_validation_overrides() {
         "BLVM_PARALLEL_VALIDATION",
     ];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_COINBASE_MATURITY", "50");
-    std::env::set_var("BLVM_MAX_SIGOPS_COST", "12000");
-    std::env::set_var("BLVM_PARALLEL_VALIDATION", "true");
+    env_set("BLVM_COINBASE_MATURITY", "50");
+    env_set("BLVM_MAX_SIGOPS_COST", "12000");
+    env_set("BLVM_PARALLEL_VALIDATION", "true");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.block_validation.coinbase_maturity_override, 50);
@@ -239,28 +247,28 @@ fn test_consensus_config_from_env_parses_block_validation_overrides() {
     assert!(config.block_validation.enable_parallel_validation);
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
 #[test]
 fn test_consensus_config_from_env_parses_network_limits() {
-    std::env::remove_var("BLVM_MAX_ADDR_ADDRESSES");
-    std::env::remove_var("BLVM_MAX_INV_ITEMS");
-    std::env::remove_var("BLVM_MAX_HEADERS");
+    env_remove("BLVM_MAX_ADDR_ADDRESSES");
+    env_remove("BLVM_MAX_INV_ITEMS");
+    env_remove("BLVM_MAX_HEADERS");
 
-    std::env::set_var("BLVM_MAX_ADDR_ADDRESSES", "500");
-    std::env::set_var("BLVM_MAX_INV_ITEMS", "1000");
-    std::env::set_var("BLVM_MAX_HEADERS", "500");
+    env_set("BLVM_MAX_ADDR_ADDRESSES", "500");
+    env_set("BLVM_MAX_INV_ITEMS", "1000");
+    env_set("BLVM_MAX_HEADERS", "500");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.network_limits.max_addr_addresses, 500);
     assert_eq!(config.network_limits.max_inv_items, 1000);
     assert_eq!(config.network_limits.max_headers, 500);
 
-    std::env::remove_var("BLVM_MAX_ADDR_ADDRESSES");
-    std::env::remove_var("BLVM_MAX_INV_ITEMS");
-    std::env::remove_var("BLVM_MAX_HEADERS");
+    env_remove("BLVM_MAX_ADDR_ADDRESSES");
+    env_remove("BLVM_MAX_INV_ITEMS");
+    env_remove("BLVM_MAX_HEADERS");
 }
 
 #[test]
@@ -272,13 +280,13 @@ fn test_consensus_config_from_env_parses_extended_mempool_and_network_limits() {
         "BLVM_MEMPOOL_RBF_FEE_INCREMENT",
     ];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_MAX_USER_AGENT_LENGTH", "512");
-    std::env::set_var("BLVM_MEMPOOL_MIN_RELAY_FEE", "5");
-    std::env::set_var("BLVM_MEMPOOL_MIN_TX_FEE", "1000");
-    std::env::set_var("BLVM_MEMPOOL_RBF_FEE_INCREMENT", "500");
+    env_set("BLVM_MAX_USER_AGENT_LENGTH", "512");
+    env_set("BLVM_MEMPOOL_MIN_RELAY_FEE", "5");
+    env_set("BLVM_MEMPOOL_MIN_TX_FEE", "1000");
+    env_set("BLVM_MEMPOOL_RBF_FEE_INCREMENT", "500");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.network_limits.max_user_agent_length, 512);
@@ -287,7 +295,7 @@ fn test_consensus_config_from_env_parses_extended_mempool_and_network_limits() {
     assert_eq!(config.mempool.rbf_fee_increment, 500);
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
@@ -303,16 +311,16 @@ fn test_consensus_config_from_env_parses_utxo_commitment_and_performance_tuning(
         "BLVM_BATCH_UTXO_LOOKUPS",
     ];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_UTXO_COMMITMENT_MAX_SET_MB", "64");
-    std::env::set_var("BLVM_UTXO_COMMITMENT_MAX_UTXO_COUNT", "5000000");
-    std::env::set_var("BLVM_UTXO_COMMITMENT_MAX_HISTORICAL", "12");
-    std::env::set_var("BLVM_UTXO_COMMITMENT_INCREMENTAL", "true");
-    std::env::set_var("BLVM_PARALLEL_BATCH_SIZE", "256");
-    std::env::set_var("BLVM_SIMD", "true");
-    std::env::set_var("BLVM_BATCH_UTXO_LOOKUPS", "true");
+    env_set("BLVM_UTXO_COMMITMENT_MAX_SET_MB", "64");
+    env_set("BLVM_UTXO_COMMITMENT_MAX_UTXO_COUNT", "5000000");
+    env_set("BLVM_UTXO_COMMITMENT_MAX_HISTORICAL", "12");
+    env_set("BLVM_UTXO_COMMITMENT_INCREMENTAL", "true");
+    env_set("BLVM_PARALLEL_BATCH_SIZE", "256");
+    env_set("BLVM_SIMD", "true");
+    env_set("BLVM_BATCH_UTXO_LOOKUPS", "true");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.utxo_commitment.max_utxo_commitment_set_mb, 64);
@@ -324,7 +332,7 @@ fn test_consensus_config_from_env_parses_utxo_commitment_and_performance_tuning(
     assert!(config.performance.enable_batch_utxo_lookups);
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
@@ -332,25 +340,25 @@ fn test_consensus_config_from_env_parses_utxo_commitment_and_performance_tuning(
 fn test_consensus_config_from_env_parses_ibd_chunk_settings() {
     let keys = ["BLVM_IBD_CHUNK_THRESHOLD", "BLVM_IBD_MIN_CHUNK_SIZE"];
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 
-    std::env::set_var("BLVM_IBD_CHUNK_THRESHOLD", "5000");
-    std::env::set_var("BLVM_IBD_MIN_CHUNK_SIZE", "128");
+    env_set("BLVM_IBD_CHUNK_THRESHOLD", "5000");
+    env_set("BLVM_IBD_MIN_CHUNK_SIZE", "128");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.performance.ibd_chunk_threshold, Some(5000));
     assert_eq!(config.performance.ibd_min_chunk_size, Some(128));
 
     for key in keys {
-        std::env::remove_var(key);
+        env_remove(key);
     }
 }
 
 #[test]
 fn test_consensus_config_from_env_parses_custom_checkpoints() {
-    std::env::remove_var("BLVM_CUSTOM_CHECKPOINTS");
-    std::env::set_var("BLVM_CUSTOM_CHECKPOINTS", "100000, 250000 ,500000");
+    env_remove("BLVM_CUSTOM_CHECKPOINTS");
+    env_set("BLVM_CUSTOM_CHECKPOINTS", "100000, 250000 ,500000");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(
@@ -358,5 +366,5 @@ fn test_consensus_config_from_env_parses_custom_checkpoints() {
         vec![100_000, 250_000, 500_000]
     );
 
-    std::env::remove_var("BLVM_CUSTOM_CHECKPOINTS");
+    env_remove("BLVM_CUSTOM_CHECKPOINTS");
 }

@@ -8,7 +8,7 @@ mod script_asm;
 use blvm_consensus::script::verify_script;
 use blvm_consensus::types::{Network, Witness};
 use blvm_consensus::{
-    OutPoint, Transaction, TransactionInput, TransactionOutput, SEGWIT_ACTIVATION_MAINNET,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
 use script_asm::parse_core_script_asm;
 use serde_json::Value;
@@ -313,8 +313,8 @@ pub fn load_witness_script_test_vectors(
     Ok(vectors)
 }
 
-pub fn load_default_witness_script_vectors(
-) -> Result<Vec<WitnessScriptTestVector>, Box<dyn std::error::Error>> {
+pub fn load_default_witness_script_vectors()
+-> Result<Vec<WitnessScriptTestVector>, Box<dyn std::error::Error>> {
     if !Path::new(SCRIPT_VECTORS_PATH).exists() {
         return Ok(Vec::new());
     }

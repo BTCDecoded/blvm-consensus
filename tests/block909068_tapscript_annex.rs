@@ -2,7 +2,7 @@
 //! Core accepts; BLVM must return Ok(true).
 
 use blvm_consensus::block::get_block_script_verify_flags_core;
-use blvm_consensus::script::{verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::serialization::transaction::deserialize_transaction_with_witness;
 use blvm_consensus::taproot::parse_taproot_script_path_witness;
 use blvm_consensus::types::Network;
