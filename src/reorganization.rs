@@ -1024,6 +1024,21 @@ mod tests {
     }
 
     #[test]
+    fn test_find_common_ancestor_shared_prefix_unequal_length() {
+        let b0 = create_test_block_at_height(0);
+        let b1 = create_test_block_at_height(1);
+        let b2 = create_test_block_at_height(2);
+        let b3 = create_test_block_at_height(3);
+
+        let new_chain = vec![b0.clone(), b1.clone(), b2, b3];
+        let current_chain = vec![b0, b1];
+
+        let ancestor = find_common_ancestor(&new_chain, &current_chain).unwrap();
+        assert_eq!(ancestor.new_chain_index, 1);
+        assert_eq!(ancestor.current_chain_index, 1);
+    }
+
+    #[test]
     fn test_find_common_ancestor_empty_chain() {
         let new_chain = vec![];
         let current_chain = vec![create_test_block()];

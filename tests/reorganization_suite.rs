@@ -378,8 +378,9 @@ fn test_reorganize_chain_extends_regtest_chain() {
 
     let result = reorganize_chain(&longer, &current, utxo_at_tip, 2, Network::Regtest).unwrap();
     assert_eq!(result.new_height, 4);
-    assert_eq!(result.reorganization_depth, 1);
-    assert_eq!(result.connected_blocks.len(), 3);
+    // Shared prefix through current tip: no disconnect, only extend with blocks 3–4.
+    assert_eq!(result.reorganization_depth, 0);
+    assert_eq!(result.connected_blocks.len(), 2);
 }
 
 #[test]
@@ -427,8 +428,8 @@ fn test_reorganize_chain_with_witnesses_extends_regtest() {
     .unwrap();
 
     assert_eq!(result.new_height, 4);
-    assert_eq!(result.reorganization_depth, 1);
-    assert_eq!(result.connected_blocks.len(), 3);
+    assert_eq!(result.reorganization_depth, 0);
+    assert_eq!(result.connected_blocks.len(), 2);
 }
 
 #[test]
@@ -612,9 +613,10 @@ fn test_reorganize_fork_disconnects_tip_with_undo_logs() {
     .unwrap();
 
     assert_eq!(result.new_height, 4);
-    assert_eq!(result.reorganization_depth, 2);
-    assert_eq!(result.disconnected_blocks.len(), 2);
-    assert_eq!(result.connected_blocks.len(), 3);
+    // Fork at height 2 (index 1): disconnect one stale tip block, connect two fork blocks.
+    assert_eq!(result.reorganization_depth, 1);
+    assert_eq!(result.disconnected_blocks.len(), 1);
+    assert_eq!(result.connected_blocks.len(), 2);
 }
 
 #[test]
