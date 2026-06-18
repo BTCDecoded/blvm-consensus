@@ -205,7 +205,7 @@ pub fn script_flag_exceptions_lookup(block_hash: &Hash, network: Network) -> Opt
                 None
             }
         }
-        Network::Regtest => None,
+        Network::Regtest | Network::Signet => None,
     }
 }
 

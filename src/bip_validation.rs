@@ -168,7 +168,9 @@ pub fn is_bip54_active_at(
         None => match network {
             crate::types::Network::Mainnet => crate::constants::BIP54_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP54_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest => crate::constants::BIP54_ACTIVATION_REGTEST,
+            crate::types::Network::Regtest | crate::types::Network::Signet => {
+                crate::constants::BIP54_ACTIVATION_REGTEST
+            }
         },
     };
     height >= activation
@@ -183,6 +185,61 @@ pub fn is_bip54_active_at(
 #[spec_locked("5.4.9", "IsBip54Active")]
 pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool {
     is_bip54_active_at(height, network, None)
+}
+
+/// BIP54 timewarp mitigation at difficulty period boundaries (Orange Paper §5.4.9).
+#[spec_locked("5.4.9", "BIP54TimewarpCheck")]
+pub fn check_bip54_timewarp(
+    header: &BlockHeader,
+    height: Natural,
+    boundary: Option<&Bip54BoundaryTimestamps>,
+    bip54_active: bool,
+) -> bool {
+    if !bip54_active {
+        return true;
+    }
+    let rem = height % 2016;
+    if rem == 2015 {
+        let Some(b) = boundary else {
+            return false;
+        };
+        header.timestamp >= b.timestamp_n_minus_2015
+    } else if rem == 0 {
+        let Some(b) = boundary else {
+            return false;
+        };
+        const TWOHOURS: u64 = 7200;
+        let min_ts = b.timestamp_n_minus_1.saturating_sub(TWOHOURS);
+        header.timestamp >= min_ts
+    } else {
+        true
+    }
+}
+
+/// BIP54: reject non-coinbase txs with witness-stripped size exactly 64 bytes.
+#[spec_locked("5.4.9", "CheckBip54TxStrippedSize")]
+pub fn check_bip54_tx_stripped_size(tx: &Transaction) -> bool {
+    is_coinbase(tx) || crate::transaction::calculate_transaction_size(tx) != 64
+}
+
+/// BIP54 per-transaction sigop cap (≤ 2,500 for non-coinbase when active).
+#[spec_locked("5.4.9", "CheckBip54SigOpLimit")]
+pub fn check_bip54_sigop_limit<U: crate::utxo_overlay::UtxoLookup>(
+    bip54_active: bool,
+    tx: &Transaction,
+    utxo_lookup: &U,
+    wits: Option<&[Witness]>,
+    tx_flags: u32,
+) -> Result<Option<&'static str>> {
+    if !bip54_active || is_coinbase(tx) {
+        return Ok(None);
+    }
+    let sigop_count =
+        crate::sigop::get_transaction_sigop_count_for_bip54(tx, utxo_lookup, wits, tx_flags)?;
+    if sigop_count > crate::constants::BIP54_MAX_SIGOPS_PER_TX {
+        return Ok(Some("BIP54: Transaction sigop count exceeds 2500"));
+    }
+    Ok(None)
 }
 
 /// BIP54: Coinbase nLockTime and nSequence (Consensus Cleanup).

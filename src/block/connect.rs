@@ -78,26 +78,6 @@ fn invalid_block_result<'a>(
     ))
 }
 
-/// BIP54 per-transaction sigop cap (§1.3 — single place for prod / non-prod paths).
-fn check_bip54_sigop_limit<U: crate::utxo_overlay::UtxoLookup>(
-    bip54_active: bool,
-    tx: &Transaction,
-    utxo_lookup: &U,
-    wits: Option<&[Witness]>,
-    tx_flags: u32,
-    tx_ids: &[Hash],
-) -> Result<Option<&'static str>> {
-    if !bip54_active || is_coinbase(tx) {
-        return Ok(None);
-    }
-    let sigop_count =
-        crate::sigop::get_transaction_sigop_count_for_bip54(tx, utxo_lookup, wits, tx_flags)?;
-    if sigop_count > crate::constants::BIP54_MAX_SIGOPS_PER_TX {
-        return Ok(Some("BIP54: Transaction sigop count exceeds 2500"));
-    }
-    Ok(None)
-}
-
 /// Defer [`invalid_block_result`] until the script pre-queue loop owns `utxo_set` again.
 #[cfg(all(feature = "production", feature = "rayon"))]
 #[derive(Debug)]
@@ -377,47 +357,13 @@ pub(crate) fn connect_block_inner<'a>(
     }
 
     // BIP54 timewarp: at period boundaries require boundary timestamps and enforce rules
-    if bip54_active {
-        let rem = height % 2016;
-        if rem == 2015 {
-            let boundary = match bip54_boundary {
-                Some(b) => b,
-                None => {
-                    return invalid_block_result(
-                        utxo_set,
-                        &[],
-                        "BIP54: Boundary timestamps required at last block of period",
-                    );
-                }
-            };
-            if block.header.timestamp < boundary.timestamp_n_minus_2015 {
-                return invalid_block_result(
-                    utxo_set,
-                    &[],
-                    "BIP54: Block timestamp must be >= timestamp of first block of period",
-                );
-            }
-        } else if rem == 0 {
-            let boundary = match bip54_boundary {
-                Some(b) => b,
-                None => {
-                    return invalid_block_result(
-                        utxo_set,
-                        &[],
-                        "BIP54: Boundary timestamps required at first block of period",
-                    );
-                }
-            };
-            const TWOHOURS: u64 = 7200;
-            let min_ts = boundary.timestamp_n_minus_1.saturating_sub(TWOHOURS);
-            if block.header.timestamp < min_ts {
-                return invalid_block_result(
-                    utxo_set,
-                    &[],
-                    "BIP54: Block timestamp must be >= (previous block timestamp - 7200)",
-                );
-            }
-        }
+    if !crate::bip_validation::check_bip54_timewarp(
+        &block.header,
+        height,
+        bip54_boundary.as_ref(),
+        bip54_active,
+    ) {
+        return invalid_block_result(utxo_set, &[], "BIP54: Timewarp check failed");
     }
 
     // Check block weight (DoS prevention)
@@ -582,8 +528,7 @@ pub(crate) fn connect_block_inner<'a>(
             );
         }
         for tx in block.transactions.iter().skip(1) {
-            let stripped_size = crate::transaction::calculate_transaction_size(tx);
-            if stripped_size == 64 {
+            if !crate::bip_validation::check_bip54_tx_stripped_size(tx) {
                 return invalid_block_result(
                     utxo_set,
                     &[],
@@ -998,13 +943,12 @@ pub(crate) fn connect_block_inner<'a>(
                                         break;
                                     }
                                 };
-                            if let Some(msg) = check_bip54_sigop_limit(
+                            if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
                                 bip54_active,
                                 tx,
                                 &overlay,
                                 wits_i,
                                 tx_flags_i,
-                                tx_ids,
                             )? {
                                 early_return =
                                     Some(Ok(ConnectQueueEarlyExit::Invalid(msg.to_string())));
@@ -1074,13 +1018,12 @@ pub(crate) fn connect_block_inner<'a>(
                                     break;
                                 }
                             }
-                            if let Some(msg) = check_bip54_sigop_limit(
+                            if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
                                 bip54_active,
                                 tx,
                                 &overlay,
                                 wits_i,
                                 tx_flags_i,
-                                tx_ids,
                             )? {
                                 early_return =
                                     Some(Ok(ConnectQueueEarlyExit::Invalid(msg.to_string())));
@@ -1947,9 +1890,13 @@ pub(crate) fn connect_block_inner<'a>(
                 // Accumulate sigop for this tx (non-rayon path; overlay has prev txs)
                 let wits_i = witnesses.get(i).map(|w| w.as_slice());
                 let tx_flags = block_script_verify_flags;
-                if let Some(msg) =
-                    check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
-                {
+                if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
+                    bip54_active,
+                    tx,
+                    &overlay,
+                    wits_i,
+                    tx_flags,
+                )? {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
 
@@ -2230,9 +2177,13 @@ pub(crate) fn connect_block_inner<'a>(
                         )?,
                     )
                     .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
-                if let Some(msg) =
-                    check_bip54_sigop_limit(bip54_active, tx_j, &overlay, wits_j, tx_flags, tx_ids)?
-                {
+                if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
+                    bip54_active,
+                    tx_j,
+                    &overlay,
+                    wits_j,
+                    tx_flags,
+                )? {
                     return invalid_block_result(utxo_set, tx_ids, msg);
                 }
             }
@@ -2296,9 +2247,13 @@ pub(crate) fn connect_block_inner<'a>(
                 )
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
 
-            if let Some(msg) =
-                check_bip54_sigop_limit(bip54_active, tx, &overlay, wits_i, tx_flags, tx_ids)?
-            {
+            if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
+                bip54_active,
+                tx,
+                &overlay,
+                wits_i,
+                tx_flags,
+            )? {
                 return invalid_block_result(utxo_set, tx_ids, msg);
             }
 
@@ -2534,41 +2489,11 @@ pub(crate) fn connect_block_inner<'a>(
             ));
         }
 
-        // Use checked sum to prevent overflow when summing coinbase outputs
-        let coinbase_output: i64 = coinbase
-            .outputs
-            .iter()
-            .try_fold(0i64, |acc, output| {
-                acc.checked_add(output.value).ok_or_else(|| {
-                    ConsensusError::BlockValidation("Coinbase output value overflow".into())
-                })
-            })
-            .map_err(|e| ConsensusError::BlockValidation(Cow::Owned(e.to_string())))?;
-
-        if coinbase_output < 0 {
-            return invalid_block_result(utxo_set, tx_ids, "Coinbase output must be non-negative");
-        }
-        // Check that coinbase output doesn't exceed MAX_MONEY
-        if coinbase_output > MAX_MONEY {
+        if !crate::economic::check_coinbase_subsidy(coinbase, subsidy, total_fees) {
             return invalid_block_result(
                 utxo_set,
                 tx_ids,
-                format!("Coinbase output {coinbase_output} exceeds maximum money supply"),
-            );
-        }
-
-        // Use checked arithmetic for fee + subsidy calculation
-        let max_coinbase_value = total_fees
-            .checked_add(subsidy)
-            .ok_or_else(|| ConsensusError::BlockValidation("Fees + subsidy overflow".into()))?;
-
-        if coinbase_output > max_coinbase_value {
-            return invalid_block_result(
-                utxo_set,
-                tx_ids,
-                format!(
-                    "Coinbase output {coinbase_output} exceeds fees {total_fees} + subsidy {subsidy}"
-                ),
+                format!("Coinbase output exceeds fees {total_fees} + subsidy {subsidy}"),
             );
         }
 
@@ -2594,6 +2519,14 @@ pub(crate) fn connect_block_inner<'a>(
                         "Invalid witness commitment in coinbase transaction",
                     );
                 }
+            }
+        }
+
+        if let Some(challenge) =
+            crate::signet::signet_challenge(context.network, context.signet_challenge.as_deref())
+        {
+            if !crate::signet::check_signet_block_solution(block, challenge.as_ref(), height)? {
+                return invalid_block_result(utxo_set, tx_ids, "Invalid signet block solution");
             }
         }
     } else {
@@ -2856,44 +2789,9 @@ fn connect_block_inner_with_tx_ids(
     // This ensures no money creation or destruction beyond expected inflation
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     {
-        use crate::constants::MAX_MONEY;
-        use crate::economic::{get_block_subsidy, total_supply};
-
-        let expected_supply = total_supply(height);
-        if !(0..=MAX_MONEY).contains(&expected_supply) {
-            return Err(ConsensusError::BlockValidation(
-                format!("Expected supply {expected_supply} out of valid range [0, MAX_MONEY]")
-                    .into(),
-            ));
-        }
-
-        if utxo_set.len() > u32::MAX as usize {
-            return Err(ConsensusError::BlockValidation(
-                format!("UTXO set size {} must fit in u32", utxo_set.len()).into(),
-            ));
-        }
-
-        let mut actual_supply: i64 = 0i64;
-        for utxo in utxo_set.values() {
-            let v = utxo.value;
-            if !(0..=MAX_MONEY).contains(&v) {
-                return Err(ConsensusError::BlockValidation(
-                    format!("UTXO value {v} out of valid range [0, MAX_MONEY]").into(),
-                ));
-            }
-            actual_supply = actual_supply.checked_add(v).ok_or_else(|| {
-                ConsensusError::BlockValidation("UTXO supply sum overflow".into())
-            })?;
-        }
-
-        let subsidy = get_block_subsidy(height);
-        let _expected_change = subsidy.saturating_add(total_fees);
-
-        let supply_plus_fees = expected_supply.saturating_add(total_fees);
-        // Soft check: model vs summed UTXOs (can warn in dev if economics/UTXO state diverge).
         debug_assert!(
-            actual_supply <= supply_plus_fees,
-            "Supply invariant violated at height {height}: actual supply {actual_supply} exceeds expected {expected_supply} + fees {total_fees}"
+            crate::economic::verify_utxo_supply(&utxo_set, height),
+            "UTXO supply invariant violated at height {height}"
         );
     }
 

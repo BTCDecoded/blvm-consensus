@@ -74,10 +74,13 @@ pub fn bip54_deployment_regtest() -> Bip9Deployment {
 #[spec_locked("5.4.9", "Bip54DeploymentForNetwork")]
 #[blvm_spec_lock::ensures(result.bit == 15)]
 pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Deployment {
-    match network {
-        crate::types::Network::Mainnet => bip54_deployment_mainnet(),
-        crate::types::Network::Testnet => bip54_deployment_testnet(),
-        crate::types::Network::Regtest => bip54_deployment_regtest(),
+    // if/else (not enum match) so spec-lock Z3 can model control flow with Signet.
+    if *network == crate::types::Network::Mainnet {
+        bip54_deployment_mainnet()
+    } else if *network == crate::types::Network::Testnet {
+        bip54_deployment_testnet()
+    } else {
+        bip54_deployment_regtest()
     }
 }
 
@@ -100,6 +103,7 @@ pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Depl
 /// When scanning the chain sequentially, merge multiple `Some(h)` values with `h.min(...)` so
 /// an earlier period’s lock-in (smaller activation height) is not overwritten by a later window’s
 /// larger computed height (see `merge_bip54_activation_candidate`).
+#[spec_locked("5.4.9", "ActivationHeightFromVersionBits")]
 pub fn activation_height_from_headers<H: AsRef<BlockHeader>>(
     headers: &[H],
     current_height: u64,

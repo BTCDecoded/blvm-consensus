@@ -690,6 +690,13 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:$PATH"
+          # Self-hosted runners occasionally leave half-extracted registry crates
+          # (EEXIST on .cargo-ok). Drop the broken tree and refetch before build.
+          find "${CARGO_HOME}/registry/src" -maxdepth 2 -type d -name 'blvm-secp256k1-*' 2>/dev/null \
+            | while read -r d; do
+                test -f "$d/.cargo-ok" || rm -rf "$d"
+              done || true
+          cargo +nightly fetch --manifest-path Cargo.toml
           # blvm-protocol from crates.io resolves ../blvm-spec relative to its
           # registry cache path, which doesn't exist. SPEC_LOCK_SPEC_PATH (absolute)
           # overrides the proc-macro lookup for every crate in the build graph.

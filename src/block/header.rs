@@ -16,9 +16,11 @@
 //! - **H02** — height-dependent version minimums (version ≥ 2/3/4 after BIP34/66/65): see
 //!   [`crate::bip_validation::check_bip90`], called by `connect_block_inner`.
 //! - **H07** — proof of work (hash vs compact target): see [`crate::pow::check_proof_of_work`].
-//! - **H08** — parent hash linkage: enforced by the node chain layer, not `blvm-consensus`.
+//! - **H08** — parent hash linkage: pure predicate [`validate_prev_block_hash`]; the node chain
+//!   layer supplies the parent header/hash and rejects blocks that fail H08 before `connect_block`.
 //!
-//! Callers connecting a block must invoke all three to satisfy `ValidBlockHeader` in full.
+//! Callers connecting a block must invoke H02, H07, and H08 (via the predicate) in addition to
+//! [`validate_block_header`] to satisfy `ValidBlockHeader` in full.
 //!
 //! ## Refactor / audit notes (coordinate with `blvm-spec-lock` before changing shape)
 //!
@@ -43,7 +45,7 @@ use blvm_spec_lock::spec_locked;
 /// - [`crate::bip_validation::check_bip90`] — H02: height-dependent version minimums
 /// - [`crate::pow::check_proof_of_work`] — H07: hash vs compact target
 ///
-/// Parent hash linkage (H08) is enforced by the node layer.
+/// Parent hash linkage (H08): [`validate_prev_block_hash`]; orchestration is in the node layer.
 ///
 /// # Arguments
 ///
@@ -91,4 +93,67 @@ pub(crate) fn validate_block_header(
         assert!(result || !result, "Validation result must be boolean");
     }
     Ok(result)
+}
+
+/// Double-SHA256 hash of an 80-byte serialized block header (Bitcoin block id).
+#[spec_locked("5.3.1", "BlockHeaderHash")]
+#[inline]
+pub fn block_header_hash(header: &BlockHeader) -> crate::types::Hash {
+    use blvm_primitives::crypto::hash256;
+    use blvm_primitives::serialization::serialize_block_header;
+    hash256(&serialize_block_header(header))
+}
+
+/// H08 (§5.3.1): `child.prev_block_hash` MUST equal `block_header_hash(parent)`.
+///
+/// Pure predicate for spec-lock binding. The node layer calls this before `connect_block` when
+/// the parent header is known; IBD/header sync enforces the same invariant while walking the chain.
+#[spec_locked("5.3.1", "ValidatePrevBlockHash")]
+#[blvm_spec_lock::ensures(result == true || result == false)]
+#[inline]
+pub fn validate_prev_block_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
+    child.prev_block_hash == block_header_hash(parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::BlockHeader;
+
+    #[test]
+    fn validate_prev_block_hash_accepts_matching_parent() {
+        let parent = BlockHeader {
+            version: 1,
+            prev_block_hash: [0u8; 32],
+            merkle_root: [1u8; 32],
+            timestamp: 1,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+        let parent_hash = block_header_hash(&parent);
+        let child = BlockHeader {
+            prev_block_hash: parent_hash,
+            merkle_root: [2u8; 32],
+            ..parent
+        };
+        assert!(validate_prev_block_hash(&child, &parent));
+    }
+
+    #[test]
+    fn validate_prev_block_hash_rejects_mismatch() {
+        let parent = BlockHeader {
+            version: 1,
+            prev_block_hash: [0u8; 32],
+            merkle_root: [1u8; 32],
+            timestamp: 1,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+        let child = BlockHeader {
+            prev_block_hash: [9u8; 32],
+            merkle_root: [2u8; 32],
+            ..parent
+        };
+        assert!(!validate_prev_block_hash(&child, &parent));
+    }
 }

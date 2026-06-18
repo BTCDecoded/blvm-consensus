@@ -10,6 +10,21 @@ use crate::utxo_overlay::UtxoLookup;
 use blvm_spec_lock::spec_locked;
 use std::borrow::Cow;
 
+/// CheckCoinbaseMaturity: spend of coinbase output at height h valid iff h ≥ creation_height + R.
+#[spec_locked("5.1", "CheckCoinbaseMaturity")]
+#[inline]
+pub fn check_coinbase_maturity(
+    spend_height: Natural,
+    utxo_creation_height: Natural,
+    is_coinbase: bool,
+) -> bool {
+    if !is_coinbase {
+        return true;
+    }
+    let required = utxo_creation_height.saturating_add(COINBASE_MATURITY);
+    spend_height >= required
+}
+
 // Cold error construction helpers - these paths are rarely taken
 #[cold]
 fn make_output_sum_overflow_error() -> ConsensusError {
@@ -513,25 +528,15 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
             // Check coinbase maturity: coinbase outputs cannot be spent until COINBASE_MATURITY blocks deep
             // Consensus: coinbase outputs require COINBASE_MATURITY confirmations
             // We check: if utxo.is_coinbase && height < utxo.height + COINBASE_MATURITY
-            if utxo.is_coinbase {
-                use crate::constants::COINBASE_MATURITY;
+            if utxo.is_coinbase && !check_coinbase_maturity(height, utxo.height, true) {
                 let required_height = utxo.height.saturating_add(COINBASE_MATURITY);
-                // Invariant assertion: Height must be sufficient for coinbase maturity
-                assert!(
-                    height >= utxo.height,
-                    "Current height {} must be >= UTXO creation height {}",
-                    height,
-                    utxo.height
-                );
-                if height < required_height {
-                    return Ok((
-                        ValidationResult::Invalid(format!(
-                            "Premature spend of coinbase output: input {i} created at height {} cannot be spent until height {} (current: {})",
-                            utxo.height, required_height, height
-                        )),
-                        0,
-                    ));
-                }
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "Premature spend of coinbase output: input {i} created at height {} cannot be spent until height {} (current: {})",
+                        utxo.height, required_height, height
+                    )),
+                    0,
+                ));
             }
 
             // Use checked arithmetic to prevent overflow
@@ -646,17 +651,13 @@ pub fn check_tx_inputs_with_owned_data(
                     0,
                 ));
             }
-            if *is_coinbase {
-                use crate::constants::COINBASE_MATURITY;
-                let required_height = utxo_height.saturating_add(COINBASE_MATURITY);
-                if height < required_height {
-                    return Ok((
-                        ValidationResult::Invalid(format!(
-                            "Premature spend of coinbase output at input {i}"
-                        )),
-                        0,
-                    ));
-                }
+            if *is_coinbase && !check_coinbase_maturity(height, *utxo_height, true) {
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "Premature spend of coinbase output at input {i}"
+                    )),
+                    0,
+                ));
             }
             total_input_value = total_input_value.checked_add(*value).ok_or_else(|| {
                 ConsensusError::TransactionValidation(

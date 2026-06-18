@@ -295,6 +295,10 @@ fn return_pooled_stack(mut stack: Vec<StackElement>) {
 #[cfg(feature = "production")]
 static CACHE_DISABLED: AtomicBool = AtomicBool::new(false);
 
+/// When true, `verify_script_with_context_full` skips fast paths (P4.2 differential harness).
+#[cfg(feature = "production")]
+static FAST_PATHS_DISABLED: AtomicBool = AtomicBool::new(false);
+
 /// Disable caching for benchmarking
 ///
 /// When disabled, all cache lookups are bypassed, ensuring consistent performance
@@ -315,10 +319,21 @@ pub fn disable_caching(disabled: bool) {
     CACHE_DISABLED.store(disabled, Ordering::Relaxed);
 }
 
+/// Skip script fast paths so results come from the full interpreter (P4.2 equivalence tests).
+#[cfg(feature = "production")]
+pub fn disable_fast_paths(disabled: bool) {
+    FAST_PATHS_DISABLED.store(disabled, Ordering::Relaxed);
+}
+
 /// Check if caching is disabled
 #[cfg(feature = "production")]
 fn is_caching_disabled() -> bool {
     CACHE_DISABLED.load(Ordering::Relaxed)
+}
+
+#[cfg(feature = "production")]
+fn fast_paths_disabled() -> bool {
+    FAST_PATHS_DISABLED.load(Ordering::Relaxed)
 }
 
 /// Compute cache key for script verification
@@ -1374,7 +1389,7 @@ fn try_verify_p2sh_multisig_fast_path(
         let activation = match network {
             crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest => 0,
+            crate::types::Network::Regtest | crate::types::Network::Signet => 0,
         };
         if height >= activation && !dummy.is_empty() && dummy != [0x00] {
             return Some(Ok(false));
@@ -1507,7 +1522,7 @@ fn try_verify_bare_multisig_fast_path(
         let activation = match network {
             crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest => 0,
+            crate::types::Network::Regtest | crate::types::Network::Signet => 0,
         };
         if height >= activation && !dummy.is_empty() && dummy != [0x00] {
             return Some(Ok(false));
@@ -2202,7 +2217,7 @@ fn try_verify_p2wsh_fast_path(
                 let activation = match network {
                     crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
                     crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest => 0,
+                    crate::types::Network::Regtest | crate::types::Network::Signet => 0,
                 };
                 if height >= activation && !dummy.is_empty() && dummy != [0x00] {
                     return Some(Ok(false));
@@ -2549,7 +2564,7 @@ pub fn verify_script_with_context_full(
 
     // P2PK / P2PKH / P2SH fast-paths — skip interpreter for common legacy scripts
     #[cfg(feature = "production")]
-    if witness.is_none() {
+    if !fast_paths_disabled() && witness.is_none() {
         if let Some(result) = try_verify_p2pk_fast_path(
             script_sig,
             script_pubkey,
@@ -2624,91 +2639,93 @@ pub fn verify_script_with_context_full(
     }
     // P2WPKH / P2WSH / P2WPKH-in-P2SH fast-paths when witness present
     #[cfg(feature = "production")]
-    if let Some(wit) = witness {
-        if let Some(result) = try_verify_p2wpkh_in_p2sh_fast_path(
-            script_sig,
-            script_pubkey,
-            wit,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            network,
-            precomputed_bip143,
-        ) {
-            FAST_PATH_P2WPKH.fetch_add(1, Ordering::Relaxed);
-            return result;
-        }
-        if let Some(result) = try_verify_p2wpkh_fast_path(
-            script_sig,
-            script_pubkey,
-            wit,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            network,
-            precomputed_bip143,
-            precomputed_sighash_all,
-        ) {
-            FAST_PATH_P2WPKH.fetch_add(1, Ordering::Relaxed);
-            return result;
-        }
-        if let Some(result) = try_verify_p2wsh_fast_path(
-            script_sig,
-            script_pubkey,
-            wit,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            median_time_past,
-            network,
-            schnorr_collector,
-            precomputed_bip143,
-            #[cfg(feature = "production")]
-            sighash_cache,
-        ) {
-            FAST_PATH_P2WSH.fetch_add(1, Ordering::Relaxed);
-            return result;
-        }
-        if let Some(result) = try_verify_p2tr_scriptpath_p2pk_fast_path(
-            script_sig,
-            script_pubkey,
-            wit,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            network,
-            schnorr_collector,
-        ) {
-            FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
-            return result;
-        }
-        if let Some(result) = try_verify_p2tr_keypath_fast_path(
-            script_sig,
-            script_pubkey,
-            wit,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            network,
-            schnorr_collector,
-        ) {
-            FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
-            return result;
+    if !fast_paths_disabled() {
+        if let Some(wit) = witness {
+            if let Some(result) = try_verify_p2wpkh_in_p2sh_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                precomputed_bip143,
+            ) {
+                FAST_PATH_P2WPKH.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
+            if let Some(result) = try_verify_p2wpkh_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                precomputed_bip143,
+                precomputed_sighash_all,
+            ) {
+                FAST_PATH_P2WPKH.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
+            if let Some(result) = try_verify_p2wsh_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                median_time_past,
+                network,
+                schnorr_collector,
+                precomputed_bip143,
+                #[cfg(feature = "production")]
+                sighash_cache,
+            ) {
+                FAST_PATH_P2WSH.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
+            if let Some(result) = try_verify_p2tr_scriptpath_p2pk_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                schnorr_collector,
+            ) {
+                FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
+            if let Some(result) = try_verify_p2tr_keypath_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                schnorr_collector,
+            ) {
+                FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
         }
     }
     #[cfg(feature = "production")]
@@ -2792,20 +2809,22 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
         }
-        if let Some(result) = try_verify_p2sh_multisig_fast_path(
-            script_sig,
-            script_pubkey,
-            flags,
-            tx,
-            input_index,
-            prevout_values,
-            prevout_script_pubkeys,
-            block_height,
-            network,
-            #[cfg(feature = "production")]
-            sighash_cache,
-        ) {
-            return result;
+        if !fast_paths_disabled() {
+            if let Some(result) = try_verify_p2sh_multisig_fast_path(
+                script_sig,
+                script_pubkey,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                #[cfg(feature = "production")]
+                sighash_cache,
+            ) {
+                return result;
+            }
         }
     }
 
@@ -5749,7 +5768,9 @@ fn execute_opcode_with_context_full(
                 let bip147_network = match network {
                     crate::types::Network::Mainnet => Bip147Network::Mainnet,
                     crate::types::Network::Testnet => Bip147Network::Testnet,
-                    crate::types::Network::Regtest => Bip147Network::Regtest,
+                    crate::types::Network::Regtest | crate::types::Network::Signet => {
+                        Bip147Network::Regtest
+                    }
                 };
 
                 // For BIP147, the dummy element must be exactly [0x00] (OP_0) after activation
@@ -6305,7 +6326,9 @@ fn execute_opcode_with_context_full(
                 let ctv_activation = match network {
                     crate::types::Network::Mainnet => CTV_ACTIVATION_MAINNET,
                     crate::types::Network::Testnet => CTV_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest => CTV_ACTIVATION_REGTEST,
+                    crate::types::Network::Regtest | crate::types::Network::Signet => {
+                        CTV_ACTIVATION_REGTEST
+                    }
                 };
 
                 let ctv_active = block_height.map(|h| h >= ctv_activation).unwrap_or(false);
@@ -6422,7 +6445,9 @@ fn execute_opcode_with_context_full(
                 let csfs_activation = match network {
                     crate::types::Network::Mainnet => CSFS_ACTIVATION_MAINNET,
                     crate::types::Network::Testnet => CSFS_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest => CSFS_ACTIVATION_REGTEST,
+                    crate::types::Network::Regtest | crate::types::Network::Signet => {
+                        CSFS_ACTIVATION_REGTEST
+                    }
                 };
 
                 let csfs_active = block_height.map(|h| h >= csfs_activation).unwrap_or(false);

@@ -174,6 +174,7 @@ pub struct TaprootControlBlock {
 /// Witness format: [stack_items..., script, annex?, control_block]
 /// Annex: optional, last element before control block, must start with 0x50.
 /// Control block: leaf_version (1) + internal_pubkey (32) + merkle_proof (32*n).
+#[spec_locked("11.2.4", "ParseTaprootScriptPathWitness")]
 pub fn parse_taproot_script_path_witness(
     witness: &Witness,
     output_key: &[u8; 32],

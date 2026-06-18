@@ -139,12 +139,26 @@ impl ForkActivationTable {
                 CTV_ACTIVATION_REGTEST,
                 CSFS_ACTIVATION_REGTEST,
             ),
+            Network::Signet => (
+                BIP30_DEACTIVATION_REGTEST,
+                BIP16_P2SH_ACTIVATION_REGTEST,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                u64::MAX,
+                u64::MAX,
+            ),
         };
 
         let bip54 = bip54_activation_override.unwrap_or(match network {
             Network::Mainnet => BIP54_ACTIVATION_MAINNET,
             Network::Testnet => BIP54_ACTIVATION_TESTNET,
             Network::Regtest => BIP54_ACTIVATION_REGTEST,
+            Network::Signet => u64::MAX,
         });
 
         Self {
@@ -166,13 +180,18 @@ impl ForkActivationTable {
 
 /// Taproot (BIP341) activation height for `network` (Core `chainparams` mainnet vs testnet3).
 #[spec_locked("11.2", "TaprootActivationHeight")]
-#[blvm_spec_lock::ensures(result == 0 || result == 709632 || result == 2011968)]
+#[blvm_spec_lock::ensures(result == 0 || result == 1 || result == 709632 || result == 2011968)]
 #[inline]
 pub fn taproot_activation_height(network: Network) -> u64 {
-    match network {
-        Network::Mainnet => TAPROOT_ACTIVATION_MAINNET,
-        Network::Testnet => TAPROOT_ACTIVATION_TESTNET,
-        Network::Regtest => 0,
+    // if/else (not enum match) so spec-lock Z3 can model control flow with Signet.
+    if network == Network::Mainnet {
+        TAPROOT_ACTIVATION_MAINNET
+    } else if network == Network::Testnet {
+        TAPROOT_ACTIVATION_TESTNET
+    } else if network == Network::Signet {
+        1
+    } else {
+        0
     }
 }
 
@@ -193,7 +212,12 @@ mod tests {
 
     #[test]
     fn taproot_activation_height_matches_table() {
-        for net in [Network::Mainnet, Network::Testnet, Network::Regtest] {
+        for net in [
+            Network::Mainnet,
+            Network::Testnet,
+            Network::Regtest,
+            Network::Signet,
+        ] {
             let h = taproot_activation_height(net);
             let t = ForkActivationTable::from_network(net).taproot;
             assert_eq!(h, t, "{net:?}");

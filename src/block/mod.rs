@@ -10,6 +10,7 @@ mod connect;
 mod header;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
+pub use header::{block_header_hash, validate_prev_block_hash};
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
     get_block_script_flags, get_block_script_verify_flags_core, script_flag_exceptions_lookup,
@@ -314,6 +315,8 @@ pub struct BlockValidationContext {
     pub activation: ForkActivationTable,
     /// When BIP54 is active and block is at period boundary, timestamps for timewarp; else None.
     pub bip54_boundary: Option<crate::types::Bip54BoundaryTimestamps>,
+    /// Optional signet challenge script override (BIP325); default from `signet::default_signet_challenge`.
+    pub signet_challenge: Option<ByteString>,
 }
 
 impl BlockValidationContext {
@@ -336,6 +339,7 @@ impl BlockValidationContext {
             network,
             activation,
             bip54_boundary,
+            signet_challenge: None,
         }
     }
 
@@ -353,6 +357,7 @@ impl BlockValidationContext {
             network,
             activation,
             bip54_boundary,
+            signet_challenge: None,
         }
     }
 

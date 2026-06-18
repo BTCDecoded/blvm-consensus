@@ -242,6 +242,7 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
 /// Applies configurable policy overrides. When config is `None`, delegates to `is_standard_tx`.
 /// When config is present, config fields override the base policy for envelope protocol,
 /// multiple OP_RETURN, and script size limits.
+#[spec_locked("9.2", "IsStandardTxWithConfig")]
 pub fn is_standard_tx_with_config(
     tx: &crate::types::Transaction,
     config: Option<&blvm_primitives::config::MempoolConfig>,
@@ -692,8 +693,13 @@ where
     Ok(removed)
 }
 
-/// Check mempool-specific rules
-fn check_mempool_rules(tx: &Transaction, fee: Integer, mempool: &Mempool) -> Result<bool> {
+/// Check mempool-specific rules (relay policy).
+#[spec_locked("9.1", "CheckMempoolRules")]
+pub(crate) fn check_mempool_rules(
+    tx: &Transaction,
+    fee: Integer,
+    mempool: &Mempool,
+) -> Result<bool> {
     // Check minimum fee rate (simplified)
     let tx_size = calculate_transaction_size(tx);
     // Use integer-based fee rate calculation to avoid floating-point precision issues
@@ -833,6 +839,7 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
 /// Check if transaction signals RBF
 ///
 /// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
+#[spec_locked("9.3", "SignalsRBF")]
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
         if (input.sequence as u32) < SEQUENCE_FINAL {
@@ -857,6 +864,7 @@ fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
 ///
 /// A conflict exists if new_tx spends at least one input from existing_tx.
 /// This is requirement #4 of BIP125.
+#[spec_locked("9.3", "HasConflictWithTx")]
 pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> bool {
     for new_input in &new_tx.inputs {
         for existing_input in &existing_tx.inputs {
@@ -873,7 +881,8 @@ pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> 
 /// BIP125 requirement #5: All inputs of tx_2 must be:
 /// - Confirmed (in UTXO set), OR
 /// - From tx_1 (spending the same inputs)
-fn creates_new_dependencies(
+#[spec_locked("9.3", "CreatesNewDependencies")]
+pub(crate) fn creates_new_dependencies(
     new_tx: &Transaction,
     existing_tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -974,7 +983,8 @@ fn is_disabled_policy_opcode(opcode: u8) -> bool {
 }
 
 /// Check if script is standard
-fn is_standard_script(script: &ByteString) -> Result<bool> {
+#[spec_locked("9.1", "IsStandardScript")]
+pub(crate) fn is_standard_script(script: &ByteString) -> Result<bool> {
     if script.is_empty() {
         return Ok(false);
     }

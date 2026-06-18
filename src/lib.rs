@@ -111,6 +111,7 @@ pub(crate) mod script_exec_cache;
 pub mod secp256k1_backend;
 pub mod segwit;
 pub mod sequence_locks;
+pub mod signet;
 pub mod sigop;
 pub(crate) mod spec_witnesses;
 pub mod taproot;

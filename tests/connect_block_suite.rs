@@ -1390,7 +1390,7 @@ fn test_connect_rejects_bip54_period_end_without_boundary_timestamps() {
     let ctx = ctx_bip54_active(activation);
     let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
-        matches!(result, ValidationResult::Invalid(ref r) if r.contains("Boundary timestamps")),
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "period-end block without boundary data must fail: {result:?}"
     );
 }
@@ -1409,7 +1409,7 @@ fn test_connect_rejects_bip54_period_end_timestamp_before_first_of_period() {
     let ctx = ctx_bip54_with_boundary(activation, boundary);
     let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
-        matches!(result, ValidationResult::Invalid(ref r) if r.contains("first block of period")),
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "timestamp before period start must fail: {result:?}"
     );
 }
@@ -1428,7 +1428,7 @@ fn test_connect_rejects_bip54_period_start_timestamp_too_early() {
     let ctx = ctx_bip54_with_boundary(activation, boundary);
     let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
-        matches!(result, ValidationResult::Invalid(ref r) if r.contains("7200")),
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "period-start timestamp timewarp violation must fail: {result:?}"
     );
 }

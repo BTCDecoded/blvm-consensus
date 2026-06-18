@@ -48,6 +48,55 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
     subsidy
 }
 
+/// CheckCoinbaseSubsidy: 𝒯𝒳 × ℤ × ℤ → {true, false}
+///
+/// Coinbase output sum must not exceed block subsidy plus aggregated fees.
+#[spec_locked("5.3", "CheckCoinbaseSubsidy")]
+pub fn check_coinbase_subsidy(
+    coinbase: &Transaction,
+    subsidy: Integer,
+    total_fees: Integer,
+) -> bool {
+    let coinbase_output: i64 = match coinbase.outputs.iter().try_fold(0i64, |acc, output| {
+        if output.value < 0 || output.value > MAX_MONEY {
+            return None;
+        }
+        acc.checked_add(output.value)
+    }) {
+        Some(v) => v,
+        None => return false,
+    };
+    if coinbase_output < 0 {
+        return false;
+    }
+    let Some(max_coinbase) = total_fees.checked_add(subsidy) else {
+        return false;
+    };
+    coinbase_output <= MAX_MONEY && coinbase_output <= max_coinbase
+}
+
+/// VerifyUtxoSupply: 𝒰𝒮 × ℕ → {true, false}
+///
+/// Theorem 8.1: sum of UTXO values equals total money supply at height h.
+#[spec_locked("8.1", "VerifyUtxoSupply")]
+pub fn verify_utxo_supply(utxo_set: &UtxoSet, height: Natural) -> bool {
+    let expected = total_supply(height);
+    if !(0..=MAX_MONEY).contains(&expected) {
+        return false;
+    }
+    let mut actual: i64 = 0;
+    for utxo in utxo_set.values() {
+        if !(0..=MAX_MONEY).contains(&utxo.value) {
+            return false;
+        }
+        actual = match actual.checked_add(utxo.value) {
+            Some(v) => v,
+            None => return false,
+        };
+    }
+    actual == expected
+}
+
 /// TotalSupply: ℕ → ℤ
 ///
 /// Calculate the total Bitcoin supply at a given height.

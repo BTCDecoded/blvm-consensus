@@ -729,7 +729,8 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
 ///
 /// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-fn compress_target(target: &U256) -> Result<Natural> {
+#[spec_locked("7.1", "CompressTarget")]
+pub(crate) fn compress_target(target: &U256) -> Result<Natural> {
     // Handle zero target
     if target.is_zero() {
         return Ok(0x1d000000); // Zero target with exponent 29 (0x1d)
