@@ -244,6 +244,42 @@ pub fn connect_block_ibd<'a>(
     Ok((result, new_utxo_set, tx_ids, utxo_delta))
 }
 
+/// Like [`connect_block_ibd`] but also returns the undo log for reorg support after IBD.
+#[spec_locked("5.3", "ConnectBlock")]
+pub fn connect_block_ibd_with_undo<'a>(
+    block: &Block,
+    witnesses: &[Vec<Witness>],
+    utxo_set: UtxoSet,
+    height: Natural,
+    context: &BlockValidationContext,
+    bip30_index: Option<&mut crate::bip_validation::Bip30Index>,
+    precomputed_tx_ids: Option<&'a [Hash]>,
+    block_arc: Option<std::sync::Arc<Block>>,
+    witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
+    best_header_chainwork: Option<u128>,
+) -> Result<(
+    ValidationResult,
+    UtxoSet,
+    std::borrow::Cow<'a, [Hash]>,
+    Option<UtxoDelta>,
+    crate::reorganization::BlockUndoLog,
+)> {
+    let (result, new_utxo_set, tx_ids, undo_log, utxo_delta) = connect::connect_block_inner(
+        block,
+        witnesses,
+        utxo_set,
+        witnesses_arc,
+        height,
+        context,
+        bip30_index,
+        precomputed_tx_ids,
+        block_arc,
+        true,
+        best_header_chainwork,
+    )?;
+    Ok((result, new_utxo_set, tx_ids, utxo_delta, undo_log))
+}
+
 /// Helper to construct a `TimeContext` from recent headers and network time.
 ///
 /// # Consensus Engine Purity

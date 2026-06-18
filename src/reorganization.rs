@@ -467,9 +467,10 @@ struct CommonAncestorResult {
 
 /// Find common ancestor between two chains by comparing block hashes
 ///
-/// Algorithm: Start from the tips of both chains and work backwards,
-/// comparing blocks at the same distance from tip until we find a match.
-/// This is the common ancestor where the chains diverged.
+/// Algorithm: Walk forward from genesis while block hashes match at the same
+/// index. The last matching block is the fork point. This is correct for
+/// full chains collected genesis-to-tip (unlike tip-distance comparison, which
+/// misaligns when fork branches differ in length).
 /// Orange Paper 11.3: Chain reorganization finds common ancestor before disconnect/connect.
 fn find_common_ancestor(
     new_chain: &[Block],
@@ -481,43 +482,26 @@ fn find_common_ancestor(
         ));
     }
 
-    // Find the minimum chain length - we can only compare up to this point
-    let min_len = new_chain.len().min(current_chain.len());
-
-    // Work backwards from tips, comparing blocks at the same distance from tip
-    // Distance 0 = tip, distance 1 = one before tip, etc.
-    for distance_from_tip in 0..min_len {
-        let new_idx = new_chain.len() - 1 - distance_from_tip;
-        let current_idx = current_chain.len() - 1 - distance_from_tip;
-
-        let new_hash = calculate_block_hash(&new_chain[new_idx].header);
-        let current_hash = calculate_block_hash(&current_chain[current_idx].header);
-
-        // If hashes match, we found the common ancestor
+    let max_compare = new_chain.len().min(current_chain.len());
+    let mut last_match: Option<usize> = None;
+    for i in 0..max_compare {
+        let new_hash = calculate_block_hash(&new_chain[i].header);
+        let current_hash = calculate_block_hash(&current_chain[i].header);
         if new_hash == current_hash {
-            return Ok(CommonAncestorResult {
-                header: new_chain[new_idx].header.clone(),
-                new_chain_index: new_idx,
-                current_chain_index: current_idx,
-            });
+            last_match = Some(i);
+        } else {
+            break;
         }
     }
 
-    // If we've checked all blocks up to min_len and none match,
-    // check if genesis blocks match (they should always be the same)
-    if !new_chain.is_empty() && !current_chain.is_empty() {
-        let new_genesis_hash = calculate_block_hash(&new_chain[0].header);
-        let current_genesis_hash = calculate_block_hash(&current_chain[0].header);
-        if new_genesis_hash == current_genesis_hash {
-            return Ok(CommonAncestorResult {
-                header: new_chain[0].header.clone(),
-                new_chain_index: 0,
-                current_chain_index: 0,
-            });
-        }
+    if let Some(idx) = last_match {
+        return Ok(CommonAncestorResult {
+            header: new_chain[idx].header.clone(),
+            new_chain_index: idx,
+            current_chain_index: idx,
+        });
     }
 
-    // Chains don't share a common ancestor (should never happen in Bitcoin)
     Err(crate::error::ConsensusError::ConsensusRuleViolation(
         "Chains do not share a common ancestor".into(),
     ))
