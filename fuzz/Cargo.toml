@@ -9,17 +9,11 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-# Fuzz the in-tree crate; blvm-protocol uses the same version range as published crates.
-# [patch.crates-io] is for local dev; CI strip-patch removes it so protocol pulls consensus from crates.io.
 blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
 blvm-protocol = { version = ">=0.1, <1", features = ["utxo-commitments"] }
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 
-[patch.crates-io]
-blvm-consensus = { path = ".." }
-
-# Prevent warnings in generated code
 [profile.release]
 opt-level = 3
 # cargo-fuzz injects -Cdebug-assertions; without this, overflow-checked + panics on
