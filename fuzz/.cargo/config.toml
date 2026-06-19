@@ -1,3 +1,7 @@
+# Force crates.io blvm-consensus (pulled by blvm-protocol) to this checkout.
+# strip-patch only removes [patch.crates-io]; paths is a separate Cargo override.
+paths = [".."]
+
 # Fuzzing build configuration
 # Supports sanitizers for better bug detection
 
