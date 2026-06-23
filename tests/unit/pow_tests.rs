@@ -84,10 +84,13 @@ fn test_check_proof_of_work_genesis() {
         nonce: 0,
     };
 
-    // This should work with the valid target
+    // Valid target must not error; result is hash-dependent but deterministic
     let result = check_proof_of_work(&header).unwrap();
-    // Result depends on the hash, but should not panic
-    assert!(result || !result);
+    let again = check_proof_of_work(&header).unwrap();
+    assert_eq!(
+        result, again,
+        "PoW check must be deterministic for a fixed header"
+    );
 }
 
 #[test]

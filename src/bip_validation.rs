@@ -8,6 +8,9 @@
 use crate::activation::IsForkActive;
 use crate::block::calculate_tx_id;
 use crate::error::{ConsensusError, Result};
+use crate::opcodes::{
+    OP_0, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4,
+};
 use crate::transaction::is_coinbase;
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
@@ -98,14 +101,14 @@ pub fn check_bip30(
 
 /// BIP34: Block Height in Coinbase
 ///
-/// Starting at the mainnet height in `BIP34_ACTIVATION_MAINNET` (Bitcoin Core `BIP34Height`),
+/// Starting at the mainnet height in `BIP34_ACTIVATION_MAINNET`,
 /// coinbase scriptSig must contain the block height.
 /// Mathematical specification: Orange Paper Section 5.4.2
 ///
 /// **BIP34Check**: ℬ × ℕ → {valid, invalid}
 ///
 /// Activation Heights:
-/// - Mainnet: `BIP34_ACTIVATION_MAINNET` (227,931; Bitcoin Core `chainparams`)
+/// - Mainnet: `BIP34_ACTIVATION_MAINNET` (227,931)
 /// - Testnet: Block 211,111
 /// - Regtest: Block 0 (always active)
 #[spec_locked("5.4.2", "BIP34Check")]
@@ -590,6 +593,58 @@ pub fn check_bip147_network(
     check_bip147(script_sig, script_pubkey, height, &table)
 }
 
+/// Returns true when `opcode` appears as an executable instruction (not inside push data).
+pub(crate) fn script_contains_executable_opcode(script: &[u8], opcode: u8) -> bool {
+    let mut i = 0;
+    while i < script.len() {
+        let op = script[i];
+        if op > 0 && op < OP_PUSHDATA1 {
+            i += 1 + op as usize;
+            continue;
+        }
+        match op {
+            OP_PUSHDATA1 => {
+                if i + 1 >= script.len() {
+                    break;
+                }
+                let len = script[i + 1] as usize;
+                i += 2 + len;
+            }
+            OP_PUSHDATA2 => {
+                if i + 2 >= script.len() {
+                    break;
+                }
+                let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
+                i += 3 + len;
+            }
+            OP_PUSHDATA4 => {
+                if i + 4 >= script.len() {
+                    break;
+                }
+                let len = u32::from_le_bytes([
+                    script[i + 1],
+                    script[i + 2],
+                    script[i + 3],
+                    script[i + 4],
+                ]) as usize;
+                i += 5 + len;
+            }
+            _ => {
+                if op == opcode {
+                    return true;
+                }
+                i += 1;
+            }
+        }
+    }
+    false
+}
+
+fn script_has_checkmultisig(script_pubkey: &[u8]) -> bool {
+    script_contains_executable_opcode(script_pubkey, OP_CHECKMULTISIG)
+        || script_contains_executable_opcode(script_pubkey, OP_CHECKMULTISIGVERIFY)
+}
+
 /// BIP147: NULLDUMMY Enforcement
 ///
 /// Enforces that OP_CHECKMULTISIG dummy elements are empty.
@@ -612,56 +667,102 @@ pub fn check_bip147(
         return Ok(true);
     }
 
-    // Check if scriptPubkey contains OP_CHECKMULTISIG (0xae)
-    if !script_pubkey.contains(&0xae) {
-        // Not a multisig script - BIP147 doesn't apply
+    // BIP147 applies only when scriptPubKey executes OP_CHECKMULTISIG(VERIFY).
+    if !script_has_checkmultisig(script_pubkey) {
         return Ok(true);
     }
 
-    // Check if dummy element is empty (OP_0 = 0x00)
-    // The dummy element is the last element consumed by OP_CHECKMULTISIG
-    // We need to find it in the scriptSig stack
-
-    // For now, we'll check if the last push in scriptSig is OP_0
-    // This is a simplified check - full implementation would parse the stack
+    // BIP147: first stack item consumed by OP_CHECKMULTISIG (first push in scriptSig) must be empty.
     is_null_dummy(script_sig)
 }
 
-/// Check if scriptSig has NULLDUMMY (empty dummy element for OP_CHECKMULTISIG)
-///
 /// BIP147: The dummy element is the first element consumed by OP_CHECKMULTISIG.
-/// It must be empty (OP_0 = 0x00) after activation.
-///
-/// Stack layout for OP_CHECKMULTISIG:
-/// `[dummy] [sig1] [sig2] ... [sigm] [m] [pubkey1] ... [pubkeyn] [n]`
-///
-/// The dummy element is the last element pushed before OP_CHECKMULTISIG executes.
-/// We check if it's OP_0 (empty).
+/// It must be empty (OP_0) after activation.
 fn is_null_dummy(script_sig: &[u8]) -> Result<bool> {
-    // BIP147: Dummy element must be empty (OP_0 = 0x00)
-    // The dummy is the first element consumed, which is the last element pushed
-    // For a valid NULLDUMMY, the last push should be OP_0
-
     if script_sig.is_empty() {
         return Ok(false);
     }
 
-    // Parse scriptSig to find the last push operation
-    // The dummy element is the last element pushed before OP_CHECKMULTISIG
-    // We need to find the last push and verify it's OP_0
+    let mut pc = 0usize;
+    let mut first_push_empty = false;
+    let mut saw_push = false;
 
-    // Simple check: If scriptSig ends with 0x00 (OP_0), it's likely NULLDUMMY
-    // This is a simplified check - full implementation would parse the entire script
-    if script_sig.ends_with(&[0x00]) {
-        return Ok(true);
+    while pc < script_sig.len() {
+        let opcode = script_sig[pc];
+        pc += 1;
+        match opcode {
+            OP_0 => {
+                if !saw_push {
+                    first_push_empty = true;
+                    saw_push = true;
+                }
+            }
+            0x01..=0x4b => {
+                let len = opcode as usize;
+                if pc + len > script_sig.len() {
+                    return Ok(false);
+                }
+                if !saw_push {
+                    first_push_empty = len == 0;
+                    saw_push = true;
+                }
+                pc += len;
+            }
+            OP_PUSHDATA1 => {
+                if pc >= script_sig.len() {
+                    return Ok(false);
+                }
+                let len = script_sig[pc] as usize;
+                pc += 1;
+                if pc + len > script_sig.len() {
+                    return Ok(false);
+                }
+                if !saw_push {
+                    first_push_empty = len == 0;
+                    saw_push = true;
+                }
+                pc += len;
+            }
+            OP_PUSHDATA2 => {
+                if pc + 2 > script_sig.len() {
+                    return Ok(false);
+                }
+                let len = u16::from_le_bytes([script_sig[pc], script_sig[pc + 1]]) as usize;
+                pc += 2;
+                if pc + len > script_sig.len() {
+                    return Ok(false);
+                }
+                if !saw_push {
+                    first_push_empty = len == 0;
+                    saw_push = true;
+                }
+                pc += len;
+            }
+            OP_PUSHDATA4 => {
+                if pc + 4 > script_sig.len() {
+                    return Ok(false);
+                }
+                let len = u32::from_le_bytes([
+                    script_sig[pc],
+                    script_sig[pc + 1],
+                    script_sig[pc + 2],
+                    script_sig[pc + 3],
+                ]) as usize;
+                pc += 4;
+                if pc + len > script_sig.len() {
+                    return Ok(false);
+                }
+                if !saw_push {
+                    first_push_empty = len == 0;
+                    saw_push = true;
+                }
+                pc += len;
+            }
+            _ => return Ok(false),
+        }
     }
 
-    // More sophisticated: Parse backwards to find last push
-    // For now, we'll use the simple check above
-    // A full implementation would parse the entire scriptSig to find the last push
-
-    // If we can't determine, assume invalid (strict interpretation)
-    Ok(false)
+    Ok(first_push_empty)
 }
 
 /// Network type for BIP147 activation heights
@@ -676,6 +777,8 @@ pub enum Bip147Network {
 mod tests {
     use super::*;
     use crate::constants::{BIP66_ACTIVATION_MAINNET, BIP147_ACTIVATION_MAINNET};
+
+    use crate::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_CHECKSIG};
 
     #[test]
     fn test_bip30_basic() {
@@ -974,12 +1077,28 @@ mod tests {
     }
 
     #[test]
-    fn test_bip147_null_dummy() {
-        // ScriptPubkey with OP_CHECKMULTISIG
-        let script_pubkey = vec![0x52, 0x21, 0x00, 0x21, 0x00, 0x52, 0xae]; // 2-of-2 multisig
+    fn test_bip147_skips_checkmultisig_byte_in_push_data() {
+        // Push data contains 0xae; executable path is OP_CHECKSIG only.
+        let script_pubkey = vec![0x01, OP_CHECKMULTISIG, OP_CHECKSIG];
+        let script_sig = vec![1, OP_1];
+        let result = check_bip147_network(
+            &script_sig,
+            &script_pubkey,
+            BIP147_ACTIVATION_MAINNET,
+            Bip147Network::Mainnet,
+        )
+        .unwrap();
+        assert!(
+            result,
+            "BIP147 must not apply when CHECKMULTISIG is only in push data"
+        );
+    }
 
-        // ScriptSig with NULLDUMMY (ends with OP_0)
-        let script_sig_valid = vec![0x00]; // OP_0 (NULLDUMMY)
+    #[test]
+    fn test_bip147_null_dummy() {
+        // Executable OP_CHECKMULTISIG (matches bip_validation_suite fixture).
+        let script_pubkey = vec![OP_CHECKMULTISIG];
+        let script_sig_valid = vec![OP_0];
         let result = check_bip147_network(
             &script_sig_valid,
             &script_pubkey,
@@ -989,8 +1108,7 @@ mod tests {
         .unwrap();
         assert!(result, "BIP147 should pass with NULLDUMMY");
 
-        // ScriptSig without NULLDUMMY (non-empty dummy)
-        let script_sig_invalid = vec![0x01, 0x01]; // Non-empty dummy
+        let script_sig_invalid = vec![1, OP_1];
         let result = check_bip147_network(
             &script_sig_invalid,
             &script_pubkey,

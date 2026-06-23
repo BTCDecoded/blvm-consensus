@@ -1,5 +1,6 @@
 //! COV-C-04a: Deterministic reorganization API coverage.
 
+use blvm_consensus::mempool::Mempool;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::reorganization::{
     BlockUndoLog, calculate_chain_work, reorganize_chain, reorganize_chain_with_witnesses,
@@ -11,6 +12,9 @@ use blvm_consensus::{
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+
+/// Wall-clock stand-in for reorg connect validation (must exceed regtest block timestamps).
+const TEST_NETWORK_TIME: u64 = 2_000_000_000;
 
 fn block_hash(header: &BlockHeader) -> Hash {
     use blvm_consensus::serialization::block::serialize_block_header;
@@ -78,16 +82,20 @@ fn test_calculate_chain_work_increases_with_length() {
 }
 
 #[test]
-fn test_should_reorganize_prefers_longer_chain() {
+fn test_should_reorganize_prefers_more_work() {
     let current = chain(2);
     let longer = chain(4);
+    // Equal work per block in `chain()` helper — longer chain has strictly more work.
+    let current_work = calculate_chain_work(&current).unwrap();
+    let longer_work = calculate_chain_work(&longer).unwrap();
+    assert!(longer_work > current_work);
     assert!(should_reorganize(&longer, &current).unwrap());
     assert!(!should_reorganize(&current, &longer).unwrap());
 }
 
 #[test]
 fn test_reorganize_chain_empty_chains_errors() {
-    let result = reorganize_chain(&[], &[], UtxoSet::default(), 0, Network::Regtest);
+    let result = reorganize_chain_simple(&[], &[], UtxoSet::default(), 0);
     assert!(result.is_err());
 }
 
@@ -101,7 +109,7 @@ fn test_update_mempool_after_reorg_simple_removes_connected_tx() {
     let block = chain(1).pop().expect("one block");
     let tx_id = calculate_tx_id(&block.transactions[0]);
 
-    let mut pool: Mempool = HashSet::new();
+    let mut pool = Mempool::new();
     pool.insert(tx_id);
 
     let reorg_result = ReorganizationResult {
@@ -166,7 +174,7 @@ fn test_update_mempool_after_reorg_with_lookup_removes_conflict() {
         transactions: vec![included.clone()].into(),
     };
 
-    let mut pool: Mempool = HashSet::new();
+    let mut pool = Mempool::new();
     pool.insert(included_id);
     pool.insert(conflict_id);
 
@@ -376,7 +384,7 @@ fn test_reorganize_chain_extends_regtest_chain() {
     assert_eq!(current[0].header, longer[0].header);
     assert_eq!(current[1].header, longer[1].header);
 
-    let result = reorganize_chain(&longer, &current, utxo_at_tip, 2, Network::Regtest).unwrap();
+    let result = reorganize_chain_simple(&longer, &current, utxo_at_tip, 2).unwrap();
     assert_eq!(result.new_height, 4);
     // Shared prefix through current tip: no disconnect, only extend with blocks 3–4.
     assert_eq!(result.reorganization_depth, 0);
@@ -406,6 +414,29 @@ fn noop_get_headers(_: u64) -> Option<Vec<BlockHeader>> {
     None
 }
 
+fn reorganize_chain_simple(
+    new_chain: &[Block],
+    current_chain: &[Block],
+    utxo: UtxoSet,
+    height: u64,
+) -> blvm_consensus::error::Result<blvm_consensus::reorganization::ReorganizationResult> {
+    let witnesses = witnesses_for_chain(new_chain);
+    reorganize_chain_with_witnesses(
+        new_chain,
+        &witnesses,
+        None,
+        current_chain,
+        utxo,
+        height,
+        None::<fn(&Block) -> Option<Vec<blvm_consensus::segwit::Witness>>>,
+        None::<fn(u64) -> Option<Vec<BlockHeader>>>,
+        None::<fn(&Hash) -> Option<BlockUndoLog>>,
+        None::<fn(&Hash, &BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+        TEST_NETWORK_TIME,
+        Network::Regtest,
+    )
+}
+
 #[test]
 fn test_reorganize_chain_with_witnesses_extends_regtest() {
     let (current, utxo_at_tip) = connect_regtest_chain(2);
@@ -423,6 +454,7 @@ fn test_reorganize_chain_with_witnesses_extends_regtest() {
         Some(noop_get_headers),
         Some(noop_get_undo),
         Some(noop_put_undo),
+        TEST_NETWORK_TIME,
         Network::Regtest,
     )
     .unwrap();
@@ -458,6 +490,7 @@ fn test_reorganize_chain_with_witnesses_uses_undo_callbacks() {
         Some(noop_get_headers),
         Some(get_undo),
         Some(put_undo),
+        TEST_NETWORK_TIME,
         Network::Regtest,
     )
     .unwrap();
@@ -483,6 +516,7 @@ fn test_reorganize_chain_with_witnesses_rejects_witness_block_mismatch() {
         Some(noop_get_headers),
         None::<fn(&Hash) -> Option<BlockUndoLog>>,
         None::<fn(&Hash, &BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+        TEST_NETWORK_TIME,
         Network::Regtest,
     );
 }
@@ -490,7 +524,7 @@ fn test_reorganize_chain_with_witnesses_rejects_witness_block_mismatch() {
 #[test]
 fn test_reorganize_chain_rejects_empty_new_chain() {
     let (current, utxo) = connect_regtest_chain(2);
-    let result = reorganize_chain(&[], &current, utxo, 2, Network::Regtest);
+    let result = reorganize_chain_simple(&[], &current, utxo, 2);
     assert!(result.is_err());
 }
 
@@ -549,7 +583,7 @@ fn test_update_mempool_after_reorg_removes_spent_prevout_without_block_include()
         transactions: vec![connected_spend].into(),
     };
 
-    let mut pool: Mempool = HashSet::new();
+    let mut pool = Mempool::new();
     pool.insert(mempool_id);
 
     let mut store = HashMap::new();
@@ -577,6 +611,65 @@ fn test_update_mempool_after_reorg_removes_spent_prevout_without_block_include()
 
     assert!(removed.contains(&mempool_id));
     assert!(!pool.contains(&mempool_id));
+}
+
+#[test]
+fn test_update_mempool_after_reorg_readds_disconnected_tx() {
+    use blvm_consensus::block::calculate_tx_id;
+    use blvm_consensus::reorganization::{
+        ReorgMempoolReaddParams, ReorganizationResult, update_mempool_after_reorg_with_readd,
+    };
+
+    #[path = "test_helpers.rs"]
+    mod test_helpers;
+    use test_helpers::{create_test_tx, create_test_utxo};
+
+    let (utxo_set, _) = create_test_utxo(10_000);
+    let tx = create_test_tx(8_500, None, None, None);
+    let tx_id = calculate_tx_id(&tx);
+
+    let disconnected = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1_600_000_000,
+            bits: 0x0300ffff,
+            nonce: 1,
+        },
+        transactions: vec![tx].into(),
+    };
+
+    let reorg_result = ReorganizationResult {
+        new_utxo_set: utxo_set.clone(),
+        new_height: 100,
+        common_ancestor: disconnected.header.clone(),
+        disconnected_blocks: vec![disconnected],
+        connected_blocks: vec![],
+        reorganization_depth: 1,
+        connected_block_undo_logs: HashMap::new(),
+    };
+
+    let mut pool = Mempool::new();
+    let readd = ReorgMempoolReaddParams {
+        height: 100,
+        time_context: None,
+        network: Network::Regtest,
+    };
+
+    let (removed, readded) = update_mempool_after_reorg_with_readd(
+        &mut pool,
+        &reorg_result,
+        &utxo_set,
+        None::<fn(&Hash) -> Option<Transaction>>,
+        &readd,
+        None::<fn(&Hash) -> Option<Vec<blvm_consensus::segwit::Witness>>>,
+    )
+    .unwrap();
+
+    assert!(removed.is_empty());
+    assert!(readded.contains(&tx_id));
+    assert!(pool.contains(&tx_id));
 }
 
 #[test]
@@ -608,6 +701,7 @@ fn test_reorganize_fork_disconnects_tip_with_undo_logs() {
         Some(noop_get_headers),
         Some(get_undo),
         Some(put_undo),
+        TEST_NETWORK_TIME,
         Network::Regtest,
     )
     .unwrap();
@@ -621,14 +715,17 @@ fn test_reorganize_fork_disconnects_tip_with_undo_logs() {
 
 #[test]
 fn test_calculate_chain_work_empty_chain_is_zero() {
-    assert_eq!(calculate_chain_work(&[]).unwrap(), 0);
+    assert_eq!(
+        calculate_chain_work(&[]).unwrap(),
+        blvm_consensus::pow::U256::zero()
+    );
 }
 
 #[test]
 fn test_reorganize_chain_empty_current_chain_errors() {
     let (_, utxo) = connect_regtest_chain(1);
     let longer = chain(2);
-    assert!(reorganize_chain(&longer, &[], utxo, 0, Network::Regtest).is_err());
+    assert!(reorganize_chain_simple(&longer, &[], utxo, 0).is_err());
 }
 
 #[test]
@@ -659,11 +756,60 @@ fn test_reorganize_chain_rejects_unrelated_chains() {
     let mut unrelated = chain(3);
     unrelated[0].header.nonce = 99;
     let (_, utxo) = connect_regtest_chain(2);
-    assert!(reorganize_chain(&unrelated, &current, utxo, 2, Network::Regtest).is_err());
+    assert!(reorganize_chain_simple(&unrelated, &current, utxo, 2).is_err());
 }
 
 #[test]
 fn test_calculate_chain_work_rejects_target_too_large() {
-    let block = coinbase_block(0, 0x2000_0000);
+    let block = coinbase_block(0, 0x2100_ffff);
     assert!(calculate_chain_work(&[block]).is_err());
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_reorganize_chain_rejects_segwit_without_witnesses() {
+    use blvm_consensus::opcodes::OP_0;
+
+    let mut spk = vec![OP_0, 0x14];
+    spk.extend([0u8; 20]);
+    let segwit_tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0xab; 32],
+                index: 0,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: spk.into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let coinbase = coinbase_block(0, 0x0300ffff).transactions[0].clone();
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [2; 32],
+            timestamp: 1_700_000_000,
+            bits: 0x0300ffff,
+            nonce: 1,
+        },
+        transactions: vec![coinbase, segwit_tx].into(),
+    };
+
+    let result = reorganize_chain(&[block], &[], UtxoSet::default(), 0, Network::Regtest);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("reorganize_chain_with_witnesses")
+    );
 }

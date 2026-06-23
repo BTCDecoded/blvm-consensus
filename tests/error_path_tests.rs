@@ -2,6 +2,8 @@
 
 use blvm_consensus::mining::MiningResult;
 use blvm_consensus::opcodes::*;
+use blvm_consensus::reorganization::reorganize_chain_with_witnesses;
+use blvm_consensus::types::Hash;
 use blvm_consensus::*;
 
 #[test]
@@ -42,10 +44,21 @@ fn test_block_validation_errors() {
     };
 
     let utxo_set = UtxoSet::default();
-    let result = consensus.validate_block(&invalid_block, utxo_set, 0);
+    let result = consensus.validate_block_with_time_context(
+        &invalid_block,
+        &[],
+        utxo_set,
+        0,
+        None,
+        blvm_consensus::types::Network::Regtest,
+    );
     assert!(
-        result.is_err() || matches!(result, Ok((ValidationResult::Invalid(_), _))),
-        "timestamp=0 block must not validate as accepted"
+        matches!(
+            result,
+            Ok((ValidationResult::Invalid(ref r), _))
+                if r.contains("no transactions") || r.contains("timestamp")
+        ),
+        "empty block with timestamp=0 must be rejected: {result:?}"
     );
 }
 
@@ -137,17 +150,27 @@ fn test_mining_errors() {
 
 #[test]
 fn test_reorganization_errors() {
-    let consensus = ConsensusProof::new();
-
     // Test reorganization with empty chains
     let new_chain = vec![];
     let current_chain = vec![];
     let utxo_set = UtxoSet::default();
 
-    let result = consensus.reorganize_chain(
+    let result = reorganize_chain_with_witnesses(
         &new_chain,
+        &[],
+        None,
         &current_chain,
         utxo_set,
+        0,
+        None::<fn(&Block) -> Option<Vec<blvm_consensus::segwit::Witness>>>,
+        None::<fn(u64) -> Option<Vec<BlockHeader>>>,
+        None::<fn(&Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
+        None::<
+            fn(
+                &Hash,
+                &blvm_consensus::reorganization::BlockUndoLog,
+            ) -> blvm_consensus::error::Result<()>,
+        >,
         0,
         blvm_consensus::types::Network::Regtest,
     );

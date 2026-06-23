@@ -43,7 +43,7 @@ fn test_verify_script_simple() {
     let script_sig = vec![OP_1];
     let script_pubkey = vec![OP_1];
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
-    assert!(result || !result);
+    assert!(result, "OP_1/OP_1 must verify");
 }
 
 #[test]
@@ -53,11 +53,14 @@ fn test_verify_script_with_witness() {
     // witness is Option<&Vec<u8>> — use a single-element byte vec as dummy witness item
     let witness_bytes: Vec<u8> = vec![OP_2];
     let result = verify_script(&script_sig, &script_pubkey, Some(&witness_bytes), 0).unwrap();
-    assert!(result || !result);
+    assert!(result, "witness must not break OP_1/OP_1 verify");
 }
 
 #[test]
 fn test_verify_script_empty() {
     let result = verify_script(&vec![], &[], None, 0).unwrap();
-    assert!(result || !result);
+    assert!(
+        !result,
+        "empty scriptSig/scriptPubKey leaves empty stack → verify false"
+    );
 }

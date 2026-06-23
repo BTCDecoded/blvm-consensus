@@ -51,10 +51,10 @@ pub fn get_locktime_type_timestamp(locktime: u32) -> LocktimeType {
     }
 }
 
-/// BIP65 CLTV core check (matches Bitcoin Core `CheckLockTime`).
+/// BIP65 CLTV core check (Orange Paper §5.4.7 / BIP65).
 ///
 /// Valid when locktime types match, `stack_locktime <= tx_locktime`, and the spending
-/// input sequence is not `0xffffffff`. Core does **not** require `tx_locktime != 0`;
+/// input sequence is not `0xffffffff`. A zero tx locktime is allowed;
 /// `(tx=0, stack=0)` passes (mainnet block 659901 regression).
 #[inline]
 #[spec_locked("5.4.7", "BIP65Check")]

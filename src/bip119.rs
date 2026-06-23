@@ -260,12 +260,20 @@ pub fn extract_template_hash_from_script(script: &[u8]) -> Option<Hash> {
 #[spec_locked("5.4.6", "BIP119Check")]
 pub fn is_ctv_script(script: &[u8]) -> bool {
     use crate::opcodes::OP_CHECKTEMPLATEVERIFY;
-    script.contains(&OP_CHECKTEMPLATEVERIFY) // OP_CHECKTEMPLATEVERIFY (OP_NOP4)
+    crate::bip_validation::script_contains_executable_opcode(script, OP_CHECKTEMPLATEVERIFY)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_ctv_script_ignores_push_data() {
+        // Push 1 byte 0xba (CTV opcode) — not an executable OP_CHECKTEMPLATEVERIFY.
+        use crate::opcodes::{OP_CHECKSIG, OP_CHECKTEMPLATEVERIFY};
+        let script = vec![0x01, OP_CHECKTEMPLATEVERIFY, OP_CHECKSIG];
+        assert!(!is_ctv_script(&script));
+    }
 
     #[test]
     fn test_template_hash_basic() {

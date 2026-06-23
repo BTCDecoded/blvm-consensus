@@ -30,8 +30,8 @@ fn write_varint_to_vec(vec: &mut Vec<u8>, value: u64) {
 
 /// Serialize scriptCode bytes for legacy sighash, stripping OP_CODESEPARATOR (0xab) opcodes.
 ///
-/// Bitcoin Core `CTransactionSignatureSerializer::SerializeScriptCode` removes each
-/// OP_CODESEPARATOR opcode from the byte stream (not bytes inside push-data payloads).
+/// Legacy sighash scriptCode serialization: remove each OP_CODESEPARATOR (0xab) opcode
+/// from the byte stream (not bytes inside push-data payloads). Orange Paper §5.1.1.
 #[spec_locked("5.1.1", "SerializeScriptCode")]
 pub fn serialize_script_code_for_legacy_sighash(script: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(script.len());
@@ -82,10 +82,9 @@ pub fn derive_bip143_script_code(
 
 /// Write scriptCode into a legacy sighash preimage (varint length + bytes).
 ///
-/// Bitcoin Core `CTransactionSignatureSerializer::SerializeScriptCode` strips each
-/// OP_CODESEPARATOR opcode from both the length prefix and the byte stream. Only
-/// bytes at actual opcode positions are removed — 0xab inside push-data payloads
-/// is preserved. Reference: Bitcoin Core `src/script/interpreter.cpp`.
+/// Strips each OP_CODESEPARATOR opcode from both the length prefix and the byte stream.
+/// Only bytes at actual opcode positions are removed — 0xab inside push-data payloads
+/// is preserved. Orange Paper §5.1.1.
 #[inline]
 fn write_script_code_for_sighash(preimage: &mut Vec<u8>, code: &[u8]) {
     let n_codeseps = count_opcode_codeseparators(code);
@@ -188,7 +187,7 @@ use std::cell::RefCell;
 #[cfg(feature = "production")]
 use std::hash::{Hash as StdHash, Hasher};
 
-/// Per-block sighash cache: (prevout, code_hash, sighash_byte) -> hash. Core-style.
+/// Per-block sighash cache: (prevout, code_hash, sighash_byte) -> hash.
 /// Uses hash of scriptCode instead of owned Vec to avoid allocation on insert.
 #[cfg(feature = "production")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -210,7 +209,7 @@ pub type SighashMidstateCache =
     std::sync::Arc<std::sync::Mutex<FxHashMap<SighashCacheKey, [u8; 32]>>>;
 
 /// Thread-local midstate cache: (prevout, code_hash, sighash_byte) -> hash. Avoids Mutex contention
-/// across script-check workers. Used when block passes None (CCheckQueue/rayon path).
+/// across script-check workers. Used when block passes None (parallel script-check / rayon path).
 /// LRU-bounded: unbounded growth OOM'd sort-merge step6 at ~450k blocks (~80 GiB RSS).
 #[cfg(feature = "production")]
 thread_local! {
@@ -829,7 +828,7 @@ pub fn calculate_transaction_sighash_single_input(
 ///
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
-/// When sighash_cache is provided (CCheckQueue path), caches (scriptCode, sighash_byte) -> hash for multisig reuse.
+/// When sighash_cache is provided (parallel script-check path), caches (scriptCode, sighash_byte) -> hash for multisig reuse.
 #[spec_locked("5.1.1", "CalculateSighash")]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
@@ -875,7 +874,7 @@ pub fn calculate_transaction_sighash_with_script_code(
         return Ok(result);
     }
 
-    // Core-style midstate cache: (prevout, scriptCode, sighash_byte) -> hash. Key must include prevout.
+    // Midstate cache: (prevout, scriptCode, sighash_byte) -> hash. Key must include prevout.
     // When sighash_cache is None, use thread-local (avoids Mutex contention across workers).
     #[cfg(feature = "production")]
     {
@@ -1544,24 +1543,6 @@ pub fn clear_sighash_templates() {
     });
 }
 
-fn encode_varint(value: u64) -> Vec<u8> {
-    if value < 0xfd {
-        vec![value as u8]
-    } else if value <= 0xffff {
-        let mut result = vec![0xfd];
-        result.extend_from_slice(&(value as u16).to_le_bytes());
-        result
-    } else if value <= 0xffffffff {
-        let mut result = vec![0xfe];
-        result.extend_from_slice(&(value as u32).to_le_bytes());
-        result
-    } else {
-        let mut result = vec![0xff];
-        result.extend_from_slice(&value.to_le_bytes());
-        result
-    }
-}
-
 // =============================================================================
 // BIP143: Segregated Witness Sighash Algorithm
 // =============================================================================
@@ -1934,6 +1915,7 @@ mod tests {
 
     #[test]
     fn test_varint_encoding() {
+        use crate::serialization::varint::encode_varint;
         assert_eq!(encode_varint(0), vec![0]);
         assert_eq!(encode_varint(252), vec![252]);
         assert_eq!(encode_varint(253), vec![0xfd, 253, 0]);

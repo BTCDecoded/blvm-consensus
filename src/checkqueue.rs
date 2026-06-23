@@ -18,6 +18,17 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
+fn lock_poison_recovery<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn condvar_wait_poison_recovery<'a, T>(
+    cv: &Condvar,
+    guard: std::sync::MutexGuard<'a, T>,
+) -> std::sync::MutexGuard<'a, T> {
+    cv.wait(guard).unwrap_or_else(|e| e.into_inner())
+}
+
 /// Default batch size when not overridden.
 const DEFAULT_BATCH_SIZE: usize = 128;
 
@@ -28,7 +39,7 @@ thread_local! {
 }
 
 /// Script check with embedded per-input data. Workers use these directly without
-/// HashMap grouping or shared-buffer indirection (Core-style self-contained checks).
+/// HashMap grouping or shared-buffer indirection (self-contained script checks).
 #[derive(Clone, Debug)]
 pub struct ScriptCheck {
     pub tx_ctx_idx: usize,
@@ -54,7 +65,7 @@ pub struct TxScriptContext {
     pub loop_idx: usize,
     pub fee: i64,
     pub ecdsa_index_base: usize,
-    /// Roadmap: Core-style (scriptCode, nHashType) -> hash cache. Helps multisig.
+    /// Roadmap: (scriptCode, nHashType) -> hash cache. Helps multisig.
     #[cfg(feature = "production")]
     pub sighash_midstate_cache: Option<crate::transaction_hash::SighashMidstateCache>,
 }
@@ -112,7 +123,7 @@ pub struct ScriptCheckQueue {
     worker_cv: Arc<Condvar>,
     master_cv: Arc<Condvar>,
     control_mutex: Mutex<()>,
-    workers: Vec<JoinHandle<()>>,
+    _workers: Vec<JoinHandle<()>>,
     batch_size: usize,
 }
 
@@ -157,7 +168,7 @@ impl ScriptCheckQueue {
             worker_cv,
             master_cv,
             control_mutex: Mutex::new(()),
-            workers,
+            _workers: workers,
             batch_size,
         }
     }
@@ -312,7 +323,7 @@ impl ScriptCheckQueue {
 
         loop {
             let (session_opt, _batch_len) = {
-                let mut guard = state.lock().unwrap();
+                let mut guard = lock_poison_recovery(state.as_ref());
                 if n_now > 0 {
                     if let Some(ref err) = local_error {
                         if guard.error_result.is_none() {
@@ -335,7 +346,7 @@ impl ScriptCheckQueue {
                     }
                     if guard.checks.is_empty() {
                         guard.n_idle += 1;
-                        guard = worker_cv.wait(guard).unwrap();
+                        guard = condvar_wait_poison_recovery(worker_cv, guard);
                         guard.n_idle -= 1;
                         continue;
                     }
@@ -441,7 +452,7 @@ impl ScriptCheckQueue {
 
     /// Start a block session. Must be called before any Add. Session holds shared context.
     pub fn start_session(&self, session: BlockSessionContext) {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = lock_poison_recovery(&self.state);
         guard.session = Some(Arc::new(session));
         guard.checks.clear();
         guard.n_todo = 0;
@@ -456,7 +467,7 @@ impl ScriptCheckQueue {
             return;
         }
         {
-            let mut guard = self.state.lock().unwrap();
+            let mut guard = lock_poison_recovery(&self.state);
             guard.checks.extend(checks);
             guard.n_todo += n;
             guard.n_submitted += n;
@@ -475,7 +486,7 @@ impl ScriptCheckQueue {
             return;
         }
         {
-            let mut guard = self.state.lock().unwrap();
+            let mut guard = lock_poison_recovery(&self.state);
             guard.checks.extend(checks.iter().cloned());
             guard.n_todo += n;
             guard.n_submitted += n;
@@ -503,7 +514,7 @@ impl ScriptCheckQueue {
 
     /// Master joins until queue empty; returns collected (tx_ctx_idx, valid) results.
     pub fn complete(&self) -> Result<Vec<(usize, bool)>> {
-        let _control = self.control_mutex.lock().unwrap();
+        let _control = lock_poison_recovery(&self.control_mutex);
         let state = Arc::clone(&self.state);
         let worker_cv = Arc::clone(&self.worker_cv);
         let master_cv = Arc::clone(&self.master_cv);
@@ -516,7 +527,7 @@ impl ScriptCheckQueue {
 
         loop {
             let done = {
-                let mut guard = state.lock().unwrap();
+                let mut guard = lock_poison_recovery(state.as_ref());
                 if n_now > 0 {
                     if let Some(ref err) = local_error {
                         if guard.error_result.is_none() {
@@ -554,7 +565,7 @@ impl ScriptCheckQueue {
                     }
                     if guard.checks.is_empty() {
                         guard.n_idle += 1;
-                        guard = master_cv.wait(guard).unwrap();
+                        guard = condvar_wait_poison_recovery(master_cv.as_ref(), guard);
                         guard.n_idle -= 1;
                         continue;
                     }

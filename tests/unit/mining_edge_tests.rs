@@ -1,4 +1,5 @@
 use blvm_consensus::opcodes::OP_1;
+use blvm_consensus::types::Network;
 use blvm_consensus::{mining, BlockHeader, Block};
 
 #[path = "../test_helpers.rs"]
@@ -54,6 +55,8 @@ fn test_block_template_creation() {
         &prev_headers,
         &coinbase_script,
         &coinbase_address,
+        Network::Mainnet,
+        None,
     );
     
     assert!(template.is_ok());

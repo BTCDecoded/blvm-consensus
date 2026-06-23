@@ -117,7 +117,7 @@ pub fn count_sigops_in_script(script: &ByteString, accurate: bool) -> u32 {
 /// Count sigops in a tapscript per BIP 342 (`CountTapscriptSigOps`).
 ///
 /// Used for **per-tapscript validation weight** during script execution. This must **not** be folded
-/// into block `MAX_BLOCK_SIGOPS_COST`: Bitcoin Core `WitnessSigOps` only counts witness **v0**; v1
+/// into block `MAX_BLOCK_SIGOPS_COST`: witness sigops only count witness **v0**; v1
 /// (Taproot) contributes **0** to that total.
 #[spec_locked("11.2.8", "CountTapscriptSigOps")]
 pub fn count_tapscript_sigops(script: &ByteString) -> u32 {
@@ -373,7 +373,7 @@ pub(crate) fn count_witness_sigops<U: UtxoLookup>(
                 }
             }
             // P2TR (witness v1): do **not** add tapscript sigops here.
-            // Bitcoin Core `WitnessSigOps` only handles version 0; v1 returns 0.
+            // Witness sigop counting only handles version 0; v1 returns 0.
             // BIP 342 enforces signature-related limits via tapscript validation weight during
             // execution, not `MAX_BLOCK_SIGOPS_COST`. Counting tapscript ops here overstates the
             // block total and rejects mined mainnet blocks (e.g. heavy tapscript spends).
@@ -384,7 +384,7 @@ pub(crate) fn count_witness_sigops<U: UtxoLookup>(
 }
 
 /// Legacy sigop count with accurate OP_CHECKMULTISIG (OP_1..OP_16 = 1..16, else 20).
-/// Used for BIP54 per-tx 2500 limit to match Core's GetSigOpCount(fAccurate=true).
+/// Used for BIP54 per-tx 2500 limit (accurate sigop count with scriptSig).
 #[spec_locked("5.2.2", "GetLegacySigOpCount")]
 pub fn get_legacy_sigop_count_accurate(tx: &Transaction) -> u32 {
     let mut count = 0u32;
@@ -416,7 +416,7 @@ pub fn get_transaction_sigop_count<U: UtxoLookup>(
 }
 
 /// BIP54 per-tx sigop count: legacy (accurate) + P2SH + witness.
-/// Matches Core's CheckSigopsBIP54 (GetSigOpCount(scriptSig, true) for legacy).
+/// BIP54 sigop check (accurate GetSigOpCount with scriptSig for legacy).
 pub fn get_transaction_sigop_count_for_bip54<U: UtxoLookup>(
     tx: &Transaction,
     utxo_lookup: &U,
@@ -522,7 +522,7 @@ pub fn get_transaction_sigop_cost_with_utxos(
                             }
                         }
                     }
-                    // P2TR / witness v1: witness sigop cost is 0 for block limit (match Core WitnessSigOps).
+                    // P2TR / witness v1: witness sigop cost is 0 for block limit.
                 }
             }
         }
@@ -814,7 +814,7 @@ mod tests {
     }
 
     /// Prefetched-UTXO sigop cost must match overlay-based counting (used on assume-valid path).
-    /// P2TR witness does not contribute to legacy block sigop cost (`WitnessSigOps` v1 = 0 in Core).
+    /// P2TR witness does not contribute to legacy block sigop cost (witness v1 = 0).
     #[test]
     fn get_transaction_sigop_cost_with_utxos_matches_witness_slices_p2tr_excluded_from_block_cost()
     {

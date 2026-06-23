@@ -178,7 +178,17 @@ impl ForkActivationTable {
     }
 }
 
-/// Taproot (BIP341) activation height for `network` (Core `chainparams` mainnet vs testnet3).
+/// Whether Taproot script verification applies at `block_height`.
+///
+/// When height is unknown (`None`), returns `true` so P2TR-shaped scriptPubKeys still
+/// run Taproot verification (callers that know height should pass `Some(h)`).
+pub fn taproot_active_at_height(block_height: Option<u64>, network: Network) -> bool {
+    block_height
+        .map(|h| h >= taproot_activation_height(network))
+        .unwrap_or(true)
+}
+
+/// Taproot (BIP341) activation height for `network` (mainnet vs testnet3).
 #[spec_locked("11.2", "TaprootActivationHeight")]
 #[blvm_spec_lock::ensures(result == 0 || result == 1 || result == 709632 || result == 2011968)]
 #[inline]

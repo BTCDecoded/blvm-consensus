@@ -8,7 +8,7 @@ use blvm_consensus::bip_validation::{
 };
 use blvm_consensus::block::{BlockValidationContext, calculate_tx_id};
 use blvm_consensus::mining::calculate_merkle_root;
-use blvm_consensus::opcodes::{OP_0, OP_1, OP_CHECKSIG};
+use blvm_consensus::opcodes::{OP_0, OP_1, OP_CHECKMULTISIG, OP_CHECKSIG};
 use blvm_consensus::types::{ForkId, Network};
 use blvm_consensus::{
     BIP30_DEACTIVATION_MAINNET, BIP34_ACTIVATION_MAINNET, BIP54_ACTIVATION_MAINNET,
@@ -262,17 +262,17 @@ fn test_check_bip90_network_accepts_version_four() {
 
 #[test]
 fn test_check_bip147_null_dummy_before_activation_skips() {
-    let script_pubkey = vec![0xae]; // OP_CHECKMULTISIG
-    let script_sig = vec![0x01, 0x51]; // non-null dummy
+    let script_pubkey = vec![OP_CHECKMULTISIG];
+    let script_sig = vec![1, OP_1]; // non-null dummy (push 1 byte)
     let height = SEGWIT_ACTIVATION_MAINNET - 1;
     assert!(check_bip147(&script_sig, &script_pubkey, height, &ctx()).unwrap());
 }
 
 #[test]
 fn test_check_bip147_requires_null_dummy_at_activation() {
-    let script_pubkey = vec![0xae];
-    let good_sig = vec![0x01, 0x00];
-    let bad_sig = vec![0x01, 0x51];
+    let script_pubkey = vec![OP_CHECKMULTISIG];
+    let good_sig = vec![OP_0];
+    let bad_sig = vec![1, OP_1];
     let height = SEGWIT_ACTIVATION_MAINNET;
     assert!(check_bip147(&good_sig, &script_pubkey, height, &ctx()).unwrap());
     assert!(!check_bip147(&bad_sig, &script_pubkey, height, &ctx()).unwrap());
@@ -287,8 +287,8 @@ fn test_check_bip66_network_rejects_non_der_at_activation() {
 
 #[test]
 fn test_check_bip147_network_requires_null_dummy_at_activation() {
-    let script_pubkey = vec![0xae];
-    let bad_sig = vec![0x01, 0x51];
+    let script_pubkey = vec![OP_CHECKMULTISIG];
+    let bad_sig = vec![1, OP_1];
     let height = SEGWIT_ACTIVATION_MAINNET;
     assert!(
         !check_bip147_network(&bad_sig, &script_pubkey, height, Bip147Network::Mainnet).unwrap()
@@ -477,8 +477,8 @@ fn test_check_bip30_skips_non_coinbase_transaction() {
 
 #[test]
 fn test_check_bip147_network_requires_null_dummy_on_testnet() {
-    let script_pubkey = vec![0xae];
-    let bad_sig = vec![0x01, 0x51];
+    let script_pubkey = vec![OP_CHECKMULTISIG];
+    let bad_sig = vec![1, OP_1];
     let height = BIP147_ACTIVATION_TESTNET;
     assert!(
         !check_bip147_network(&bad_sig, &script_pubkey, height, Bip147Network::Testnet).unwrap()
@@ -514,15 +514,15 @@ fn test_check_bip30_index_fast_path_accepts_new_coinbase() {
 
 #[test]
 fn test_check_bip147_rejects_empty_script_sig_at_activation() {
-    let script_pubkey = vec![0xae];
+    let script_pubkey = vec![OP_CHECKMULTISIG];
     let height = SEGWIT_ACTIVATION_MAINNET;
     assert!(!check_bip147(&[], &script_pubkey, height, &ctx()).unwrap());
 }
 
 #[test]
 fn test_check_bip147_network_requires_null_dummy_on_regtest() {
-    let script_pubkey = vec![0xae];
-    let bad_sig = vec![0x01, 0x51];
+    let script_pubkey = vec![OP_CHECKMULTISIG];
+    let bad_sig = vec![1, OP_1];
     assert!(!check_bip147_network(&bad_sig, &script_pubkey, 100, Bip147Network::Regtest).unwrap());
 }
 

@@ -75,7 +75,13 @@ proptest! {
             None,
             blvm_consensus::types::Network::Mainnet,
         );
-        prop_assert!(result.is_ok() || result.is_err());
+        prop_assert!(result.is_ok());
+        if let Ok((validation, _)) = result {
+            prop_assert!(
+                matches!(validation, ValidationResult::Invalid(_)),
+                "synthetic block with bad merkle / missing UTXOs must not validate: {validation:?}"
+            );
+        }
     }
 }
 
@@ -197,7 +203,11 @@ fn block_coinbase_only() {
         None,
         blvm_consensus::types::Network::Mainnet,
     );
-    assert!(result.is_ok() || result.is_err());
+    let (validation, _) = result.expect("coinbase-only block should return validation result");
+    assert!(
+        matches!(validation, ValidationResult::Invalid(_)),
+        "naive genesis-height coinbase block must not validate as accepted: {validation:?}"
+    );
 }
 
 proptest! {

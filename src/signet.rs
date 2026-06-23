@@ -21,7 +21,7 @@ const SIGNET_HEADER: [u8; 4] = [0xec, 0xc7, 0xda, 0xa2];
 const BLOCK_SCRIPT_VERIFY_FLAGS: u32 =
     SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_NULLDUMMY;
 
-/// Default signet challenge script bytes (Bitcoin Core default signet).
+/// Default signet challenge script bytes (signet default challenge).
 pub fn default_signet_challenge() -> &'static [u8] {
     const CHALLENGE: [u8; 71] = [
         0x51, 0x21, 0x03, 0xad, 0x5e, 0x0e, 0xda, 0xd1, 0x8c, 0xb1, 0xf0, 0xfc, 0x0d, 0x28, 0xa3,
@@ -392,7 +392,7 @@ mod tests {
         }
     }
 
-    /// Mirrors Bitcoin Core `signet_parse_tests` (OP_TRUE challenge, header-only solution).
+    /// Signet parse smoke test (OP_TRUE challenge, header-only solution).
     #[test]
     fn check_signet_op_true_header_only_passes() {
         let block = signet_test_block(&SIGNET_HEADER);

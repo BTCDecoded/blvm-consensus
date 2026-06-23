@@ -3,12 +3,12 @@
 use crate::constants::*;
 use crate::economic::calculate_fee;
 use crate::error::{ConsensusError, Result};
-use crate::script::verify_script;
+use crate::script::verify_script_with_context;
 use crate::segwit::Witness;
 use crate::transaction::{check_transaction, check_tx_inputs};
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// AcceptToMemoryPool: 𝒯𝒳 × 𝒰𝒮 → {accepted, rejected}
 ///
@@ -29,6 +29,7 @@ use std::collections::HashSet;
 /// * `mempool` - Current mempool state
 /// * `height` - Current block height
 /// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
+/// * `network` - Chain network for script verification flags (activation heights)
 #[spec_locked("9.1", "AcceptToMemoryPool")]
 pub fn accept_to_memory_pool(
     tx: &Transaction,
@@ -37,6 +38,7 @@ pub fn accept_to_memory_pool(
     mempool: &Mempool,
     height: Natural,
     time_context: Option<TimeContext>,
+    network: Network,
 ) -> Result<MempoolResult> {
     // Precondition assertions: Validate function inputs
     // Note: We check coinbase and empty transactions and return Rejected rather than asserting,
@@ -51,22 +53,24 @@ pub fn accept_to_memory_pool(
             "Coinbase transactions cannot be added to mempool".to_string(),
         ));
     }
-    assert!(
-        height <= i64::MAX as u64,
-        "Block height {height} must fit in i64"
-    );
+    if height > i64::MAX as u64 {
+        return Ok(MempoolResult::Rejected(format!(
+            "Block height {height} exceeds i64::MAX"
+        )));
+    }
     assert!(
         utxo_set.len() <= u32::MAX as usize,
         "UTXO set size {} exceeds maximum",
         utxo_set.len()
     );
     if let Some(wits) = witnesses {
-        assert!(
-            wits.len() == tx.inputs.len(),
-            "Witness count {} must match input count {}",
-            wits.len(),
-            tx.inputs.len()
-        );
+        if wits.len() != tx.inputs.len() {
+            return Ok(MempoolResult::Rejected(format!(
+                "Witness count {} must match input count {}",
+                wits.len(),
+                tx.inputs.len()
+            )));
+        }
     }
 
     // 1. Check if transaction is already in mempool
@@ -109,89 +113,17 @@ pub fn accept_to_memory_pool(
 
     // 4. Verify scripts for non-coinbase transactions
     if !is_coinbase(tx) {
-        // Calculate script verification flags
-        // Enable SegWit flag if transaction has witness data
-        let flags = calculate_script_flags(tx, witnesses);
-
-        #[cfg(all(feature = "production", feature = "rayon"))]
-        {
-            use rayon::prelude::*;
-
-            // Optimization: Batch UTXO lookups and parallelize script verification
-            // Pre-lookup all UTXOs to avoid concurrent HashMap access
-            // Pre-allocate with known size
-            let input_utxos: Vec<(usize, Option<&UTXO>)> = {
-                let mut result = Vec::with_capacity(tx.inputs.len());
-                for (i, input) in tx.inputs.iter().enumerate() {
-                    result.push((i, utxo_set.get(&input.prevout).map(|a| a.as_ref())));
-                }
-                result
-            };
-
-            // Parallelize script verification (read-only operations) ✅ Thread-safe
-            let script_results: Result<Vec<bool>> = input_utxos
-                .par_iter()
-                .map(|(i, opt_utxo)| {
-                    if let Some(utxo) = opt_utxo {
-                        let input = &tx.inputs[*i];
-                        let witness: Option<&ByteString> = witnesses
-                            .and_then(|wits| wits.get(*i))
-                            .and_then(|wit| wit.first());
-
-                        verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)
-                    } else {
-                        Ok(false)
-                    }
-                })
-                .collect();
-
-            // Check results sequentially
-            let script_results = script_results?;
-            // Invariant assertion: Script results count must match input count
-            assert!(
-                script_results.len() == tx.inputs.len(),
-                "Script results count {} must match input count {}",
-                script_results.len(),
-                tx.inputs.len()
-            );
-            for (i, &is_valid) in script_results.iter().enumerate() {
-                // Bounds checking assertion: Input index must be valid
-                assert!(
-                    i < tx.inputs.len(),
-                    "Input index {i} out of bounds in script validation loop",
-                );
-                // Invariant: is_valid is bool from verify_script
-                if !is_valid {
-                    return Ok(MempoolResult::Rejected(format!(
-                        "Invalid script at input {i}"
-                    )));
-                }
-            }
-        }
-
-        #[cfg(not(all(feature = "production", feature = "rayon")))]
-        {
-            // Sequential fallback
-            for (i, input) in tx.inputs.iter().enumerate() {
-                if let Some(utxo) = utxo_set.get(&input.prevout) {
-                    // Get witness for this input if available
-                    // Witness is Vec<ByteString> per input, for verify_script we need Option<&ByteString>
-                    // For SegWit P2WPKH/P2WSH, we typically use the witness stack elements
-                    // For now, we'll use the first element if available (simplified)
-                    let witness: Option<&ByteString> =
-                        witnesses.and_then(|wits| wits.get(i)).and_then(|wit| {
-                            // Witness is Vec<ByteString> - for verify_script we can pass the first element
-                            // or construct a combined witness script. For now, use first element.
-                            wit.first()
-                        });
-
-                    if !verify_script(&input.script_sig, &utxo.script_pubkey, witness, flags)? {
-                        return Ok(MempoolResult::Rejected(format!(
-                            "Invalid script at input {i}"
-                        )));
-                    }
-                }
-            }
+        let flags = calculate_script_flags(tx, witnesses, network);
+        if let Some(msg) = verify_mempool_scripts(
+            tx,
+            witnesses,
+            utxo_set,
+            height,
+            time_context,
+            flags,
+            network,
+        )? {
+            return Ok(MempoolResult::Rejected(msg));
         }
     }
 
@@ -216,7 +148,11 @@ pub fn accept_to_memory_pool(
 /// - Base flags: Standard validation flags (P2SH, STRICTENC, DERSIG, LOW_S, etc.)
 /// - SegWit flag (SCRIPT_VERIFY_WITNESS = 0x800): Enabled if transaction uses SegWit
 /// - Taproot flag (SCRIPT_VERIFY_TAPROOT = 0x20000): Enabled if transaction uses Taproot
-fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u32 {
+fn calculate_script_flags(
+    tx: &Transaction,
+    witnesses: Option<&[Witness]>,
+    network: Network,
+) -> u32 {
     // Delegate to the canonical script flag calculation used by block validation.
     //
     // Note: For mempool policy we only care about which flags are enabled, not the
@@ -233,7 +169,7 @@ fn calculate_script_flags(tx: &Transaction, witnesses: Option<&[Witness]>) -> u3
         tx,
         has_witness,
         MEMPOOL_POLICY_HEIGHT,
-        crate::types::Network::Mainnet,
+        network,
     )
 }
 
@@ -356,7 +292,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
             return Ok(false);
         }
 
-        // Count OP_RETURN outputs; Bitcoin Core rejects multiple OP_RETURN outputs (policy).
+        // Count OP_RETURN outputs; standard mempool policy rejects multiple OP_RETURN outputs.
         if output.script_pubkey.first() == Some(&0x6a) {
             op_return_count += 1;
         }
@@ -531,8 +467,133 @@ pub fn replacement_checks(
 // HELPER FUNCTIONS
 // ============================================================================
 
-/// Mempool data structure
-pub type Mempool = HashSet<Hash>;
+/// Mempool data structure: transaction IDs plus outpoints spent by those transactions.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Mempool {
+    txids: HashSet<Hash>,
+    spent_outpoints: HashSet<OutPoint>,
+    /// Spent outpoints per txid (populated by [`insert_transaction`](Self::insert_transaction)).
+    tx_spent_outpoints: HashMap<Hash, Vec<OutPoint>>,
+    /// Aggregate virtual size of indexed transactions (vbytes).
+    total_vbytes: usize,
+    /// Per-txid vbytes (populated by [`insert_transaction`](Self::insert_transaction)).
+    tx_vsizes: HashMap<Hash, usize>,
+}
+
+impl Mempool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert a transaction ID only (does not register spent outpoints).
+    ///
+    /// Prefer [`insert_transaction`](Self::insert_transaction) when the full transaction is
+    /// available — conflict detection requires outpoint indexing.
+    pub fn insert(&mut self, txid: Hash) -> bool {
+        self.txids.insert(txid)
+    }
+
+    /// Register a transaction and index its spent inputs for conflict detection.
+    pub fn insert_transaction(&mut self, tx: &Transaction) -> bool {
+        let txid = crate::block::calculate_tx_id(tx);
+        if !self.txids.insert(txid) {
+            return false;
+        }
+        let vsize = calculate_transaction_size_vbytes(tx);
+        self.total_vbytes = self.total_vbytes.saturating_add(vsize);
+        self.tx_vsizes.insert(txid, vsize);
+        let mut outpoints = Vec::with_capacity(tx.inputs.len());
+        if !is_coinbase(tx) {
+            for input in &tx.inputs {
+                self.spent_outpoints.insert(input.prevout);
+                outpoints.push(input.prevout);
+            }
+        }
+        self.tx_spent_outpoints.insert(txid, outpoints);
+        true
+    }
+
+    pub fn contains(&self, txid: &Hash) -> bool {
+        self.txids.contains(txid)
+    }
+
+    pub fn spends_outpoint(&self, outpoint: &OutPoint) -> bool {
+        self.spent_outpoints.contains(outpoint)
+    }
+
+    pub fn remove(&mut self, txid: &Hash) -> bool {
+        if !self.txids.remove(txid) {
+            return false;
+        }
+        if let Some(vsize) = self.tx_vsizes.remove(txid) {
+            self.total_vbytes = self.total_vbytes.saturating_sub(vsize);
+        }
+        if let Some(outpoints) = self.tx_spent_outpoints.remove(txid) {
+            for op in outpoints {
+                self.spent_outpoints.remove(&op);
+            }
+        }
+        true
+    }
+
+    /// Remove mempool entries that spend any of the given outpoints (e.g. after block connect).
+    pub fn remove_spending_any(&mut self, outpoints: &HashSet<OutPoint>) -> Vec<Hash> {
+        if outpoints.is_empty() {
+            return Vec::new();
+        }
+        let to_remove: Vec<Hash> = self
+            .tx_spent_outpoints
+            .iter()
+            .filter(|(_, ops)| ops.iter().any(|op| outpoints.contains(op)))
+            .map(|(id, _)| *id)
+            .collect();
+        let mut removed = Vec::new();
+        for id in to_remove {
+            if self.remove(&id) {
+                removed.push(id);
+            }
+        }
+        removed
+    }
+
+    pub fn len(&self) -> usize {
+        self.txids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.txids.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Hash> {
+        self.txids.iter()
+    }
+
+    pub fn clear(&mut self) {
+        self.txids.clear();
+        self.spent_outpoints.clear();
+        self.tx_spent_outpoints.clear();
+        self.total_vbytes = 0;
+        self.tx_vsizes.clear();
+    }
+
+    /// Total virtual size of transactions indexed via [`insert_transaction`](Self::insert_transaction).
+    pub fn total_vbytes(&self) -> usize {
+        self.total_vbytes
+    }
+}
+
+/// Returns true when adding `additional_vsize` would meet or exceed pool limits.
+pub(crate) fn mempool_size_limits_exceeded(
+    mempool: &Mempool,
+    additional_vsize: usize,
+    max_txs: usize,
+    max_bytes: usize,
+) -> bool {
+    if mempool.len() >= max_txs {
+        return true;
+    }
+    max_bytes > 0 && mempool.total_vbytes().saturating_add(additional_vsize) > max_bytes
+}
 
 /// Result of mempool acceptance
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -616,12 +677,16 @@ pub fn update_mempool_after_block(
         }
     }
 
-    // 2. Remove transactions that became invalid (inputs were spent by block)
-    // Note: We don't have the transaction here, just the ID
-    // In a full implementation, we'd need a transaction store or lookup
-    // For now, we'll skip this check and rely on the caller to handle it
-    // Use `update_mempool_after_block_with_lookup` for full validation
-    // This is a limitation that should be addressed with a transaction index
+    // 2. Remove mempool txs that spend inputs consumed by the block (outpoint index).
+    let mut spent_by_block = HashSet::new();
+    for tx in &block.transactions {
+        if !is_coinbase(tx) {
+            for input in &tx.inputs {
+                spent_by_block.insert(input.prevout);
+            }
+        }
+    }
+    removed.extend(mempool.remove_spending_any(&spent_by_block));
 
     Ok(removed)
 }
@@ -700,42 +765,27 @@ pub(crate) fn check_mempool_rules(
     fee: Integer,
     mempool: &Mempool,
 ) -> Result<bool> {
-    // Check minimum fee rate (simplified)
-    let tx_size = calculate_transaction_size(tx);
-    // Use integer-based fee rate calculation to avoid floating-point precision issues
-    // For display purposes, we still use f64, but for comparisons we use integer math
-    // Runtime assertion: Transaction size must be positive
-    debug_assert!(
-        tx_size > 0,
-        "Transaction size ({tx_size}) must be positive for fee rate calculation"
-    );
+    // Check minimum fee rate and pool size using integer sat/vB math (no f64 compare).
+    let vsize = calculate_transaction_size_vbytes(tx);
+    if vsize == 0 {
+        return Ok(false);
+    }
 
-    let fee_rate = (fee as f64) / (tx_size as f64);
-
-    // Runtime assertion: Fee rate must be non-negative
-    debug_assert!(
-        fee_rate >= 0.0,
-        "Fee rate ({fee_rate:.6}) must be non-negative (fee: {fee}, size: {tx_size})"
-    );
-
-    // Get minimum fee rate from configuration
     let config = crate::config::get_consensus_config_ref();
-    let min_fee_rate = config.mempool.min_relay_fee_rate as f64; // sat/vB
-    let min_tx_fee = config.mempool.min_tx_fee; // absolute minimum fee
+    let min_fee_rate = config.mempool.min_relay_fee_rate;
+    let min_tx_fee = config.mempool.min_tx_fee;
 
-    // Check absolute minimum fee
     if fee < min_tx_fee {
         return Ok(false);
     }
 
-    // Check fee rate (sat/vB)
-    if fee_rate < min_fee_rate {
+    let required_fee = (min_fee_rate as u128).saturating_mul(vsize as u128);
+    if (fee as u128) < required_fee {
         return Ok(false);
     }
 
-    // Check mempool size limits using configuration
-    // Use transaction count limit (simpler than size-based for now)
-    if mempool.len() > config.mempool.max_mempool_txs {
+    let max_bytes = (config.mempool.max_mempool_mb as usize).saturating_mul(1_000_000);
+    if mempool_size_limits_exceeded(mempool, vsize, config.mempool.max_mempool_txs, max_bytes) {
         return Ok(false);
     }
 
@@ -744,17 +794,83 @@ pub(crate) fn check_mempool_rules(
 
 /// Check for transaction conflicts
 fn has_conflicts(tx: &Transaction, mempool: &Mempool) -> Result<bool> {
-    // Check if any input is already spent by mempool transaction
     for input in &tx.inputs {
-        // In a real implementation, we'd check if this input is already spent
-        // by another transaction in the mempool
-        // For now, we'll do a simplified check
-        if mempool.contains(&input.prevout.hash) {
+        if mempool.spends_outpoint(&input.prevout) {
             return Ok(true);
         }
     }
 
     Ok(false)
+}
+
+/// Verify all input scripts using the full witness-aware API (same path as block connect).
+fn verify_mempool_scripts(
+    tx: &Transaction,
+    witnesses: Option<&[Witness]>,
+    utxo_set: &UtxoSet,
+    height: Natural,
+    _time_context: Option<TimeContext>,
+    flags: u32,
+    network: Network,
+) -> Result<Option<String>> {
+    let mut prevouts = Vec::with_capacity(tx.inputs.len());
+    for input in &tx.inputs {
+        if let Some(utxo) = utxo_set.get(&input.prevout) {
+            prevouts.push(TransactionOutput {
+                value: utxo.value,
+                script_pubkey: utxo.script_pubkey.as_ref().to_vec(),
+            });
+        } else {
+            prevouts.push(TransactionOutput {
+                value: 0,
+                script_pubkey: ByteString::new(),
+            });
+        }
+    }
+
+    for (i, input) in tx.inputs.iter().enumerate() {
+        let Some(utxo) = utxo_set.get(&input.prevout) else {
+            continue;
+        };
+        let witness = witnesses.and_then(|wits| wits.get(i));
+        let is_valid = verify_script_with_context(
+            &input.script_sig,
+            utxo.script_pubkey.as_ref(),
+            witness,
+            flags,
+            tx,
+            i,
+            &prevouts,
+            Some(height),
+            network,
+        )?;
+        if !is_valid {
+            return Ok(Some(format!("Invalid script at input {i}")));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Whether an unconfirmed input is allowed when replacing `existing_tx` (BIP125 rule 5).
+fn input_allowed_for_replacement(
+    input: &TransactionInput,
+    existing_tx: &Transaction,
+    utxo_set: &UtxoSet,
+) -> bool {
+    if utxo_set.contains_key(&input.prevout) {
+        return true;
+    }
+    if existing_tx
+        .inputs
+        .iter()
+        .any(|existing_input| existing_input.prevout == input.prevout)
+    {
+        return true;
+    }
+    let existing_id = crate::block::calculate_tx_id(existing_tx);
+    (input.prevout.hash == existing_id)
+        && ((input.prevout.index as usize) < existing_tx.outputs.len())
 }
 
 /// Check if transaction is final (Orange Paper Section 9.1 - Transaction Finality)
@@ -851,13 +967,14 @@ pub fn signals_rbf(tx: &Transaction) -> bool {
 
 /// Calculate transaction size in virtual bytes (vbytes)
 ///
-/// For SegWit transactions, uses weight/4 (virtual bytes).
-/// For non-SegWit transactions, uses byte size.
-/// This is a simplified version - proper implementation would use segwit::calculate_weight()
+/// Uses BIP141 weight/4 when weight can be computed; otherwise falls back to stripped size.
 fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
-    // Simplified: use byte size as approximation
-    // In production, should use proper weight calculation for SegWit
-    calculate_transaction_size(tx)
+    use crate::segwit::calculate_transaction_weight;
+    use crate::witness::weight_to_vsize;
+    match calculate_transaction_weight(tx, None) {
+        Ok(weight) => weight_to_vsize(weight) as usize,
+        Err(_) => calculate_transaction_size(tx),
+    }
 }
 
 /// Check if new transaction conflicts with existing transaction
@@ -886,7 +1003,7 @@ pub(crate) fn creates_new_dependencies(
     new_tx: &Transaction,
     existing_tx: &Transaction,
     utxo_set: &UtxoSet,
-    mempool: &Mempool,
+    _mempool: &Mempool,
 ) -> Result<bool> {
     for input in &new_tx.inputs {
         // Check if input is confirmed (in UTXO set)
@@ -907,11 +1024,11 @@ pub(crate) fn creates_new_dependencies(
             continue;
         }
 
-        // If not confirmed and not from existing tx, it's a new unconfirmed dependency
-        // Check if it's at least in mempool (but still unconfirmed)
-        if !mempool.contains(&input.prevout.hash) {
-            return Ok(true); // New unconfirmed dependency
+        if input_allowed_for_replacement(input, existing_tx, utxo_set) {
+            continue;
         }
+
+        return Ok(true);
     }
 
     Ok(false)
@@ -1027,9 +1144,9 @@ pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     crate::block::calculate_tx_id(tx)
 }
 
-/// Calculate transaction size (simplified)
-// Use the actual serialization-based size calculation from transaction module
-// Ensures consistency with base serialization size (no witness)
+/// Transaction size in bytes (consensus serialization, no witness).
+///
+/// Delegates to `transaction::calculate_transaction_size` for consistency with block weight checks.
 fn calculate_transaction_size(tx: &Transaction) -> usize {
     use crate::transaction::calculate_transaction_size as tx_size;
     tx_size(tx)
@@ -1060,7 +1177,7 @@ fn is_coinbase(tx: &Transaction) -> bool {
 
 /// Mathematical Specification for Mempool:
 /// ∀ tx ∈ 𝒯𝒳, utxo_set ∈ 𝒰𝒮, mempool ∈ Mempool:
-/// - accept_to_memory_pool(tx, utxo_set, mempool) = Accepted ⟹
+/// - accept_to_memory_pool(tx, utxo_set, mempool, height, time_context, network) = Accepted ⟹
 ///   (tx ∉ mempool ∧
 ///    CheckTransaction(tx) = valid ∧
 ///    CheckTxInputs(tx, utxo_set) = valid ∧
@@ -1090,8 +1207,16 @@ mod tests {
             network_time: 1234567890,
             median_time_past: 1234567890,
         });
-        let result =
-            accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &utxo_set,
+            &mempool,
+            100,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
         assert!(matches!(result, MempoolResult::Accepted));
     }
 
@@ -1106,8 +1231,16 @@ mod tests {
             network_time: 1234567890,
             median_time_past: 1234567890,
         });
-        let result =
-            accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 100, time_context).unwrap();
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &utxo_set,
+            &mempool,
+            100,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1253,9 +1386,16 @@ mod tests {
             network_time: 0,
             median_time_past: 0,
         });
-        let result =
-            accept_to_memory_pool(&coinbase_tx, None, &utxo_set, &mempool, 100, time_context)
-                .unwrap();
+        let result = accept_to_memory_pool(
+            &coinbase_tx,
+            None,
+            &utxo_set,
+            &mempool,
+            100,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
@@ -1364,14 +1504,49 @@ mod tests {
     }
 
     #[test]
+    fn test_mempool_total_vbytes_tracking() {
+        let mut mempool = Mempool::new();
+        let tx = create_valid_transaction();
+        let vsize = calculate_transaction_size_vbytes(&tx);
+        let txid = crate::block::calculate_tx_id(&tx);
+
+        mempool.insert_transaction(&tx);
+        assert_eq!(mempool.total_vbytes(), vsize);
+
+        mempool.remove(&txid);
+        assert_eq!(mempool.total_vbytes(), 0);
+    }
+
+    #[test]
+    fn test_mempool_byte_limit_exceeded() {
+        let mut mempool = Mempool::new();
+        let tx = create_valid_transaction();
+        let vsize = calculate_transaction_size_vbytes(&tx);
+        mempool.insert_transaction(&tx);
+
+        let at_limit = mempool.total_vbytes();
+        assert!(!mempool_size_limits_exceeded(
+            &mempool, 0, 1_000_000, at_limit
+        ));
+        assert!(mempool_size_limits_exceeded(
+            &mempool, 1, 1_000_000, at_limit
+        ));
+        assert!(!mempool_size_limits_exceeded(
+            &mempool,
+            vsize,
+            1_000_000,
+            at_limit.saturating_add(vsize)
+        ));
+    }
+
+    #[test]
     fn test_check_mempool_rules_full_mempool() {
         let tx = create_valid_transaction();
         let fee = 10000;
         let mut mempool = Mempool::new();
 
-        // Fill mempool beyond limit with unique hashes
-        // Default max_mempool_txs is 100,000, so we need to exceed that
-        for i in 0..100_001 {
+        // Fill mempool to the tx-count limit (default max_mempool_txs is 100,000).
+        for i in 0..100_000 {
             let mut hash = [0u8; 32];
             hash[0] = (i & 0xff) as u8;
             hash[1] = ((i >> 8) & 0xff) as u8;
@@ -1380,8 +1555,7 @@ mod tests {
             mempool.insert(hash);
         }
 
-        // Verify mempool is actually full (exceeds max_mempool_txs limit of 100,000)
-        assert!(mempool.len() > 100_000);
+        assert_eq!(mempool.len(), 100_000);
 
         let result = check_mempool_rules(&tx, fee, &mempool).unwrap();
         assert!(!result);
@@ -1401,8 +1575,10 @@ mod tests {
         let tx = create_valid_transaction();
         let mut mempool = Mempool::new();
 
-        // Add a conflicting transaction to mempool
-        mempool.insert(tx.inputs[0].prevout.hash);
+        // Add a conflicting transaction to mempool (same outpoint, different txid)
+        let mut pool_tx = tx.clone();
+        pool_tx.version = 2;
+        mempool.insert_transaction(&pool_tx);
 
         let result = has_conflicts(&tx, &mempool).unwrap();
         assert!(result);

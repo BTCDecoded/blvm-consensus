@@ -180,10 +180,6 @@ proptest! {
     ) {
         // Witness commitment should be 32 bytes (SHA256 output)
         prop_assert_eq!(witness_root.len(), 32);
-
-        // Witness root should be non-zero (typically)
-        // (but zero is technically valid)
-        prop_assert!(true);
     }
 }
 
@@ -262,10 +258,8 @@ proptest! {
                 }
             }
 
-            let result = segwit::calculate_block_weight(&block, &witnesses);
-
-            // Should succeed
-            prop_assert!(result.is_ok() || result.is_err());
+            let weight = segwit::calculate_block_weight(&block, &witnesses).unwrap();
+            prop_assert!(weight > 0);
         }
     }
 }

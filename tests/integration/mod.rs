@@ -1,16 +1,19 @@
 //! Integration tests for blvm-consensus
 //!
-//! Modules gated with `#[cfg(any())]` have API drift and require a dedicated update pass.
+//! BIP connect_block enforcement: `bip_enforcement_tests` + `bip_compliance_tests`.
+//! Node RPC / historical replay / differential helpers live in sibling modules below.
 
-// These modules have API-drift errors (missing is_coinbase, renamed functions, type mismatches).
-#[cfg(any())]
-mod bip_call_verification;
-#[cfg(any())]
+mod bip_compliance_tests;
+mod bip_enforcement_tests;
+mod blvm_integration_tests;
 mod consensus_validation;
 mod core_test_vectors;
-#[cfg(any())]
+mod differential_tests;
+mod helpers;
+mod historical_replay;
 mod mempool_mining;
+mod node_rpc;
 
-// Production feature-gated tests (also drifted)
-#[cfg(all(feature = "production", any()))]
-mod blvm_integration_tests;
+// Production feature-gated tests
+#[cfg(feature = "production")]
+mod production_integration_tests;

@@ -1,185 +1,191 @@
 //! Integration tests for production performance optimizations
 
 #[cfg(feature = "production")]
+#[path = "../test_helpers.rs"]
+mod test_helpers;
+
+#[cfg(feature = "production")]
 mod tests {
-    use blvm_consensus::opcodes::OP_1;
-    use blvm_consensus::*;
+    use super::test_helpers::adjusted_timeout;
     use blvm_consensus::block::*;
+    use blvm_consensus::opcodes::OP_1;
+    use blvm_consensus::types::Network;
+    use blvm_consensus::*;
     use std::time::Instant;
-    
-    // Import CI-aware test helpers
-    #[path = "../test_helpers.rs"]
-    mod test_helpers;
-    use test_helpers::adjusted_timeout;
+
+    fn regtest_coinbase(height: u64) -> Transaction {
+        let mut script_sig = vec![0x01];
+        script_sig.push(height as u8);
+        Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32].into(),
+                    index: 0xffffffff,
+                },
+                script_sig,
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 5_000_000_000,
+                script_pubkey: vec![OP_1].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        }
+    }
 
     fn create_multi_transaction_block(num_txs: usize) -> (Block, UtxoSet) {
-        let mut transactions = vec![
-            // Coinbase
-            Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                    script_sig: vec![OP_1],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: vec![TransactionOutput {
-                    value: 50_000_000_000,
-                    script_pubkey: vec![OP_1].into(),
-                }].into(),
-                lock_time: 0,
-            },
-        ];
-        
+        let coinbase = regtest_coinbase(0);
+        let mut transactions = vec![coinbase.clone()];
         let mut utxo_set = UtxoSet::default();
-        
-        // Create regular transactions
+
         for i in 1..=num_txs {
-            let outpoint = OutPoint { hash: [i as u8; 32], index: 0 };
-            utxo_set.insert(outpoint, std::sync::Arc::new(UTXO {
-                value: 10000,
-                script_pubkey: vec![OP_1].into(),
-                height: 0,
-            }));
-            
+            let outpoint = OutPoint {
+                hash: [i as u8; 32].into(),
+                index: 0,
+            };
+            utxo_set.insert(
+                outpoint,
+                std::sync::Arc::new(UTXO {
+                    value: 1_000_000,
+                    script_pubkey: vec![OP_1].into(),
+                    height: 0,
+                    is_coinbase: false,
+                }),
+            );
+
             transactions.push(Transaction {
-                version: 1,
+                version: 2,
                 inputs: vec![TransactionInput {
                     prevout: outpoint,
                     script_sig: vec![OP_1].into(),
                     sequence: 0xffffffff,
-                }].into(),
+                }]
+                .into(),
                 outputs: vec![TransactionOutput {
-                    value: 1000,
+                    value: 900_000,
                     script_pubkey: vec![OP_1].into(),
-                }].into(),
+                }]
+                .into(),
                 lock_time: 0,
             });
         }
-        
+
+        let merkle_root = mining::calculate_merkle_root(&transactions).expect("merkle root");
         let block = Block {
             header: BlockHeader {
-                version: 1,
+                version: 4,
                 prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
+                merkle_root,
+                timestamp: 1_231_006_505,
+                bits: 0x0300ffff,
                 nonce: 0,
             },
             transactions: transactions.into(),
         };
-        
+
         (block, utxo_set)
+    }
+
+    fn witnesses_for_block(block: &Block) -> Vec<Vec<segwit::Witness>> {
+        block
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+            .collect()
+    }
+
+    fn connect_regtest(
+        block: &Block,
+        utxo_set: UtxoSet,
+        height: u64,
+    ) -> (ValidationResult, UtxoSet, reorganization::BlockUndoLog) {
+        let witnesses = witnesses_for_block(block);
+        let ctx = BlockValidationContext::for_network(Network::Regtest);
+        connect_block(block, witnesses.as_slice(), utxo_set, height, &ctx).unwrap()
     }
 
     #[test]
     fn test_production_block_validation_full() {
-        // Complete block validation with production features enabled
         let (block, utxo_set) = create_multi_transaction_block(5);
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, new_utxo_set) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) }.unwrap();
-        
-        // Should produce valid result
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)));
-        
-        // UTXO set should be updated
-        assert!(new_utxo_set.len() > 0,
-                "Block validation should update UTXO set");
+        let (result, new_utxo_set, _undo) = connect_regtest(&block, utxo_set, 0);
+
+        assert_eq!(result, ValidationResult::Valid);
+        assert!(
+            new_utxo_set.len() > 0,
+            "Block validation should update UTXO set"
+        );
     }
 
     #[test]
     fn test_production_multi_transaction_block() {
-        // Block with many transactions (tests parallel + context reuse together)
         let (block, utxo_set) = create_multi_transaction_block(10);
-        
-        // Basic performance sanity check
+
         let start = Instant::now();
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) }.unwrap();
+        let (result, _, _) = connect_regtest(&block, utxo_set, 0);
         let duration = start.elapsed();
-        
-        // Should complete successfully
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
-                "Multi-transaction block validation must work");
-        
-        // Should complete in reasonable time (basic sanity check)
-        // Adjust threshold for CI environments (slower resources)
+
+        assert_eq!(result, ValidationResult::Valid);
+
         let max_duration_ms = adjusted_timeout(10_000);
-        assert!(duration.as_millis() < max_duration_ms as u128,
-                "Multi-transaction block should validate quickly ({}ms, max: {}ms)", 
-                duration.as_millis(), max_duration_ms);
+        assert!(
+            duration.as_millis() < max_duration_ms as u128,
+            "Multi-transaction block should validate quickly ({}ms, max: {}ms)",
+            duration.as_millis(),
+            max_duration_ms
+        );
     }
 
     #[test]
     fn test_production_coinbase_validation() {
-        // Verify coinbase handling works correctly
+        let coinbase = regtest_coinbase(0);
+        let merkle_root =
+            mining::calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle root");
         let block = Block {
             header: BlockHeader {
-                version: 1,
+                version: 4,
                 prev_block_hash: [0; 32],
-                merkle_root: [0; 32],
-                timestamp: 1231006505,
-                bits: 0x1d00ffff,
+                merkle_root,
+                timestamp: 1_231_006_505,
+                bits: 0x0300ffff,
                 nonce: 0,
             },
-            transactions: vec![
-                Transaction {
-                    version: 1,
-                    inputs: vec![TransactionInput {
-                        prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
-                        script_sig: vec![OP_1],
-                        sequence: 0xffffffff,
-                    }].into(),
-                    outputs: vec![TransactionOutput {
-                        value: 50_000_000_000,
-                        script_pubkey: vec![OP_1].into(),
-                    }].into(),
-                    lock_time: 0,
-                },
-            ],
+            transactions: vec![coinbase].into(),
         };
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, UtxoSet::default(), 0, &ctx) }.unwrap();
-        assert!(matches!(result, ValidationResult::Valid | ValidationResult::Invalid(_)),
-                "Coinbase validation must work correctly");
+
+        let (result, _, _) = connect_regtest(&block, UtxoSet::default(), 0);
+        assert_eq!(result, ValidationResult::Valid);
     }
 
     #[test]
     fn test_production_utxo_set_consistency() {
-        // Verify UTXO set updates are correct in production mode
         let (block, initial_utxo_set) = create_multi_transaction_block(3);
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result, final_utxo_set) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, initial_utxo_set, 0, &ctx) }.unwrap();
-        
-        // If valid, UTXO set should be updated
-        if matches!(result, ValidationResult::Valid) {
-            // Should have at least the new outputs
-            assert!(final_utxo_set.len() >= 3,
-                    "UTXO set should contain new transaction outputs");
-        }
-        
-        // Multiple executions should produce consistent UTXO sets
-        let (_, final_utxo_set2) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, initial_utxo_set, 0, &ctx) }.unwrap();
-        if matches!(result, ValidationResult::Valid) {
-            assert_eq!(final_utxo_set.len(), final_utxo_set2.len(),
-                       "UTXO set updates must be deterministic");
-        }
+        let (result, final_utxo_set, _) = connect_regtest(&block, initial_utxo_set.clone(), 0);
+
+        assert_eq!(result, ValidationResult::Valid);
+        assert!(
+            final_utxo_set.len() >= 3,
+            "UTXO set should contain new transaction outputs"
+        );
+
+        let (_, final_utxo_set2, _) = connect_regtest(&block, initial_utxo_set, 0);
+        assert_eq!(
+            final_utxo_set.len(),
+            final_utxo_set2.len(),
+            "UTXO set updates must be deterministic"
+        );
     }
 
     #[test]
     fn test_production_deterministic_block_validation() {
-        // Verify block validation is deterministic with production features
         let (block, utxo_set) = create_multi_transaction_block(5);
-        
-        let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-        let (result1, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set.clone(), 0, &ctx) }.unwrap();
-        let (result2, _) = { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set, 0, &ctx) }.unwrap();
-        
-        // Results must be identical
-        assert_eq!(format!("{:?}", result1), format!("{:?}", result2),
-                   "Block validation must be deterministic with production features");
+
+        let (result1, _, _) = connect_regtest(&block, utxo_set.clone(), 0);
+        let (result2, _, _) = connect_regtest(&block, utxo_set, 0);
+
+        assert_eq!(result1, result2);
+        assert_eq!(result1, ValidationResult::Valid);
     }
 }
-

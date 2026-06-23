@@ -1,83 +1,101 @@
-use blvm_consensus::opcodes::OP_1;
-use blvm_consensus::{block, Transaction, TransactionInput, TransactionOutput, OutPoint, BlockHeader, Block, UtxoSet};
+//! connect_block / apply_transaction unit vectors (REV-TC-01 strict asserts).
 
-fn create_invalid_block() -> Block {
+use blvm_consensus::block::{self, BlockValidationContext};
+use blvm_consensus::opcodes::OP_1;
+use blvm_consensus::types::{Network, ValidationResult};
+use blvm_consensus::*;
+
+fn empty_block(timestamp: u64) -> Block {
     Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
-            timestamp: 0, // Invalid timestamp (before genesis)
+            timestamp,
             bits: 0x0300ffff,
             nonce: 0,
         },
-        transactions: vec![], // Empty block (should be invalid)
+        transactions: vec![].into(),
     }
 }
 
-fn create_valid_coinbase_block() -> Block {
-    let coinbase_tx = Transaction {
+fn naive_coinbase_block() -> Block {
+    let coinbase = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
             script_sig: vec![OP_1],
             sequence: 0xffffffff,
-        }].into(),
-        outputs: vec![TransactionOutput { value: 50_000_000_000, script_pubkey: vec![OP_1].into() }].into(),
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
         lock_time: 0,
     };
-    
     Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
-            timestamp: 1231006505,
+            timestamp: 1_231_006_505,
             bits: 0x0300ffff,
             nonce: 0,
         },
-            transactions: vec![coinbase_tx].into(),
+        transactions: vec![coinbase].into(),
     }
+}
+
+fn witnesses_for(block: &Block) -> Vec<Vec<segwit::Witness>> {
+    block
+        .transactions
+        .iter()
+        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+        .collect()
+}
+
+fn connect_mainnet(
+    block: &Block,
+    utxo: UtxoSet,
+    height: u64,
+) -> (ValidationResult, UtxoSet, reorganization::BlockUndoLog) {
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    block::connect_block(block, &witnesses_for(block), utxo, height, &ctx).unwrap()
 }
 
 #[test]
 fn test_connect_block_empty_transactions() {
-    let block = create_invalid_block();
-    let utxo = UtxoSet::default();
-    let height = 1;
-    
-    // Empty block should fail validation
-    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let result = block::connect_block(&block, &witnesses, utxo, height, &ctx);
-    // May succeed or fail depending on implementation, just exercise the path
-    let _ = result;
+    let block = empty_block(0);
+    let (result, _, _) = connect_mainnet(&block, UtxoSet::default(), 1);
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("no transactions")),
+        "empty block must not connect: {result:?}"
+    );
 }
 
 #[test]
 fn test_connect_block_invalid_timestamp() {
-    let block = create_invalid_block();
-    let utxo = UtxoSet::default();
-    let height = 1;
-    
-    // Block with invalid timestamp should be handled
-    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let result = block::connect_block(&block, &witnesses, utxo, height, &ctx);
-    let _ = result;
+    let block = empty_block(0);
+    let (result, _, _) = connect_mainnet(&block, UtxoSet::default(), 1);
+    assert!(
+        matches!(result, ValidationResult::Invalid(_)),
+        "empty block with timestamp 0 must not connect at height 1: {result:?}"
+    );
 }
 
 #[test]
-fn test_connect_block_valid_coinbase() {
-    let block = create_valid_coinbase_block();
-    let utxo = UtxoSet::default();
-    let height = 1;
-    
-    // Valid coinbase block should be processed
-    let witnesses: Vec<segwit::Witness> = block.transactions.iter().map(|_| Vec::new()).collect();
-    let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet);
-    let result = block::connect_block(&block, &witnesses, utxo, height, &ctx);
-    let _ = result;
+fn test_connect_block_naive_coinbase_rejected() {
+    let block = naive_coinbase_block();
+    let (result, _, _) = connect_mainnet(&block, UtxoSet::default(), 1);
+    assert!(
+        matches!(result, ValidationResult::Invalid(_)),
+        "coinbase without BIP34/merkle/version rules must not connect: {result:?}"
+    );
 }
 
 #[test]
@@ -85,52 +103,25 @@ fn test_apply_transaction_coinbase() {
     let coinbase_tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
-            prevout: OutPoint { hash: [0; 32].into(), index: 0xffffffff },
+            prevout: OutPoint {
+                hash: [0; 32].into(),
+                index: 0xffffffff,
+            },
             script_sig: vec![OP_1],
             sequence: 0xffffffff,
-        }].into(),
-        outputs: vec![TransactionOutput { value: 50_000_000_000, script_pubkey: vec![OP_1].into() }].into(),
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 50_000_000_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
         lock_time: 0,
     };
-    
-    let mut utxo = UtxoSet::default();
-    let height = 1;
-    
-    // Apply coinbase transaction
-    let result = block::apply_transaction(&coinbase_tx, &mut utxo, height);
-    let _ = result;
+
+    let result = block::apply_transaction(&coinbase_tx, UtxoSet::default(), 1);
+    assert!(result.is_ok(), "coinbase apply should succeed: {result:?}");
+    let (new_utxo, undo) = result.unwrap();
+    assert!(!new_utxo.is_empty(), "coinbase must create UTXOs");
+    assert!(!undo.is_empty(), "coinbase apply must emit undo entries");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

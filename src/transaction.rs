@@ -729,8 +729,7 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 #[inline(always)]
 #[spec_locked("5.1", "CalculateTransactionSize")]
 pub fn calculate_transaction_size(tx: &Transaction) -> usize {
-    // Use actual serialization for consensus compatibility
-    // This replaces the simplified calculation that didn't account for varint encoding
+    // Use actual serialization for consensus compatibility (includes varint encoding).
     use crate::serialization::transaction::serialize_transaction;
     serialize_transaction(tx).len()
 }

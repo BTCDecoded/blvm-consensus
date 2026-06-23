@@ -45,11 +45,8 @@ proptest! {
     #[test]
     fn prop_chain_work_non_negative(block_count in 1usize..20usize) {
         let chain = make_chain(block_count);
-        let result = reorganization::calculate_chain_work(&chain);
-        prop_assert!(result.is_ok() || result.is_err());
-        if let Ok(work) = result {
-            prop_assert!(work >= 0);
-        }
+        let work = reorganization::calculate_chain_work(&chain).unwrap();
+        prop_assert!(work >= blvm_consensus::pow::U256::zero());
     }
 }
 
@@ -66,10 +63,12 @@ proptest! {
         };
         let short_chain = make_chain(short_len);
         let long_chain = make_chain(long_len);
-        let short_work = reorganization::calculate_chain_work(&short_chain);
-        let long_work = reorganization::calculate_chain_work(&long_chain);
-        if short_work.is_ok() && long_work.is_ok() {
-            prop_assert!(long_work.unwrap() >= short_work.unwrap());
+        let short_work = reorganization::calculate_chain_work(&short_chain).unwrap();
+        let long_work = reorganization::calculate_chain_work(&long_chain).unwrap();
+        if long_len > short_len {
+            prop_assert!(long_work > short_work);
+        } else {
+            prop_assert_eq!(long_work, short_work);
         }
     }
 }
@@ -77,21 +76,20 @@ proptest! {
 proptest! {
     #[test]
     fn prop_reorganize_prefers_more_work(
-        chain1_len in 1usize..10usize,
-        chain2_len in 1usize..10usize
+        short_len in 1usize..10usize,
+        extra in 1usize..10usize,
     ) {
-        let chain1 = make_chain(chain1_len);
-        let chain2 = make_chain(chain2_len);
-        let result = reorganization::should_reorganize(&chain1, &chain2);
-        prop_assert!(result.is_ok() || result.is_err());
+        let short_chain = make_chain(short_len);
+        let long_chain = make_chain(short_len + extra);
+        prop_assert!(reorganization::should_reorganize(&long_chain, &short_chain).unwrap());
+        prop_assert!(!reorganization::should_reorganize(&short_chain, &long_chain).unwrap());
     }
 }
 
 proptest! {
     #[test]
-    fn prop_reorganization_utxo_consistency(
+    fn prop_reorganization_utxo_count_stable(
         initial_height in 1u64..10u64,
-        _reorg_depth in 1u64..5u64
     ) {
         let mut utxo_set = UtxoSet::default();
         for i in 0..5 {
@@ -105,9 +103,7 @@ proptest! {
                 })
             );
         }
-        let initial_utxo_count = utxo_set.len();
-        prop_assert!(initial_utxo_count <= 1000);
-        prop_assert!(utxo_set.len() <= initial_utxo_count + 10);
+        prop_assert_eq!(utxo_set.len(), 5);
     }
 }
 
@@ -115,23 +111,17 @@ proptest! {
     #[test]
     fn prop_chain_work_deterministic(block_count in 1usize..10usize) {
         let chain = make_chain(block_count);
-        let work1 = reorganization::calculate_chain_work(&chain);
-        let work2 = reorganization::calculate_chain_work(&chain);
-        prop_assert_eq!(work1.is_ok(), work2.is_ok());
-        if work1.is_ok() && work2.is_ok() {
-            prop_assert_eq!(work1.unwrap(), work2.unwrap());
-        }
+        let work1 = reorganization::calculate_chain_work(&chain).unwrap();
+        let work2 = reorganization::calculate_chain_work(&chain).unwrap();
+        prop_assert_eq!(work1, work2);
     }
 }
 
 #[test]
 fn empty_chain_zero_work() {
     let empty: Vec<Block> = Vec::new();
-    let result = reorganization::calculate_chain_work(&empty);
-    assert!(result.is_ok() || result.is_err());
-    if let Ok(work) = result {
-        assert_eq!(work, 0);
-    }
+    let work = reorganization::calculate_chain_work(&empty).unwrap();
+    assert_eq!(work, blvm_consensus::pow::U256::zero());
 }
 
 proptest! {

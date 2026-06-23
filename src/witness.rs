@@ -70,7 +70,7 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
             return Ok(false);
         }
     } else {
-        // Key path: single Schnorr signature (64 or 65 bytes per Core CheckSchnorrSignature)
+        // Key path: single Schnorr signature (64 or 65 bytes per BIP340)
         if witness.len() != 1 {
             return Ok(false);
         }
@@ -180,24 +180,21 @@ pub fn extract_witness_program(
     script: &ByteString,
     _version: WitnessVersion,
 ) -> Option<ByteString> {
-    if script.len() < 3 {
+    if script.len() < 4 {
         return None;
     }
 
-    // Skip version opcode (1 byte) and push opcode (1 byte)
-    // The push opcode tells us how many bytes follow
     let push_opcode = script[1];
-    let program_start = 2;
-
-    // For P2WPKH: push_opcode is PUSH_20_BYTES (push 20 bytes)
-    // For P2WSH: push_opcode is PUSH_32_BYTES (push 32 bytes)
-    // For P2TR: push_opcode is PUSH_32_BYTES (push 32 bytes)
-    // Return the program bytes (after the push opcode)
-    if script.len() < program_start + (push_opcode as usize) {
+    // BIP141 witness programs use direct push opcodes only (0x02..=0x28).
+    if !(0x02..=0x28).contains(&push_opcode) {
+        return None;
+    }
+    let program_len = push_opcode as usize;
+    if script.len() != 2 + program_len {
         return None;
     }
 
-    Some(script[program_start..program_start + (push_opcode as usize)].to_vec())
+    Some(script[2..2 + program_len].to_vec())
 }
 
 /// Validate witness program length
@@ -261,7 +258,7 @@ mod tests {
         let invalid = vec![vec![0x01; 63]];
         assert!(!validate_taproot_witness_structure(&invalid, false).unwrap());
 
-        // Valid: 65-byte sig with explicit SIGHASH_ALL (Core accepts)
+        // Valid: 65-byte sig with explicit SIGHASH_ALL (accepted by BIP340 rules)
         let with_hashtype = vec![
             vec![0x01; 64]
                 .into_iter()
@@ -396,6 +393,17 @@ mod tests {
                 0x13,
                 PUSH_20_BYTES
             ])
+        );
+    }
+
+    #[test]
+    fn test_extract_witness_program_rejects_non_direct_push() {
+        use crate::opcodes::OP_PUSHDATA1;
+        // OP_PUSHDATA1 (0x4c) is not valid in a witness program scriptPubKey
+        let bad = vec![OP_0, OP_PUSHDATA1, 0x14u8];
+        assert_eq!(
+            extract_witness_program(&bad, WitnessVersion::SegWitV0),
+            None
         );
     }
 

@@ -12,9 +12,9 @@
 
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::*;
+use hex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use hex;
 
 // Note: This requires tokio for async, but we'll make it optional
 #[cfg(test)]
@@ -63,7 +63,7 @@ pub struct ReplayResult {
 }
 
 /// Replay historical blocks
-/// 
+///
 /// Validates blocks sequentially from start_height to end_height (or tip).
 /// Maintains UTXO set state throughout replay.
 pub async fn replay_historical_blocks(
@@ -74,7 +74,7 @@ pub async fn replay_historical_blocks(
     let mut blocks_validated = 0u64;
     let mut blocks_failed = Vec::new();
     let mut checkpoint_results = Vec::new();
-    
+
     // If block_data_dir is provided, load blocks from disk
     if let Some(dir) = &config.block_data_dir {
         let block_path = PathBuf::from(dir);
@@ -84,53 +84,65 @@ pub async fn replay_historical_blocks(
             // 1. Binary files: `block_{height}.bin` (Bitcoin wire format)
             // 2. Hex files: `block_{height}.hex` (hex-encoded Bitcoin wire format)
             // 3. JSON files: `block_{height}.json` (for debugging, not production)
-            
+
             let mut current_height = config.start_height;
             let end_height = config.end_height.unwrap_or(u64::MAX);
-            
+
             while current_height <= end_height {
                 // Try binary format first (most efficient)
                 let bin_path = block_path.join(format!("block_{}.bin", current_height));
                 let hex_path = block_path.join(format!("block_{}.hex", current_height));
-                
+
                 let block_data = if bin_path.exists() {
                     // Load binary block
-                    std::fs::read(&bin_path).map_err(|e| format!("Failed to read block {}: {}", current_height, e))?
+                    std::fs::read(&bin_path)
+                        .map_err(|e| format!("Failed to read block {}: {}", current_height, e))?
                 } else if hex_path.exists() {
                     // Load hex-encoded block
-                    let hex_content = std::fs::read_to_string(&hex_path)
-                        .map_err(|e| format!("Failed to read block {} hex: {}", current_height, e))?;
-                    hex::decode(hex_content.trim())
-                        .map_err(|e| format!("Failed to decode block {} hex: {}", current_height, e))?
+                    let hex_content = std::fs::read_to_string(&hex_path).map_err(|e| {
+                        format!("Failed to read block {} hex: {}", current_height, e)
+                    })?;
+                    hex::decode(hex_content.trim()).map_err(|e| {
+                        format!("Failed to decode block {} hex: {}", current_height, e)
+                    })?
                 } else {
                     // No block file found - end of available blocks
                     break;
                 };
-                
+
                 // Deserialize block
                 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
-                let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
-                    .map_err(|e| format!("Failed to deserialize block {}: {}", current_height, e))?;
-                
+                let (block, witnesses) =
+                    deserialize_block_with_witnesses(&block_data).map_err(|e| {
+                        format!("Failed to deserialize block {}: {}", current_height, e)
+                    })?;
+
                 // Validate block
                 // connect_block expects &[Witness] where each Witness is Vec<ByteString> (one per transaction)
                 use blvm_consensus::block::connect_block;
-                match { let ctx = block::BlockValidationContext::for_network(crate::types::Network::Mainnet); connect_block(&block, &witnesses, utxo_set.clone(), current_height, &ctx) } {
-                    Ok((validation_result, new_utxo_set)) => {
+                let ctx = blvm_consensus::block::BlockValidationContext::for_network(
+                    blvm_consensus::types::Network::Mainnet,
+                );
+                match connect_block(&block, &witnesses, utxo_set.clone(), current_height, &ctx) {
+                    Ok((validation_result, new_utxo_set, _undo)) => {
                         match validation_result {
                             blvm_consensus::ValidationResult::Valid => {
                                 utxo_set = new_utxo_set;
                                 blocks_validated += 1;
-                                
+
                                 // Check checkpoint if configured
-                                if let Some(expected_hash) = config.checkpoint_hashes.get(&current_height) {
+                                if let Some(expected_hash) =
+                                    config.checkpoint_hashes.get(&current_height)
+                                {
                                     let calculated_hash = calculate_utxo_set_hash(&utxo_set);
                                     let matches = calculated_hash == *expected_hash;
                                     checkpoint_results.push((current_height, matches));
-                                    
+
                                     if !matches {
-                                        eprintln!("Checkpoint mismatch at height {}: expected {:?}, got {:?}", 
-                                            current_height, expected_hash, calculated_hash);
+                                        eprintln!(
+                                            "Checkpoint mismatch at height {}: expected {:?}, got {:?}",
+                                            current_height, expected_hash, calculated_hash
+                                        );
                                     }
                                 }
                             }
@@ -145,7 +157,7 @@ pub async fn replay_historical_blocks(
                         // Continue replay even if block fails (for debugging)
                     }
                 }
-                
+
                 current_height += 1;
             }
         }
@@ -154,9 +166,9 @@ pub async fn replay_historical_blocks(
         // In future, this could download blocks from network or use other sources
         // See download_block_from_network() for future implementation
     }
-    
+
     let replay_time = start_time.elapsed().as_secs_f64();
-    
+
     Ok(ReplayResult {
         blocks_validated,
         blocks_failed,
@@ -168,7 +180,7 @@ pub async fn replay_historical_blocks(
 
 /// Calculate MuHash3072 of UTXO set for checkpoint verification (Core-compatible).
 pub fn calculate_utxo_set_hash(utxo_set: &UtxoSet) -> [u8; 32] {
-    use blvm_muhash::{serialize_coin_for_muhash, MuHash3072};
+    use blvm_muhash::{MuHash3072, serialize_coin_for_muhash};
 
     let mut entries: Vec<_> = utxo_set.iter().collect();
     entries.sort_by(|(a, _), (b, _)| match a.hash.cmp(&b.hash) {
@@ -193,10 +205,7 @@ pub fn calculate_utxo_set_hash(utxo_set: &UtxoSet) -> [u8; 32] {
 }
 
 /// Verify UTXO set against known checkpoint hash (muhash format)
-pub fn verify_checkpoint(
-    utxo_set: &UtxoSet,
-    expected_hash: &[u8; 32],
-) -> bool {
+pub fn verify_checkpoint(utxo_set: &UtxoSet, expected_hash: &[u8; 32]) -> bool {
     let calculated_hash = calculate_utxo_set_hash(utxo_set);
     calculated_hash == *expected_hash
 }
@@ -222,24 +231,29 @@ pub async fn download_block_from_network(
 pub fn load_block_from_disk(
     block_dir: &PathBuf,
     height: u64,
-) -> Result<(Block, Vec<Witness>), Box<dyn std::error::Error>> {
+) -> Result<(Block, Vec<Vec<Witness>>), Box<dyn std::error::Error>> {
     let bin_path = block_dir.join(format!("block_{}.bin", height));
     let hex_path = block_dir.join(format!("block_{}.hex", height));
-    
+
     let block_data = if bin_path.exists() {
         std::fs::read(&bin_path)?
     } else if hex_path.exists() {
         let hex_content = std::fs::read_to_string(&hex_path)?;
         hex::decode(hex_content.trim())?
     } else {
-        return Err(format!("Block {} not found (checked {}.bin and {}.hex)", 
-            height, bin_path.display(), hex_path.display()).into());
+        return Err(format!(
+            "Block {} not found (checked {}.bin and {}.hex)",
+            height,
+            bin_path.display(),
+            hex_path.display()
+        )
+        .into());
     };
-    
+
     use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
     let (block, witnesses) = deserialize_block_with_witnesses(&block_data)
         .map_err(|e| format!("Failed to deserialize block {}: {}", height, e))?;
-    
+
     // deserialize_block_with_witnesses already returns Vec<Witness> (one per transaction)
     Ok((block, witnesses))
 }
@@ -247,46 +261,50 @@ pub fn load_block_from_disk(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_replay_config_default() {
         let config = ReplayConfig::default();
         assert_eq!(config.start_height, 0);
         assert!(config.enable_parallel);
     }
-    
+
     #[test]
     fn test_utxo_set_hash_calculation() {
         let mut utxo_set = UtxoSet::default();
-        
+
         // Add some UTXOs
-        let outpoint1 = OutPoint { hash: [1; 32], index: 0 };
+        let outpoint1 = OutPoint {
+            hash: [1; 32],
+            index: 0,
+        };
         let utxo1 = UTXO {
             value: 1000,
             script_pubkey: vec![OP_1].into(),
             height: 0,
+            is_coinbase: false,
         };
         utxo_set.insert(outpoint1, std::sync::Arc::new(utxo1));
-        
+
         // Hash should be deterministic
         let hash1 = calculate_utxo_set_hash(&utxo_set);
         let hash2 = calculate_utxo_set_hash(&utxo_set);
         assert_eq!(hash1, hash2);
     }
-    
+
     #[test]
     fn test_checkpoint_verification() {
         let mut utxo_set = UtxoSet::default();
         let expected_hash = calculate_utxo_set_hash(&utxo_set);
-        
+
         assert!(verify_checkpoint(&utxo_set, &expected_hash));
     }
-    
+
     #[tokio::test]
     async fn test_replay_infrastructure() {
         let config = ReplayConfig::default();
         let result = replay_historical_blocks(&config).await;
-        
+
         // Infrastructure should work even without actual block data
         assert!(result.is_ok());
     }
@@ -306,4 +324,3 @@ mod tests {
 // - Support JSON block format (for debugging)
 // - Parallel block validation for old blocks (Phase 4.2 optimization)
 // - Block caching for faster subsequent runs
-

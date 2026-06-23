@@ -167,6 +167,7 @@ fn use_per_sig_schnorr() -> bool {
 }
 
 #[cfg(all(feature = "production", feature = "rayon"))]
+#[allow(dead_code)]
 fn n_crypto_drain_threads() -> usize {
     use std::sync::OnceLock;
     static CACHE: OnceLock<usize> = OnceLock::new();
@@ -193,6 +194,7 @@ fn n_crypto_drain_threads() -> usize {
 /// per-input sighash computation. The check is O(N) and lightweight (5-byte pattern match per
 /// prevout script).
 #[cfg(feature = "production")]
+#[allow(dead_code)] // legacy sequential paths; production+rayon uses ScriptCheckQueue
 fn try_batch_precompute_sighashes_ibd(
     tx: &crate::types::Transaction,
     prevout_script_pubkeys: &[&[u8]],
@@ -241,6 +243,7 @@ fn try_batch_precompute_sighashes_ibd(
 }
 
 #[cfg(all(feature = "production", feature = "rayon"))]
+#[allow(dead_code)]
 fn script_check_queue() -> &'static crate::checkqueue::ScriptCheckQueue {
     use std::sync::OnceLock;
     static Q: OnceLock<crate::checkqueue::ScriptCheckQueue> = OnceLock::new();
@@ -272,7 +275,7 @@ pub(crate) fn connect_block_inner<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     ibd_mode: bool,
-    best_header_chainwork: Option<u128>,
+    best_header_chainwork: Option<crate::pow::U256>,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -452,7 +455,7 @@ pub(crate) fn connect_block_inner<'a>(
     let tx_ids: &[Hash] = tx_ids_cow.as_ref();
 
     // Block tx merkle root verification (Orange Paper 8.4)
-    // Matches Bitcoin Core: compute root + mutation flag; reject if root mismatches OR if
+    // Compute merkle root + mutation flag; reject if root mismatches OR if
     // root matches but mutation detected (CVE-2012-2459 duplicate-tx attack).
     let (computed_merkle_root, merkle_mutated) =
         crate::mining::compute_merkle_root_and_mutated(tx_ids)?;
@@ -464,7 +467,7 @@ pub(crate) fn connect_block_inner<'a>(
         );
     }
     // CVE-2012-2459 mutation check: only enforce outside IBD.
-    // In IBD the block was already structurally validated by Bitcoin Core when it was
+    // In IBD the block was already structurally validated upstream when it was
     // added to the chain (CheckBlock → ConnectBlock). We are doing ConnectBlock only —
     // replaying known-valid blocks from a trusted chunk file. Skipping avoids false
     // positives on mainnet blocks (e.g. block 481824) where the root still matches the
@@ -574,15 +577,17 @@ pub(crate) fn connect_block_inner<'a>(
     }
 
     // Assume-valid: skip signature/script verification for blocks below the configured height.
-    // Matches Bitcoin Core's hashAssumeValid behaviour: skip when height is below the assumed
-    // block AND chain work is sufficient (nMinimumChainWork).  Bitcoin Core does NOT have a
+    // Assume-valid: skip deep signature checks when height is below the assumed
+    // block AND chain work is sufficient (nMinimumChainWork). BLVM does not apply a
     // two-week age check; we dropped that guard to keep parity and avoid inconsistency with
     // the per-signature short-circuit in script/signature.rs.
     // Fail-closed: when chainwork is unknown we cannot confirm the chain meets
     // the minimum-work threshold, so we must NOT skip signature verification.
     #[cfg(feature = "production")]
+    let min_chain_work = crate::pow::U256::from_u128(crate::config::get_n_minimum_chain_work());
+    #[cfg(feature = "production")]
     let chainwork_ok = best_header_chainwork
-        .map(|cw| cw >= crate::config::get_n_minimum_chain_work())
+        .map(|cw| cw >= min_chain_work)
         .unwrap_or(false);
     #[cfg(feature = "production")]
     let skip_signatures = height < crate::block::get_assume_valid_height() && chainwork_ok;
@@ -602,7 +607,7 @@ pub(crate) fn connect_block_inner<'a>(
         }
     }
 
-    // Pre-compute block script verify flags (Bitcoin Core GetBlockScriptFlags): one mask for all txs.
+    // Pre-compute block script verify flags (Orange Paper §5.2.6): one mask for all txs.
     // block_hash is already computed above (hoisted to eliminate duplicate at assume_valid_height).
     // Under assume-valid (`skip_signatures=true`) no script verification is performed, so we skip
     // the table lookup entirely — the value is unused in that path.
@@ -705,12 +710,12 @@ pub(crate) fn connect_block_inner<'a>(
             #[cfg(all(feature = "production", feature = "profile"))]
             let mut script_checks_queued_count: usize = 0;
 
-            // Structure validation: skip during IBD (block passed PoW, structure is guaranteed valid).
-            // Non-IBD paths still validate.
+            // Structure validation: skip only on trusted assume-valid IBD replay (REV-C-43).
+            // Non-IBD paths and recent IBD blocks still validate transaction structure.
             #[cfg(feature = "profile")]
             let structure_start = std::time::Instant::now();
             let mut valid_tx_indices = Vec::with_capacity(block.transactions.len());
-            if ibd_mode {
+            if ibd_mode && skip_signatures {
                 valid_tx_indices.extend(0..block.transactions.len());
             } else {
                 let tx_structure_results: Vec<(usize, Result<ValidationResult>)> = {
@@ -1165,7 +1170,7 @@ pub(crate) fn connect_block_inner<'a>(
                 }
 
                 // Assume-valid (or all txs satisfied via script-exec cache): no ScriptChecks queued.
-                // Skip CCheckQueue session setup, empty run_checks_sequential, and redundant Arc clones.
+                // Skip parallel script-check session setup, empty run_checks_sequential, and redundant Arc clones.
                 if block_checks_buf.is_empty() {
                     for r in queue_results {
                         match r {
@@ -1206,7 +1211,7 @@ pub(crate) fn connect_block_inner<'a>(
                         Arc<crate::bip348::SchnorrSignatureCollector>,
                     > = None;
 
-                    // Small-block fast path: skip CCheckQueue overhead for blocks with <32 inputs.
+                    // Small-block fast path: skip ScriptCheckQueue overhead for blocks with <32 inputs.
                     const SMALL_BLOCK_THRESHOLD: usize = 32;
                     let precomputed_sighashes_arc = Arc::new(precomputed_sighashes);
                     let precomputed_p2pkh_hashes_arc = Arc::new(precomputed_p2pkh_hashes);
@@ -1763,7 +1768,7 @@ pub(crate) fn connect_block_inner<'a>(
                     let drain_copy_ms = drain_copy_ns as f64 / 1_000_000.0;
                     let drain_parse_ms = drain_parse_ns as f64 / 1_000_000.0;
                     let drain_secp_ms = drain_secp_ns as f64 / 1_000_000.0;
-                    // script_checks_queued = inputs sent to CCheckQueue (0 when assume-valid skips signatures).
+                    // script_checks_queued = inputs sent to ScriptCheckQueue (0 when assume-valid skips signatures).
                     // (Former field ecdsa_sigs was always 0 here — misleading vs real verification.)
                     profile_log!(
                         "[PERF] Block {}: total={:?} (validation_loop={:?} batch={:?}), script_sub: sighash={:.2}ms interpreter={:.2}ms multisig={:.2}ms p2pkh_entry={:.2}ms p2pkh_parse={:.2}ms p2pkh_hash160={:.2}ms p2pkh_bip66={:.2}ms p2pkh_collect={:.2}ms p2pkh_secp={:.2}ms collect_slot={:.2}ms collect_lock={:.2}ms collect_copy={:.2}ms collect_chunk={:.2}ms worker_refs={:.2}ms worker_p2pkh={:.2}ms worker_refs_lock={:.2}ms run_check_loop={:.2}ms results_extend={:.2}ms batch_extract={:.2}ms batch_secp={:.2}ms batch_cache={:.2}ms drain_copy={:.2}ms drain_parse={:.2}ms drain_secp={:.2}ms ecdsa_cache_hits={} ecdsa_cache_misses={}, structure={:?}, input_lookup={:?}, check_inputs={:?}, overlay_apply={:?}, txs={} inputs={} schnorr_batch_sigs={} script_checks_queued={}",
@@ -2505,9 +2510,9 @@ pub(crate) fn connect_block_inner<'a>(
                 .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
 
         if has_segwit && !witnesses.is_empty() {
-            // Skip witness commitment validation in IBD mode. In IBD we replay blocks
-            // that were already validated by Bitcoin Core (CheckBlock + ConnectBlock).
-            if !ibd_mode {
+            // Skip witness commitment only on trusted assume-valid IBD replay (same invariant
+            // as merkle-mutation skip). Recent IBD blocks and all non-IBD connects validate.
+            if !(ibd_mode && skip_signatures) {
                 let witness_merkle_root =
                     crate::segwit::compute_witness_merkle_root_from_nested(block, witnesses)?;
                 // `Hash` is 32 bytes; commitment compares to header field directly.

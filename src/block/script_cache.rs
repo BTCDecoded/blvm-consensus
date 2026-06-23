@@ -38,8 +38,8 @@ pub(crate) fn calculate_base_script_flags_for_block(
     if activation.is_fork_active(ForkId::Bip16, height) {
         flags |= 0x01; // SCRIPT_VERIFY_P2SH
     }
-    // BIP66: strict DER for ECDSA signatures only. Bitcoin Core `GetBlockScriptFlags`
-    // adds SCRIPT_VERIFY_DERSIG here — not SCRIPT_VERIFY_STRICTENC or SCRIPT_VERIFY_LOW_S
+    // BIP66: strict DER for ECDSA signatures only. Adds SCRIPT_VERIFY_DERSIG here —
+    // not SCRIPT_VERIFY_STRICTENC or SCRIPT_VERIFY_LOW_S
     // (those are standardness / mempool policy; legacy blocks may contain high-S sigs).
     if activation.is_fork_active(ForkId::Bip66, height) {
         flags |= 0x04; // SCRIPT_VERIFY_DERSIG
@@ -48,11 +48,10 @@ pub(crate) fn calculate_base_script_flags_for_block(
         flags |= 0x200; // CHECKLOCKTIMEVERIFY
     }
     // BIP112 (CSV): CHECKSEQUENCEVERIFY at CSV deployment height (mainnet 419328).
-    // Bitcoin Core `GetBlockScriptFlags`: DEPLOYMENT_CSV, not SegWit.
     if activation.is_fork_active(ForkId::Bip112, height) {
         flags |= 0x400; // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
     }
-    // BIP147 NULLDUMMY: Bitcoin Core enables at DEPLOYMENT_SEGWIT (same height as BIP147 on mainnet).
+    // BIP147 NULLDUMMY: enabled at SegWit deployment height (same as BIP147 on mainnet).
     if activation.is_fork_active(ForkId::Bip147, height) {
         flags |= 0x10; // SCRIPT_VERIFY_NULLDUMMY
     }
@@ -148,6 +147,7 @@ pub fn calculate_script_flags_for_block_network(
 /// Calculate script verification flags for a transaction in a block (with precomputed base flags).
 #[spec_locked("5.2.5", "CalculateScriptFlags")]
 #[inline]
+#[allow(dead_code)]
 pub(crate) fn calculate_script_flags_for_block_with_base(
     tx: &Transaction,
     has_witness: bool,
@@ -159,7 +159,7 @@ pub(crate) fn calculate_script_flags_for_block_with_base(
 }
 
 // ---------------------------------------------------------------------------
-// §5.2.6 Script flag exceptions (Orange Paper; table from Bitcoin Core chainparams)
+// §5.2.6 Script flag exceptions (Orange Paper §5.2.6)
 // ---------------------------------------------------------------------------
 
 /// RPC / explorer 64-hex block id → canonical digest order used by `hash256(serialize(header))` here.
@@ -170,22 +170,20 @@ fn block_hash_from_rpc_hex(hex_str: &str) -> Hash {
     bytes.try_into().expect("length 32")
 }
 
-/// BIP16 exception block (mainnet). `SCRIPT_VERIFY_NONE` in Core.
+/// BIP16 exception block (mainnet). Uses `SCRIPT_VERIFY_NONE`.
 static MAINNET_SCRIPT_FLAG_EXCEPTION_BIP16: LazyLock<Hash> = LazyLock::new(|| {
     block_hash_from_rpc_hex("00000000000002dc756eebf4f49723ed8d30cc28a5f108eb94b1ba88ac4f9c22")
 });
-/// Taproot exception block (mainnet). `SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS` in Core.
+/// Taproot exception block (mainnet). Uses `SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS`.
 static MAINNET_SCRIPT_FLAG_EXCEPTION_TAPROOT: LazyLock<Hash> = LazyLock::new(|| {
     block_hash_from_rpc_hex("0000000000000000000f14c35b2d841e986ab5441de8c585d5ffe55ea1e395ad")
 });
-/// BIP16 exception block (testnet3). `SCRIPT_VERIFY_NONE` in Core.
+/// BIP16 exception block (testnet3). Uses `SCRIPT_VERIFY_NONE`.
 static TESTNET_SCRIPT_FLAG_EXCEPTION_BIP16: LazyLock<Hash> = LazyLock::new(|| {
     block_hash_from_rpc_hex("00000000dd30457c001f4095d208cc1296b0eed002427aa599874af7a432b105")
 });
 
-/// Consensus script-flag override for `block_hash` on `network`, if any (partial map entry).
-///
-/// Bitcoin Core: `Consensus::Params::script_flag_exceptions` (`src/kernel/chainparams.cpp`).
+/// Consensus script-flag override for `block_hash` on `network`, if any (Orange Paper §5.2.6 table).
 #[spec_locked("5.2.6", "ScriptFlagExceptions")]
 pub fn script_flag_exceptions_lookup(block_hash: &Hash, network: Network) -> Option<u32> {
     match network {
@@ -209,14 +207,14 @@ pub fn script_flag_exceptions_lookup(block_hash: &Hash, network: Network) -> Opt
     }
 }
 
-/// Bitcoin Core `GetBlockScriptFlags` (`validation.cpp`): start from `SCRIPT_VERIFY_P2SH |
+/// Block-level script verify flags: start from `SCRIPT_VERIFY_P2SH |
 /// SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT`, replace with the script-flag exception entry
 /// when present, then OR buried deployments (BIP66, BIP65, CSV, BIP147-at-SegWit). Same **block-level**
 /// bitmask is passed to script checks for every non-coinbase transaction.
 ///
 /// This is **not** the Orange Paper §5.2.6 piecewise `GetBlockScriptFlags` (exception vs per-tx
 /// `CalculateScriptFlags`); use [`get_block_script_flags`] for that formulation. `connect_block`
-/// uses this function for **mainnet consensus parity** with Bitcoin Core.
+/// uses this function for production mainnet block validation.
 pub fn get_block_script_verify_flags_core(
     block_hash: &Hash,
     height: u64,
@@ -242,7 +240,7 @@ pub fn get_block_script_verify_flags_core(
         flags |= 0x400; // CHECKSEQUENCEVERIFY
     }
     if activation.is_fork_active(ForkId::Bip147, height) {
-        flags |= 0x10; // NULLDUMMY (Core: `DEPLOYMENT_SEGWIT`)
+        flags |= 0x10; // NULLDUMMY (SegWit deployment)
     }
     #[cfg(feature = "ctv")]
     if activation.is_fork_active(ForkId::Ctv, height) {
@@ -253,10 +251,8 @@ pub fn get_block_script_verify_flags_core(
 
 /// Orange Paper §5.2.6: exception table wins when defined; otherwise per-tx `CalculateScriptFlags`.
 ///
-/// **Note:** Bitcoin Core’s `GetBlockScriptFlags` (`validation.cpp`) starts from a default mask, applies
-/// this exception table, then ORs buried deployments (BIP66, BIP65, CSV, BIP147). **`connect_block`**
-/// uses [`get_block_script_verify_flags_core`] for that Core behavior; this function remains the
-/// Orange Paper §5.2.6 piecewise spec.
+/// **`connect_block`** uses [`get_block_script_verify_flags_core`] for the block-level mask;
+/// this function is the Orange Paper §5.2.6 piecewise spec.
 #[spec_locked("5.2.6", "GetBlockScriptFlags")]
 pub fn get_block_script_flags(
     block_hash: &Hash,
@@ -382,9 +378,10 @@ pub(super) fn merge_overlay_changes_to_cache(
     }
 }
 
-/// Compute BIP143/precomputed sighash for CCheckQueue path. Uses local refs and specs Vecs
+/// Compute BIP143/precomputed sighash for the parallel script-check path. Uses local refs and specs Vecs
 /// (dropped before return) so buf borrow ends.
 #[cfg(all(feature = "production", feature = "rayon"))]
+#[allow(dead_code)] // parallel script-check precompute hook (not yet wired in hot path)
 pub(super) fn compute_bip143_and_precomp(
     tx: &Transaction,
     prevout_values: &[i64],

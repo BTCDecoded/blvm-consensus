@@ -70,10 +70,7 @@ fn test_taproot_output_key_extraction() {
     let extracted_key = extract_taproot_output_key(&p2tr_script).unwrap();
 
     assert!(extracted_key.is_some());
-    // Library extracts script[1..33]; compare to that slice for current API behavior.
-    let mut legacy_slice = [0u8; 32];
-    legacy_slice.copy_from_slice(&p2tr_script[1..33]);
-    assert_eq!(extracted_key.unwrap(), legacy_slice);
+    assert_eq!(extracted_key.unwrap(), output_key);
     assert_eq!(output_key_from_p2tr_script(&p2tr_script), output_key);
 }
 

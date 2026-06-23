@@ -1,9 +1,7 @@
-//! Script verification flags matching Bitcoin Core `interpreter.h`.
+//! Script verification flags (Orange Paper §5.2; BIP62/BIP66/BIP147/BIP341).
 //!
-//! These constants map directly to Bitcoin Core's `SCRIPT_VERIFY_*` flags.
-//! Divergence from Core's values is a consensus bug.
-//!
-//! Reference: bitcoin/bitcoin src/script/interpreter.h (Bitcoin Core 26+).
+//! These constants map to consensus `SCRIPT_VERIFY_*` flag bits.
+//! Divergence from the Orange Paper values is a consensus bug.
 
 /// No flags — bare pubkey / standard evaluation.
 pub const SCRIPT_VERIFY_NONE: u32 = 0;
@@ -75,8 +73,6 @@ pub const SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS: u32 = 1 << 19; // 0x80000
 pub const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE: u32 = 1 << 20; // 0x100000
 
 /// Standard mandatory flags for segwit-v0 transactions (pre-Taproot).
-///
-/// Equivalent to Bitcoin Core's `MANDATORY_SCRIPT_VERIFY_FLAGS` with witness enabled.
 pub const SEGWIT_STANDARD_FLAGS: u32 =
     SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE;
 

@@ -14,27 +14,12 @@ use crate::locktime::{
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
 
-/// Sequence locktime disable flag (bit 31)
-/// When set, the sequence number is not treated as a relative locktime
-#[allow(dead_code)]
-const SEQUENCE_LOCKTIME_DISABLE_FLAG: u32 = 0x80000000;
-
-/// Sequence locktime type flag (bit 22)
-/// When set, locktime is time-based; otherwise block-based
-#[allow(dead_code)]
-const SEQUENCE_LOCKTIME_TYPE_FLAG: u32 = 0x00400000;
-
-/// Sequence locktime mask (bits 0-15)
-/// Extracts the locktime value from sequence number
-#[allow(dead_code)]
-const SEQUENCE_LOCKTIME_MASK: u32 = 0x0000ffff;
-
 /// Sequence locktime granularity (for time-based locks)
-/// Time-based locks are measured in 512-second intervals
+/// Time-based locks are measured in 512-second intervals (BIP68).
 const SEQUENCE_LOCKTIME_GRANULARITY: u32 = 9; // 2^9 = 512 seconds
 
-/// Locktime verify sequence flag
-/// Must be set to enable BIP68 sequence lock enforcement
+/// Locktime verify sequence flag (BIP68)
+/// Must be set in script verification flags to enforce sequence locks.
 const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 
 /// Calculate sequence locks for a transaction (BIP68)
@@ -276,7 +261,7 @@ mod tests {
                     index: 0,
                 },
                 script_sig: vec![],
-                sequence: SEQUENCE_LOCKTIME_DISABLE_FLAG as u64, // Disabled
+                sequence: 0x8000_0000u64, // BIP68 disable flag
             }]
             .into(),
             outputs: vec![].into(),

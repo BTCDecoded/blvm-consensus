@@ -201,6 +201,47 @@ fn test_witness_v0_minimalif_rejects_non_minimal() {
 }
 
 #[test]
+fn test_unhandled_non_empty_witness_on_legacy_script_fails_closed() {
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x77; 32],
+                index: 0,
+            },
+            script_sig: vec![OP_1].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let prevouts = vec![TransactionOutput {
+        value: 10_000,
+        script_pubkey: vec![OP_1].into(),
+    }];
+    let witness = vec![vec![0x01, 0x02, 0x03]];
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            Some(&witness),
+            0,
+            &tx,
+            0,
+            &prevouts,
+            None,
+            Network::Regtest,
+        )
+        .unwrap()
+    );
+}
+
+#[test]
 fn test_tapscript_op_true_evaluates() {
     let mut stack = Vec::new();
     assert!(

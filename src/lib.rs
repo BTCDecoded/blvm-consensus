@@ -41,7 +41,7 @@
 //! ```
 
 #![allow(unused_doc_comments)] // Allow doc comments before macros (proptest, etc.)
-#![allow(unused_variables, unused_assignments, dead_code)] // Many paths are feature-gated or used conditionally
+#![allow(unused_variables, unused_assignments)] // Feature-gated and conditional compilation paths
 #![allow(
     clippy::too_many_arguments,  // Script/block have 8–17 args; struct refactor is large
     clippy::type_complexity,     // Performance-critical types (OnceLock<RwLock<LruCache<...>>>)
@@ -164,6 +164,14 @@ impl ConsensusProof {
     }
 
     /// Validate a complete block
+    ///
+    /// **Deprecated**: builds empty witness stacks and defaults to [`Network::Mainnet`] with
+    /// wall-clock time. Use [`validate_block_with_time_context`] with explicit witnesses,
+    /// network, and median-time-past instead.
+    #[deprecated(
+        since = "0.1.33",
+        note = "Use validate_block_with_time_context with explicit witnesses, network, and TimeContext"
+    )]
     #[spec_locked("5.3", "ConnectBlock")]
     #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
     pub fn validate_block(
@@ -214,7 +222,11 @@ impl ConsensusProof {
         Ok((result, new_utxo_set))
     }
 
-    /// Verify script execution
+    /// Verify script execution (legacy API — see [`script::verify_script`] deprecation).
+    #[deprecated(
+        since = "0.1.33",
+        note = "Use verify_script_with_context via script module for witness-aware verification"
+    )]
     #[spec_locked("5.2", "VerifyScript")]
     #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn verify_script(
@@ -224,7 +236,10 @@ impl ConsensusProof {
         witness: Option<&types::ByteString>,
         flags: u32,
     ) -> error::Result<bool> {
-        script::verify_script(script_sig, script_pubkey, witness, flags)
+        #[allow(deprecated)]
+        {
+            script::verify_script(script_sig, script_pubkey, witness, flags)
+        }
     }
 
     /// Check proof of work
@@ -270,8 +285,9 @@ impl ConsensusProof {
         mempool: &mempool::Mempool,
         height: types::Natural,
         time_context: Option<types::TimeContext>,
+        network: types::Network,
     ) -> error::Result<mempool::MempoolResult> {
-        mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height, time_context)
+        mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height, time_context, network)
     }
 
     /// Check if transaction is standard
@@ -319,6 +335,36 @@ impl ConsensusProof {
         )
     }
 
+    /// Create new block with explicit time, network, and optional per-tx witness stacks.
+    #[allow(clippy::too_many_arguments)]
+    #[spec_locked("12.1", "CreateNewBlock")]
+    pub fn create_new_block_with_time(
+        &self,
+        utxo_set: &types::UtxoSet,
+        mempool_txs: &[types::Transaction],
+        height: types::Natural,
+        prev_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+        coinbase_script: &types::ByteString,
+        coinbase_address: &types::ByteString,
+        block_time: types::Natural,
+        network: types::Network,
+        mempool_witnesses: Option<&[Option<Vec<segwit::Witness>>]>,
+    ) -> error::Result<types::Block> {
+        mining::create_new_block_with_time(
+            utxo_set,
+            mempool_txs,
+            height,
+            prev_header,
+            prev_headers,
+            coinbase_script,
+            coinbase_address,
+            block_time,
+            network,
+            mempool_witnesses,
+        )
+    }
+
     /// Mine a block by finding valid nonce
     #[spec_locked("12.3", "MineBlock")]
     #[blvm_spec_lock::ensures(result_0 >= 0)]
@@ -343,6 +389,8 @@ impl ConsensusProof {
         prev_headers: &[types::BlockHeader],
         coinbase_script: &types::ByteString,
         coinbase_address: &types::ByteString,
+        network: types::Network,
+        mempool_witnesses: Option<&[Option<Vec<segwit::Witness>>]>,
     ) -> error::Result<mining::BlockTemplate> {
         mining::create_block_template(
             utxo_set,
@@ -352,10 +400,16 @@ impl ConsensusProof {
             prev_headers,
             coinbase_script,
             coinbase_address,
+            network,
+            mempool_witnesses,
         )
     }
 
-    /// Reorganize chain when longer chain is found
+    /// Reorganize chain when a longer chain is found (legacy: synthesizes empty witnesses).
+    #[deprecated(
+        since = "0.1.33",
+        note = "Use reorganize_chain_with_witnesses with explicit witness data for SegWit chains"
+    )]
     #[spec_locked("11.3")]
     #[blvm_spec_lock::ensures(result >= 0)]
     pub fn reorganize_chain(
@@ -366,11 +420,78 @@ impl ConsensusProof {
         current_height: types::Natural,
         network: types::Network,
     ) -> error::Result<reorganization::ReorganizationResult> {
-        reorganization::reorganize_chain(
+        use crate::segwit::{Witness, is_segwit_transaction};
+        use crate::transaction::is_coinbase;
+
+        for block in new_chain {
+            for tx in &block.transactions {
+                if !is_coinbase(tx) && is_segwit_transaction(tx) {
+                    return Err(error::ConsensusError::BlockValidation(
+                        "reorganize_chain: SegWit transactions require reorganize_chain_with_witnesses"
+                            .into(),
+                    ));
+                }
+            }
+        }
+
+        let witnesses: Vec<Vec<Vec<Witness>>> = new_chain
+            .iter()
+            .map(|block| {
+                block
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                    .collect()
+            })
+            .collect();
+        let network_time = new_chain
+            .iter()
+            .map(|b| b.header.timestamp)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(crate::constants::MAX_FUTURE_BLOCK_TIME);
+
+        reorganization::reorganize_chain_with_witnesses(
             new_chain,
+            &witnesses,
+            None,
             current_chain,
             current_utxo_set,
             current_height,
+            None::<fn(&types::Block) -> Option<Vec<segwit::Witness>>>,
+            None::<fn(types::Natural) -> Option<Vec<types::BlockHeader>>>,
+            None::<fn(&types::Hash) -> Option<reorganization::BlockUndoLog>>,
+            None::<fn(&types::Hash, &reorganization::BlockUndoLog) -> error::Result<()>>,
+            network_time,
+            network,
+        )
+    }
+
+    /// Reorganize chain with explicit witness data (preferred API).
+    #[spec_locked("11.3")]
+    pub fn reorganize_chain_with_witnesses(
+        &self,
+        new_chain: &[types::Block],
+        new_chain_witnesses: &[Vec<Vec<segwit::Witness>>],
+        new_chain_headers: Option<&[types::BlockHeader]>,
+        current_chain: &[types::Block],
+        current_utxo_set: types::UtxoSet,
+        current_height: types::Natural,
+        network_time: types::Natural,
+        network: types::Network,
+    ) -> error::Result<reorganization::ReorganizationResult> {
+        reorganization::reorganize_chain_with_witnesses(
+            new_chain,
+            new_chain_witnesses,
+            new_chain_headers,
+            current_chain,
+            current_utxo_set,
+            current_height,
+            None::<fn(&types::Block) -> Option<Vec<segwit::Witness>>>,
+            None::<fn(types::Natural) -> Option<Vec<types::BlockHeader>>>,
+            None::<fn(&types::Hash) -> Option<reorganization::BlockUndoLog>>,
+            None::<fn(&types::Hash, &reorganization::BlockUndoLog) -> error::Result<()>>,
+            network_time,
             network,
         )
     }

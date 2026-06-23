@@ -1,6 +1,7 @@
 use blvm_consensus::config::MempoolConfig;
 use blvm_consensus::mempool;
 use blvm_consensus::opcodes::{OP_0, OP_1, OP_ENDIF, OP_IF, OP_PUSHDATA1, OP_RETURN, PUSH_1_BYTE};
+use blvm_consensus::types::Network;
 use blvm_consensus::{Transaction, TransactionInput, TransactionOutput};
 
 #[path = "../test_helpers.rs"]
@@ -26,7 +27,7 @@ fn test_negative_fee_rejected() {
         lock_time: 0,
     };
     let pool = mempool::Mempool::new();
-    let res = mempool::accept_to_memory_pool(&tx, None, &set, &pool, 1, None);
+    let res = mempool::accept_to_memory_pool(&tx, None, &set, &pool, 1, None, Network::Mainnet);
     assert!(
         matches!(res, Ok(mempool::MempoolResult::Rejected(_))) || res.is_err(),
         "Outputs exceed inputs should be rejected"

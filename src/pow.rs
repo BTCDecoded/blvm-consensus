@@ -280,8 +280,8 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
     Ok(results)
 }
 
-/// 256-bit integer for Bitcoin target calculations
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// 256-bit integer for Bitcoin target / chainwork calculations (256-bit limb layout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct U256([u64; 4]); // 4 * 64 = 256 bits
 
 impl U256 {
@@ -326,8 +326,106 @@ impl U256 {
         self.0[0] as u128 | ((self.0[1] as u128) << 64)
     }
 
+    /// Construct from the low 128 bits (high words zero).
+    pub fn from_u128(value: u128) -> Self {
+        U256([value as u64, (value >> 64) as u64, 0, 0])
+    }
+
+    pub fn one() -> Self {
+        U256([1, 0, 0, 0])
+    }
+
     pub fn is_zero(&self) -> bool {
         self.0.iter().all(|&w| w == 0)
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(self) -> Self {
+        U256([!self.0[0], !self.0[1], !self.0[2], !self.0[3]])
+    }
+
+    pub fn checked_add(self, other: Self) -> Option<Self> {
+        let mut result = [0u64; 4];
+        let mut carry = 0u128;
+        for (i, word) in result.iter_mut().enumerate() {
+            let sum = self.0[i] as u128 + other.0[i] as u128 + carry;
+            *word = sum as u64;
+            carry = sum >> 64;
+        }
+        if carry != 0 { None } else { Some(U256(result)) }
+    }
+
+    pub fn saturating_add(self, other: Self) -> Self {
+        self.checked_add(other).unwrap_or(U256([u64::MAX; 4]))
+    }
+
+    fn sub(self, other: Self) -> Self {
+        let mut result = [0u64; 4];
+        let mut borrow = 0u8;
+        for (i, word) in result.iter_mut().enumerate() {
+            let mut minuend = self.0[i] as u128;
+            if borrow != 0 {
+                minuend += 1u128 << 64;
+                borrow = 0;
+            }
+            if minuend >= other.0[i] as u128 {
+                *word = (minuend - other.0[i] as u128) as u64;
+            } else {
+                *word = (minuend + (1u128 << 64) - other.0[i] as u128) as u64;
+                borrow = 1;
+            }
+        }
+        U256(result)
+    }
+
+    fn bit(self, bit: u32) -> bool {
+        (self.0[(bit / 64) as usize] >> (bit % 64)) & 1 == 1
+    }
+
+    fn with_bit_set(self, bit: u32) -> Self {
+        let mut result = self;
+        result.0[(bit / 64) as usize] |= 1u64 << (bit % 64);
+        result
+    }
+
+    /// Full-width unsigned division for 256-bit chainwork arithmetic.
+    #[allow(clippy::should_implement_trait)]
+    pub fn div(self, divisor: Self) -> Self {
+        if divisor.is_zero() {
+            return U256::zero();
+        }
+        if self < divisor {
+            return U256::zero();
+        }
+        let mut quotient = U256::zero();
+        let mut remainder = U256::zero();
+        for bit in (0..256).rev() {
+            remainder = remainder.shl(1);
+            if self.bit(bit) {
+                remainder = remainder
+                    .checked_add(U256::one())
+                    .unwrap_or(U256([u64::MAX; 4]));
+            }
+            if remainder >= divisor {
+                remainder = remainder.sub(divisor);
+                quotient = quotient.with_bit_set(bit);
+            }
+        }
+        quotient
+    }
+
+    /// Serialize as 32 big-endian bytes (Bitcoin RPC `chainwork` display order).
+    pub fn to_be_bytes(self) -> [u8; 32] {
+        let mut bytes = self.to_le_bytes();
+        bytes.reverse();
+        bytes
+    }
+
+    /// Parse 32 big-endian bytes (RPC / chainstate cache layout).
+    pub fn from_be_bytes(bytes: &[u8; 32]) -> Self {
+        let mut le = *bytes;
+        le.reverse();
+        Self::from_bytes(&le)
     }
 
     #[cfg(test)]
@@ -382,8 +480,8 @@ impl U256 {
                 result.0[i - word_shift] = self.0[i];
             }
         } else {
-            // Same limb pairing as Bitcoin/Core-style big integers: each output word combines
-            // the low bits of self[i] and the high bits of self[i+1].
+            // Limb pairing for 256-bit shift: each output word combines the low bits of
+            // self[i] and the high bits of self[i+1].
             for i in word_shift..4 {
                 let mut word = self.0[i] >> bit_shift;
                 if i + 1 < 4 {
@@ -566,7 +664,7 @@ impl U256 {
 
     /// Convert U256 to f64 for difficulty display.
     /// Precision loss for very large values; sufficient for RPC difficulty (4-8 significant digits).
-    fn to_f64(&self) -> f64 {
+    fn to_f64(self) -> f64 {
         if self.is_zero() {
             return 0.0;
         }
@@ -662,7 +760,7 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
     // }
 
     let exponent = (bits >> 24) as u8;
-    // Bitcoin SetCompact uses a 23-bit mantissa (see arith_uint256::SetCompact).
+    // SetCompact uses a 23-bit mantissa (Orange Paper §11.3).
     let mantissa = bits & 0x007fffff;
 
     // Exponent in [3, 32] covers mainnet-style compact targets and regtest minimum-difficulty
@@ -699,6 +797,25 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
         let mantissa_u256 = U256::from_u32(mantissa as u32);
         Ok(mantissa_u256.shl(shift))
     }
+}
+
+/// Per-block chainwork contribution (Orange Paper §11.3 / `GetBlockProof`).
+///
+/// For compact `bits`, let `target = expand_target(bits)`. When `target == 0`, returns zero;
+/// otherwise `(~target / (target + 1)) + 1` in 256-bit arithmetic.
+#[spec_locked("11.3", "GetBlockProof")]
+pub fn get_block_proof(bits: Natural) -> Result<U256> {
+    let target = expand_target(bits)?;
+    if target.is_zero() {
+        return Ok(U256::zero());
+    }
+    let target_plus_one = target
+        .checked_add(U256::one())
+        .ok_or_else(|| ConsensusError::InvalidProofOfWork("Target overflow".into()))?;
+    let quotient = target.not().div(target_plus_one);
+    Ok(quotient
+        .checked_add(U256::one())
+        .unwrap_or(U256([u64::MAX; 4])))
 }
 
 /// Compress target to compact representation
@@ -789,7 +906,7 @@ pub(crate) fn compress_target(target: &U256) -> Result<Natural> {
     Ok(bits as Natural)
 }
 
-/// Serialize block header to bytes (simplified)
+/// Serialize block header to the canonical 80-byte wire layout.
 fn serialize_header(header: &BlockHeader) -> [u8; 80] {
     // Stack-allocated: headers are always exactly 80 bytes, no heap allocation needed
     let mut bytes = [0u8; 80];
@@ -1236,6 +1353,23 @@ mod tests {
         let result = check_proof_of_work(&header).unwrap();
         // Just test it returns a boolean (result is either true or false)
         let _ = result;
+    }
+
+    #[test]
+    fn test_get_block_proof_genesis_mainnet() {
+        let work = get_block_proof(0x1d00ffff).unwrap();
+        assert_eq!(
+            work.gbt_target_hex(),
+            "0000000000000000000000000000000000000000000000000000000100010001"
+        );
+        assert!(work > U256::zero());
+    }
+
+    #[test]
+    fn test_get_block_proof_regtest_minimum_difficulty() {
+        let work = get_block_proof(0x207fffff).unwrap();
+        assert!(work > U256::zero());
+        assert!(work < U256::from_u128(10));
     }
 
     #[test]

@@ -203,18 +203,14 @@ fn test_merkle_root_edge_cases() {
         calculate_merkle_root(&single_tx).expect("Should calculate merkle root for single tx");
     assert_eq!(root.len(), 32);
 
-    // Multiple transactions (odd number)
-    let odd_txs = vec![
-        create_test_transaction(),
-        create_test_transaction(),
-        create_test_transaction(),
-    ];
+    // Multiple transactions (odd number) — distinct prevouts avoid CVE-2012-2459 duplicate leaves
+    let odd_txs = create_test_transactions(3);
     let root_odd =
         calculate_merkle_root(&odd_txs).expect("Should calculate merkle root for odd number");
     assert_eq!(root_odd.len(), 32);
 
     // Multiple transactions (even number)
-    let even_txs = vec![create_test_transaction(), create_test_transaction()];
+    let even_txs = create_test_transactions(2);
     let root_even =
         calculate_merkle_root(&even_txs).expect("Should calculate merkle root for even number");
     assert_eq!(root_even.len(), 32);

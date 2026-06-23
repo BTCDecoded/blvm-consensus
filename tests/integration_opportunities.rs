@@ -25,54 +25,63 @@ fn test_mempool_to_block_integration() {
     // 2. Accept transaction to mempool
     let time_context = None; // No time context for this test
     let result = consensus
-        .accept_to_memory_pool(&tx, &utxo_set, &mempool, 100, time_context)
+        .accept_to_memory_pool(
+            &tx,
+            &utxo_set,
+            &mempool,
+            100,
+            time_context,
+            Network::Regtest,
+        )
         .unwrap();
-    // Mempool policy may accept or reject depending on script/UTXO wiring.
-    assert!(
-        matches!(result, mempool::MempoolResult::Accepted)
-            || matches!(result, mempool::MempoolResult::Rejected(_))
-    );
+    assert_eq!(result, mempool::MempoolResult::Accepted);
 
-    // 3. Create block from mempool (even with rejected tx, should create coinbase-only block)
+    // 3. Create block from mempool (coinbase-only when mempool list is empty)
+    const HEIGHT: u64 = 100;
     let prev_header = create_valid_block_header();
     let prev_headers = vec![prev_header.clone(), prev_header.clone()];
-    // Coinbase script_sig must be between 2 and 100 bytes (Orange Paper Section 5.1, rule 8)
-    let coinbase_script = vec![OP_1, OP_1]; // At least 2 bytes
+    let coinbase_script = encode_bip34_height(HEIGHT);
     let coinbase_address = vec![OP_1];
 
-    let block = consensus
+    let mut block = consensus
         .create_new_block(
             &utxo_set,
             &[], // Empty mempool
-            100,
+            HEIGHT,
             &prev_header,
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
         )
         .unwrap();
+    block.header.version = 4;
 
     // 4. Verify block structure
     assert_eq!(block.transactions.len(), 1); // Only coinbase
     assert!(is_coinbase(&block.transactions[0]));
 
-    // 5. Validate the created block
+    // 5. Validate the created block (Regtest skips PoW; BIP34 height encoded in coinbase)
     let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = block
         .transactions
         .iter()
         .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
         .collect();
-    let time_context = None;
-    // Use Regtest to skip PoW check (test blocks don't have valid PoW)
+    let time_context = Some(TimeContext {
+        network_time: block.header.timestamp,
+        median_time_past: block.header.timestamp,
+    });
     let network = blvm_consensus::types::Network::Regtest;
     let (validation_result, _new_utxo_set) = consensus
-        .validate_block_with_time_context(&block, &witnesses, utxo_set, 100, time_context, network)
+        .validate_block_with_time_context(
+            &block,
+            &witnesses,
+            utxo_set,
+            HEIGHT,
+            time_context,
+            network,
+        )
         .unwrap();
-    // Block may still fail validation (e.g. BIP34 height mismatch), but shouldn't crash
-    assert!(
-        matches!(validation_result, ValidationResult::Valid)
-            || matches!(validation_result, ValidationResult::Invalid(_)),
-    );
+    assert_eq!(validation_result, ValidationResult::Valid);
 }
 
 /// Test integration between economic model and mining
@@ -180,23 +189,31 @@ fn test_pow_block_integration() {
         .unwrap();
     assert!(next_work > 0); // Should return valid target
 
-    // 4. Validate block (should pass other validations even if PoW fails)
+    // 4. Validate block structure on regtest (PoW skipped; tests non-PoW rules only)
     let utxo_set = UtxoSet::default();
-    let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = block
+    let mut regtest_block = create_valid_regtest_block(0);
+    regtest_block.header.bits = 0x207fffff;
+    regtest_block.header.version = 4;
+    let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = regtest_block
         .transactions
         .iter()
         .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
         .collect();
-    let time_context = None;
-    let network = blvm_consensus::types::Network::Mainnet;
+    let time_context = Some(TimeContext {
+        network_time: regtest_block.header.timestamp,
+        median_time_past: regtest_block.header.timestamp,
+    });
     let (validation_result, _new_utxo_set) = consensus
-        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .validate_block_with_time_context(
+            &regtest_block,
+            &witnesses,
+            utxo_set,
+            0,
+            time_context,
+            Network::Regtest,
+        )
         .unwrap();
-    // This might fail due to PoW, but the integration is tested
-    assert!(
-        matches!(validation_result, ValidationResult::Valid)
-            || matches!(validation_result, ValidationResult::Invalid(_))
-    );
+    assert_eq!(validation_result, ValidationResult::Valid);
 }
 
 /// Test cross-system error handling
@@ -209,13 +226,23 @@ fn test_cross_system_error_handling() {
     let utxo_set = UtxoSet::default();
     let mempool = mempool::Mempool::new();
 
-    let time_context = None; // No time context for this test
-    let result = consensus
-        .accept_to_memory_pool(&invalid_tx, &utxo_set, &mempool, 100, time_context)
+    let time_context = None;
+    let mempool_result = consensus
+        .accept_to_memory_pool(
+            &invalid_tx,
+            &utxo_set,
+            &mempool,
+            100,
+            time_context,
+            Network::Mainnet,
+        )
         .unwrap();
-    assert!(matches!(result, mempool::MempoolResult::Rejected(_)));
+    assert!(
+        matches!(mempool_result, mempool::MempoolResult::Rejected(_)),
+        "empty-input transaction must be rejected by mempool policy"
+    );
 
-    // 2. Test invalid block creation
+    // 2. Invalid block creation: create_new_block must skip rejected mempool txs
     let result = consensus.create_new_block(
         &utxo_set,
         &[invalid_tx],
@@ -272,7 +299,7 @@ fn test_performance_integration() {
     let time_context = None; // No time context for this test
     for tx in &mempool_txs {
         let result = consensus
-            .accept_to_memory_pool(tx, &utxo_set, &mempool, 100, time_context)
+            .accept_to_memory_pool(tx, &utxo_set, &mempool, 100, time_context, Network::Mainnet)
             .unwrap();
         if matches!(result, mempool::MempoolResult::Accepted) {
             accepted += 1;
@@ -335,14 +362,67 @@ fn test_performance_integration() {
 
 // Transaction and UTXO creation helpers are now in test_helpers.rs
 
+fn encode_bip34_height(height: u64) -> Vec<u8> {
+    if height == 0 {
+        return vec![0x00, 0xff];
+    }
+    let mut height_bytes = Vec::new();
+    let mut n = height;
+    while n > 0 {
+        height_bytes.push((n & 0xff) as u8);
+        n >>= 8;
+    }
+    if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
+        height_bytes.push(0x00);
+    }
+    let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
+    script_sig.push(height_bytes.len() as u8);
+    script_sig.extend_from_slice(&height_bytes);
+    if script_sig.len() < 2 {
+        script_sig.push(0xff);
+    }
+    script_sig
+}
+
 fn create_valid_block_header() -> BlockHeader {
     BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
-        bits: 0x1800ffff,
+        bits: 0x207fffff,
         nonce: 0,
+    }
+}
+
+fn create_valid_regtest_block(height: u64) -> Block {
+    let coinbase = Transaction {
+        version: 1,
+        inputs: tx_inputs![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: encode_bip34_height(height),
+            sequence: 0xffffffff,
+        }],
+        outputs: tx_outputs![TransactionOutput {
+            value: 50 * blvm_consensus::orange_paper_constants::C as i64,
+            script_pubkey: vec![OP_1],
+        }],
+        lock_time: 0,
+    };
+    let merkle_root = mining::calculate_merkle_root(&[coinbase.clone()]).unwrap();
+    Block {
+        header: BlockHeader {
+            version: 4,
+            prev_block_hash: [0; 32],
+            merkle_root,
+            timestamp: 1_700_000_000,
+            bits: 0x207fffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase].into_boxed_slice(),
     }
 }
 

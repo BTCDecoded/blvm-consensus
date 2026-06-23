@@ -1,6 +1,6 @@
 //! COV-C-06a: Taproot module coverage (merkle root, script path, witness parse, sighash).
 
-use blvm_consensus::opcodes::{OP_1, OP_2};
+use blvm_consensus::opcodes::{OP_1, OP_2, PUSH_32_BYTES};
 use blvm_consensus::taproot::{
     TAPROOT_LEAF_VERSION_TAPSCRIPT, TAPROOT_SCRIPT_PREFIX, Witness, compute_script_merkle_root,
     compute_taproot_signature_hash, compute_taproot_tweak, compute_tapscript_signature_hash,
@@ -11,9 +11,8 @@ use blvm_consensus::taproot::{
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 fn p2tr_scriptpubkey(key: &[u8; 32]) -> Vec<u8> {
-    let mut spk = vec![TAPROOT_SCRIPT_PREFIX];
+    let mut spk = vec![TAPROOT_SCRIPT_PREFIX, PUSH_32_BYTES];
     spk.extend_from_slice(key);
-    spk.push(0x00);
     spk
 }
 
@@ -191,6 +190,31 @@ fn test_validate_taproot_transaction_accepts_key_path_witness() {
         lock_time: 0,
     };
     let witness: Witness = vec![vec![0x40; 64]];
+    assert!(validate_taproot_transaction(&tx, Some(&witness)).unwrap());
+}
+
+#[test]
+fn test_validate_taproot_transaction_accepts_key_path_with_annex() {
+    let key = [0x0bu8; 32];
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x0c; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: p2tr_scriptpubkey(&key).into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let witness: Witness = vec![vec![0x40; 64], vec![0x50, 0x00]];
     assert!(validate_taproot_transaction(&tx, Some(&witness)).unwrap());
 }
 

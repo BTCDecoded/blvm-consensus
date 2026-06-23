@@ -39,6 +39,8 @@ pub fn create_new_block(
         coinbase_script,
         coinbase_address,
         block_time,
+        Network::Mainnet,
+        None,
     )
 }
 
@@ -58,7 +60,10 @@ pub fn create_new_block_with_time(
     coinbase_script: &ByteString,
     coinbase_address: &ByteString,
     block_time: u64,
+    network: Network,
+    mempool_witnesses: Option<&[Option<Vec<crate::segwit::Witness>>]>,
 ) -> Result<Block> {
+    use crate::bip113::get_median_time_past;
     use crate::mempool::{Mempool, MempoolResult, accept_to_memory_pool};
 
     // 1. Create coinbase transaction
@@ -72,20 +77,31 @@ pub fn create_new_block_with_time(
     // 2. Select transactions from mempool with proper validation
     // Use mempool validation to ensure transactions are valid and properly formatted
     let mut selected_txs = Vec::new();
-    let temp_mempool: Mempool = std::collections::HashSet::new(); // Temporary empty mempool for validation
+    let temp_mempool = Mempool::new(); // Temporary empty mempool for validation
 
-    for tx in mempool_txs {
+    for (idx, tx) in mempool_txs.iter().enumerate() {
         // First check basic transaction structure
         if check_transaction(tx)? != ValidationResult::Valid {
             continue;
         }
 
-        // Then validate through mempool acceptance (includes input validation, script verification, etc.)
+        let median_time_past = get_median_time_past(prev_headers);
         let time_context = Some(TimeContext {
             network_time: block_time,
-            median_time_past: block_time, // Use block_time as approximation for MTP
+            median_time_past,
         });
-        match accept_to_memory_pool(tx, None, utxo_set, &temp_mempool, height, time_context)? {
+        let tx_witnesses = mempool_witnesses
+            .and_then(|all| all.get(idx))
+            .and_then(|w| w.as_deref());
+        match accept_to_memory_pool(
+            tx,
+            tx_witnesses,
+            utxo_set,
+            &temp_mempool,
+            height,
+            time_context,
+            network,
+        )? {
             MempoolResult::Accepted => {
                 selected_txs.push(tx.clone());
             }
@@ -172,8 +188,11 @@ pub fn create_block_template(
     prev_headers: &[BlockHeader],
     coinbase_script: &ByteString,
     coinbase_address: &ByteString,
+    network: Network,
+    mempool_witnesses: Option<&[Option<Vec<crate::segwit::Witness>>]>,
 ) -> Result<BlockTemplate> {
-    let block = create_new_block(
+    let block_time = get_current_timestamp();
+    let block = create_new_block_with_time(
         utxo_set,
         mempool_txs,
         height,
@@ -181,6 +200,9 @@ pub fn create_block_template(
         prev_headers,
         coinbase_script,
         coinbase_address,
+        block_time,
+        network,
+        mempool_witnesses,
     )?;
 
     let target_u256 = crate::pow::expand_target(block.header.bits)?;
@@ -396,7 +418,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 ///
 /// Returns `Err` if `tx_ids` is empty **or** if a CVE-2012-2459 mutation is detected
 /// (duplicate adjacent hashes at any merkle level). Use [`compute_merkle_root_and_mutated`]
-/// when you need the root regardless of mutation (matches Bitcoin Core `ComputeMerkleRoot`).
+/// when you need the root regardless of mutation (Orange Paper §8.4.1 merkle root).
 #[spec_locked("8.4.1", "ComputeMerkleRoot")]
 pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
     let (root, mutated) = compute_merkle_root_and_mutated(tx_ids)?;
@@ -409,7 +431,7 @@ pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
 }
 
 /// Compute merkle root **and** CVE-2012-2459 mutation flag without aborting on mutation.
-/// Matches Bitcoin Core's `ComputeMerkleRoot(leaves, &mutated)` — always returns a root.
+/// Computes merkle root from leaves with optional mutation detection — always returns a root.
 /// Callers decide policy: `CheckBlock` rejects mutated blocks; `ConnectBlock` may skip
 /// the check for already-accepted blocks.
 #[spec_locked("8.4.1", "ComputeMerkleRoot")]
@@ -572,33 +594,12 @@ fn double_sha256_hash(data: &[u8]) -> Hash {
     OptimizedSha256::new().hash256(data)
 }
 
-/// Expand target from compact format (simplified)
-/// Orange Paper 7.1: Difficulty bits → target for PoW comparison
-fn expand_target(bits: Natural) -> Result<u128> {
-    let exponent = (bits >> 24) as u8;
-    let mantissa = bits & 0x00ffffff;
-
-    if exponent <= 3 {
-        let shift = 8 * (3 - exponent);
-        Ok((mantissa >> shift) as u128)
-    } else {
-        let shift = 8 * (exponent - 3);
-        if shift >= 104 {
-            // Allow up to 128-bit values (16 bytes - 3 = 13 bytes * 8 = 104)
-            return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".into(),
-            ));
-        }
-        // Cast to u128 before shift to avoid overflow (mantissa may be u64)
-        Ok((mantissa as u128) << shift)
-    }
-}
-
-/// Get current timestamp (simplified)
+/// Wall-clock Unix timestamp for block template creation.
 fn get_current_timestamp() -> Natural {
-    // In reality, this would get the actual current time
-    // For testing, return a fixed timestamp
-    1231006505
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
+        .as_secs()
 }
 
 #[cfg(test)]
@@ -635,7 +636,8 @@ mod tests {
 
         // get_next_work_required can fail in some cases (e.g., invalid target expansion)
         // Handle errors gracefully like test_create_block_template_comprehensive does
-        let result = create_new_block(
+        let block_time = 1_700_000_000u64;
+        let result = create_new_block_with_time(
             &utxo_set,
             &mempool_txs,
             height,
@@ -643,13 +645,16 @@ mod tests {
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
+            block_time,
+            Network::Mainnet,
+            None,
         );
 
         if let Ok(block) = result {
             assert_eq!(block.transactions.len(), 2); // coinbase + 1 mempool tx
             assert!(is_coinbase(&block.transactions[0]));
             assert_eq!(block.header.version, 1);
-            assert_eq!(block.header.timestamp, 1231006505);
+            assert_eq!(block.header.timestamp, block_time);
         } else {
             // Accept that it might fail due to target expansion or other validation issues
             // This can happen when get_next_work_required returns an error
@@ -691,6 +696,8 @@ mod tests {
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
+            Network::Mainnet,
+            None,
         );
 
         // Expected to fail due to target expansion issues
@@ -766,6 +773,8 @@ mod tests {
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
+            Network::Mainnet,
+            None,
         );
 
         // If get_next_work_required returns a target that's too large, this will fail
@@ -927,27 +936,6 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_target_small() {
-        let bits = 0x0300ffff; // exponent = 3
-        let target = expand_target(bits).unwrap();
-        assert!(target > 0);
-    }
-
-    #[test]
-    fn test_expand_target_medium() {
-        let bits = 0x0600ffff; // exponent = 6 (safe value)
-        let target = expand_target(bits).unwrap();
-        assert!(target > 0);
-    }
-
-    #[test]
-    fn test_expand_target_too_large() {
-        let bits = 0x2000ffff; // exponent = 32, would cause shift >= 104
-        let result = expand_target(bits);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_pow_expand_target_regtest_minimum_difficulty() {
         let target = crate::pow::expand_target(0x207fffff).expect("regtest nBits");
         assert!(!target.is_zero());
@@ -975,6 +963,8 @@ mod tests {
             &prev_headers,
             &vec![],
             &vec![0x51],
+            Network::Regtest,
+            None,
         )
         .expect("create_block_template must not fail on regtest nBits");
 
@@ -985,7 +975,9 @@ mod tests {
     #[test]
     fn test_get_current_timestamp() {
         let timestamp = get_current_timestamp();
-        assert_eq!(timestamp, 1231006505);
+        // Must be a plausible post-genesis wall-clock value, not a hardcoded constant.
+        assert!(timestamp > 1_231_006_505);
+        assert!(timestamp < 4_000_000_000);
     }
 
     #[test]
@@ -1060,6 +1052,8 @@ mod tests {
             &prev_headers,
             &coinbase_script,
             &coinbase_address,
+            Network::Mainnet,
+            None,
         );
 
         // If get_next_work_required returns a target that's too large, this will fail

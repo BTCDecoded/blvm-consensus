@@ -10,6 +10,7 @@ mod pow_tests;
 mod transaction_tests;
 
 mod block_edge_cases;
+mod block_validation_tests;
 mod comprehensive_property_tests;
 mod difficulty_edge_cases;
 mod economic_tests;
@@ -22,17 +23,19 @@ mod transaction_edge_cases;
 mod utxo_edge_cases;
 
 // Production optimization tests (only compiled with production feature)
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
 mod blvm_memory_profiling_tests;
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
 mod blvm_optimization_tests;
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
 mod production_cache_tests;
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
+mod production_correctness_tests;
+#[cfg(feature = "production")]
 mod production_edge_tests;
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
 mod production_memory_tests;
-#[cfg(all(feature = "production", any()))]
+#[cfg(feature = "production")]
 mod production_parallel_tests;
 
 // UTXO commitments and spam filter tests moved to blvm-protocol

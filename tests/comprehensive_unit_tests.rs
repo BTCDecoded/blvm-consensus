@@ -239,12 +239,12 @@ fn test_calculate_transaction_size() {
 
 #[test]
 fn test_eval_script_simple() {
-    let script = vec![OP_1, OP_2]; // OP_1, OP_2
+    let script = vec![OP_1, OP_2];
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, crate::script::SigVersion::Base).unwrap();
-    // The result is a boolean indicating success/failure
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "eval_script must complete without opcode failure");
+    assert_eq!(stack.len(), 2);
+    assert!(crate::script::cast_to_bool(&stack[1]));
 }
 
 #[test]
@@ -266,10 +266,7 @@ fn test_verify_script_simple() {
     let script_pubkey = vec![OP_1]; // OP_1
 
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
-    // The result depends on the simplified script logic
-    // For now, we just ensure it doesn't panic
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "OP_1/OP_1 must verify");
 }
 
 #[test]
@@ -279,9 +276,7 @@ fn test_verify_script_with_witness() {
     let witness = Some(vec![OP_2]); // OP_2
 
     let result = verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0).unwrap();
-    // The result depends on the simplified script logic
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "witness must not break OP_1/OP_1 verify");
 }
 
 #[test]
@@ -290,8 +285,10 @@ fn test_verify_script_empty() {
     let script_pubkey = vec![];
 
     let result = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        !result,
+        "empty scriptSig/scriptPubKey leaves empty stack → verify false"
+    );
 }
 
 #[test]
@@ -523,9 +520,11 @@ fn test_check_proof_of_work_genesis() {
 
     // This should work with the valid target
     let result = check_proof_of_work(&header).unwrap();
-    // Result depends on the hash, but should not panic
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    let again = check_proof_of_work(&header).unwrap();
+    assert_eq!(
+        result, again,
+        "PoW check must be deterministic for a fixed header"
+    );
 }
 
 // expand_target is not a public function, so we test it indirectly through check_proof_of_work
@@ -580,11 +579,10 @@ fn test_transaction_size_boundaries() {
     };
 
     let result = check_transaction(&tx).unwrap();
-    // Should either be valid or fail gracefully
-    assert!(matches!(
-        result,
-        ValidationResult::Valid | ValidationResult::Invalid(_)
-    ));
+    assert!(
+        matches!(result, ValidationResult::Invalid(_)),
+        "transaction at MAX_SCRIPT_SIZE on both input and output must exceed tx limits"
+    );
 }
 
 #[test]
@@ -614,18 +612,14 @@ fn test_maximum_input_output_counts() {
     };
 
     let result = check_transaction(&tx_max_inputs).unwrap();
-    match result {
-        ValidationResult::Valid => {
-            // Success - transaction is valid
-        }
-        ValidationResult::Invalid(reason) => {
-            // Transaction may be invalid due to size calculation or other checks
-            // This is acceptable - the test verifies we can create transactions at the limit
-            eprintln!("Transaction validation result: {reason}");
-            // For now, we'll allow this test to pass if it's a size issue
-            // The important thing is that MAX_INPUTS transactions don't crash
-        }
-    }
+    assert!(
+        matches!(
+            result,
+            ValidationResult::Invalid(ref r)
+                if r.contains("too large") || r.contains("weight") || r.contains("Transaction")
+        ),
+        "MAX_INPUTS fixture must exceed tx size/weight limits: {result:?}"
+    );
 
     // Test transaction with many outputs (capped to fit within MAX_TX_SIZE / MAX_BLOCK_WEIGHT)
     let num_outputs = MAX_TX_SIZE / 12; // ~12 bytes per minimal output
@@ -715,8 +709,10 @@ fn test_script_operation_limits() {
 
     let empty: Vec<u8> = vec![];
     let result = verify_script(&script, &empty, None, 0).unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        !result,
+        "scriptSig of only OP_NOP leaves empty stack after eval → verify false"
+    );
 
     // Test script exceeding operation limit (MAX_SCRIPT_OPS + 1 non-push opcodes)
     let mut large_script = Vec::new();

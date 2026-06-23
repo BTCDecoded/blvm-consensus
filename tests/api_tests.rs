@@ -3,7 +3,9 @@
 use blvm_consensus::mempool::*;
 use blvm_consensus::mining::*;
 use blvm_consensus::opcodes::*;
+use blvm_consensus::reorganization::reorganize_chain_with_witnesses;
 use blvm_consensus::segwit::*;
+use blvm_consensus::types::{Hash, Network};
 use blvm_consensus::*;
 
 #[test]
@@ -129,7 +131,7 @@ fn test_validate_block() {
 
     let block = Block {
         header: BlockHeader {
-            version: 1,
+            version: 4,
             prev_block_hash: [0; 32],
             merkle_root,
             timestamp: 1231006505,
@@ -145,24 +147,18 @@ fn test_validate_block() {
         .iter()
         .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
         .collect();
-    let time_context = None;
-    let network = blvm_consensus::types::Network::Mainnet;
     let (result, new_utxo_set) = consensus
-        .validate_block_with_time_context(&block, &witnesses, utxo_set, 0, time_context, network)
+        .validate_block_with_time_context(
+            &block,
+            witnesses.as_slice(),
+            utxo_set,
+            0,
+            None,
+            blvm_consensus::types::Network::Regtest,
+        )
         .unwrap();
-    // Note: Block validation may fail for various reasons (proof of work, etc.)
-    // For this test, we just verify that validation runs without panicking
-    // and that the UTXO set is updated if validation succeeds
-    match result {
-        ValidationResult::Valid => {
-            assert!(!new_utxo_set.is_empty());
-        }
-        ValidationResult::Invalid(reason) => {
-            // Block may be invalid due to missing proof of work, etc.
-            // This is acceptable for a unit test
-            eprintln!("Block validation failed (expected in some cases): {reason}");
-        }
-    }
+    assert_eq!(result, ValidationResult::Valid);
+    assert!(!new_utxo_set.is_empty());
 }
 
 #[test]
@@ -175,16 +171,13 @@ fn test_verify_script() {
     let result = consensus
         .verify_script(&script_sig, &script_pubkey, None, 0)
         .unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "OP_1/OP_1 must verify via ConsensusProof");
 
-    // Test with witness
-    let witness = Some(vec![OP_2]); // OP_2
+    let witness = Some(vec![OP_2]);
     let result = consensus
         .verify_script(&script_sig, &script_pubkey, witness.as_ref(), 0)
         .unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "witness must not break OP_1/OP_1 verify");
 }
 
 #[test]
@@ -201,10 +194,12 @@ fn test_check_proof_of_work() {
     };
 
     let result = consensus.check_proof_of_work(&header).unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    let again = consensus.check_proof_of_work(&header).unwrap();
+    assert_eq!(
+        result, again,
+        "PoW check must be deterministic for a fixed header"
+    );
 
-    // Test invalid header
     let invalid_header = BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
@@ -329,7 +324,14 @@ fn test_accept_to_memory_pool() {
     let mempool = Mempool::new();
     let time_context = None; // No time context for this test
 
-    let result = consensus.accept_to_memory_pool(&tx, &utxo_set, &mempool, 100, time_context);
+    let result = consensus.accept_to_memory_pool(
+        &tx,
+        &utxo_set,
+        &mempool,
+        100,
+        time_context,
+        Network::Mainnet,
+    );
     // This might fail due to missing UTXO, which is expected
     match result {
         Ok(mempool_result) => {
@@ -368,8 +370,7 @@ fn test_is_standard_tx() {
     };
 
     let result = consensus.is_standard_tx(&tx).unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(result, "minimal P2PKH-like output should be standard");
 }
 
 #[test]
@@ -432,8 +433,10 @@ fn test_replacement_checks() {
     let result = consensus
         .replacement_checks(&tx2, &tx1, &utxo_set, &mempool)
         .unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        !result,
+        "lower-fee replacement (higher output value) must be rejected"
+    );
 }
 
 #[test]
@@ -533,6 +536,8 @@ fn test_create_block_template() {
         &prev_headers,
         &vec![OP_1],
         &vec![OP_1],
+        blvm_consensus::types::Network::Mainnet,
+        None,
     );
 
     // This might fail due to target expansion issues, which is expected
@@ -549,8 +554,6 @@ fn test_create_block_template() {
 
 #[test]
 fn test_reorganize_chain() {
-    let consensus = ConsensusProof::new();
-
     // Create a valid coinbase transaction for the block
     let coinbase_tx = Transaction {
         version: 1,
@@ -599,23 +602,46 @@ fn test_reorganize_chain() {
     }];
 
     let utxo_set = UtxoSet::default();
-    let result = consensus.reorganize_chain(
+    let witnesses: Vec<Vec<Vec<Witness>>> = new_chain
+        .iter()
+        .map(|b| {
+            b.transactions
+                .iter()
+                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                .collect()
+        })
+        .collect();
+    let network_time = new_chain
+        .iter()
+        .map(|b| b.header.timestamp)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(blvm_consensus::constants::MAX_FUTURE_BLOCK_TIME);
+
+    let result = reorganize_chain_with_witnesses(
         &new_chain,
+        &witnesses,
+        None,
         &current_chain,
         utxo_set,
         1,
-        blvm_consensus::types::Network::Regtest,
+        None::<fn(&Block) -> Option<Vec<Witness>>>,
+        None::<fn(u64) -> Option<Vec<BlockHeader>>>,
+        None::<fn(&Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
+        None::<
+            fn(
+                &Hash,
+                &blvm_consensus::reorganization::BlockUndoLog,
+            ) -> blvm_consensus::error::Result<()>,
+        >,
+        network_time,
+        Network::Regtest,
     );
 
-    // This might fail due to simplified validation, which is expected
-    match result {
-        Ok(_reorg_result) => {
-            // Reorganization result is valid
-        }
-        Err(_) => {
-            // Expected failure due to simplified validation
-        }
-    }
+    assert!(
+        result.is_ok(),
+        "identical-prefix reorg should succeed: {result:?}"
+    );
 }
 
 #[test]
@@ -672,8 +698,7 @@ fn test_should_reorganize() {
     let result = consensus
         .should_reorganize(&new_chain, &current_chain)
         .unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(!result, "identical chains must not trigger reorg");
 }
 
 #[test]
@@ -781,34 +806,47 @@ fn test_validate_segwit_block() {
 
     let witnesses = vec![Witness::new()];
     let result = consensus
-        .validate_segwit_block(&block, &witnesses, 4000000)
+        .validate_segwit_block(&block, &witnesses, 4_000_000)
         .unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        !result,
+        "coinbase with placeholder commitment and empty witness must fail segwit validation"
+    );
 }
 
 #[test]
 fn test_validate_taproot_transaction() {
     let consensus = ConsensusProof::new();
 
+    let mut spk = vec![OP_1, blvm_consensus::opcodes::PUSH_32_BYTES];
+    spk.extend_from_slice(&[0u8; 32]);
     let tx = Transaction {
         version: 1,
-        inputs: vec![].into(),
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
+            script_sig: vec![],
+            sequence: 0xffffffff,
+        }]
+        .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: vec![
-                OP_1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            ],
+            script_pubkey: spk.into(),
         }]
         .into(),
         lock_time: 0,
     };
 
-    let result = consensus.validate_taproot_transaction(&tx, None).unwrap();
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    let witness: Witness = vec![vec![0x02]]; // invalid key-path witness (not 64/65-byte sig)
+    let result = consensus
+        .validate_taproot_transaction(&tx, Some(&witness))
+        .unwrap();
+    assert!(
+        !result,
+        "P2TR output with malformed witness must fail taproot validation"
+    );
 }
 
 #[test]
@@ -817,23 +855,25 @@ fn test_is_taproot_output() {
 
     let taproot_output = TransactionOutput {
         value: 1000,
-        script_pubkey: vec![
-            OP_1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        ],
+        script_pubkey: {
+            let mut spk = vec![OP_1, blvm_consensus::opcodes::PUSH_32_BYTES];
+            spk.extend_from_slice(&[0u8; 32]);
+            spk
+        },
     };
 
-    let result = consensus.is_taproot_output(&taproot_output);
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        consensus.is_taproot_output(&taproot_output),
+        "OP_1 PUSH_32 key must be recognized as P2TR"
+    );
 
     let non_taproot_output = TransactionOutput {
         value: 1000,
         script_pubkey: vec![OP_1],
     };
 
-    let result = consensus.is_taproot_output(&non_taproot_output);
-    // Just test it returns a boolean (result is either true or false)
-    let _ = result;
+    assert!(
+        !consensus.is_taproot_output(&non_taproot_output),
+        "bare OP_1 is not P2TR"
+    );
 }

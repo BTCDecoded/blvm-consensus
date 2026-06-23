@@ -336,9 +336,11 @@ fn test_pre_segwit_block_validation() {
     let witnesses = vec![];
     let ctx = BlockValidationContext::for_network(Network::Mainnet);
     let result = connect_block(&block, &witnesses, utxo_set, pre_segwit_height, &ctx);
-
-    // Result may be invalid due to missing transactions, but structure should be valid
-    assert!(result.is_ok() || result.is_err());
+    let (validation, _, _) = result.expect("empty block connect should return validation result");
+    assert!(
+        matches!(validation, ValidationResult::Invalid(ref r) if r.contains("no transactions")),
+        "empty pre-SegWit block must not connect: {validation:?}"
+    );
 }
 
 /// Test post-SegWit block validation
@@ -368,9 +370,11 @@ fn test_post_segwit_block_validation() {
     let witnesses = vec![];
     let ctx = BlockValidationContext::for_network(Network::Mainnet);
     let result = connect_block(&block, &witnesses, utxo_set, post_segwit_height, &ctx);
-
-    // Result may be invalid due to missing transactions, but structure should be valid
-    assert!(result.is_ok() || result.is_err());
+    let (validation, _, _) = result.expect("empty block connect should return validation result");
+    assert!(
+        matches!(validation, ValidationResult::Invalid(ref r) if r.contains("no transactions")),
+        "empty post-SegWit block must not connect: {validation:?}"
+    );
 }
 
 /// Test post-Taproot block validation
@@ -400,9 +404,11 @@ fn test_post_taproot_block_validation() {
     let witnesses = vec![];
     let ctx = BlockValidationContext::for_network(Network::Mainnet);
     let result = connect_block(&block, &witnesses, utxo_set, post_taproot_height, &ctx);
-
-    // Result may be invalid due to missing transactions, but structure should be valid
-    assert!(result.is_ok() || result.is_err());
+    let (validation, _, _) = result.expect("empty block connect should return validation result");
+    assert!(
+        matches!(validation, ValidationResult::Invalid(ref r) if r.contains("no transactions")),
+        "empty post-Taproot block must not connect: {validation:?}"
+    );
 }
 
 /// Test block subsidy calculation at historical halving points

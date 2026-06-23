@@ -2,12 +2,13 @@
 
 use blvm_consensus::constants::*;
 use blvm_consensus::opcodes::{OP_1, OP_NOP};
+use blvm_consensus::transaction::check_transaction;
 use blvm_consensus::types::*;
 use blvm_consensus::*;
 
 #[test]
 fn test_transaction_size_boundaries() {
-    let consensus = ConsensusProof::new();
+    // check_transaction enforces MAX_TX_SIZE; validate_transaction is structural only.
 
     // Test transaction at maximum size limit
     let mut large_script = Vec::new();
@@ -34,12 +35,12 @@ fn test_transaction_size_boundaries() {
         lock_time: 0,
     };
 
-    let result = consensus.validate_transaction(&tx).unwrap();
-    // Should either be valid or fail gracefully
-    assert!(matches!(
+    let result = check_transaction(&tx).unwrap();
+    assert_eq!(
         result,
-        ValidationResult::Valid | ValidationResult::Invalid(_)
-    ));
+        ValidationResult::Valid,
+        "transaction at MAX_SCRIPT_SIZE should pass check_transaction"
+    );
 }
 
 #[test]
@@ -75,13 +76,7 @@ fn test_maximum_input_output_counts() {
     };
 
     let result = consensus.validate_transaction(&tx_many_inputs).unwrap();
-    assert!(
-        matches!(
-            result,
-            ValidationResult::Valid | ValidationResult::Invalid(_)
-        ),
-        "validate_transaction should not panic on large input count"
-    );
+    assert_eq!(result, ValidationResult::Valid);
 
     // Test transaction with many outputs (each ~10 bytes; 50,000 × 10 = 500 kB).
     let safe_output_count = 50_000usize;
@@ -109,13 +104,7 @@ fn test_maximum_input_output_counts() {
     };
 
     let result = consensus.validate_transaction(&tx_many_outputs).unwrap();
-    assert!(
-        matches!(
-            result,
-            ValidationResult::Valid | ValidationResult::Invalid(_)
-        ),
-        "validate_transaction should not panic on large output count"
-    );
+    assert_eq!(result, ValidationResult::Valid);
 }
 
 #[test]
@@ -180,7 +169,10 @@ fn test_script_operation_limits() {
     }
 
     let result = consensus.verify_script(&script, &script, None, 0).unwrap();
-    assert!(result || !result);
+    assert!(
+        result,
+        "OP_1 duplicated in scriptSig/scriptPubKey must verify"
+    );
 
     // Test script exceeding operation limit.
     // OP_NOP is a counted non-pushdata opcode, unlike OP_1 which is a push.
@@ -258,27 +250,23 @@ fn test_block_size_boundaries() {
         .iter()
         .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
         .collect();
-    let time_context = None;
-    let network = blvm_consensus::types::Network::Mainnet;
+    let network = Network::Regtest;
     let result = consensus.validate_block_with_time_context(
         &block,
         witnesses.as_slice(),
         utxo_set,
         0,
-        time_context,
+        None,
         network,
     );
-    // Should either succeed or fail gracefully
     match result {
         Ok((validation_result, _)) => {
-            assert!(matches!(
-                validation_result,
-                ValidationResult::Valid | ValidationResult::Invalid(_)
-            ));
+            assert!(
+                matches!(validation_result, ValidationResult::Invalid(_)),
+                "block without coinbase must not validate as accepted"
+            );
         }
-        Err(_) => {
-            // Expected failure for large block
-        }
+        Err(_) => {}
     }
 }
 

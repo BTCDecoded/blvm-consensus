@@ -210,33 +210,6 @@ pub mod constant_folding {
     }
 }
 
-/// Dead code elimination markers
-///
-/// Functions/constants marked with this can be eliminated if unused.
-#[cfg(feature = "production")]
-#[allow(dead_code)]
-pub mod dead_code_elimination {
-    /// Mark code for dead code elimination analysis
-    /// This is a marker function - the compiler can eliminate unused paths
-    #[inline(never)]
-    #[cold]
-    pub fn mark_unused() {
-        // This function never executes in production builds
-        // It's a marker for dead code elimination pass
-    }
-
-    /// Hint to compiler that branch is unlikely (dead code elimination)
-    ///
-    /// Note: In stable Rust, this is a no-op but serves as documentation
-    /// for future optimization opportunities (unstable `likely`/`unlikely` intrinsics).
-    #[inline(always)]
-    pub fn unlikely(condition: bool) -> bool {
-        // Stable Rust doesn't have likely/unlikely intrinsics
-        // This is a placeholder for future optimization
-        condition
-    }
-}
-
 /// SIMD Vectorization: Batch hash operations
 ///
 /// Provides batch hash processing for parallel hash operations.

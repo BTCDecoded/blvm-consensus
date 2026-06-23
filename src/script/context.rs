@@ -19,6 +19,7 @@ pub struct ScriptContext<'a> {
     pub median_time_past: Option<u64>,
     pub network: crate::types::Network,
     pub sigversion: SigVersion,
+    #[allow(dead_code)]
     pub redeem_script_for_sighash: Option<&'a [u8]>,
     pub script_sig_for_sighash: Option<&'a ByteString>,
     pub tapscript_for_sighash: Option<&'a [u8]>,

@@ -36,7 +36,7 @@ proptest! {
         let utxo_set = UtxoSet::default();
 
         // Add transaction first time
-        let result1 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None);
+        let result1 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None, Network::Mainnet);
 
         // Update pool with transaction ID
         if result1.is_ok() {
@@ -45,7 +45,7 @@ proptest! {
         }
 
         // Try to add same transaction again
-        let result2 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None);
+        let result2 = mempool::accept_to_memory_pool(&tx, None, &utxo_set, &pool, 0, None, Network::Mainnet);
 
         // First should potentially succeed, second should fail (duplicate)
         prop_assert!(result1.is_ok());
@@ -180,7 +180,7 @@ proptest! {
         let utxo_set = UtxoSet::default();
 
         // Add first transaction
-        let result1 = mempool::accept_to_memory_pool(&tx1, None, &utxo_set, &pool, 0, None);
+        let result1 = mempool::accept_to_memory_pool(&tx1, None, &utxo_set, &pool, 0, None, Network::Mainnet);
 
         // Update pool
         if result1.is_ok() {
@@ -189,7 +189,7 @@ proptest! {
         }
 
         // Try to add conflicting transaction
-        let result2 = mempool::accept_to_memory_pool(&tx2, None, &utxo_set, &pool, 0, None);
+        let result2 = mempool::accept_to_memory_pool(&tx2, None, &utxo_set, &pool, 0, None, Network::Mainnet);
 
         prop_assert!(result1.is_ok());
         // Conflicting transaction should be rejected

@@ -171,7 +171,7 @@ pub fn connect_block_with_chainwork(
     utxo_set: UtxoSet,
     height: Natural,
     context: &BlockValidationContext,
-    best_header_chainwork: Option<u128>,
+    best_header_chainwork: Option<crate::pow::U256>,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -206,11 +206,11 @@ pub fn connect_block_with_chainwork(
 /// * `bip30_index` - Optional index for O(1) BIP30 duplicate-coinbase check.
 /// * `precomputed_tx_ids` - Optional pre-computed tx IDs; when `Some`, skips hashing in consensus
 ///   and returns those IDs as `Cow::Borrowed` (no per-block `Vec` clone).
-/// * `best_header_chainwork` - Cumulative chainwork of the best known header, used to gate the
-///   assume-valid skip: `skip_signatures = height < assume_valid_height && chainwork_ok` where
-///   `chainwork_ok = chainwork >= n_minimum_chain_work`. Pass `Some(0)` from the IBD node path
-///   (since `n_minimum_chain_work` defaults to 0, any `Some` value enables assume-valid). Pass
-///   `None` in tests that require full script verification regardless of assume-valid.
+/// * `best_header_chainwork` - Cumulative chainwork of the best known header (`U256`), used to
+///   gate the assume-valid skip: `skip_signatures = height < assume_valid_height && chainwork_ok`
+///   where `chainwork_ok = chainwork >= n_minimum_chain_work`. Pass cumulative header chainwork
+///   from the node (IBD validation loop tracks this incrementally). Pass `None` in tests that
+///   require full script verification regardless of assume-valid.
 #[spec_locked("5.3", "ConnectBlock")]
 pub fn connect_block_ibd<'a>(
     block: &Block,
@@ -222,7 +222,7 @@ pub fn connect_block_ibd<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
-    best_header_chainwork: Option<u128>,
+    best_header_chainwork: Option<crate::pow::U256>,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -257,7 +257,7 @@ pub fn connect_block_ibd_with_undo<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
-    best_header_chainwork: Option<u128>,
+    best_header_chainwork: Option<crate::pow::U256>,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -1104,7 +1104,8 @@ fn test_apply_transaction_insufficient_funds() {
         lock_time: 0,
     };
 
-    // The simplified implementation doesn't validate insufficient funds
+    // `apply_transaction` updates the UTXO set only; value conservation is enforced in
+    // `check_tx_inputs` during block connect, not here.
     let result = apply_transaction(&tx, utxo_set, 1);
     assert!(result.is_ok());
 }
@@ -1132,7 +1133,8 @@ fn test_apply_transaction_missing_utxo() {
         lock_time: 0,
     };
 
-    // The simplified implementation doesn't validate missing UTXOs
+    // Missing prevout: `apply_transaction` still succeeds (overlay add/remove only);
+    // block connect runs `check_tx_inputs` for value and existence checks.
     let result = apply_transaction(&tx, utxo_set, 1);
     assert!(result.is_ok());
 }

@@ -6,6 +6,7 @@
 //! API surface is identical across backends.
 
 #[cfg(feature = "secp256k1-fallback")]
+#[cfg_attr(feature = "blvm-secp256k1", allow(dead_code))]
 mod secp256k1_impl;
 
 #[cfg(feature = "blvm-secp256k1")]

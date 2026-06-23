@@ -54,7 +54,7 @@ fn create_complex_transaction(input_count: usize, output_count: usize) -> Transa
 fn benchmark_mempool_acceptance(c: &mut Criterion) {
     let tx = create_test_transaction();
     let utxo_set = UtxoSet::default();
-    let mempool: Mempool = HashSet::new();
+    let mempool = Mempool::new();
 
     c.bench_function("accept_to_memory_pool_simple", |b| {
         b.iter(|| {
@@ -65,6 +65,7 @@ fn benchmark_mempool_acceptance(c: &mut Criterion) {
                 black_box(&mempool),
                 black_box(0),
                 black_box(None), // time_context
+                black_box(Network::Mainnet),
             ))
         })
     });
@@ -73,7 +74,7 @@ fn benchmark_mempool_acceptance(c: &mut Criterion) {
 fn benchmark_mempool_acceptance_complex(c: &mut Criterion) {
     let tx = create_complex_transaction(5, 3);
     let utxo_set = UtxoSet::default();
-    let mempool: Mempool = HashSet::new();
+    let mempool = Mempool::new();
 
     c.bench_function("accept_to_memory_pool_complex", |b| {
         b.iter(|| {
@@ -84,6 +85,7 @@ fn benchmark_mempool_acceptance_complex(c: &mut Criterion) {
                 black_box(&mempool),
                 black_box(0),
                 black_box(None), // time_context
+                black_box(Network::Mainnet),
             ))
         })
     });
@@ -104,7 +106,7 @@ fn benchmark_replacement_checks(c: &mut Criterion) {
     let mut existing_tx = create_test_transaction();
     existing_tx.inputs[0].sequence = 0xfffffffe; // RBF
 
-    let mempool: Mempool = HashSet::new();
+    let mempool = Mempool::new();
     let utxo_set = UtxoSet::default();
 
     c.bench_function("replacement_checks", |b| {

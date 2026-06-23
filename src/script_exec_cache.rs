@@ -1,4 +1,4 @@
-//! Core-style script execution cache: skip all script checks for a tx when (witness_hash, flags) is cached.
+//! Script execution cache: skip all script checks for a tx when (witness_hash, flags) is cached.
 //!
 //! Key = SHA256(witness_hash || flags) where witness_hash = SHA256d(serialize_transaction_with_witness).
 //! Hit rate ~0 during IBD (each tx validated once); helps reorgs and mempool revalidation.
@@ -11,7 +11,7 @@ use crate::types::Transaction;
 use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
 use std::sync::OnceLock;
 
-/// Cache capacity (entries). Core uses ~16MB for script exec; we use 64k entries (~2MB for keys).
+/// Cache capacity (entries). Bounded LRU to limit memory (~64k entries).
 const CACHE_CAPACITY: usize = 65536;
 
 static CACHE: OnceLock<std::sync::Mutex<lru::LruCache<[u8; 32], ()>>> = OnceLock::new();

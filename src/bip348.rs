@@ -146,7 +146,7 @@ impl SchnorrSignatureCollector {
         idx
     }
 
-    /// Collect with explicit global index (for CCheckQueue-style parallel script verification).
+    /// Collect with explicit global index (for parallel script verification).
     /// Enables deterministic (tx, input) order when workers collect out of order.
     pub fn collect_with_index(
         &self,
@@ -368,7 +368,7 @@ pub fn verify_signature_from_stack(
         if let Some(collector) = collector {
             // Collect signature for batch verification
             collector.collect(message, pubkey, signature);
-            // Return true for now - actual verification happens in batch
+            // Defer verification: batch collector verifies after script evaluation.
             return Ok(true);
         }
 
@@ -543,7 +543,7 @@ pub fn batch_verify_signatures_from_stack(
 
 /// Parse a BIP340 Schnorr signature from a Taproot witness stack element.
 ///
-/// Bitcoin Core `CheckSchnorrSignature`: 64 bytes → `SIGHASH_DEFAULT` (`0x00`);
+/// BIP340 Schnorr check: 64-byte signatures use `SIGHASH_DEFAULT` (`0x00`).
 /// 65 bytes → last byte is sighash type (explicit `SIGHASH_DEFAULT` is invalid).
 #[spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig")]
 pub fn try_parse_taproot_schnorr_witness_sig(sig_bytes: &[u8]) -> Option<([u8; 64], u8)> {
@@ -603,7 +603,7 @@ pub fn verify_tapscript_schnorr_signature(
     if let Some(c) = collector {
         // Collect signature for batch verification
         c.collect(sighash, pubkey, &sig_arr);
-        // Return true for now - actual verification happens in batch
+        // Defer verification: batch collector verifies after script evaluation.
         return Ok(true);
     }
 

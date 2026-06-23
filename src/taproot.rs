@@ -16,7 +16,7 @@ pub const TAPROOT_LEAF_VERSION_TAPSCRIPT: u8 = 0xc0;
 /// Uses unified witness type from witness module for consistency with SegWit
 pub use crate::witness::Witness;
 
-use crate::opcodes::OP_1;
+use crate::opcodes::{OP_1, PUSH_32_BYTES};
 
 /// Taproot output script: OP_1 <32-byte-hash>
 pub const TAPROOT_SCRIPT_PREFIX: u8 = OP_1;
@@ -35,7 +35,11 @@ pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
         return Ok(false);
     }
 
-    // The remaining 33 bytes should be the Taproot output key
+    // BIP341 P2TR: OP_1 PUSH_32 <32-byte x-only output key>
+    if script[1] != PUSH_32_BYTES {
+        return Ok(false);
+    }
+
     Ok(true)
 }
 
@@ -47,7 +51,7 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
     }
 
     let mut output_key = [0u8; 32];
-    output_key.copy_from_slice(&script[1..33]);
+    output_key.copy_from_slice(&script[2..34]);
     Ok(Some(output_key))
 }
 
@@ -130,7 +134,7 @@ pub const TAPROOT_ANNEX_TAG: u8 = 0x50;
 
 /// Strip optional BIP341 annex from the end of a Taproot witness stack.
 ///
-/// Core `VerifyWitnessProgram` (v1): if there are at least two stack elements and the
+/// BIP341 `VerifyWitnessProgram` (v1): if there are at least two stack elements and the
 /// last begins with `0x50`, it is an annex and removed before key/script path dispatch.
 /// Returns the stripped witness and the annex sighash hash when present.
 /// Borrows the stack when no annex is present (avoids cloning the full witness).
@@ -150,7 +154,7 @@ pub fn strip_taproot_annex(witness: &Witness) -> (Cow<'_, Witness>, Option<Hash>
     (Cow::Borrowed(witness), None)
 }
 
-/// SHA256 of the annex element for Taproot sighash (matches Core `HashWriter << annex`).
+/// SHA256 of the annex element for Taproot sighash (BIP341 annex hash step).
 fn compute_taproot_annex_sighash_hash(annex: &[u8]) -> Hash {
     use sha2::{Digest, Sha256};
     let mut buf = encode_varint(annex.len() as u64);
@@ -270,12 +274,12 @@ pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>)
         }
     }
 
-    // Validate Taproot witness structure using unified framework
-    // Determine if this is a script path spend based on witness structure
-    // Script path has at least 2 elements (script + control block), key path has 1 element (signature)
+    // Validate Taproot witness structure using unified framework.
+    // Strip optional annex before key/script path classification (BIP341).
     if let Some(w) = witness {
-        let is_script_path = w.len() >= 2;
-        if !witness::validate_taproot_witness_structure(w, is_script_path)? {
+        let (body, _) = strip_taproot_annex(w);
+        let is_script_path = body.len() >= 2;
+        if !witness::validate_taproot_witness_structure(&body, is_script_path)? {
             return Ok(false);
         }
     }
@@ -651,6 +655,16 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_taproot_script_requires_push_opcode() {
+        // 34 bytes but missing PUSH_32 (0x20) before output key
+        let mut bad = vec![TAPROOT_SCRIPT_PREFIX];
+        bad.extend_from_slice(&[0u8; 33]);
+        assert!(!validate_taproot_script(&bad).unwrap());
+
+        assert!(validate_taproot_script(&create_taproot_script(&[1u8; 32])).unwrap());
+    }
+
+    #[test]
     fn test_is_taproot_output() {
         let output = TransactionOutput {
             value: 1000,
@@ -964,9 +978,8 @@ mod tests {
 
     // Helper function
     fn create_taproot_script(output_key: &[u8; 32]) -> ByteString {
-        let mut script = vec![TAPROOT_SCRIPT_PREFIX];
+        let mut script = vec![TAPROOT_SCRIPT_PREFIX, PUSH_32_BYTES];
         script.extend_from_slice(output_key);
-        script.push(0x00); // Add extra byte to make it 34 bytes total
         script
     }
 }

@@ -4,7 +4,7 @@
 mod tests {
     use blvm_consensus::constants::*;
     use blvm_consensus::opcodes::{OP_1, OP_2};
-    use blvm_consensus::script::*;
+    use blvm_consensus::script::{SigVersion, *};
 
     #[test]
     fn test_stack_preallocation_capacity() {
@@ -12,7 +12,7 @@ mod tests {
         let mut stack = Vec::new();
         let script = vec![OP_1]; // OP_1
 
-        eval_script(&script, &mut stack, 0).unwrap();
+        eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
 
         // Stack should have at least 1 item
         assert!(stack.len() >= 1);
@@ -30,7 +30,7 @@ mod tests {
         let mut stack = Vec::new();
         let script = vec![OP_1, OP_1, OP_1]; // OP_1, OP_1, OP_1
 
-        eval_script(&script, &mut stack, 0).unwrap();
+        eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
 
         // Stack should function correctly with pre-allocation
         assert!(stack.len() >= 1);
@@ -49,11 +49,11 @@ mod tests {
         }
 
         let mut stack = Vec::new();
-        let result = eval_script(&script, &mut stack, 0).unwrap();
+        let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
 
         // Should execute successfully despite exceeding pre-allocation
-        assert!(result == true || result == false);
-        assert!(stack.len() >= 1);
+        assert!(result, "30×OP_1 must eval successfully");
+        assert_eq!(stack.len(), 30);
     }
 
     #[test]
@@ -63,11 +63,11 @@ mod tests {
 
         // First execution
         let mut stack1 = Vec::new();
-        let result1 = eval_script(&script, &mut stack1, 0).unwrap();
+        let result1 = eval_script(&script, &mut stack1, 0, SigVersion::Base).unwrap();
 
         // Second execution (may benefit from different allocation patterns)
         let mut stack2 = Vec::new();
-        let result2 = eval_script(&script, &mut stack2, 0).unwrap();
+        let result2 = eval_script(&script, &mut stack2, 0, SigVersion::Base).unwrap();
 
         // Results must be identical regardless of allocation strategy
         assert_eq!(
@@ -108,13 +108,10 @@ mod tests {
         }
 
         let mut stack = Vec::new();
-        let result = eval_script(&large_script, &mut stack, 0);
+        let result = eval_script(&large_script, &mut stack, 0, SigVersion::Base);
 
-        // Should handle large scripts without memory issues
-        assert!(result.is_ok() || result.is_err());
-        // If successful, stack should have items
-        if result.is_ok() {
-            assert!(stack.len() >= 1);
-        }
+        // 100×OP_1 must succeed without memory issues
+        assert!(result.unwrap(), "100×OP_1 must eval successfully");
+        assert_eq!(stack.len(), 100);
     }
 }

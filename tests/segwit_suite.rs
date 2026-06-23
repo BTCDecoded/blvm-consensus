@@ -124,6 +124,26 @@ fn test_compute_witness_merkle_root_single_coinbase() {
 }
 
 #[test]
+fn test_compute_witness_merkle_root_matches_nested_flat_layout() {
+    let block = Block {
+        header: BlockHeader {
+            version: 4,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1_500_000_000,
+            bits: 0x0300ffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase(50_000_000_000)].into(),
+    };
+    let nested: Vec<Vec<Witness>> = vec![vec![vec![vec![0x01; 32]]]];
+    let flat: Vec<Witness> = vec![nested[0][0].clone()];
+    let root_nested = compute_witness_merkle_root_from_nested(&block, &nested).unwrap();
+    let root_flat = compute_witness_merkle_root(&block, &flat).unwrap();
+    assert_eq!(root_nested, root_flat);
+}
+
+#[test]
 fn test_validate_witness_commitment_accepts_matching_op_return() {
     let nonce = [0x11u8; 32];
     let block = Block {

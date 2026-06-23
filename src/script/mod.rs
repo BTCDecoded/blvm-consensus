@@ -12,6 +12,12 @@
 //! - Hash operation result caching (OP_HASH160, OP_HASH256)
 //! - Stack pooling (thread-local pool of pre-allocated `Vec<StackElement>`)
 //! - Memory allocation optimizations
+//!
+//! **Test vs production graph:** fast paths, LRU script cache, and batch verification are
+//! behind `feature = "production"`. That feature is **on by default** in `Cargo.toml`
+//! (`default = ["production", "blvm-secp256k1"]`), so normal `cargo test` matches the release
+//! node interpreter. Use `cargo test --no-default-features` only when intentionally exercising
+//! the minimal non-production graph.
 
 mod arithmetic;
 mod context;
@@ -80,49 +86,103 @@ use std::thread_local;
 #[cfg(feature = "production")]
 static SCRIPT_CACHE: OnceLock<RwLock<lru::LruCache<u64, bool>>> = OnceLock::new();
 
-/// Signature verification cache (sighash, pubkey, sig, flags) -> valid
-/// Sharded by key hash to reduce RwLock contention across parallel workers.
+/// Signature verification cache (sighash, pubkey, sig, flags) -> valid.
+/// Reserved for future IBD/mempool warm-cache integration.
 #[cfg(feature = "production")]
-const SIG_CACHE_SHARDS: usize = 32;
+mod sig_cache {
+    #![allow(dead_code)]
 
-#[cfg(feature = "production")]
-const SIG_CACHE_SHARD: OnceLock<RwLock<lru::LruCache<[u8; 32], bool>>> = OnceLock::new();
+    use lru::LruCache;
+    use siphasher::sip::SipHasher24;
+    use std::hash::{Hash, Hasher};
+    use std::num::NonZeroUsize;
+    use std::sync::{OnceLock, RwLock};
 
-#[cfg(feature = "production")]
-static SIG_CACHE: [OnceLock<RwLock<lru::LruCache<[u8; 32], bool>>>; SIG_CACHE_SHARDS] =
-    [SIG_CACHE_SHARD; SIG_CACHE_SHARDS];
+    const SIG_CACHE_SHARDS: usize = 32;
+    const SIG_CACHE_SHARD: OnceLock<RwLock<LruCache<[u8; 32], bool>>> = OnceLock::new();
 
-/// Signature cache size. Default 500k; env BLVM_SIG_CACHE_ENTRIES overrides (up to 1M).
-#[cfg(feature = "production")]
-fn sig_cache_size() -> usize {
-    std::env::var("BLVM_SIG_CACHE_ENTRIES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .filter(|&n: &usize| n > 0 && n <= 1_000_000)
-        .unwrap_or(500_000)
-}
+    static SIG_CACHE: [OnceLock<RwLock<LruCache<[u8; 32], bool>>>; SIG_CACHE_SHARDS] =
+        [SIG_CACHE_SHARD; SIG_CACHE_SHARDS];
 
-#[cfg(feature = "production")]
-fn sig_cache_shard_index(key: &[u8; 32]) -> usize {
-    let h = (key[0] as usize) | ((key[1] as usize) << 8) | ((key[2] as usize) << 16);
-    h % SIG_CACHE_SHARDS
-}
+    fn sig_cache_size() -> usize {
+        std::env::var("BLVM_SIG_CACHE_ENTRIES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|&n: &usize| n > 0 && n <= 1_000_000)
+            .unwrap_or(500_000)
+    }
 
-#[cfg(feature = "production")]
-fn get_sig_cache_shard(key: &[u8; 32]) -> &'static RwLock<lru::LruCache<[u8; 32], bool>> {
-    let idx = sig_cache_shard_index(key);
-    SIG_CACHE[idx].get_or_init(|| {
-        use lru::LruCache;
-        use std::num::NonZeroUsize;
-        let cap = (sig_cache_size() / SIG_CACHE_SHARDS).max(1);
-        RwLock::new(LruCache::new(NonZeroUsize::new(cap).unwrap()))
-    })
-}
+    fn sig_cache_shard_index(key: &[u8; 32]) -> usize {
+        let h = (key[0] as usize) | ((key[1] as usize) << 8) | ((key[2] as usize) << 16);
+        h % SIG_CACHE_SHARDS
+    }
 
-#[cfg(feature = "production")]
-thread_local! {
-    static BATCH_PUT_SIG_CACHE_BY_SHARD: std::cell::RefCell<[Vec<([u8; 32], bool)>; SIG_CACHE_SHARDS]> =
-        std::cell::RefCell::new(std::array::from_fn(|_| Vec::new()));
+    fn get_sig_cache_shard(key: &[u8; 32]) -> &'static RwLock<LruCache<[u8; 32], bool>> {
+        let idx = sig_cache_shard_index(key);
+        SIG_CACHE[idx].get_or_init(|| {
+            let cap = (sig_cache_size() / SIG_CACHE_SHARDS).max(1);
+            RwLock::new(LruCache::new(NonZeroUsize::new(cap).unwrap()))
+        })
+    }
+
+    thread_local! {
+        static BATCH_PUT_SIG_CACHE_BY_SHARD: std::cell::RefCell<[Vec<([u8; 32], bool)>; SIG_CACHE_SHARDS]> =
+            std::cell::RefCell::new(std::array::from_fn(|_| Vec::new()));
+    }
+
+    fn batch_put_sig_cache(keys: &[[u8; 32]], results: &[bool]) {
+        BATCH_PUT_SIG_CACHE_BY_SHARD.with(|cell| {
+            let mut by_shard = cell.borrow_mut();
+            for v in by_shard.iter_mut() {
+                v.clear();
+            }
+            for (i, key) in keys.iter().enumerate() {
+                let result = results.get(i).copied().unwrap_or(false);
+                let idx = sig_cache_shard_index(key);
+                by_shard[idx].push((*key, result));
+            }
+            for shard_entries in by_shard.iter() {
+                if shard_entries.is_empty() {
+                    continue;
+                }
+                let first_key = &shard_entries[0].0;
+                if let Ok(mut guard) = get_sig_cache_shard(first_key).write() {
+                    for (k, v) in shard_entries.iter() {
+                        guard.put(*k, *v);
+                    }
+                }
+            }
+        });
+    }
+
+    fn sig_cache_at_collect_enabled() -> bool {
+        static CACHE: OnceLock<bool> = OnceLock::new();
+        *CACHE.get_or_init(|| {
+            std::env::var("BLVM_SIG_CACHE_AT_COLLECT")
+                .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+        })
+    }
+
+    #[inline(always)]
+    fn ecdsa_cache_key(
+        msg: &[u8; 32],
+        pk: &[u8; 33],
+        sig_compact: &[u8; 64],
+        flags: u32,
+    ) -> [u8; 32] {
+        let mut key_input = [0u8; 133];
+        key_input[..32].copy_from_slice(msg);
+        key_input[32..65].copy_from_slice(pk);
+        key_input[65..129].copy_from_slice(sig_compact);
+        key_input[129..133].copy_from_slice(&flags.to_le_bytes());
+        let mut hasher = SipHasher24::new();
+        key_input.hash(&mut hasher);
+        let h = hasher.finish();
+        let mut out = [0u8; 32];
+        out[..8].copy_from_slice(&h.to_le_bytes());
+        out
+    }
 }
 
 /// Thread-local buffers for verify_soa_batch; reused to avoid per-batch allocs.
@@ -141,68 +201,6 @@ thread_local! {
         Vec::new(),
         Vec::new(),
     )) };
-}
-
-#[cfg(feature = "production")]
-fn batch_put_sig_cache(keys: &[[u8; 32]], results: &[bool]) {
-    BATCH_PUT_SIG_CACHE_BY_SHARD.with(|cell| {
-        let mut by_shard = cell.borrow_mut();
-        for v in by_shard.iter_mut() {
-            v.clear();
-        }
-        for (i, key) in keys.iter().enumerate() {
-            let result = results.get(i).copied().unwrap_or(false);
-            let idx = sig_cache_shard_index(key);
-            by_shard[idx].push((*key, result));
-        }
-        for shard_entries in by_shard.iter() {
-            if shard_entries.is_empty() {
-                continue;
-            }
-            let first_key = &shard_entries[0].0;
-            if let Ok(mut guard) = get_sig_cache_shard(first_key).write() {
-                for (k, v) in shard_entries.iter() {
-                    guard.put(*k, *v);
-                }
-            }
-        }
-    });
-}
-
-/// #4: Skip collect-time sig cache check during IBD (cache is cold, 100% miss = wasted DER parse).
-/// Set BLVM_SIG_CACHE_AT_COLLECT=1 for mempool/reorg where cache may be warm.
-///
-/// **IBD:** Do NOT set BLVM_SIG_CACHE_AT_COLLECT=1 during initial block download. Cache has 0% hit
-/// rate; serialization + hash + lock per sig is pure overhead. Default off is correct for IBD.
-#[cfg(feature = "production")]
-fn sig_cache_at_collect_enabled() -> bool {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<bool> = OnceLock::new();
-    *CACHE.get_or_init(|| {
-        std::env::var("BLVM_SIG_CACHE_AT_COLLECT")
-            .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    })
-}
-
-/// Compute ECDSA sig cache key from msg(32)+pk(33)+sig(64)+flags(4)=133 bytes.
-/// Uses SipHash (Bitcoin Core style) instead of SHA-256 for ~10x faster hashing.
-#[cfg(feature = "production")]
-#[inline(always)]
-fn ecdsa_cache_key(msg: &[u8; 32], pk: &[u8; 33], sig_compact: &[u8; 64], flags: u32) -> [u8; 32] {
-    use siphasher::sip::SipHasher24;
-    use std::hash::{Hash, Hasher};
-    let mut key_input = [0u8; 133];
-    key_input[..32].copy_from_slice(msg);
-    key_input[32..65].copy_from_slice(pk);
-    key_input[65..129].copy_from_slice(sig_compact);
-    key_input[129..133].copy_from_slice(&flags.to_le_bytes());
-    let mut hasher = SipHasher24::new();
-    key_input.hash(&mut hasher);
-    let h = hasher.finish();
-    let mut out = [0u8; 32];
-    out[..8].copy_from_slice(&h.to_le_bytes());
-    out
 }
 
 /// Fast-path hit counters (production): verify that P2PK/P2PKH/P2SH/P2WPKH/P2WSH fast-paths are used.
@@ -336,10 +334,7 @@ fn fast_paths_disabled() -> bool {
     FAST_PATHS_DISABLED.load(Ordering::Relaxed)
 }
 
-/// Compute cache key for script verification
-///
-/// Uses a simple hash of script_sig + script_pubkey + witness + flags to create cache key.
-/// Note: This is a simplified key - full implementation would use proper cryptographic hash.
+/// Compute cache key for script verification (SHA256 prefix — not `DefaultHasher`).
 #[cfg(feature = "production")]
 fn compute_script_cache_key(
     script_sig: &ByteString,
@@ -347,17 +342,17 @@ fn compute_script_cache_key(
     witness: Option<&ByteString>,
     flags: u32,
 ) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use sha2::{Digest, Sha256};
 
-    let mut hasher = DefaultHasher::new();
-    script_sig.hash(&mut hasher);
-    script_pubkey.hash(&mut hasher);
+    let mut hasher = Sha256::new();
+    hasher.update(&script_sig[..]);
+    hasher.update(script_pubkey);
     if let Some(w) = witness {
-        w.hash(&mut hasher);
+        hasher.update(&w[..]);
     }
-    flags.hash(&mut hasher);
-    hasher.finish()
+    hasher.update(flags.to_le_bytes());
+    let digest = hasher.finalize();
+    u64::from_le_bytes(digest[0..8].try_into().expect("sha256 prefix"))
 }
 
 /// Script version for policy/consensus behavior (BIP141/BIP341 SigVersion)
@@ -438,7 +433,7 @@ fn is_push_opcode(opcode: u8) -> bool {
 }
 
 /// BIP342: opcodes that cause immediate script success in Tapscript (OP_SUCCESSx).
-/// Reference: Bitcoin Core IsOpSuccess (script.cpp:364–370).
+/// Reference: BIP342 successful witness opcodes (IsOpSuccess).
 #[inline]
 fn is_op_success(opcode: u8) -> bool {
     matches!(
@@ -522,7 +517,7 @@ fn eval_script_inner(
         let in_false_branch = control_flow::in_false_branch(&control_stack);
 
         // Count non-push opcodes toward op limit (Base/WitnessV0 only; BIP342 Tapscript has no 201-op cap).
-        // Bitcoin Core: interpreter.cpp EvalScript — nOpCount only for BASE || WITNESS_V0.
+        // nOpCount only for BASE || WITNESS_V0 (BIP342 Tapscript exempt).
         if sigversion != SigVersion::Tapscript && !is_push_opcode(opcode) {
             op_count += 1;
             if op_count > MAX_SCRIPT_OPS {
@@ -535,7 +530,7 @@ fn eval_script_inner(
         }
 
         // Check combined stack + altstack size (BIP62/consensus).
-        // Bitcoin Core uses > MAX_STACK_SIZE (allows exactly 1000 items).
+        // Stack size limit uses > MAX_STACK_SIZE (allows exactly 1000 items).
         if stack.len() + altstack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
         }
@@ -739,7 +734,14 @@ fn eval_script_inner(
 /// 3. If witness present: execute w on stack
 /// 4. Return final stack has exactly one true value
 ///
-/// Performance: Pre-allocates stack capacity, caches verification results in production mode
+/// Legacy script verification (Base sigversion, at most one witness push).
+///
+/// **Deprecated**: accepts `Option<&ByteString>` not a full witness stack. SegWit and Taproot
+/// inputs require [`verify_script_with_context`] or [`verify_script_with_context_full`].
+#[deprecated(
+    since = "0.1.33",
+    note = "Use verify_script_with_context for witness-aware script verification"
+)]
 #[spec_locked("5.2", "VerifyScript")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
@@ -846,7 +848,7 @@ pub fn verify_script(
             }
         }
 
-        // Final validation: top of stack must be truthy (Core VerifyScript: CastToBool(stack.back()))
+        // Final validation: top of stack must be truthy (CastToBool on stack.back()).
         Ok(!stack.is_empty() && cast_to_bool(&stack[stack.len() - 1]))
     }
 }
@@ -2313,9 +2315,9 @@ fn try_verify_p2wsh_fast_path(
         median_time_past,
         network,
         witness_sigversion,
-        None, // redeem_script_for_sighash
-        None, // script_sig_for_sighash (witness script context)
-        None, // taproot_annex_hash
+        Some(witness_script.as_ref()), // BIP143 scriptCode for CHECKSIG inside P2WSH
+        None,                          // script_sig_for_sighash (witness script context)
+        None,                          // taproot_annex_hash
         schnorr_collector,
         precomputed_bip143,
         #[cfg(feature = "production")]
@@ -2340,11 +2342,10 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
     network: crate::types::Network,
     schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
 ) -> Option<Result<bool>> {
-    use crate::activation::taproot_activation_height;
+    use crate::activation::taproot_active_at_height;
     use crate::taproot::parse_taproot_script_path_witness;
 
-    let tap_h = taproot_activation_height(network);
-    if block_height.map(|h| h < tap_h).unwrap_or(true) {
+    if !taproot_active_at_height(block_height, network) {
         return None;
     }
     if script_pubkey.len() != 34 || script_pubkey[0] != OP_1 || script_pubkey[1] != PUSH_32_BYTES {
@@ -2446,9 +2447,8 @@ fn try_verify_p2tr_keypath_fast_path(
     network: crate::types::Network,
     schnorr_collector: Option<&crate::bip348::SchnorrSignatureCollector>,
 ) -> Option<Result<bool>> {
-    use crate::activation::taproot_activation_height;
-    let tap_h = taproot_activation_height(network);
-    if block_height.map(|h| h < tap_h).unwrap_or(true) {
+    use crate::activation::taproot_active_at_height;
+    if !taproot_active_at_height(block_height, network) {
         return None;
     }
     // P2TR: 34 bytes = OP_1 PUSH_32_BYTES <32-byte output key>
@@ -2458,7 +2458,7 @@ fn try_verify_p2tr_keypath_fast_path(
     if !script_sig.is_empty() {
         return None;
     }
-    // Key-path: one stack element after optional annex strip (Core CheckSchnorrSignature).
+    // Key-path: one stack element after optional annex strip (BIP340 Schnorr check).
     let (witness_body, _) = crate::taproot::strip_taproot_annex(witness);
     if witness_body.len() != 1 {
         return None;
@@ -2850,6 +2850,7 @@ pub fn verify_script_with_context_full(
         median_time_past,
         network,
         SigVersion::Base,
+        None, // redeem_script_for_sighash
         None, // script_sig not needed when executing scriptSig
         None, // taproot_annex_hash
         #[cfg(feature = "production")]
@@ -2872,10 +2873,9 @@ pub fn verify_script_with_context_full(
     // CRITICAL FIX: Check if scriptPubkey is Taproot (P2TR) - OP_1 <32-byte-hash>
     // Taproot format: [OP_1, PUSH_32_BYTES, <32 bytes>] = 34 bytes total
     // For Taproot, scriptSig must be empty and validation happens via witness using Taproot-specific logic
-    use crate::activation::taproot_activation_height;
-    let tap_h = taproot_activation_height(network);
+    use crate::activation::taproot_active_at_height;
     let is_taproot = redeem_script.is_none()  // Not P2SH
-        && block_height.is_some() && block_height.unwrap() >= tap_h
+        && taproot_active_at_height(block_height, network)
         && script_pubkey.len() == 34
         && script_pubkey[0] == OP_1  // OP_1 (witness version 1)
         && script_pubkey[1] == PUSH_32_BYTES; // push 32 bytes
@@ -2953,7 +2953,7 @@ pub fn verify_script_with_context_full(
         if witness_stack.is_empty() {
             return Ok(false);
         }
-        // After optional annex strip: 1 element = key-path; 2+ = script-path (Core VerifyWitnessProgram).
+        // After optional annex strip: 1 element = key-path; 2+ = script-path (BIP341).
         let (witness_body, annex_hash) = crate::taproot::strip_taproot_annex(witness_stack);
         if witness_body.is_empty() {
             return Ok(false);
@@ -3000,7 +3000,8 @@ pub fn verify_script_with_context_full(
                     median_time_past,
                     network,
                     SigVersion::Tapscript,
-                    None,
+                    None, // redeem_script_for_sighash
+                    None, // script_sig_for_sighash
                     annex_hash.as_ref(),
                     #[cfg(feature = "production")]
                     schnorr_collector,
@@ -3033,6 +3034,7 @@ pub fn verify_script_with_context_full(
         median_time_past,
         network,
         SigVersion::Base,
+        None, // redeem_script_for_sighash
         Some(script_sig),
         None, // taproot_annex_hash
         #[cfg(feature = "production")]
@@ -3065,8 +3067,9 @@ pub fn verify_script_with_context_full(
             median_time_past,
             network,
             witness_sigversion,
-            None, // witness script, no script_sig for sighash
-            None, // taproot_annex_hash
+            Some(witness_script.as_ref()), // BIP143 scriptCode for CHECKSIG inside P2WSH
+            None,                          // script_sig_for_sighash
+            None,                          // taproot_annex_hash
             #[cfg(feature = "production")]
             schnorr_collector,
             precomputed_bip143, // WitnessV0 uses BIP143
@@ -3167,8 +3170,9 @@ pub fn verify_script_with_context_full(
                         median_time_past,
                         network,
                         witness_sigversion,
-                        None, // witness script
-                        None, // taproot_annex_hash
+                        Some(witness_script.as_ref()), // BIP143 scriptCode for CHECKSIG inside P2WSH-in-P2SH
+                        None,                          // script_sig_for_sighash
+                        None,                          // taproot_annex_hash
                         #[cfg(feature = "production")]
                         schnorr_collector,
                         precomputed_bip143, // WitnessV0 uses BIP143
@@ -3271,12 +3275,10 @@ pub fn verify_script_with_context_full(
         }
     }
 
-    // Invariant assertion: Stack size must be reasonable after scriptPubkey execution
-    assert!(
-        stack.len() <= 1000,
-        "Stack size {} exceeds reasonable maximum after scriptPubkey",
-        stack.len()
-    );
+    // Stack size must not exceed consensus limit after scriptPubkey execution.
+    if stack.len() > MAX_STACK_SIZE {
+        return Ok(false);
+    }
 
     // Execute witness if present
     // CRITICAL:
@@ -3285,11 +3287,9 @@ pub fn verify_script_with_context_full(
     // - P2WPKH-in-P2SH: Handled in P2SH section above (BIP143 sig/pubkey check via implicit P2PKH scriptCode)
     // - Regular scripts: No witness execution needed
     //
-    // All witness execution should be complete by this point
+    // All witness execution should be complete by this point.
     if let Some(_witness_stack) = witness {
-        // All witness cases should have been handled above
-        // If we reach here with a witness, it means we missed a case
-        // For now, skip to avoid double execution
+        // Witness data is consumed by the paths above; the parameter may still be non-empty.
     }
 
     // Final validation
@@ -3336,6 +3336,7 @@ fn eval_script_with_context(
         None, // median_time_past
         network,
         SigVersion::Base,
+        None, // redeem_script_for_sighash
         None, // script_sig_for_sighash
         None, // taproot_annex_hash
         #[cfg(feature = "production")]
@@ -3360,6 +3361,7 @@ fn eval_script_with_context_full(
     median_time_past: Option<u64>,
     network: crate::types::Network,
     sigversion: SigVersion,
+    redeem_script_for_sighash: Option<&[u8]>,
     script_sig_for_sighash: Option<&ByteString>,
     taproot_annex_hash: Option<&Hash>,
     #[cfg(feature = "production")] schnorr_collector: Option<
@@ -3384,7 +3386,7 @@ fn eval_script_with_context_full(
         median_time_past,
         network,
         sigversion,
-        None,
+        redeem_script_for_sighash,
         script_sig_for_sighash,
         taproot_annex_hash,
         #[cfg(feature = "production")]
@@ -3424,10 +3426,10 @@ fn eval_script_with_context_full_inner(
 ) -> Result<bool> {
     // Precondition assertions: input_index and prevout lengths validated by caller (verify_script_with_context_full).
     // 6d: Removed redundant assert! for input_index and prevout lengths — caller returns error on mismatch.
-    use crate::constants::MAX_SCRIPT_SIZE;
+    use crate::constants::{MAX_SCRIPT_SIZE, MAX_STACK_SIZE};
     use crate::error::{ConsensusError, ScriptErrorCode};
 
-    // Core: MAX_SCRIPT_SIZE applies to Base and WitnessV0 only; Tapscript may exceed 10k.
+    // MAX_SCRIPT_SIZE applies to Base and WitnessV0 only; Tapscript may exceed 10k.
     if (sigversion == SigVersion::Base || sigversion == SigVersion::WitnessV0)
         && script.len() > MAX_SCRIPT_SIZE
     {
@@ -3436,16 +3438,14 @@ fn eval_script_with_context_full_inner(
             message: "Script size exceeds maximum".into(),
         });
     }
-    assert!(
-        stack.len() <= 1000,
-        "Stack size {} exceeds reasonable maximum at start",
-        stack.len()
-    );
+    if stack.len() > MAX_STACK_SIZE {
+        return Err(make_stack_overflow_error());
+    }
 
     // BIP342: In Tapscript, pre-scan the entire script for OP_SUCCESSx opcodes.
     // If any OP_SUCCESSx is encountered (even in unexecuted branches), the whole
     // script succeeds immediately. This must happen before any opcode is executed.
-    // Reference: Bitcoin Core ExecuteWitnessScript (interpreter.cpp:1836–1851).
+    // Reference: BIP342 Tapscript witness execution (ExecuteWitnessScript).
     if sigversion == SigVersion::Tapscript {
         use crate::script::flags::SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS;
         let mut pc = 0usize;
@@ -3470,16 +3470,12 @@ fn eval_script_with_context_full_inner(
         stack.reserve(20);
     }
     let mut op_count = 0;
-    // Invariant assertion: Op count must start at zero
-    assert!(op_count == 0, "Op count must start at zero");
 
     // Pre-allocate control_stack and altstack to avoid realloc in hot path
     #[cfg(feature = "production")]
     let mut control_stack: Vec<control_flow::ControlBlock> = Vec::with_capacity(4);
     #[cfg(not(feature = "production"))]
     let mut control_stack: Vec<control_flow::ControlBlock> = Vec::new();
-    // Invariant assertion: Control stack must start empty
-    assert!(control_stack.is_empty(), "Control stack must start empty");
 
     #[cfg(feature = "production")]
     let mut altstack: Vec<StackElement> = Vec::with_capacity(8);
@@ -3518,11 +3514,6 @@ fn eval_script_with_context_full_inner(
         // Count non-push opcodes toward op limit (Base/WitnessV0 only; BIP342 Tapscript has no 201-op cap).
         if sigversion != SigVersion::Tapscript && !is_push_opcode(opcode) {
             op_count += 1;
-            // Invariant assertion: Op count must not exceed limit
-            assert!(
-                op_count <= MAX_SCRIPT_OPS + 1,
-                "Op count {op_count} must not exceed MAX_SCRIPT_OPS + 1"
-            );
             if op_count > MAX_SCRIPT_OPS {
                 return Err(make_operation_limit_error());
             }
@@ -4201,7 +4192,7 @@ fn execute_opcode(
         OP_HASH256 => crypto_ops::op_hash256(stack),
 
         // OP_EQUAL - check if top two stack items are equal.
-        // Pushes [] (empty = false) or [0x01] (true), matching Core's vchFalse/vchTrue.
+        // Pushes [] (empty = false) or [0x01] (true).
         OP_EQUAL => {
             if stack.len() < 2 {
                 return Err(ConsensusError::ScriptErrorWithCode {
@@ -5121,11 +5112,11 @@ fn script_get_op_advance(script: &[u8], pc: usize) -> Option<usize> {
     }
 }
 
-/// FindAndDelete — consensus match to Bitcoin Core `FindAndDelete` in `interpreter.cpp`.
+/// FindAndDelete — consensus match to the reference FindAndDelete algorithm.
 ///
 /// Do/while loop: flush `[pc2, pc)`, delete consecutive raw occurrences of `pattern` from `pc`,
 /// then advance `pc` one opcode via GetOp-style sizing. The inner delete loop can leave `pc`
-/// misaligned; the next "opcode" is parsed from that byte (same as Core).
+/// misaligned; the next "opcode" is parsed from that byte (same behavior as the reference impl).
 #[spec_locked("5.1.1", "FindAndDelete")]
 #[inline]
 pub(crate) fn find_and_delete<'a>(script: &'a [u8], pattern: &[u8]) -> std::borrow::Cow<'a, [u8]> {
@@ -6518,8 +6509,7 @@ fn execute_opcode_with_context_full(
                 }
 
                 // BIP-342/348: per-tapscript validation weight enforces signature-related limits during
-                // execution. They are not added to `MAX_BLOCK_SIGOPS_COST` (witness v1 returns 0 in Core's
-                // WitnessSigOps).
+                // execution. They are not added to `MAX_BLOCK_SIGOPS_COST` (witness v1 returns 0).
 
                 // BIP-348: Push 0x01 (single byte) if valid
                 stack.push(to_stack_element(&[0x01])); // Single byte 0x01, not 1
@@ -6575,7 +6565,7 @@ pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64,
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub fn clear_script_cache() {
     if let Some(cache) = SCRIPT_CACHE.get() {
-        let mut cache = cache.write().unwrap();
+        let mut cache = cache.write().unwrap_or_else(|e| e.into_inner());
         cache.clear();
     }
 }
@@ -6795,7 +6785,7 @@ mod tests {
         let script = vec![0x51, 0x52, 0x87]; // OP_1, OP_2, OP_EQUAL
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
-        assert!(result); // eval_script succeeds; OP_EQUAL pushes [] (empty = falsy, like Core's vchFalse)
+        assert!(result); // eval_script succeeds; OP_EQUAL pushes [] (empty = falsy)
         assert_eq!(stack.len(), 1);
         assert!(stack[0].is_empty()); // False is [] (empty), not [0x00]
     }

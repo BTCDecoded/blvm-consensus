@@ -26,10 +26,10 @@ fn test_mempool_duplicate_detection() {
     let utxo = UtxoSet::default();
     
     // First acceptance should work
-    let _ = mempool::accept_to_memory_pool(&tx, &utxo, &pool, 1);
+    let _ = mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet);
     
     // Second acceptance should detect duplicate
-    let result = mempool::accept_to_memory_pool(&tx, &utxo, &pool, 1);
+    let result = mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet);
     // Should fail due to duplicate
     assert!(result.is_err());
 }

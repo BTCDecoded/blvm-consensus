@@ -1048,11 +1048,34 @@ proptest! {
             .unwrap_or(0);
 
         // Attempt reorganization
-        let result = reorganization::reorganize_chain(
+        let witnesses: Vec<Vec<Vec<blvm_consensus::segwit::Witness>>> = new_chain
+            .iter()
+            .map(|b| {
+                b.transactions
+                    .iter()
+                    .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                    .collect()
+            })
+            .collect();
+        let network_time = new_chain
+            .iter()
+            .map(|b| b.header.timestamp)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(blvm_consensus::constants::MAX_FUTURE_BLOCK_TIME);
+
+        let result = reorganization::reorganize_chain_with_witnesses(
             &new_chain,
+            &witnesses,
+            None,
             &current_chain,
             utxo_set,
             current_chain_len as u64,
+            None::<fn(&Block) -> Option<Vec<Witness>>>,
+            None::<fn(u64) -> Option<Vec<BlockHeader>>>,
+            None::<fn(&Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
+            None::<fn(&Hash, &blvm_consensus::reorganization::BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+            network_time,
             blvm_consensus::types::Network::Regtest,
         );
 
@@ -1265,11 +1288,34 @@ proptest! {
             let new_chain = vec![block];
 
             // Reorganize to same chain (should preserve state)
-            let reorg_result = reorganization::reorganize_chain(
+            let reorg_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
+                .iter()
+                .map(|b| {
+                    b.transactions
+                        .iter()
+                        .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                        .collect()
+                })
+                .collect();
+            let network_time = new_chain
+                .iter()
+                .map(|b| b.header.timestamp)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(blvm_consensus::constants::MAX_FUTURE_BLOCK_TIME);
+
+            let reorg_result = reorganization::reorganize_chain_with_witnesses(
                 &new_chain,
+                &reorg_witnesses,
+                None,
                 &current_chain,
                 utxo_set_after_connect.clone(),
                 height as u64 + 1,
+                None::<fn(&Block) -> Option<Vec<Witness>>>,
+                None::<fn(u64) -> Option<Vec<BlockHeader>>>,
+                None::<fn(&Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
+                None::<fn(&Hash, &blvm_consensus::reorganization::BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+                network_time,
                 blvm_consensus::types::Network::Regtest,
             );
 

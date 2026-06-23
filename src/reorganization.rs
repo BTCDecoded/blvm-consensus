@@ -7,10 +7,15 @@ use crate::types::*;
 use blvm_spec_lock::spec_locked;
 use std::collections::HashMap;
 
-/// Reorganization: When a longer chain is found (simplified API)
+/// Deprecated reorg entry point (empty witnesses only).
 ///
-/// Simplified version that creates empty witnesses. For full witness support,
-/// use `reorganize_chain_with_witnesses()`.
+/// Builds empty witness stacks suitable for coinbase-only / legacy blocks. Blocks containing
+/// native SegWit transactions require explicit witness data via
+/// [`reorganize_chain_with_witnesses`].
+#[deprecated(
+    since = "0.1.33",
+    note = "Use reorganize_chain_with_witnesses with explicit witness data for SegWit chains"
+)]
 #[spec_locked("11.3")]
 pub fn reorganize_chain(
     new_chain: &[Block],
@@ -19,6 +24,20 @@ pub fn reorganize_chain(
     current_height: Natural,
     network: crate::types::Network,
 ) -> Result<ReorganizationResult> {
+    use crate::segwit::is_segwit_transaction;
+    use crate::transaction::is_coinbase;
+
+    for block in new_chain {
+        for tx in &block.transactions {
+            if !is_coinbase(tx) && is_segwit_transaction(tx) {
+                return Err(crate::error::ConsensusError::BlockValidation(
+                    "reorganize_chain: SegWit transactions require reorganize_chain_with_witnesses"
+                        .into(),
+                ));
+            }
+        }
+    }
+
     // Precondition assertions: Validate function inputs
     assert!(
         current_height <= i64::MAX as u64,
@@ -40,8 +59,7 @@ pub fn reorganize_chain(
         current_chain.len()
     );
 
-    // Create empty witnesses for all blocks (simplified)
-    // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> per block (one Vec per transaction, each containing one Witness per input)
+    // Empty per-input witness stacks (legacy path only; SegWit rejected above).
     let empty_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
         .iter()
         .map(|block| {
@@ -71,6 +89,12 @@ pub fn reorganize_chain(
         None::<fn(Natural) -> Option<Vec<BlockHeader>>>, // No header retrieval
         None::<fn(&Hash) -> Option<BlockUndoLog>>,  // No undo log retrieval
         None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No undo log storage
+        new_chain
+            .iter()
+            .map(|b| b.header.timestamp)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(crate::constants::MAX_FUTURE_BLOCK_TIME),
         network,
     )
 }
@@ -95,6 +119,8 @@ pub fn reorganize_chain(
 /// * `get_headers_for_height` - Optional callback to retrieve headers for median time-past (for current chain disconnection)
 /// * `get_undo_log_for_block` - Optional callback to retrieve undo log for a block (for current chain disconnection)
 /// * `store_undo_log_for_block` - Optional callback to store undo log for a block (for new chain connection)
+/// * `network_time` - Adjusted network time from the node layer (not the block under validation)
+/// * `network` - Consensus network (mainnet / testnet / regtest)
 #[allow(clippy::too_many_arguments)]
 #[spec_locked("11.3")]
 pub fn reorganize_chain_with_witnesses(
@@ -109,6 +135,7 @@ pub fn reorganize_chain_with_witnesses(
     _get_headers_for_height: Option<impl Fn(Natural) -> Option<Vec<BlockHeader>>>,
     get_undo_log_for_block: Option<impl Fn(&Hash) -> Option<BlockUndoLog>>,
     store_undo_log_for_block: Option<impl Fn(&Hash, &BlockUndoLog) -> Result<()>>,
+    network_time: u64,
     network: crate::types::Network,
 ) -> Result<ReorganizationResult> {
     // Precondition assertions: Validate function inputs
@@ -233,6 +260,7 @@ pub fn reorganize_chain_with_witnesses(
     let mut new_height = common_ancestor_height;
     let mut connected_blocks = Vec::new();
     let mut connected_undo_logs: HashMap<Hash, BlockUndoLog> = HashMap::new();
+    let mut mtp_header_buf: Vec<BlockHeader> = Vec::new();
 
     // Ensure witnesses match blocks
     if new_chain_witnesses.len() != new_chain.len() {
@@ -249,25 +277,21 @@ pub fn reorganize_chain_with_witnesses(
     // Connect blocks starting from the block after the common ancestor
     for (i, block) in new_chain.iter().enumerate().skip(common_ancestor_index + 1) {
         new_height += 1;
-        // Get witnesses for this block
-        // CRITICAL FIX: witnesses is now Vec<Vec<Witness>> (one Vec per transaction, each containing one Witness per input)
-        let witnesses = new_chain_witnesses.get(i).cloned().unwrap_or_else(|| {
-            block
-                .transactions
-                .iter()
-                .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
-                .collect()
-        });
+        // Witness stacks are required; length is validated at entry (must match new_chain).
+        let witnesses = new_chain_witnesses[i].clone();
 
-        // Get recent headers for median time-past (if available)
-        // For the first block in new chain, use provided headers
-        // For subsequent blocks, we'd need headers from the new chain being built
-        // Simplified: use provided headers if available
-        let recent_headers = new_chain_headers;
+        // Median time-past: prefer caller headers; else use preceding blocks on the new chain.
+        mtp_header_buf.clear();
+        let recent_headers: Option<&[BlockHeader]> = if let Some(headers) = new_chain_headers {
+            Some(headers)
+        } else if i > 0 {
+            let start = i.saturating_sub(crate::bip113::MEDIAN_TIME_BLOCKS - 1);
+            mtp_header_buf.extend(new_chain[start..i].iter().map(|b| b.header.clone()));
+            Some(mtp_header_buf.as_slice())
+        } else {
+            None
+        };
 
-        // Network time should be provided by node layer, use block timestamp as fallback for reorganization
-        // In production, the node layer should provide adjusted network time
-        let network_time = block.header.timestamp;
         let context = crate::block::block_validation_context_for_connect_ibd(
             recent_headers,
             network_time,
@@ -366,6 +390,7 @@ pub fn reorganize_chain_with_witnesses(
 ///     None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
 ///     None::<fn(&blvm_consensus::types::Hash) -> Option<blvm_consensus::reorganization::BlockUndoLog>>,
 ///     None::<fn(&blvm_consensus::types::Hash, &blvm_consensus::reorganization::BlockUndoLog) -> blvm_consensus::error::Result<()>>,
+///     0,
 ///     Network::Regtest,
 /// );
 /// if let Ok(reorg_result) = reorg_result {
@@ -434,17 +459,94 @@ where
         }
     }
 
-    // 3. Optionally re-add transactions from disconnected blocks that are still valid
-    // Note: This is a simplified version. In a full implementation, we'd need to:
-    // - Re-validate transactions against the new UTXO set
-    // - Check if they're still valid (not double-spent, scripts still valid, etc.)
-    // - Re-add them to mempool if valid
-    // For now, we skip this step as it requires full transaction re-validation
+    // 3. Re-add transactions from disconnected blocks via [`update_mempool_after_reorg_with_readd`].
 
     Ok(all_removed)
 }
 
-/// Simplified version without transaction lookup
+/// Parameters for re-adding mempool entries from disconnected blocks after a reorg.
+#[derive(Debug, Clone)]
+pub struct ReorgMempoolReaddParams {
+    pub height: Natural,
+    pub time_context: Option<TimeContext>,
+    pub network: Network,
+}
+
+/// Update mempool after reorg and re-add valid transactions from disconnected blocks.
+///
+/// Runs [`update_mempool_after_reorg`] then attempts `accept_to_memory_pool` for each
+/// non-coinbase transaction in `reorg_result.disconnected_blocks`.
+pub fn update_mempool_after_reorg_with_readd<F, G>(
+    mempool: &mut crate::mempool::Mempool,
+    reorg_result: &ReorganizationResult,
+    utxo_set: &UtxoSet,
+    get_tx_by_id: Option<F>,
+    readd: &ReorgMempoolReaddParams,
+    get_witnesses: Option<G>,
+) -> Result<(Vec<Hash>, Vec<Hash>)>
+where
+    F: Fn(&Hash) -> Option<Transaction>,
+    G: Fn(&Hash) -> Option<Vec<Witness>>,
+{
+    let removed = update_mempool_after_reorg(mempool, reorg_result, utxo_set, get_tx_by_id)?;
+    let readded = readd_disconnected_to_mempool(
+        mempool,
+        &reorg_result.disconnected_blocks,
+        utxo_set,
+        readd,
+        get_witnesses,
+    )?;
+    Ok((removed, readded))
+}
+
+fn readd_disconnected_to_mempool<G>(
+    mempool: &mut crate::mempool::Mempool,
+    disconnected_blocks: &[Block],
+    utxo_set: &UtxoSet,
+    readd: &ReorgMempoolReaddParams,
+    get_witnesses: Option<G>,
+) -> Result<Vec<Hash>>
+where
+    G: Fn(&Hash) -> Option<Vec<Witness>>,
+{
+    use crate::block::calculate_tx_id;
+    use crate::mempool::{MempoolResult, accept_to_memory_pool};
+    use crate::transaction::is_coinbase;
+
+    let mut readded = Vec::new();
+    for block in disconnected_blocks {
+        for tx in block.transactions.iter() {
+            if is_coinbase(tx) {
+                continue;
+            }
+            let tx_id = calculate_tx_id(tx);
+            if mempool.contains(&tx_id) {
+                continue;
+            }
+            let witness_storage = get_witnesses.as_ref().and_then(|lookup| lookup(&tx_id));
+            let witnesses = witness_storage.as_deref();
+            match accept_to_memory_pool(
+                tx,
+                witnesses,
+                utxo_set,
+                mempool,
+                readd.height,
+                readd.time_context,
+                readd.network,
+            )? {
+                MempoolResult::Accepted => {
+                    if mempool.insert_transaction(tx) {
+                        readded.push(tx_id);
+                    }
+                }
+                MempoolResult::Rejected(_) => {}
+            }
+        }
+    }
+    Ok(readded)
+}
+
+/// Update mempool after reorg without a transaction lookup callback.
 pub fn update_mempool_after_reorg_simple(
     mempool: &mut crate::mempool::Mempool,
     reorg_result: &ReorganizationResult,
@@ -583,30 +685,15 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
         current_chain.len()
     );
 
-    // Reorganize if new chain is longer
-    if new_chain.len() > current_chain.len() {
-        // Postcondition assertion: Result must be boolean
-        #[allow(clippy::eq_op)]
-        {
-            assert!(true == true || false == false, "Result must be boolean");
-        }
-        return Ok(true);
-    }
+    // Reorganize when new chain has strictly more cumulative work.
+    let new_work = calculate_chain_work(new_chain)?;
+    let current_work = calculate_chain_work(current_chain)?;
+    Ok(new_work > current_work)
+}
 
-    // Reorganize if chains are same length but new chain has more work
-    if new_chain.len() == current_chain.len() {
-        let new_work = calculate_chain_work(new_chain)?;
-        let current_work = calculate_chain_work(current_chain)?;
-        let result = new_work > current_work;
-        // Postcondition assertion: Result must be boolean
-        // Note: Result is boolean (tautology for formal verification)
-        return Ok(result);
-    }
-
-    // Postcondition assertion: Result must be boolean
-    let result = false;
-    // Note: Result is boolean (tautology for formal verification)
-    Ok(result)
+/// Work contribution for a single block header (matches [`calculate_chain_work`]).
+pub fn work_for_bits(bits: Natural) -> Result<crate::pow::U256> {
+    crate::pow::get_block_proof(bits)
 }
 
 /// Calculate total work for a chain
@@ -617,72 +704,25 @@ pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result
 /// - Work increases monotonically with chain length
 /// - Work calculation is deterministic
 #[spec_locked("11.3", "CalculateChainWork")]
-pub fn calculate_chain_work(chain: &[Block]) -> Result<u128> {
-    let mut total_work = 0u128;
+pub fn calculate_chain_work(chain: &[Block]) -> Result<crate::pow::U256> {
+    let mut total_work = crate::pow::U256::zero();
 
     for block in chain {
-        let target = expand_target(block.header.bits)?;
-        // Work is proportional to 1/target
-        // Avoid overflow by using checked arithmetic
-        if target > 0 {
-            // Calculate work contribution safely
-            // Work = 2^256 / (target + 1) for Bitcoin
-            // For simplicity, use: work = u128::MAX / (target + 1)
-            // Prevent division by zero and overflow
-            let work_contribution = if target == u128::MAX {
-                0 // Very large target means very small work
-            } else {
-                // Use checked_div to avoid panic, fallback to 0 on overflow
-                u128::MAX.checked_div(target + 1).unwrap_or(0)
-            };
+        let work_contribution = work_for_bits(block.header.bits)?;
+        let old_total = total_work;
+        total_work = total_work.saturating_add(work_contribution);
 
-            // u128 is always non-negative - no assertion needed
-
-            let old_total = total_work;
-            total_work = total_work.saturating_add(work_contribution);
-
-            // Runtime assertion: Total work must be non-decreasing
-            debug_assert!(
-                total_work >= old_total,
-                "Total work ({total_work}) must be >= previous total ({old_total})"
-            );
-        }
-        // Zero target means infinite difficulty - skip this block (work = 0)
+        // Runtime assertion: Total work must be non-decreasing
+        debug_assert!(
+            total_work >= old_total,
+            "Total work ({total_work:?}) must be >= previous total ({old_total:?})"
+        );
     }
-
-    // u128 is always non-negative - no assertion needed
 
     Ok(total_work)
 }
 
-/// Expand target from compact format (reused from mining module)
-fn expand_target(bits: Natural) -> Result<u128> {
-    let exponent = (bits >> 24) as u8;
-    let mantissa = bits & 0x00ffffff;
-
-    if exponent <= 3 {
-        let shift = 8 * (3 - exponent);
-        Ok((mantissa as u128) >> shift)
-    } else {
-        // Prevent overflow by checking exponent before calculating shift
-        // Maximum safe exponent: 3 + (128 / 8) = 19
-        if exponent > 19 {
-            return Err(crate::error::ConsensusError::InvalidProofOfWork(
-                "Target too large".into(),
-            ));
-        }
-        // Calculate shift safely - exponent is bounded, so no overflow
-        let shift = 8 * (exponent - 3);
-        // Use checked shift to avoid overflow
-        let mantissa_u128 = mantissa as u128;
-        let expanded = mantissa_u128.checked_shl(shift as u32).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidProofOfWork("Target expansion overflow".into())
-        })?;
-        Ok(expanded)
-    }
-}
-
-/// Calculate transaction ID (simplified)
+/// Test-only approximate tx id from tx fields (not a consensus hash).
 #[allow(dead_code)] // Used in tests
 fn calculate_tx_id(tx: &Transaction) -> Hash {
     let mut hash = [0u8; 32];
@@ -878,24 +918,11 @@ mod property_tests {
                 // Call should_reorganize
                 let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
 
-                // should_reorganize logic:
-                // 1. If new chain is longer, reorganize (regardless of work)
-                // 2. If chains are equal length, reorganize if new chain has more work
-                // 3. Otherwise, don't reorganize
-
-                if new_chain.len() > current_chain.len() {
-                    // New chain is longer - should always reorganize
-                    prop_assert!(should_reorg, "Must reorganize when new chain is longer");
-                } else if new_chain.len() == current_chain.len() {
-                    // Equal length - compare work
-                    if new_w > current_w {
-                        prop_assert!(should_reorg, "Must reorganize when new chain has more work (equal length)");
-                    } else {
-                        prop_assert!(!should_reorg, "Must not reorganize when new chain has less or equal work (equal length)");
-                    }
+                // should_reorganize: reorganize iff new chain has more cumulative work
+                if new_w > current_w {
+                    prop_assert!(should_reorg, "Must reorganize when new chain has more work");
                 } else {
-                    // New chain is shorter - should not reorganize (regardless of work)
-                    prop_assert!(!should_reorg, "Must not reorganize when new chain is shorter");
+                    prop_assert!(!should_reorg, "Must not reorganize when new chain has less or equal work");
                 }
             }
             // If either chain has invalid blocks, skip the test (acceptable)
@@ -933,13 +960,10 @@ mod property_tests {
         fn prop_expand_target_valid_range(
             bits in 0x00000000u64..0x1d00ffffu64
         ) {
-            let result = expand_target(bits);
+            let result = crate::pow::expand_target(bits);
 
             match result {
                 Ok(target) => {
-                    // Target can be zero for bits=0, which is valid
-                    // target is u128, so it's always <= u128::MAX (always true)
-                    // This assertion is redundant but kept for documentation
                     let _ = target;
                 },
                 Err(_) => {
@@ -984,8 +1008,52 @@ mod property_tests {
 mod tests {
     use super::*;
 
+    fn witnesses_for_chain(chain: &[Block]) -> Vec<Vec<Vec<Witness>>> {
+        chain
+            .iter()
+            .map(|block| {
+                block
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn reorg_network_time(chain: &[Block]) -> u64 {
+        chain
+            .iter()
+            .map(|b| b.header.timestamp)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(crate::constants::MAX_FUTURE_BLOCK_TIME)
+    }
+
+    fn reorganize_chain_test(
+        new_chain: &[Block],
+        current_chain: &[Block],
+        utxo_set: UtxoSet,
+        current_height: Natural,
+    ) -> Result<ReorganizationResult> {
+        reorganize_chain_with_witnesses(
+            new_chain,
+            &witnesses_for_chain(new_chain),
+            None,
+            current_chain,
+            utxo_set,
+            current_height,
+            None::<fn(&Block) -> Option<Vec<Witness>>>,
+            None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
+            None::<fn(&Hash) -> Option<BlockUndoLog>>,
+            None::<fn(&Hash, &BlockUndoLog) -> Result<()>>,
+            reorg_network_time(new_chain),
+            crate::types::Network::Regtest,
+        )
+    }
+
     #[test]
-    fn test_should_reorganize_longer_chain() {
+    fn test_should_reorganize_more_cumulative_work() {
         let new_chain = vec![create_test_block(), create_test_block()];
         let current_chain = vec![create_test_block()];
 
@@ -997,15 +1065,15 @@ mod tests {
         let mut new_chain = vec![create_test_block()];
         let mut current_chain = vec![create_test_block()];
 
-        // Make new chain have lower difficulty (more work)
-        new_chain[0].header.bits = 0x0200ffff; // Lower difficulty (exponent = 2)
-        current_chain[0].header.bits = 0x0300ffff; // Higher difficulty (exponent = 3)
+        // Same-length fork: harder chain (smaller target) has more cumulative work.
+        new_chain[0].header.bits = 0x0300ffff;
+        current_chain[0].header.bits = 0x0400ffff;
 
         assert!(should_reorganize(&new_chain, &current_chain).unwrap());
     }
 
     #[test]
-    fn test_should_not_reorganize_shorter_chain() {
+    fn test_should_not_reorganize_less_work() {
         let new_chain = vec![create_test_block()];
         let current_chain = vec![create_test_block(), create_test_block()];
 
@@ -1054,12 +1122,11 @@ mod tests {
         block.header.bits = 0x0300ffff;
         let chain = vec![block];
         let work = calculate_chain_work(&chain).unwrap();
-        assert!(work > 0);
+        assert!(work > crate::pow::U256::zero());
     }
 
     #[test]
     fn test_reorganize_chain() {
-        // Set up a fork: both chains share an ancestor block, then diverge.
         // current_chain = [ancestor] (tip at height 1)
         // new_chain = [ancestor, new_block] (longer chain, should win)
         let ancestor = create_test_block_at_height(0);
@@ -1072,13 +1139,7 @@ mod tests {
         let utxo_set = UtxoSet::default();
 
         // current_height = 1 (tip of current_chain at height 1)
-        let result = reorganize_chain(
-            &new_chain,
-            &current_chain,
-            utxo_set,
-            1,
-            crate::types::Network::Regtest,
-        );
+        let result = reorganize_chain_test(&new_chain, &current_chain, utxo_set, 1);
         match result {
             Ok(reorg_result) => {
                 // Ancestor is at height 1 (current_height - 0 blocks after it = 1)
@@ -1111,13 +1172,7 @@ mod tests {
         let current_chain = vec![current_block1, current_block2];
         let utxo_set = UtxoSet::default();
 
-        let result = reorganize_chain(
-            &new_chain,
-            &current_chain,
-            utxo_set,
-            2,
-            crate::types::Network::Regtest,
-        );
+        let result = reorganize_chain_test(&new_chain, &current_chain, utxo_set, 2);
         match result {
             Ok(reorg_result) => {
                 assert_eq!(reorg_result.connected_blocks.len(), 3);
@@ -1258,6 +1313,7 @@ mod tests {
             None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
             Some(get_undo_log),
             None::<fn(&Hash, &BlockUndoLog) -> Result<()>>, // No storage in test
+            2_000_000_000,
             crate::types::Network::Regtest,
         );
 
@@ -1279,13 +1335,7 @@ mod tests {
         let current_chain = vec![create_test_block()];
         let utxo_set = UtxoSet::default();
 
-        let result = reorganize_chain(
-            &new_chain,
-            &current_chain,
-            utxo_set,
-            1,
-            crate::types::Network::Regtest,
-        );
+        let result = reorganize_chain_test(&new_chain, &current_chain, utxo_set, 1);
         assert!(result.is_err());
     }
 
@@ -1295,13 +1345,7 @@ mod tests {
         let current_chain = vec![];
         let utxo_set = UtxoSet::default();
 
-        let result = reorganize_chain(
-            &new_chain,
-            &current_chain,
-            utxo_set,
-            0,
-            crate::types::Network::Regtest,
-        );
+        let result = reorganize_chain_test(&new_chain, &current_chain, utxo_set, 0);
         assert!(result.is_err());
     }
 
@@ -1334,7 +1378,7 @@ mod tests {
     fn test_calculate_chain_work_empty_chain() {
         let chain = vec![];
         let work = calculate_chain_work(&chain).unwrap();
-        assert_eq!(work, 0);
+        assert_eq!(work, crate::pow::U256::zero());
     }
 
     #[test]
@@ -1342,24 +1386,25 @@ mod tests {
         let mut chain = vec![create_test_block(), create_test_block()];
         // Use bits values with exponent <= 18 so targets fit in u128
         chain[0].header.bits = 0x0300ffff;
-        chain[1].header.bits = 0x0200ffff;
+        chain[1].header.bits = 0x0400ffff;
 
         let work = calculate_chain_work(&chain).unwrap();
-        assert!(work > 0);
+        assert!(work > crate::pow::U256::zero());
     }
 
     #[test]
     fn test_expand_target_edge_cases() {
-        // Test zero target
-        let result = expand_target(0x00000000);
+        // Zero mantissa with valid exponent
+        let result = crate::pow::expand_target(0x03000000);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_zero());
+
+        // Test maximum valid target in low-exponent range
+        let result = crate::pow::expand_target(0x03ffffff);
         assert!(result.is_ok());
 
-        // Test maximum valid target
-        let result = expand_target(0x03ffffff);
-        assert!(result.is_ok());
-
-        // Test invalid target (too large) - use exponent > 19
-        let result = expand_target(0x14000000); // exponent = 20, which should fail (> 19)
+        // Exponent outside pow::expand_target range (3..=32)
+        let result = crate::pow::expand_target(0x2100ffff);
         assert!(result.is_err());
     }
 
@@ -1447,7 +1492,7 @@ mod tests {
                 prev_block_hash: [0; 32],
                 merkle_root,
                 timestamp: 1231006505,
-                bits: 0x207fffff, // Regtest difficulty
+                bits: 0x0300ffff, // Valid compact target for chain-work tests
                 nonce: 0,
             },
             transactions: vec![coinbase_tx].into_boxed_slice(),

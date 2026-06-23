@@ -169,9 +169,8 @@ fn test_taproot_with_csv() {
     use blvm_consensus::taproot::*;
 
     let output_key = [0x42u8; 32];
-    let mut p2tr_script = vec![TAPROOT_SCRIPT_PREFIX];
+    let mut p2tr_script = vec![TAPROOT_SCRIPT_PREFIX, PUSH_32_BYTES];
     p2tr_script.extend_from_slice(&output_key);
-    p2tr_script.push(0x00);
 
     let tx = Transaction {
         version: 1,

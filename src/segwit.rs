@@ -12,7 +12,7 @@ use crate::opcodes::*;
 use crate::types::*;
 use crate::types::{ByteString, Hash, Natural};
 use crate::witness;
-use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
+use bitcoin_hashes::{Hash as BitcoinHash, sha256d};
 use blvm_spec_lock::spec_locked;
 
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
@@ -21,7 +21,7 @@ use blvm_spec_lock::spec_locked;
 pub use crate::witness::Witness;
 
 /// Calculate transaction weight for SegWit
-/// Weight(tx) = 4 × |Serialize(tx ∖ witness)| + |Serialize(tx)|
+/// BIP141: Weight(tx) = 3 × BaseSize(tx) + TotalSize(tx)
 #[spec_locked("11.1.1", "CalculateTransactionWeight")]
 pub fn calculate_transaction_weight(
     tx: &Transaction,
@@ -67,30 +67,42 @@ fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural 
     }
 }
 
-/// Compute witness merkle root for block
-/// WitnessRoot = ComputeMerkleRoot({Hash(tx.witness) : tx ∈ block.transactions})
-#[spec_locked("11.1.4", "ComputeWitnessMerkleRoot")]
-pub fn compute_witness_merkle_root(block: &Block, witnesses: &[Witness]) -> Result<Hash> {
-    if block.transactions.is_empty() {
-        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-            "Cannot compute witness merkle root for empty block".into(),
-        ));
-    }
-
-    // Hash each witness
-    let mut witness_hashes = Vec::new();
-    for (i, witness) in witnesses.iter().enumerate() {
-        if i == 0 {
-            // Coinbase transaction has empty witness
-            witness_hashes.push([0u8; 32]);
-        } else {
-            let witness_hash = hash_witness(witness);
-            witness_hashes.push(witness_hash);
+/// Map legacy flat layout (one stack per tx) to per-input stacks for BIP141 wtxid hashing.
+fn flat_witness_to_per_input(tx: &Transaction, witness: &Witness) -> Vec<Witness> {
+    match tx.inputs.len() {
+        0 => Vec::new(),
+        1 => vec![witness.clone()],
+        n => {
+            let mut stacks = vec![Vec::new(); n];
+            if !witness.is_empty() {
+                stacks[0] = witness.clone();
+            }
+            stacks
         }
     }
+}
 
-    // Compute merkle root of witness hashes
-    compute_merkle_root(&witness_hashes)
+/// Compute witness merkle root for block (legacy flat witness layout).
+///
+/// **Layout:** one [`Witness`] per transaction (single stack). For multi-input SegWit
+/// blocks use [`compute_witness_merkle_root_from_nested`] (production connect path).
+///
+/// Delegates to BIP141 wtxid merkle logic (txid for non-witness txs, full segwit hash otherwise).
+#[spec_locked("11.1.4", "ComputeWitnessMerkleRoot")]
+pub fn compute_witness_merkle_root(block: &Block, witnesses: &[Witness]) -> Result<Hash> {
+    let nested: Vec<Vec<Witness>> = block
+        .transactions
+        .iter()
+        .enumerate()
+        .map(|(i, tx)| {
+            if i < witnesses.len() {
+                flat_witness_to_per_input(tx, &witnesses[i])
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
+    compute_witness_merkle_root_from_nested(block, &nested)
 }
 
 /// Double-SHA256 a byte slice, returning a 32-byte hash array.
@@ -101,29 +113,16 @@ fn sha256d_bytes(data: &[u8]) -> Hash {
     hash
 }
 
-/// Hash witness data
-/// Orange Paper 11.1: Hash(tx.witness) for witness merkle commitment
-#[spec_locked("11.1", "HashWitness")]
+/// Hash witness stack elements (SHA256d of concatenated elements).
+///
+/// **Not** BIP141 wtxid — used by unit/property tests only. Block validation uses
+/// [`compute_witness_merkle_root_from_nested`].
+#[cfg(test)]
 fn hash_witness(witness: &Witness) -> Hash {
+    use bitcoin_hashes::HashEngine;
     let mut hasher = sha256d::Hash::engine();
     for element in witness {
         hasher.input(element);
-    }
-    let result = sha256d::Hash::from_engine(hasher);
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&result);
-    hash
-}
-
-/// Hash witness from nested structure (Vec<Witness> per tx) without allocating.
-/// Each tx's witness is the concatenation of its input stacks for merkle commitment.
-/// Orange Paper 11.1.4: Hash(tx.witness) for witness merkle commitment
-fn hash_witness_from_nested(tx_witnesses: &[Witness]) -> Hash {
-    let mut hasher = sha256d::Hash::engine();
-    for witness_stack in tx_witnesses {
-        for element in witness_stack {
-            hasher.input(element);
-        }
     }
     let result = sha256d::Hash::from_engine(hasher);
     let mut hash = [0u8; 32];
@@ -161,8 +160,9 @@ pub fn compute_witness_merkle_root_from_nested(
             // Coinbase wtxid is always all-zeros by consensus (BIP141)
             witness_hashes.push([0u8; 32]);
         } else {
-            // Has any non-empty witness stack element across all inputs?
-            let has_witness = tx_witnesses.iter().any(|w| !w.is_empty());
+            // SegWit wtxid requires one witness stack per input; mismatched layout → txid path.
+            let has_witness =
+                tx_witnesses.len() == tx.inputs.len() && tx_witnesses.iter().any(|w| !w.is_empty());
             let hash = if has_witness {
                 // SegWit tx: wtxid = sha256d(version || 0x00 0x01 || inputs || outputs || witnesses || locktime)
                 let serialized =
@@ -231,8 +231,7 @@ pub fn validate_witness_commitment(
 
     // Look for a witness commitment OP_RETURN in coinbase outputs.
     // BIP141: if multiple outputs match the 0xaa21a9ed prefix, use the LAST one.
-    // Bitcoin Core iterates all outputs and keeps updating the commitment index,
-    // so only the highest-index matching output is used for validation.
+    // If multiple outputs match the BIP141 prefix, use the last one (highest output index).
     let last_commitment = last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs);
 
     // Encode validity as 0/1 so blvm-spec-lock's Option match translation (Int arms) applies.
@@ -375,15 +374,27 @@ pub fn validate_segwit_block(
         return Ok(false);
     }
 
-    // Validate witness commitment
-    if !block.transactions.is_empty() && !witnesses.is_empty() {
-        let witness_root = compute_witness_merkle_root(block, witnesses)?;
-        // witnesses[0] is the coinbase input's witness stack (contains the reserved nonce)
-        if !validate_witness_commitment(
-            &block.transactions[0],
-            &witness_root,
-            std::slice::from_ref(&witnesses[0]),
-        )? {
+    // Validate witness commitment (BIP141 wtxid merkle root)
+    if !block.transactions.is_empty() {
+        let nested: Vec<Vec<Witness>> = block
+            .transactions
+            .iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                if i < witnesses.len() {
+                    flat_witness_to_per_input(tx, &witnesses[i])
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
+        let witness_root = compute_witness_merkle_root_from_nested(block, &nested)?;
+        let coinbase_witness = if witnesses.is_empty() {
+            &[][..]
+        } else {
+            std::slice::from_ref(&witnesses[0])
+        };
+        if !validate_witness_commitment(&block.transactions[0], &witness_root, coinbase_witness)? {
             return Ok(false);
         }
     }
@@ -755,8 +766,7 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_block_weight_validation_limit(
-            block in create_block_strategy(),
-            witnesses in create_witnesses_strategy(),
+            (block, witnesses) in create_block_with_witnesses_strategy(),
             max_weight in 1..10_000_000u64
         ) {
             // Handle errors from invalid blocks/witnesses
@@ -800,8 +810,7 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_witness_merkle_root_deterministic(
-            block in create_block_strategy(),
-            witnesses in create_witnesses_strategy()
+            (block, witnesses) in create_block_with_witnesses_strategy()
         ) {
             if !block.transactions.is_empty() {
                 let result1 = compute_witness_merkle_root(&block, &witnesses);
@@ -986,6 +995,23 @@ mod property_tests {
 
     fn create_witnesses_strategy() -> impl Strategy<Value = Vec<Witness>> {
         prop::collection::vec(create_witness_strategy(), 0..5)
+    }
+
+    fn create_block_with_witnesses_strategy() -> impl Strategy<Value = (Block, Vec<Witness>)> {
+        create_block_strategy().prop_flat_map(|block| {
+            let n = block.transactions.len();
+            let header = block.header.clone();
+            let transactions = block.transactions.to_vec();
+            prop::collection::vec(create_witness_strategy(), n).prop_map(move |witnesses| {
+                (
+                    Block {
+                        header: header.clone(),
+                        transactions: transactions.clone().into_boxed_slice(),
+                    },
+                    witnesses,
+                )
+            })
+        })
     }
 
     fn create_hash_strategy() -> impl Strategy<Value = Hash> {
