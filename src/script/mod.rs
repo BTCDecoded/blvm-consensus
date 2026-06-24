@@ -2869,6 +2869,12 @@ pub fn verify_script_with_context_full(
     } else {
         None
     };
+    let nested_witness_program = redeem_script.as_ref().is_some_and(|redeem| {
+        redeem.len() >= 3
+            && redeem[0] == OP_0
+            && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)
+                || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34))
+    });
 
     // CRITICAL FIX: Check if scriptPubkey is Taproot (P2TR) - OP_1 <32-byte-hash>
     // Taproot format: [OP_1, PUSH_32_BYTES, <32 bytes>] = 34 bytes total
@@ -3287,9 +3293,14 @@ pub fn verify_script_with_context_full(
     // - P2WPKH-in-P2SH: Handled in P2SH section above (BIP143 sig/pubkey check via implicit P2PKH scriptCode)
     // - Regular scripts: No witness execution needed
     //
-    // All witness execution should be complete by this point.
-    if let Some(_witness_stack) = witness {
-        // Witness data is consumed by the paths above; the parameter may still be non-empty.
+    // Fail closed when witness data is present but this spend is not a witness program path.
+    // Do not require the witness parameter to be cleared: P2WSH-in-P2SH and similar paths
+    // leave the original witness stack intact (see p2wsh_scriptcode_regression).
+    let accepts_witness = is_direct_witness_program || is_taproot || nested_witness_program;
+    if let Some(witness_stack) = witness {
+        if !crate::witness::is_witness_empty(witness_stack) && !accepts_witness {
+            return Ok(false);
+        }
     }
 
     // Final validation
