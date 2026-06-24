@@ -4642,13 +4642,15 @@ fn execute_opcode(
         // Treated as NOP when the CTV flag is not in the verification flags.
         // Full validation requires tx context and the SCRIPT_VERIFY_CHECKTEMPLATEVERIFY flag.
         OP_CHECKTEMPLATEVERIFY => {
-            const SCRIPT_VERIFY_CHECKTEMPLATEVERIFY: u32 = 0x8000;
             #[cfg(feature = "ctv")]
-            if (flags & SCRIPT_VERIFY_CHECKTEMPLATEVERIFY) != 0 {
-                return Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::TxInvalid,
-                    message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
-                });
+            {
+                const SCRIPT_VERIFY_CHECKTEMPLATEVERIFY: u32 = 0x8000;
+                if (flags & SCRIPT_VERIFY_CHECKTEMPLATEVERIFY) != 0 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::TxInvalid,
+                        message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
+                    });
+                }
             }
             Ok(true)
         }
@@ -6542,7 +6544,7 @@ fn execute_opcode_cold(opcode: u8, stack: &mut Vec<StackElement>, flags: u32) ->
 /// Get and reset fast-path hit counters (production). Used by block validation to log
 /// whether P2PK/P2PKH/P2SH/P2WPKH/P2WSH fast-paths are taken vs interpreter fallback.
 /// Returns (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, bare_multisig, interpreter).
-#[cfg(feature = "production")]
+#[cfg(all(feature = "production", feature = "profile"))]
 pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64, u64, u64) {
     (
         FAST_PATH_P2PK.swap(0, Ordering::Relaxed),

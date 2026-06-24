@@ -22,8 +22,8 @@ fn is_hash_caching_disabled() -> bool {
     super::is_caching_disabled()
 }
 
-/// Clear hash operation cache. Re-exported by script mod for benchmarks.
-#[cfg(feature = "production")]
+/// Clear hash operation cache. Used by benchmark cache helpers in script mod.
+#[cfg(all(feature = "production", feature = "benchmarking"))]
 pub(crate) fn clear_hash_cache() {
     HASH_CACHE.with(|cell| cell.borrow_mut().clear());
 }

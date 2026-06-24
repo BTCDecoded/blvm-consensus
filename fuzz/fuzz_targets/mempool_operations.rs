@@ -2,7 +2,7 @@
 use blvm_consensus::mempool::{
     accept_to_memory_pool, is_standard_tx, replacement_checks, Mempool,
 };
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
+use blvm_consensus::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet};
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
 
