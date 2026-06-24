@@ -553,26 +553,27 @@ fn test_check_proof_of_work_invalid_target() {
 
 #[test]
 fn test_transaction_size_boundaries() {
-    // Test transaction at maximum size limit
-    let mut large_script = Vec::new();
-    for _ in 0..MAX_SCRIPT_SIZE {
-        large_script.push(OP_1);
+    // check_transaction size rule: stripped_size * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT
+    // (~1 MB stripped). Per-script MAX_SCRIPT_SIZE is enforced in verify_script / mempool,
+    // not here — two MAX_SCRIPT_SIZE fields (~20 KB stripped) remain Valid.
+    let mut inputs = Vec::new();
+    for i in 0..MAX_INPUTS {
+        inputs.push(TransactionInput {
+            prevout: OutPoint {
+                hash: [i as u8; 32],
+                index: 0,
+            },
+            script_sig: vec![0u8; 1000],
+            sequence: 0xffffffff,
+        });
     }
 
     let tx = Transaction {
         version: 1,
-        inputs: vec![TransactionInput {
-            prevout: OutPoint {
-                hash: [1; 32],
-                index: 0,
-            },
-            script_sig: large_script.clone(),
-            sequence: 0xffffffff,
-        }]
-        .into(),
+        inputs: inputs.into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey: large_script,
+            script_pubkey: vec![OP_1],
         }]
         .into(),
         lock_time: 0,
@@ -581,7 +582,7 @@ fn test_transaction_size_boundaries() {
     let result = check_transaction(&tx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
-        "transaction at MAX_SCRIPT_SIZE on both input and output must exceed tx limits"
+        "MAX_INPUTS × 1 KiB script_sig must exceed block weight limit"
     );
 }
 
