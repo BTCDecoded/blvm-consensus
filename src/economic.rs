@@ -9,13 +9,11 @@ use std::borrow::Cow;
 /// GetBlockSubsidy: ℕ → ℤ
 ///
 /// Calculate the block subsidy for a given height.
-/// Subsidy halves every 210,000 blocks (HALVING_INTERVAL).
-///
-/// Formula: subsidy = 50 * C * 2^(-⌊h/H⌋)
-/// Where:
-/// - h = block height
-/// - H = HALVING_INTERVAL (210,000)
-/// - C = SATOSHIS_PER_BTC (10^8)
+/// Subsidy halves every 210,000 blocks (HALVING_INTERVAL) by integer right-shift:
+/// `INITIAL_SUBSIDY >> floor(h / H)`. The shift is 0 at halving 33
+/// (`floor(5_000_000_000 / 2^33) = 0`, height ≥ 6,930,000). The `>= 64`
+/// guard is for undefined 64-bit shifts. The real-valued form
+/// `50 * C * 2^(-⌊h/H⌋)` is not the protocol.
 #[spec_locked("6.1", "GetBlockSubsidy")]
 #[blvm_spec_lock::requires(height >= 0)]
 #[blvm_spec_lock::ensures(result >= 0)]
@@ -23,7 +21,7 @@ use std::borrow::Cow;
 pub fn get_block_subsidy(height: Natural) -> Integer {
     let halving_period = height / HALVING_INTERVAL;
 
-    // After 64 halvings, subsidy becomes 0
+    // `>> 64` is undefined for 64-bit values. Practical zero is k = 33.
     if halving_period >= 64 {
         return 0;
     }
@@ -34,8 +32,7 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
         "Halving period ({halving_period}) must be < 64"
     );
 
-    // Calculate subsidy: 50 BTC * 2^(-halving_period)
-    let base_subsidy = INITIAL_SUBSIDY; // 50 BTC in satoshis
+    let base_subsidy = INITIAL_SUBSIDY;
     let subsidy = base_subsidy >> halving_period;
 
     // Runtime assertion: Subsidy must be non-negative and <= initial subsidy
@@ -111,16 +108,15 @@ pub fn verify_utxo_supply(utxo_set: &UtxoSet, height: Natural) -> bool {
 /// `count × (INITIAL_SUBSIDY >> k)` per epoch in **O(64)** instead of iterating every block.
 /// (Naive `0..=height` is unusable for heights in the tens of millions used in tests.)
 /// Non-negativity invariant: the total supply is always ≥ 0.
-/// Each block subsidy is non-negative (0 after 64 halvings), so the
+/// Each block subsidy is non-negative (integer-zero after 33 halvings; the loop
+/// still walks 64 epochs to match the F_* undefined-shift guard), so the
 /// accumulated sum is non-negative for any height.
+/// Issued supply at and after height `33 * H` is exactly 2_099_999_997_690_000
+/// satoshis, 2_310_000 below `MAX_MONEY`.
 ///
 /// Non-negativity is proven by `_verify_f_total_supply_non_neg` (spec_witnesses.rs §6.2).
-/// The Z3 translator cannot fully evaluate the 64-epoch for loop, so both bounds are
-/// declared as `#[axiom]` (trusted from the spec_witness proof) in addition to the
-/// `#[ensures]` postconditions that callee-axiom propagation can discharge for callers.
+/// Spec-lock unrolls the `0..64` epoch loop and proves these bounds from the body.
 #[spec_locked("6.2", "TotalSupply")]
-#[blvm_spec_lock::axiom(result >= 0)]
-#[blvm_spec_lock::axiom(result <= 2100000000000000)]
 #[blvm_spec_lock::ensures(result >= 0)]
 #[blvm_spec_lock::ensures(result <= 2100000000000000)]
 pub fn total_supply(height: Natural) -> Integer {
@@ -155,6 +151,9 @@ pub fn total_supply(height: Natural) -> Integer {
                 return MAX_MONEY;
             }
         };
+        // Unreachable on the integer subsidy schedule: issued supply tops out
+        // at 2_099_999_997_690_000 < MAX_MONEY (2_100_000_000_000_000).
+        // Kept as a defensive overflow cap, not a reachable issuance path.
         if total >= MAX_MONEY {
             return MAX_MONEY;
         }

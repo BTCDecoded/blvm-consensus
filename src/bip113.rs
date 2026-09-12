@@ -62,33 +62,10 @@ pub fn get_median_time_past<H: AsRef<BlockHeader>>(headers: &[H]) -> u64 {
     let timestamps = &mut timestamps[..n];
     timestamps.sort_unstable();
 
-    // Calculate median (middle value)
+    // Upper middle after sort: T[⌊n/2⌋] for both odd and even n (Orange Paper §5.5).
     if timestamps.is_empty() {
         0
-    } else if timestamps.len() % 2 == 0 {
-        // Even number: average of two middle values
-        let mid = timestamps.len() / 2;
-        let lower = timestamps[mid - 1];
-        let upper = timestamps[mid];
-
-        // Runtime assertion: Lower must be <= upper (timestamps should be sorted)
-        debug_assert!(
-            lower <= upper,
-            "Lower median timestamp ({lower}) must be <= upper ({upper})"
-        );
-
-        // `lower + upper` can overflow `u64` (e.g. both near MAX); use wider math.
-        let median = ((lower as u128 + upper as u128) / 2) as u64;
-
-        // Runtime assertion: Median must be between lower and upper
-        debug_assert!(
-            median >= lower && median <= upper,
-            "Median ({median}) must be between lower ({lower}) and upper ({upper})"
-        );
-
-        median
     } else {
-        // Odd number: middle value
         timestamps[timestamps.len() / 2]
     }
 }
@@ -169,14 +146,15 @@ mod tests {
             create_header(3000),
             create_header(4000),
         ];
-        // Median of [1000, 2000, 3000, 4000] = (2000 + 3000) / 2 = 2500
-        assert_eq!(get_median_time_past(&headers), 2500);
+        // T[⌊4/2⌋] = T[2] = 3000 (upper middle; not the mean 2500)
+        assert_eq!(get_median_time_past(&headers), 3000);
     }
 
     #[test]
     fn test_median_time_even_branch_large_timestamps_no_overflow() {
         let headers = [create_header(u64::MAX - 1), create_header(u64::MAX)];
-        assert_eq!(get_median_time_past(&headers), u64::MAX - 1);
+        // n = 2: T[1] = MAX. No average, so no u64 add overflow.
+        assert_eq!(get_median_time_past(&headers), u64::MAX);
     }
 
     #[test]

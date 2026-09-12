@@ -109,6 +109,28 @@ pub(crate) fn _verify_f_stack_size_safe(depth: i64) -> i64 {
     999 - depth
 }
 
+/// Witness for **F_StackCombinedSafe** (PROTOCOL.md §13.3.3).
+///
+/// Combined stack+altstack headroom is non-negative at the 1000-item pass boundary.
+#[spec_locked("13.3.3", "F_StackCombinedSafe")]
+#[blvm_spec_lock::requires(stack >= 0)]
+#[blvm_spec_lock::requires(alt >= 0)]
+#[blvm_spec_lock::requires(stack + alt <= 1000)]
+pub(crate) fn _verify_f_stack_combined_safe(stack: i64, alt: i64) -> i64 {
+    1000 - (stack + alt)
+}
+
+/// Witness for **F_StackCombinedFail** (PROTOCOL.md §13.3.3).
+///
+/// Excess past 1001 combined items is non-negative (1001 must fail).
+#[spec_locked("13.3.3", "F_StackCombinedFail")]
+#[blvm_spec_lock::requires(stack >= 0)]
+#[blvm_spec_lock::requires(alt >= 0)]
+#[blvm_spec_lock::requires(stack + alt >= 1001)]
+pub(crate) fn _verify_f_stack_combined_fail(stack: i64, alt: i64) -> i64 {
+    (stack + alt) - 1001
+}
+
 // ─── §7.1 ExpandTarget ───────────────────────────────────────────────────────
 
 /// Witness for **F_ExpandTargetZeroMantissa** (PROTOCOL.md §7.1).
@@ -159,6 +181,34 @@ pub(crate) fn _verify_f_expand_target_non_zero_mantissa(bits: u64) -> i64 {
     if mantissa == 0 { 0 } else { 1 }
 }
 
+/// Witness for **F_RetargetIntervalCount** (PROTOCOL.md §7.1).
+///
+/// A 2016-block window spans 2015 inter-block intervals. Does not lock a
+/// real-valued retarget fixed point.
+#[spec_locked("7.1", "F_RetargetIntervalCount")]
+#[blvm_spec_lock::ensures(result == 2015)]
+pub(crate) fn _verify_f_retarget_interval_count() -> i64 {
+    let d = 2016;
+    d - 1
+}
+
+/// Witness for **F_NextWorkClamped** (PROTOCOL.md §7.1).
+///
+/// Proof obligation: clamped compact bits are in `(0, MAX_TARGET]` with
+/// `MAX_TARGET = 0x1d00ffff = 486604799`.
+///
+/// Under `requires(bits > 0)`, the else branch keeps `bits` or the then branch
+/// returns the literal cap. Z3 sees both arms `> 0` and `<= 486604799`.
+#[spec_locked("7.1", "F_NextWorkClamped")]
+#[blvm_spec_lock::requires(bits > 0)]
+pub(crate) fn _verify_f_next_work_clamped(bits: i64) -> i64 {
+    if bits > 486604799 {
+        486604799
+    } else {
+        bits
+    }
+}
+
 // ─── §6.1 GetBlockSubsidy ────────────────────────────────────────────────────
 
 /// Witness for **F_SubsidyZeroAfter64** (PROTOCOL.md §6.1).
@@ -177,6 +227,89 @@ pub(crate) fn _verify_f_subsidy_zero_after_64(height: u64) -> i64 {
         0
     } else {
         INITIAL_SUBSIDY // unreachable under the requires precondition
+    }
+}
+
+/// Witness for **F_SubsidyZeroAfter33** (PROTOCOL.md §6.1).
+///
+/// Proof obligation: `requires(height >= HALVING_INTERVAL * 33) ⊨ result == 0`
+///
+/// Production still right-shifts for `33 ≤ k < 64`; those shifts are already 0.
+/// This witness unrolls the same literal-RHS `match` as F_SubsidyPiecewise so Z3
+/// sees `INITIAL_SUBSIDY >> 33` … `>> 63` as integer division, not a variable
+/// shift. Do not rewrite this as `if k >= 33 { 0 }` — that is a different
+/// function from GetBlockSubsidy.
+#[spec_locked("6.1", "F_SubsidyZeroAfter33")]
+#[blvm_spec_lock::requires(height >= HALVING_INTERVAL * 33)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_subsidy_zero_after_33(height: u64) -> i64 {
+    let k = height / HALVING_INTERVAL;
+    match k {
+        0 => INITIAL_SUBSIDY,
+        1 => INITIAL_SUBSIDY >> 1,
+        2 => INITIAL_SUBSIDY >> 2,
+        3 => INITIAL_SUBSIDY >> 3,
+        4 => INITIAL_SUBSIDY >> 4,
+        5 => INITIAL_SUBSIDY >> 5,
+        6 => INITIAL_SUBSIDY >> 6,
+        7 => INITIAL_SUBSIDY >> 7,
+        8 => INITIAL_SUBSIDY >> 8,
+        9 => INITIAL_SUBSIDY >> 9,
+        10 => INITIAL_SUBSIDY >> 10,
+        11 => INITIAL_SUBSIDY >> 11,
+        12 => INITIAL_SUBSIDY >> 12,
+        13 => INITIAL_SUBSIDY >> 13,
+        14 => INITIAL_SUBSIDY >> 14,
+        15 => INITIAL_SUBSIDY >> 15,
+        16 => INITIAL_SUBSIDY >> 16,
+        17 => INITIAL_SUBSIDY >> 17,
+        18 => INITIAL_SUBSIDY >> 18,
+        19 => INITIAL_SUBSIDY >> 19,
+        20 => INITIAL_SUBSIDY >> 20,
+        21 => INITIAL_SUBSIDY >> 21,
+        22 => INITIAL_SUBSIDY >> 22,
+        23 => INITIAL_SUBSIDY >> 23,
+        24 => INITIAL_SUBSIDY >> 24,
+        25 => INITIAL_SUBSIDY >> 25,
+        26 => INITIAL_SUBSIDY >> 26,
+        27 => INITIAL_SUBSIDY >> 27,
+        28 => INITIAL_SUBSIDY >> 28,
+        29 => INITIAL_SUBSIDY >> 29,
+        30 => INITIAL_SUBSIDY >> 30,
+        31 => INITIAL_SUBSIDY >> 31,
+        32 => INITIAL_SUBSIDY >> 32,
+        33 => INITIAL_SUBSIDY >> 33,
+        34 => INITIAL_SUBSIDY >> 34,
+        35 => INITIAL_SUBSIDY >> 35,
+        36 => INITIAL_SUBSIDY >> 36,
+        37 => INITIAL_SUBSIDY >> 37,
+        38 => INITIAL_SUBSIDY >> 38,
+        39 => INITIAL_SUBSIDY >> 39,
+        40 => INITIAL_SUBSIDY >> 40,
+        41 => INITIAL_SUBSIDY >> 41,
+        42 => INITIAL_SUBSIDY >> 42,
+        43 => INITIAL_SUBSIDY >> 43,
+        44 => INITIAL_SUBSIDY >> 44,
+        45 => INITIAL_SUBSIDY >> 45,
+        46 => INITIAL_SUBSIDY >> 46,
+        47 => INITIAL_SUBSIDY >> 47,
+        48 => INITIAL_SUBSIDY >> 48,
+        49 => INITIAL_SUBSIDY >> 49,
+        50 => INITIAL_SUBSIDY >> 50,
+        51 => INITIAL_SUBSIDY >> 51,
+        52 => INITIAL_SUBSIDY >> 52,
+        53 => INITIAL_SUBSIDY >> 53,
+        54 => INITIAL_SUBSIDY >> 54,
+        55 => INITIAL_SUBSIDY >> 55,
+        56 => INITIAL_SUBSIDY >> 56,
+        57 => INITIAL_SUBSIDY >> 57,
+        58 => INITIAL_SUBSIDY >> 58,
+        59 => INITIAL_SUBSIDY >> 59,
+        60 => INITIAL_SUBSIDY >> 60,
+        61 => INITIAL_SUBSIDY >> 61,
+        62 => INITIAL_SUBSIDY >> 62,
+        63 => INITIAL_SUBSIDY >> 63,
+        _ => 0,
     }
 }
 
@@ -265,6 +398,19 @@ pub(crate) fn _verify_f_subsidy_piecewise(height: u64) -> i64 {
     }
 }
 
+/// Witness for **F_SubsidyFloorHalf** (PROTOCOL.md §6.1).
+///
+/// Integer floor-half at odd k=9 (real-valued /2 fails here):
+/// `(INITIAL_SUBSIDY >> 10) - (INITIAL_SUBSIDY >> 9) / 2 == 0`.
+/// Literal shift RHS only.
+#[spec_locked("6.1", "F_SubsidyFloorHalf")]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_subsidy_floor_half() -> i64 {
+    let prev = INITIAL_SUBSIDY >> 9;
+    let next = INITIAL_SUBSIDY >> 10;
+    next - prev / 2
+}
+
 // ─── §6.2 TotalSupply ────────────────────────────────────────────────────────
 
 /// Witness for **F_TotalSupplyNonNeg** (PROTOCOL.md §6.2).
@@ -280,6 +426,20 @@ pub(crate) fn _verify_f_total_supply_non_neg(height: u64) -> i64 {
     (height as i64 + 1) * INITIAL_SUBSIDY
 }
 
+/// Witness for **F_TotalSupplyMonoStep** (PROTOCOL.md §6.2).
+///
+/// Proof obligation: `supply + subsidy >= supply` when both are non-negative.
+///
+/// One-step monotonicity of TotalSupply. Z3 proves via linear arithmetic from
+/// `requires(subsidy >= 0)`. The ∀ over heights is this step plus
+/// F_SubsidyPiecewise (`subsidy >= 0`).
+#[spec_locked("6.2", "F_TotalSupplyMonoStep")]
+#[blvm_spec_lock::requires(supply >= 0)]
+#[blvm_spec_lock::requires(subsidy >= 0)]
+pub(crate) fn _verify_f_total_supply_mono_step(supply: i64, subsidy: i64) -> i64 {
+    supply + subsidy
+}
+
 /// Witness for **F_TotalSupplyBound** (PROTOCOL.md §6.2).
 ///
 /// Proof obligation: within the first halving epoch, total supply ≤ MAX_MONEY.
@@ -292,6 +452,93 @@ pub(crate) fn _verify_f_total_supply_non_neg(height: u64) -> i64 {
 #[blvm_spec_lock::ensures(result <= MAX_MONEY)]
 pub(crate) fn _verify_f_total_supply_bound(height: u64) -> i64 {
     (height as i64 + 1) * INITIAL_SUBSIDY
+}
+
+/// Witness for **F_TotalSupplyExact** (PROTOCOL.md §6.2).
+///
+/// Proof obligation: `H * Σ_{k=0..32} (INITIAL_SUBSIDY >> k) == 2_099_999_997_690_000`.
+/// Computes the sum from literal shifts. Does not return the constant and does
+/// not call production `total_supply` (loop; Z3-out-of-scope).
+#[spec_locked("6.2", "F_TotalSupplyExact")]
+#[blvm_spec_lock::ensures(result == 2099999997690000)]
+pub(crate) fn _verify_f_total_supply_exact() -> i64 {
+    (HALVING_INTERVAL as i64)
+        * ((INITIAL_SUBSIDY >> 0)
+            + (INITIAL_SUBSIDY >> 1)
+            + (INITIAL_SUBSIDY >> 2)
+            + (INITIAL_SUBSIDY >> 3)
+            + (INITIAL_SUBSIDY >> 4)
+            + (INITIAL_SUBSIDY >> 5)
+            + (INITIAL_SUBSIDY >> 6)
+            + (INITIAL_SUBSIDY >> 7)
+            + (INITIAL_SUBSIDY >> 8)
+            + (INITIAL_SUBSIDY >> 9)
+            + (INITIAL_SUBSIDY >> 10)
+            + (INITIAL_SUBSIDY >> 11)
+            + (INITIAL_SUBSIDY >> 12)
+            + (INITIAL_SUBSIDY >> 13)
+            + (INITIAL_SUBSIDY >> 14)
+            + (INITIAL_SUBSIDY >> 15)
+            + (INITIAL_SUBSIDY >> 16)
+            + (INITIAL_SUBSIDY >> 17)
+            + (INITIAL_SUBSIDY >> 18)
+            + (INITIAL_SUBSIDY >> 19)
+            + (INITIAL_SUBSIDY >> 20)
+            + (INITIAL_SUBSIDY >> 21)
+            + (INITIAL_SUBSIDY >> 22)
+            + (INITIAL_SUBSIDY >> 23)
+            + (INITIAL_SUBSIDY >> 24)
+            + (INITIAL_SUBSIDY >> 25)
+            + (INITIAL_SUBSIDY >> 26)
+            + (INITIAL_SUBSIDY >> 27)
+            + (INITIAL_SUBSIDY >> 28)
+            + (INITIAL_SUBSIDY >> 29)
+            + (INITIAL_SUBSIDY >> 30)
+            + (INITIAL_SUBSIDY >> 31)
+            + (INITIAL_SUBSIDY >> 32))
+}
+
+/// Witness for **F_IssuedSupplyBelowCap** (PROTOCOL.md §6.2).
+///
+/// Same unrolled sum as F_TotalSupplyExact. Obligation: that sum ≤ MAX_MONEY.
+/// Closed form for all epochs; does not rewrite F_TotalSupplyBound.
+#[spec_locked("6.2", "F_IssuedSupplyBelowCap")]
+#[blvm_spec_lock::ensures(result <= MAX_MONEY)]
+pub(crate) fn _verify_f_issued_supply_below_cap() -> i64 {
+    (HALVING_INTERVAL as i64)
+        * ((INITIAL_SUBSIDY >> 0)
+            + (INITIAL_SUBSIDY >> 1)
+            + (INITIAL_SUBSIDY >> 2)
+            + (INITIAL_SUBSIDY >> 3)
+            + (INITIAL_SUBSIDY >> 4)
+            + (INITIAL_SUBSIDY >> 5)
+            + (INITIAL_SUBSIDY >> 6)
+            + (INITIAL_SUBSIDY >> 7)
+            + (INITIAL_SUBSIDY >> 8)
+            + (INITIAL_SUBSIDY >> 9)
+            + (INITIAL_SUBSIDY >> 10)
+            + (INITIAL_SUBSIDY >> 11)
+            + (INITIAL_SUBSIDY >> 12)
+            + (INITIAL_SUBSIDY >> 13)
+            + (INITIAL_SUBSIDY >> 14)
+            + (INITIAL_SUBSIDY >> 15)
+            + (INITIAL_SUBSIDY >> 16)
+            + (INITIAL_SUBSIDY >> 17)
+            + (INITIAL_SUBSIDY >> 18)
+            + (INITIAL_SUBSIDY >> 19)
+            + (INITIAL_SUBSIDY >> 20)
+            + (INITIAL_SUBSIDY >> 21)
+            + (INITIAL_SUBSIDY >> 22)
+            + (INITIAL_SUBSIDY >> 23)
+            + (INITIAL_SUBSIDY >> 24)
+            + (INITIAL_SUBSIDY >> 25)
+            + (INITIAL_SUBSIDY >> 26)
+            + (INITIAL_SUBSIDY >> 27)
+            + (INITIAL_SUBSIDY >> 28)
+            + (INITIAL_SUBSIDY >> 29)
+            + (INITIAL_SUBSIDY >> 30)
+            + (INITIAL_SUBSIDY >> 31)
+            + (INITIAL_SUBSIDY >> 32))
 }
 
 // ─── §5.5 Sequence Locks ─────────────────────────────────────────────────────
@@ -328,6 +575,79 @@ pub(crate) fn _verify_f_eval_seq_locks_disabled(
     min_time: i64,
 ) -> bool {
     (min_height < 0 || height > min_height) && (min_time < 0 || time > min_time)
+}
+
+/// Witness for **F_MtpIndex** (PROTOCOL.md §5.5).
+///
+/// Even n=2, already sorted `t0 <= t1`: upper middle is index `2/2 = 1` (`t1`),
+/// not the mean `(t0+t1)/2`. Array index is a fresh Z3 int, so this uses the
+/// same if/else-with-unreachable-branch pattern as F_SubsidyZeroAfter64.
+#[spec_locked("5.5", "F_MtpIndex")]
+#[blvm_spec_lock::requires(t0 <= t1)]
+#[blvm_spec_lock::ensures(result == t1)]
+pub(crate) fn _verify_f_mtp_index(t0: i64, t1: i64) -> i64 {
+    let mid_index = 2 / 2;
+    if mid_index == 1 {
+        t1
+    } else {
+        (t0 + t1) / 2 // unreachable: the even-n mean lie
+    }
+}
+
+/// Witness for **F_MtpIndexN4** (PROTOCOL.md §5.5).
+///
+/// Even n=4, already sorted: upper middle is index `4/2 = 2` (`t2`), not
+/// `(t1+t2)/2`. Complements F_MtpIndex (n=2).
+#[spec_locked("5.5", "F_MtpIndexN4")]
+#[blvm_spec_lock::requires(t0 <= t1)]
+#[blvm_spec_lock::requires(t1 <= t2)]
+#[blvm_spec_lock::requires(t2 <= t3)]
+#[blvm_spec_lock::ensures(result == t2)]
+#[allow(unused_variables)]
+pub(crate) fn _verify_f_mtp_index_n4(t0: i64, t1: i64, t2: i64, t3: i64) -> i64 {
+    let mid_index = 4 / 2;
+    if mid_index == 2 {
+        t2
+    } else {
+        (t1 + t2) / 2 // unreachable: mean of the two central values
+    }
+}
+
+/// Witness for **F_MtpIndexN11** (PROTOCOL.md §5.5).
+///
+/// BIP113 window: n=11, already sorted. Median is index `11/2 = 5` (`t5`).
+#[spec_locked("5.5", "F_MtpIndexN11")]
+#[blvm_spec_lock::requires(t0 <= t1)]
+#[blvm_spec_lock::requires(t1 <= t2)]
+#[blvm_spec_lock::requires(t2 <= t3)]
+#[blvm_spec_lock::requires(t3 <= t4)]
+#[blvm_spec_lock::requires(t4 <= t5)]
+#[blvm_spec_lock::requires(t5 <= t6)]
+#[blvm_spec_lock::requires(t6 <= t7)]
+#[blvm_spec_lock::requires(t7 <= t8)]
+#[blvm_spec_lock::requires(t8 <= t9)]
+#[blvm_spec_lock::requires(t9 <= t10)]
+#[blvm_spec_lock::ensures(result == t5)]
+#[allow(unused_variables)]
+pub(crate) fn _verify_f_mtp_index_n11(
+    t0: i64,
+    t1: i64,
+    t2: i64,
+    t3: i64,
+    t4: i64,
+    t5: i64,
+    t6: i64,
+    t7: i64,
+    t8: i64,
+    t9: i64,
+    t10: i64,
+) -> i64 {
+    let mid_index = 11 / 2;
+    if mid_index == 5 {
+        t5
+    } else {
+        t0
+    }
 }
 
 // ─── §13.3.5 Integration Proofs ──────────────────────────────────────────────
@@ -401,27 +721,36 @@ pub(crate) fn _verify_f_sequence_time_encoding(value: i64) -> i64 {
     value * 512
 }
 
+/// Witness for **F_SequenceLockHeightAdd** (PROTOCOL.md §5.5).
+///
+/// Proof obligation: `ph + lock - 1 >= -1` when `ph >= 0` and
+/// `0 <= lock <= 65535` (16-bit mask).
+///
+/// BIP68 last-invalid height. `ph <= 2147483647` keeps the add inside i64.
+#[spec_locked("5.5", "F_SequenceLockHeightAdd")]
+#[blvm_spec_lock::requires(ph >= 0)]
+#[blvm_spec_lock::requires(lock >= 0)]
+#[blvm_spec_lock::requires(lock <= 65535)]
+#[blvm_spec_lock::requires(ph <= 2147483647)]
+pub(crate) fn _verify_f_sequence_lock_height_add(ph: i64, lock: i64) -> i64 {
+    ph + lock - 1
+}
+
 // ─── §5.4.7 BIP65: OP_CHECKLOCKTIMEVERIFY (CLTV) ─────────────────────────────
 
-/// Witness for **F_BIP65RejectsZeroLocktime** (PROTOCOL.md §5.4.7).
+/// Witness for **F_BIP65PassesZeroZero** (PROTOCOL.md §5.4.7).
 ///
-/// Proof obligation: CLTV validation always fails when `tx_locktime == 0`.
-///
-/// The BIP65 check begins `tx_locktime != 0 && ...`. Under `requires(tx_locktime == 0)`,
-/// this first AND-term is `false`, short-circuiting the whole check to `false`.
-///
-/// Expresses the core BIP65 invariant: a transaction with `nLockTime = 0` can never
-/// satisfy any OP_CHECKLOCKTIMEVERIFY script.
-///
-/// Body inlines both `check_bip65` and `locktime_types_match` (the cross-function call
-/// is not Z3-translatable directly; we inline it using `LOCKTIME_THRESHOLD`).
-#[spec_locked("5.4.7", "F_BIP65RejectsZeroLocktime")]
+/// Proof obligation: `(0, 0)` passes BIP65Check (block 659901).
+/// Same predicate as production `check_bip65`: types match and `tx >= stack`.
+/// No `tx_locktime != 0` guard.
+#[spec_locked("5.4.7", "F_BIP65PassesZeroZero")]
 #[blvm_spec_lock::requires(tx_locktime == 0)]
-#[blvm_spec_lock::ensures(result == false)]
-pub(crate) fn _verify_f_bip65_rejects_zero_locktime(tx_locktime: u32, stack_locktime: u32) -> bool {
+#[blvm_spec_lock::requires(stack_locktime == 0)]
+#[blvm_spec_lock::ensures(result == true)]
+pub(crate) fn _verify_f_bip65_passes_zero_zero(tx_locktime: u32, stack_locktime: u32) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65RejectsTypeMismatch** (PROTOCOL.md §5.4.7).
@@ -443,7 +772,7 @@ pub(crate) fn _verify_f_bip65_rejects_zero_locktime(tx_locktime: u32, stack_lock
 pub(crate) fn _verify_f_bip65_rejects_type_mismatch(tx_locktime: u32, stack_locktime: u32) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65RejectsTypeMismatchReverse** (PROTOCOL.md §5.4.7).
@@ -467,7 +796,7 @@ pub(crate) fn _verify_f_bip65_rejects_type_mismatch_reverse(
 ) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65RejectsValueTooLow** (PROTOCOL.md §5.4.7).
@@ -490,7 +819,7 @@ pub(crate) fn _verify_f_bip65_rejects_type_mismatch_reverse(
 pub(crate) fn _verify_f_bip65_rejects_value_too_low(tx_locktime: u32, stack_locktime: u32) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65RejectsTimestampValueTooLow** (PROTOCOL.md §5.4.7).
@@ -517,7 +846,7 @@ pub(crate) fn _verify_f_bip65_rejects_timestamp_value_too_low(
 ) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65Passes** (PROTOCOL.md §5.4.7).
@@ -545,7 +874,7 @@ pub(crate) fn _verify_f_bip65_rejects_timestamp_value_too_low(
 pub(crate) fn _verify_f_bip65_passes(tx_locktime: u32, stack_locktime: u32) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 /// Witness for **F_BIP65PassesTimestamp** (PROTOCOL.md §5.4.7).
@@ -572,7 +901,7 @@ pub(crate) fn _verify_f_bip65_passes(tx_locktime: u32, stack_locktime: u32) -> b
 pub(crate) fn _verify_f_bip65_passes_timestamp(tx_locktime: u32, stack_locktime: u32) -> bool {
     let tx_is_height = tx_locktime < LOCKTIME_THRESHOLD;
     let sk_is_height = stack_locktime < LOCKTIME_THRESHOLD;
-    tx_locktime != 0 && (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
+    (tx_is_height == sk_is_height) && tx_locktime >= stack_locktime
 }
 
 // ─── §5.5 continued: EvaluateSequenceLocks positive cases ─────────────────────
@@ -975,6 +1304,16 @@ pub(crate) fn _verify_f_weight_to_vsize_floor(weight: u64) -> u64 {
 #[blvm_spec_lock::ensures(result <= weight / 4 + 1)]
 pub(crate) fn _verify_f_weight_to_vsize_ceiling(weight: u64) -> u64 {
     weight.div_ceil(4)
+}
+
+/// Witness for **F_WeightEquiv** (PROTOCOL.md §11.1.1).
+///
+/// Under `total == base + wit`, `3 * base + total == 4 * base + wit`.
+#[spec_locked("11.1.1", "F_WeightEquiv")]
+#[blvm_spec_lock::requires(total == base + wit)]
+#[blvm_spec_lock::ensures(result == 4 * base + wit)]
+pub(crate) fn _verify_f_weight_equiv(base: i64, wit: i64, total: i64) -> i64 {
+    3 * base + total
 }
 
 // ─── §11.1.2 Witness Structure ───────────────────────────────────────────────

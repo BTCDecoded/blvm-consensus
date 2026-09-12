@@ -59,12 +59,12 @@ fn test_median_time_past_unsorted() {
 
 #[test]
 fn test_median_time_past_edge_case_two_blocks() {
-    // Even number of blocks (median = average of two middle values)
+    // Even n: T[⌊n/2⌋], not the mean of the two central values
     let timestamps = vec![1000, 2000];
     let median = get_test_median_time_past(timestamps);
 
-    // Median of [1000, 2000] = (1000 + 2000) / 2 = 1500
-    assert_eq!(median, 1500);
+    // T[1] = 2000
+    assert_eq!(median, 2000);
 }
 
 #[test]
