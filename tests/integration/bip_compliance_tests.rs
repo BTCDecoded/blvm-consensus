@@ -102,11 +102,11 @@ fn test_bip112_csv_compliance_basic() {
             },
             script_sig: {
                 let mut script = vec![OP_1]; // OP_1
-                script.extend_from_slice(&encode_varint(0x00040000)); // 4 blocks required
+                script.extend_from_slice(&encode_script_int(0x00000004)); // 4 blocks required
                 script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                 script
             },
-            sequence: 0x00050000, // 5 blocks (>= required)
+            sequence: 0x00000005, // 5 blocks (>= required)
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -141,7 +141,7 @@ fn test_bip112_csv_compliance_basic() {
         input.script_sig.as_ref(),
         utxo.script_pubkey.as_ref(),
         None,
-        0,
+        0x400, // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
         &tx,
         0,
         &pv,
@@ -287,7 +287,7 @@ fn test_bip112_csv_disabled_sequence_rejection() {
             },
             script_sig: {
                 let mut script = vec![OP_1];
-                script.extend_from_slice(&encode_varint(0x00040000));
+                script.extend_from_slice(&encode_script_int(0x00000004));
                 script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                 script
             },
@@ -326,7 +326,7 @@ fn test_bip112_csv_disabled_sequence_rejection() {
         input.script_sig.as_ref(),
         utxo.script_pubkey.as_ref(),
         None,
-        0,
+        0x400, // SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
         &tx,
         0,
         &pv,
@@ -350,6 +350,30 @@ fn test_bip112_csv_disabled_sequence_rejection() {
 
     assert!(result.is_ok());
     assert!(!result.unwrap()); // Should fail validation
+}
+
+
+/// Minimal CScriptNum push for a non-negative u32 (BIP62-style, small values).
+fn encode_script_int(value: u32) -> Vec<u8> {
+    if value == 0 {
+        return vec![OP_0];
+    }
+    if value <= 16 {
+        return vec![OP_1 + (value as u8) - 1];
+    }
+    let mut n = value as u64;
+    let mut body = Vec::new();
+    while n > 0 {
+        body.push((n & 0xff) as u8);
+        n >>= 8;
+    }
+    if body.last().is_some_and(|&b| b & 0x80 != 0) {
+        body.push(0x00);
+    }
+    let mut out = Vec::new();
+    out.push(body.len() as u8);
+    out.extend_from_slice(&body);
+    out
 }
 
 // Helper function for encoding varints (used in tests)
