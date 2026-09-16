@@ -202,11 +202,7 @@ pub(crate) fn _verify_f_retarget_interval_count() -> i64 {
 #[spec_locked("7.1", "F_NextWorkClamped")]
 #[blvm_spec_lock::requires(bits > 0)]
 pub(crate) fn _verify_f_next_work_clamped(bits: i64) -> i64 {
-    if bits > 486604799 {
-        486604799
-    } else {
-        bits
-    }
+    if bits > 486604799 { 486604799 } else { bits }
 }
 
 // ─── §6.1 GetBlockSubsidy ────────────────────────────────────────────────────
@@ -643,11 +639,7 @@ pub(crate) fn _verify_f_mtp_index_n11(
     t10: i64,
 ) -> i64 {
     let mid_index = 11 / 2;
-    if mid_index == 5 {
-        t5
-    } else {
-        t0
-    }
+    if mid_index == 5 { t5 } else { t0 }
 }
 
 // ─── §13.3.5 Integration Proofs ──────────────────────────────────────────────
