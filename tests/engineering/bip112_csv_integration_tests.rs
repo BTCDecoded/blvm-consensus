@@ -11,8 +11,8 @@ use blvm_consensus::*;
 #[test]
 fn test_csv_sequence_validation_passes() {
     // CSV with valid sequence number should pass
-    let input_sequence: u32 = 0x00040000; // 4 blocks relative locktime, block-based
-    let required_sequence: u32 = 0x00030000; // 3 blocks required, block-based
+    let input_sequence: u32 = 0x00000004; // 4 blocks relative locktime, block-based
+    let required_sequence: u32 = 0x00000003; // 3 blocks required, block-based
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]); // OP_1
 
@@ -42,7 +42,7 @@ fn test_csv_sequence_validation_passes() {
 fn test_csv_sequence_disabled_fails() {
     // CSV should fail if sequence is disabled (0x80000000 bit set)
     let input_sequence: u32 = 0x80000000; // Sequence disabled
-    let required_sequence: u32 = 0x00030000;
+    let required_sequence: u32 = 0x00000003;
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]);
 
@@ -69,8 +69,8 @@ fn test_csv_sequence_disabled_fails() {
 #[test]
 fn test_csv_type_mismatch_fails() {
     // CSV fails if type flags don't match (block-based vs time-based)
-    let input_sequence: u32 = 0x00430000; // Time-based (bit 22 set), 3 units
-    let required_sequence: u32 = 0x00040000; // Block-based (bit 22 clear), 4 blocks
+    let input_sequence: u32 = 0x00400003; // Time-based (bit 22 set), 3 units
+    let required_sequence: u32 = 0x00000004; // Block-based (bit 22 clear), 4 blocks
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]);
 
@@ -96,11 +96,10 @@ fn test_csv_type_mismatch_fails() {
 }
 
 #[test]
-#[ignore = "CSV relative locktime: validate_with_context does not yet reject insufficient sequence"]
 fn test_csv_insufficient_locktime_fails() {
     // CSV fails if input locktime < required locktime
-    let input_sequence: u32 = 0x00030000; // 3 blocks
-    let required_sequence: u32 = 0x00040000; // 4 blocks required
+    let input_sequence: u32 = 0x00000003; // 3 blocks
+    let required_sequence: u32 = 0x00000004; // 4 blocks required
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]);
 
@@ -127,7 +126,7 @@ fn test_csv_insufficient_locktime_fails() {
 #[test]
 fn test_csv_exact_locktime_passes() {
     // CSV with exact match should pass
-    let sequence: u32 = 0x00050000; // 5 blocks
+    let sequence: u32 = 0x00000005; // 5 blocks
 
     let tx = create_csv_transaction(sequence, sequence, vec![OP_1]);
 
@@ -155,8 +154,8 @@ fn test_csv_exact_locktime_passes() {
 #[test]
 fn test_csv_block_based_locktime() {
     // Test block-based relative locktime
-    let input_sequence: u32 = 0x000a0000; // 10 blocks, block-based (bit 22 clear)
-    let required_sequence: u32 = 0x00050000; // 5 blocks required
+    let input_sequence: u32 = 0x0000000a; // 10 blocks, block-based (bit 22 clear)
+    let required_sequence: u32 = 0x00000005; // 5 blocks required
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]);
 
@@ -184,8 +183,8 @@ fn test_csv_block_based_locktime() {
 #[test]
 fn test_csv_time_based_locktime() {
     // Test time-based relative locktime (BIP68)
-    let input_sequence: u32 = 0x00460000; // 6*512 seconds, time-based (bit 22 set)
-    let required_sequence: u32 = 0x00430000; // 3*512 seconds required
+    let input_sequence: u32 = 0x00400006; // 6*512 seconds, time-based (bit 22 set)
+    let required_sequence: u32 = 0x00400003; // 3*512 seconds required
 
     let tx = create_csv_transaction(input_sequence, required_sequence, vec![OP_1]);
 
@@ -221,7 +220,7 @@ fn test_csv_empty_stack_fails() {
                 index: 0,
             },
             script_sig: vec![OP_CHECKSEQUENCEVERIFY], // Just CSV opcode, no value on stack
-            sequence: 0x00040000,
+            sequence: 0x00000004,
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -255,7 +254,8 @@ fn test_csv_empty_stack_fails() {
 
 #[test]
 fn test_csv_invalid_encoding_fails() {
-    // CSV with invalid encoding (too many bytes) should fail
+    // CSV with invalid encoding (too many bytes) should fail.
+    // Push a single 6-byte stack element — not six OP_1 pushes of 1.
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
@@ -263,16 +263,13 @@ fn test_csv_invalid_encoding_fails() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,                   // 6 bytes (too many)
-                OP_CHECKSEQUENCEVERIFY, // CSV
-            ],
-            sequence: 0x00040000,
+            script_sig: {
+                let mut script = vec![6u8]; // direct push length
+                script.extend_from_slice(&[0u8; 6]); // overlong for decode_locktime_value
+                script.push(OP_CHECKSEQUENCEVERIFY);
+                script
+            },
+            sequence: 0x00000004,
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -375,11 +372,11 @@ fn test_csv_multiple_inputs_context() {
                 },
                 script_sig: {
                     let mut script = vec![OP_1];
-                    script.extend_from_slice(&encode_script_int(0x00040000));
+                    script.extend_from_slice(&encode_script_int(0x00000004));
                     script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                     script
                 },
-                sequence: 0x00050000, // 5 blocks
+                sequence: 0x00000005, // 5 blocks
             },
             TransactionInput {
                 prevout: OutPoint {
@@ -459,7 +456,7 @@ fn test_csv_multiple_inputs_context() {
 #[test]
 fn test_csv_in_script_pubkey() {
     // CSV can be in scriptPubkey (output locking script)
-    let required_sequence: u32 = 0x00040000; // 4 blocks
+    let required_sequence: u32 = 0x00000004; // 4 blocks
     let mut script_pubkey = vec![OP_1]; // OP_1
     script_pubkey.extend_from_slice(&encode_script_int(required_sequence));
     script_pubkey.push(OP_CHECKSEQUENCEVERIFY); // CSV
@@ -472,7 +469,7 @@ fn test_csv_in_script_pubkey() {
                 index: 0,
             },
             script_sig: vec![OP_1], // OP_1 (unlocks scriptPubkey)
-            sequence: 0x00050000,   // 5 blocks >= required 4 blocks
+            sequence: 0x00000005,   // 5 blocks >= required 4 blocks
         }]
         .into(),
         outputs: vec![TransactionOutput {
