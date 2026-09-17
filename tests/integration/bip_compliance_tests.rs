@@ -352,7 +352,6 @@ fn test_bip112_csv_disabled_sequence_rejection() {
     assert!(!result.unwrap()); // Should fail validation
 }
 
-
 /// Minimal CScriptNum push for a non-negative u32 (BIP62-style, small values).
 fn encode_script_int(value: u32) -> Vec<u8> {
     if value == 0 {
