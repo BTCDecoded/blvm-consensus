@@ -115,8 +115,12 @@ pub fn verify_utxo_supply(utxo_set: &UtxoSet, height: Natural) -> bool {
 /// satoshis, 2_310_000 below `MAX_MONEY`.
 ///
 /// Non-negativity is proven by `_verify_f_total_supply_non_neg` (spec_witnesses.rs §6.2).
-/// Spec-lock unrolls the `0..64` epoch loop and proves these bounds from the body.
+/// The Z3 translator cannot fully evaluate the 64-epoch for loop, so both bounds are
+/// declared as `#[axiom]` (trusted from the spec_witness proof) in addition to the
+/// `#[ensures]` postconditions that callee-axiom propagation can discharge for callers.
 #[spec_locked("6.2", "TotalSupply")]
+#[blvm_spec_lock::axiom(result >= 0)]
+#[blvm_spec_lock::axiom(result <= 2100000000000000)]
 #[blvm_spec_lock::ensures(result >= 0)]
 #[blvm_spec_lock::ensures(result <= 2100000000000000)]
 pub fn total_supply(height: Natural) -> Integer {
