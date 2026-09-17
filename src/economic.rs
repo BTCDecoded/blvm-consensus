@@ -236,13 +236,11 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     Ok(fee)
 }
 
-/// Validate economic constraints
-///
-/// Check that the total supply doesn't exceed the maximum money supply
+/// PROTOCOL §6.3 maps to `{valid, invalid}`; Result was always `Ok` and blocked Z3 body translation.
 #[spec_locked("6.3", "ValidateSupplyLimit")]
-pub fn validate_supply_limit(height: Natural) -> Result<bool> {
-    let current_supply = total_supply(height);
-    Ok(current_supply <= MAX_MONEY)
+#[blvm_spec_lock::ensures(result == (total_supply(height) <= 2100000000000000))]
+pub fn validate_supply_limit(height: Natural) -> bool {
+    total_supply(height) <= MAX_MONEY
 }
 
 /// Check if transaction is coinbase
@@ -453,9 +451,9 @@ mod tests {
     #[test]
     fn test_supply_limit() {
         // Test that supply limit is respected
-        assert!(validate_supply_limit(0).unwrap());
-        assert!(validate_supply_limit(HALVING_INTERVAL).unwrap());
-        assert!(validate_supply_limit(HALVING_INTERVAL * 10).unwrap());
+        assert!(validate_supply_limit(0));
+        assert!(validate_supply_limit(HALVING_INTERVAL));
+        assert!(validate_supply_limit(HALVING_INTERVAL * 10));
     }
 
     #[test]
@@ -769,16 +767,16 @@ mod tests {
     #[test]
     fn test_validate_supply_limit_edge_cases() {
         // Test at height 0
-        assert!(validate_supply_limit(0).unwrap());
+        assert!(validate_supply_limit(0));
 
         // Test at first halving
-        assert!(validate_supply_limit(HALVING_INTERVAL).unwrap());
+        assert!(validate_supply_limit(HALVING_INTERVAL));
 
         // Test at second halving
-        assert!(validate_supply_limit(HALVING_INTERVAL * 2).unwrap());
+        assert!(validate_supply_limit(HALVING_INTERVAL * 2));
 
         // Test at very large height
-        assert!(validate_supply_limit(HALVING_INTERVAL * 100).unwrap());
+        assert!(validate_supply_limit(HALVING_INTERVAL * 100));
     }
 
     #[test]
