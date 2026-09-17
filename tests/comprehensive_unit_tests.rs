@@ -436,14 +436,7 @@ fn test_validate_supply_limit_excessive() {
     // Using Orange Paper constant H (halving interval = 210,000)
     use blvm_consensus::orange_paper_constants::H;
     let excessive_height = H * 100; // Way beyond normal operation
-    let result = validate_supply_limit(excessive_height);
-    // This should either pass (if the calculation is correct) or fail gracefully
-    match result {
-        Ok(valid) => assert!(valid),
-        Err(_) => {
-            // Expected failure for excessive height
-        }
-    }
+    assert!(validate_supply_limit(excessive_height));
 }
 
 // ============================================================================
