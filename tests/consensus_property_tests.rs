@@ -1934,12 +1934,7 @@ proptest! {
         use blvm_consensus::economic;
         use blvm_consensus::constants::MAX_MONEY;
 
-        let result = economic::validate_supply_limit(height);
-
-        // Should always succeed
-        prop_assert!(result.is_ok(), "validate_supply_limit should always succeed");
-
-        let is_valid = result.unwrap();
+        let is_valid = economic::validate_supply_limit(height);
 
         // Calculate actual supply
         let supply = economic::total_supply(height);

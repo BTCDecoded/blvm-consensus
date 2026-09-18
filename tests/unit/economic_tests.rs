@@ -47,9 +47,9 @@ fn test_total_supply_convergence() {
 fn test_supply_limit() {
     // Test that supply limit is respected
     // Using Orange Paper constant H (halving interval = 210,000)
-    assert!(validate_supply_limit(0).unwrap());
-    assert!(validate_supply_limit(H).unwrap());
-    assert!(validate_supply_limit(H * 10).unwrap());
+    assert!(validate_supply_limit(0));
+    assert!(validate_supply_limit(H));
+    assert!(validate_supply_limit(H * 10));
 }
 
 #[test]
@@ -132,12 +132,5 @@ fn test_validate_supply_limit_excessive() {
     // Test with a height that would create excessive supply
     // Using Orange Paper constant H (halving interval = 210,000)
     let excessive_height = H * 100; // Way beyond normal operation
-    let result = validate_supply_limit(excessive_height);
-    // This should either pass (if the calculation is correct) or fail gracefully
-    match result {
-        Ok(valid) => assert!(valid),
-        Err(_) => {
-            // Expected failure for excessive height
-        }
-    }
+    assert!(validate_supply_limit(excessive_height));
 }

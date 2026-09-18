@@ -202,11 +202,7 @@ pub(crate) fn _verify_f_retarget_interval_count() -> i64 {
 #[spec_locked("7.1", "F_NextWorkClamped")]
 #[blvm_spec_lock::requires(bits > 0)]
 pub(crate) fn _verify_f_next_work_clamped(bits: i64) -> i64 {
-    if bits > 486604799 {
-        486604799
-    } else {
-        bits
-    }
+    if bits > 486604799 { 486604799 } else { bits }
 }
 
 // ─── §6.1 GetBlockSubsidy ────────────────────────────────────────────────────
@@ -461,6 +457,9 @@ pub(crate) fn _verify_f_total_supply_bound(height: u64) -> i64 {
 /// not call production `total_supply` (loop; Z3-out-of-scope).
 #[spec_locked("6.2", "F_TotalSupplyExact")]
 #[blvm_spec_lock::ensures(result == 2099999997690000)]
+// Keep `INITIAL_SUBSIDY >> 0` in the unrolled sum so Z3 sees a literal-RHS shift
+// (same piecewise pattern as F_SubsidyPiecewise); not an accidental identity.
+#[allow(clippy::identity_op)]
 pub(crate) fn _verify_f_total_supply_exact() -> i64 {
     (HALVING_INTERVAL as i64)
         * ((INITIAL_SUBSIDY >> 0)
@@ -504,6 +503,8 @@ pub(crate) fn _verify_f_total_supply_exact() -> i64 {
 /// Closed form for all epochs; does not rewrite F_TotalSupplyBound.
 #[spec_locked("6.2", "F_IssuedSupplyBelowCap")]
 #[blvm_spec_lock::ensures(result <= MAX_MONEY)]
+// Keep `INITIAL_SUBSIDY >> 0` for Z3 literal-RHS shift uniformity with Exact.
+#[allow(clippy::identity_op)]
 pub(crate) fn _verify_f_issued_supply_below_cap() -> i64 {
     (HALVING_INTERVAL as i64)
         * ((INITIAL_SUBSIDY >> 0)
@@ -585,6 +586,8 @@ pub(crate) fn _verify_f_eval_seq_locks_disabled(
 #[spec_locked("5.5", "F_MtpIndex")]
 #[blvm_spec_lock::requires(t0 <= t1)]
 #[blvm_spec_lock::ensures(result == t1)]
+// `2 / 2` is the even-n upper-middle index formula with n=2 (same shape as `4/2`, `11/2`).
+#[allow(clippy::eq_op)]
 pub(crate) fn _verify_f_mtp_index(t0: i64, t1: i64) -> i64 {
     let mid_index = 2 / 2;
     if mid_index == 1 {
@@ -643,11 +646,7 @@ pub(crate) fn _verify_f_mtp_index_n11(
     t10: i64,
 ) -> i64 {
     let mid_index = 11 / 2;
-    if mid_index == 5 {
-        t5
-    } else {
-        t0
-    }
+    if mid_index == 5 { t5 } else { t0 }
 }
 
 // ─── §13.3.5 Integration Proofs ──────────────────────────────────────────────
