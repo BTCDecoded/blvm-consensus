@@ -99,7 +99,7 @@ fn test_segwit_with_csv() {
                 index: 0,
             },
             script_sig: vec![OP_0], // SegWit marker
-            sequence: 0x00050000,   // 5 blocks relative locktime
+            sequence: 0x00000005,   // 5 blocks relative locktime
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -107,7 +107,7 @@ fn test_segwit_with_csv() {
             script_pubkey: {
                 // ScriptPubkey with CSV: OP_1 <sequence> OP_CHECKSEQUENCEVERIFY
                 let mut script: Vec<u8> = vec![OP_1]; // OP_1
-                script.extend_from_slice(&encode_script_int(0x00040000)); // 4 blocks required
+                script.extend_from_slice(&encode_script_int(0x00000004)); // 4 blocks required
                 script.push(OP_CHECKSEQUENCEVERIFY); // OP_CHECKSEQUENCEVERIFY
                 script
             },
@@ -184,7 +184,7 @@ fn test_taproot_with_csv() {
                 index: 0,
             },
             script_sig: vec![],   // Empty for Taproot
-            sequence: 0x00060000, // 6 blocks relative locktime
+            sequence: 0x00000006, // 6 blocks relative locktime
         }]
         .into(),
         outputs: vec![
@@ -197,7 +197,7 @@ fn test_taproot_with_csv() {
                 script_pubkey: {
                     // Output with CSV requirement
                     let mut script: Vec<u8> = vec![OP_1];
-                    script.extend_from_slice(&encode_script_int(0x00050000)); // 5 blocks required
+                    script.extend_from_slice(&encode_script_int(0x00000005)); // 5 blocks required
                     script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                     script
                 },
@@ -430,7 +430,7 @@ fn test_cltv_csv_combined() {
                 index: 0,
             },
             script_sig: vec![OP_1],
-            sequence: 0x00050000, // 5 blocks for CSV
+            sequence: 0x00000005, // 5 blocks for CSV
         }]
         .into(),
         outputs: vec![
@@ -449,7 +449,7 @@ fn test_cltv_csv_combined() {
                 script_pubkey: {
                     // CSV output
                     let mut script = vec![OP_1];
-                    script.extend_from_slice(&encode_script_int(0x00040000)); // 4 blocks
+                    script.extend_from_slice(&encode_script_int(0x00000004)); // 4 blocks
                     script.push(OP_CHECKSEQUENCEVERIFY); // CSV
                     script
                 },
