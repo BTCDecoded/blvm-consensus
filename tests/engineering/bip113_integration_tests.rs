@@ -121,23 +121,20 @@ fn test_median_time_past_empty() {
 }
 
 #[test]
-#[ignore = "MTP CLTV script path: pending validate_with_context median-time wiring"]
 fn test_median_time_past_cltv_validation_logic() {
-    // Demonstrate how median time-past would be used in CLTV validation
-    // For timestamp-based locktime: median time-past must be >= transaction locktime
+    // Demonstrate BIP113 MTP vs CLTV timestamp locktime comparison.
+    // For timestamp-based CLTV: median time-past must be >= the required locktime
+    // for the lock to be satisfied. This fixture exercises the unsatisfied case.
 
-    // Create 11 blocks with timestamps
+    // Create 11 blocks with timestamps (BIP113 window)
     let base_time: u64 = 1609459200; // 2021-01-01
     let timestamps: Vec<u64> = (0..11).map(|i| base_time + i * 600).collect(); // 10-minute intervals
     let median = get_test_median_time_past(timestamps);
 
-    // Transaction locktime requirement
-    let required_locktime: u32 = (base_time + 3000) as u32; // base_time + 50 minutes
+    // Mid-index MTP for 11 sorted timestamps is T[5] = base_time + 5*600 = base + 3000.
+    // Require a locktime strictly above MTP so validation remains unsatisfied.
+    let required_locktime: u32 = (base_time + 3600) as u32; // base_time + 60 minutes
 
-    // For CLTV validation:
-    // 1. Check if tx.lock_time >= required_locktime (current implementation does this)
-    // 2. Check if median_time_past >= tx.lock_time (would need block context)
-    //
-    // Current test: median (base_time + 5*600) should be < required_locktime (base_time + 3000)
+    assert_eq!(median, base_time + 3000);
     assert!(median < required_locktime as u64);
 }
