@@ -338,10 +338,15 @@ fn test_taproot_empty_merkle_proof() {
 }
 
 #[test]
-#[ignore = "Taproot key aggregation parity: secp256k1 backend mismatch on wrong key probe"]
 fn test_taproot_invalid_key_aggregation() {
-    // Test that wrong output key fails validation
-    let internal_pubkey = [0x79u8; 32];
+    // Wrong output key must fail aggregation; internal key is the same valid
+    // generator x used by src/taproot.rs::test_validate_taproot_key_aggregation_invalid
+    // (not [0x79u8;32], which is not a valid x-only pubkey and yields Invalid taproot tweak).
+    let internal_pubkey = [
+        0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+        0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8,
+        0x17, 0x98,
+    ];
     let merkle_root = [2u8; 32];
     let (correct_output_key, parity) =
         blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(
