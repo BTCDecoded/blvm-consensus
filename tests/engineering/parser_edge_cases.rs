@@ -181,13 +181,18 @@ fn test_transaction_empty_after_version() {
 }
 
 #[test]
-#[ignore = "deserialize_transaction currently accepts truncated output value; parser strictness TBD"]
 fn test_transaction_incomplete_output() {
-    // Transaction with incomplete output
+    // Transaction with ≥1 real input, then truncated output value (7 of 8 bytes).
+    // Note: empty-vin + flag=1 (`version||0x00||0x01||…`) is a valid witness marker
+    // pattern and must NOT be used here — that parses as Ok(empty tx), not InsufficientBytes.
     let mut data = vec![0, 0, 0, 0]; // Version
-    data.push(0); // 0 inputs
+    data.push(1); // 1 input (must be non-empty so parser reaches outputs)
+    data.extend_from_slice(&[0; 32]); // Prevout hash
+    data.extend_from_slice(&[0, 0, 0, 0]); // Prevout index
+    data.push(0); // Empty scriptSig
+    data.extend_from_slice(&[0, 0, 0, 0]); // Sequence
     data.push(1); // 1 output
-    data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]); // Only 7 bytes of value (need 8)
+    data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]); // Only 7 bytes of i64 value (need 8)
 
     assert!(deserialize_transaction(&data).is_err());
 }
