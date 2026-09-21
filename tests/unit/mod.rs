@@ -16,6 +16,7 @@ mod difficulty_edge_cases;
 mod economic_tests;
 mod mempool_edge_cases;
 mod reorganization_edge_cases;
+mod script_more_tests;
 mod script_opcode_property_tests;
 mod script_tests;
 mod segwit_taproot_property_tests;
