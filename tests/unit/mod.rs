@@ -19,6 +19,7 @@ mod reorganization_edge_cases;
 mod script_opcode_property_tests;
 mod script_tests;
 mod segwit_taproot_property_tests;
+mod taproot_more_tests;
 mod transaction_edge_cases;
 mod utxo_edge_cases;
 
