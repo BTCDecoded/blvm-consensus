@@ -260,9 +260,12 @@ fn test_taproot_with_csv() {
 }
 
 #[test]
-#[ignore = "Mixed segwit/taproot block connect: pending witness/merkle fixture"]
 fn test_mixed_block_segwit_and_taproot() {
-    // Test block with both SegWit and Taproot transactions
+    // Mixed block fixture: SegWit (P2WPKH) + Taproot txs side by side.
+    // Does not connect/validate the block (no merkle/witness commitment work);
+    // only checks is_segwit_transaction / taproot output classification.
+    // P2WPKH scriptPubKey must be OP_0 + PUSH_20 + 20-byte program (22 bytes),
+    // matching src/segwit.rs::test_is_segwit_transaction — not just the 2-byte header.
     use blvm_consensus::taproot::*;
 
     let block = Block {
@@ -292,7 +295,12 @@ fn test_mixed_block_segwit_and_taproot() {
                 .into(),
                 outputs: vec![TransactionOutput {
                     value: 1000,
-                    script_pubkey: vec![OP_0, PUSH_20_BYTES].into(), // P2WPKH
+                    script_pubkey: {
+                        // Full P2WPKH: OP_0, push 20 bytes, 20-byte program
+                        let mut script = vec![OP_0, PUSH_20_BYTES];
+                        script.extend_from_slice(&[0x51; 20]);
+                        script.into()
+                    },
                 }]
                 .into(),
                 lock_time: 0,
