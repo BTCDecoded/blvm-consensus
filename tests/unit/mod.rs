@@ -6,6 +6,7 @@
 //! brought up to date.
 
 mod mempool_more_tests;
+mod mempool_rbf_tests;
 mod pow_tests;
 mod transaction_tests;
 
