@@ -532,13 +532,9 @@ pub(crate) fn connect_block_inner<'a>(
             "Block merkle root does not match transactions",
         );
     }
-    // CVE-2012-2459 mutation check: only enforce outside IBD.
-    // In IBD the block was already structurally validated upstream when it was
-    // added to the chain (CheckBlock → ConnectBlock). We are doing ConnectBlock only —
-    // replaying known-valid blocks from a trusted chunk file. Skipping avoids false
-    // positives on mainnet blocks (e.g. block 481824) where the root still matches the
-    // header but our intermediate-hash comparison fires on a non-duplicate tree structure.
-    if merkle_mutated && !ibd_mode {
+    // CVE-2012-2459: the mutation flag was already computed above. Enforcing it
+    // does not hash again. IBD must reject a mutated block; Core does.
+    if merkle_mutated {
         return invalid_block_result(
             utxo_set,
             &[],
@@ -2632,13 +2628,14 @@ pub(crate) fn connect_block_inner<'a>(
                 .sum();
             #[cfg(all(feature = "production", feature = "profile"))]
             {
-                let (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, bare_ms, interp) =
+                let (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, unexec_if, bare_ms, interp) =
                     crate::script::get_and_reset_fast_path_counts();
-                let total = p2pk + p2pkh + p2sh + p2wpkh + p2wsh + p2tr + bare_ms + interp;
+                let total =
+                    p2pk + p2pkh + p2sh + p2wpkh + p2wsh + p2tr + unexec_if + bare_ms + interp;
                 if total > 0 {
                     let pct = |n: u64| (100.0 * n as f64 / total as f64).round() as u32;
                     eprintln!(
-                        "[FAST_PATH] Block {}: p2pk={}% p2pkh={}% p2sh={}% p2wpkh={}% p2wsh={}% p2tr={}% bare_ms={}% interpreter={}% (n={})",
+                        "[FAST_PATH] Block {}: p2pk={}% p2pkh={}% p2sh={}% p2wpkh={}% p2wsh={}% p2tr={}% unexec_if={}% bare_ms={}% interpreter={}% (n={})",
                         height,
                         pct(p2pk),
                         pct(p2pkh),
@@ -2646,6 +2643,7 @@ pub(crate) fn connect_block_inner<'a>(
                         pct(p2wpkh),
                         pct(p2wsh),
                         pct(p2tr),
+                        pct(unexec_if),
                         pct(bare_ms),
                         pct(interp),
                         total

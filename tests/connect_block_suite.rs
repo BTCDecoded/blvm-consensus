@@ -5,11 +5,11 @@ mod helpers;
 
 use bitcoin_hashes::{Hash as BitcoinHash, hash160, sha256, sha256d};
 use blvm_consensus::block::{
-    BlockValidationContext, calculate_tx_id, compute_block_tx_ids, connect_block,
+    BlockValidationContext, calculate_tx_id, compute_block_tx_ids, connect_block, connect_block_ibd,
 };
 use blvm_consensus::constants::{
     BIP34_ACTIVATION_MAINNET, BIP54_MAX_SIGOPS_PER_TX, BIP65_ACTIVATION_MAINNET,
-    BIP66_ACTIVATION_MAINNET, MAX_BLOCK_SIGOPS_COST,
+    BIP66_ACTIVATION_MAINNET, MAX_BLOCK_SIGOPS_COST, MAX_MONEY,
 };
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::mining::{calculate_merkle_root, compute_merkle_root_and_mutated};
@@ -919,6 +919,26 @@ fn test_connect_accepts_bip66_version_at_activation() {
 }
 
 #[test]
+fn test_connect_rejects_i64_output_sum_overflow() {
+    const OUTPUTS: usize = 4393;
+    let mut coinbase = coinbase_at_height(1, MAX_MONEY);
+    coinbase.outputs = (0..OUTPUTS)
+        .map(|_| TransactionOutput {
+            value: MAX_MONEY,
+            script_pubkey: vec![OP_1].into(),
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let err = connect(&block, UtxoSet::default(), 1)
+        .expect_err("wrapping output sum must surface as Err");
+    assert!(
+        err.to_string().contains("overflow"),
+        "expected output-sum overflow from connect_block, got {err}"
+    );
+}
+
+#[test]
 fn test_connect_rejects_duplicate_inputs_in_tx() {
     let mut utxo_set = UtxoSet::default();
     seed_op1_utxo(&mut utxo_set, 0x44, 5_000, 0);
@@ -970,7 +990,24 @@ fn test_connect_rejects_merkle_mutation_cve() {
     let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("CVE-2012-2459")),
-        "expected CVE-2012-2459 rejection, got {result:?}"
+        "expected CVE-2012-2459 rejection with ibd_mode false, got {result:?}"
+    );
+    let (ibd_result, _, _, _) = connect_block_ibd(
+        &block,
+        &per_tx_witnesses(&block),
+        UtxoSet::default(),
+        1,
+        &ctx(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(
+        matches!(ibd_result, ValidationResult::Invalid(ref r) if r.contains("CVE-2012-2459")),
+        "expected CVE-2012-2459 rejection with ibd_mode true, got {ibd_result:?}"
     );
 }
 
