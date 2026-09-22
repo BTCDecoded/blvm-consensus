@@ -1160,6 +1160,69 @@ pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
     if bip66_active == 0 { 1 } else { 0 }
 }
 
+/// Witness for **F_BIP66ActivationAt** (PROTOCOL.md §5.4.3).
+///
+/// At and above height 363,725 the network check equals `is_strict_der`.
+#[spec_locked("5.4.3", "F_BIP66ActivationAt")]
+#[blvm_spec_lock::requires(height >= 363725)]
+#[blvm_spec_lock::ensures(result == strict_der)]
+pub(crate) fn _verify_f_bip66_activation_at(height: i64, strict_der: i64) -> i64 {
+    if height < 363725 { 1 } else { strict_der }
+}
+
+/// Witness for **F_StrictDERSoundness** (PROTOCOL.md §5.4.3).
+///
+/// A failed byte clause (length, tag, high bit, or leading zero) forces result 0.
+#[spec_locked("5.4.3", "F_StrictDERSoundness")]
+#[blvm_spec_lock::requires(len_ok == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_strict_der_soundness(
+    len_ok: i64,
+    tag_ok: i64,
+    high_ok: i64,
+    lead_ok: i64,
+) -> i64 {
+    if len_ok == 0 || tag_ok == 0 || high_ok == 0 || lead_ok == 0 {
+        0
+    } else {
+        1
+    }
+}
+
+/// Witness for **F_NoDuplicateInputs** (PROTOCOL.md §5.1).
+///
+/// `same_prevout != 0` means two inputs share txid and vout. Result 0 is the rejection.
+#[spec_locked("5.1", "F_NoDuplicateInputs")]
+#[blvm_spec_lock::requires(same_prevout != 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_no_duplicate_inputs(same_prevout: i64) -> i64 {
+    if same_prevout != 0 { 0 } else { 1 }
+}
+
+/// Witness for **F_OutputSumBounded** (PROTOCOL.md §13.3.1).
+///
+/// `overflow != 0` means signed 64-bit addition overflowed. Result 0 is the error.
+#[spec_locked("13.3.1", "F_OutputSumBounded")]
+#[blvm_spec_lock::requires(overflow != 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_output_sum_bounded(value: i64, overflow: i64) -> i64 {
+    if overflow != 0 || value < 0 || value > 2_100_000_000_000_000 {
+        0
+    } else {
+        1
+    }
+}
+
+/// Witness for **F_MerkleMutationRejected** (PROTOCOL.md §8.4.1).
+///
+/// `unpadded_equal != 0` is an equal adjacent pair before odd-padding. Result 0 is the mutation.
+#[spec_locked("8.4.1", "F_MerkleMutationRejected")]
+#[blvm_spec_lock::requires(unpadded_equal != 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_merkle_mutation_rejected(unpadded_equal: i64) -> i64 {
+    if unpadded_equal != 0 { 0 } else { 1 }
+}
+
 // ─── §5.4.4 BIP90: Block Version Enforcement ─────────────────────────────────
 
 /// Witness for **F_BIP90PreActivationPass** (PROTOCOL.md §5.4.4).
