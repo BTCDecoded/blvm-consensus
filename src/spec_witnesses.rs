@@ -1145,14 +1145,15 @@ pub(crate) fn _verify_f_csfs_empty_sig_valid(sig_len: u64, pk_len: u64) -> bool 
 
 // ─── §5.4.3 BIP66: Strict DER ────────────────────────────────────────────────
 
-/// Witness for **F_BIP66PreActivationPass** (PROTOCOL.md §5.4.3).
+/// Witness for **F_BIP66ActivationBelow** (PROTOCOL.md §5.4.3).
 ///
 /// Proof obligation: before BIP66 activation, all DER signature checks pass.
+/// The formula body is `result == 1`.
 ///
 /// Encoded as `bip66_active == 0` (integer flag, 0 = inactive). Under
 /// `requires(bip66_active == 0)`, the first branch is taken → result = 1 (pass).
 /// Z3 proves via linear arithmetic.
-#[spec_locked("5.4.3", "F_BIP66PreActivationPass")]
+#[spec_locked("5.4.3", "F_BIP66ActivationBelow")]
 #[blvm_spec_lock::requires(bip66_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
