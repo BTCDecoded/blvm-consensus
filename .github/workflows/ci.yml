@@ -131,7 +131,14 @@ jobs:
       - name: Install Rust
         uses: BTCDecoded/rust-ci/install-rust-toolchain@main
 
+      - name: Fetch golden block fixtures
+        run: |
+          chmod +x scripts/fetch_golden_block_481824.sh
+          bash scripts/fetch_golden_block_481824.sh
+
       - name: Run tests
+        env:
+          BLVM_REQUIRE_GOLDEN_FIXTURES: "1"
         run: |
           # Run tests only (no coverage) for fast PR feedback
           # Coverage runs separately in coverage.yml workflow

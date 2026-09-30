@@ -402,20 +402,22 @@ mod tests {
     }
 
     #[test]
-    fn test_load_script_vectors_if_present() {
+    fn test_load_script_vectors() {
         let vectors = load_default_script_vectors().expect("load");
-        if vectors.is_empty() {
-            return;
-        }
+        assert!(
+            !vectors.is_empty(),
+            "committed script_tests.json must load at least one vector"
+        );
         assert!(vectors.iter().any(|v| v.expected_ok));
     }
 
     #[test]
-    fn test_run_legacy_ok_smoke_if_present() {
+    fn test_run_legacy_ok_smoke() {
         let vectors = load_default_script_vectors().expect("load");
-        if vectors.is_empty() {
-            return;
-        }
+        assert!(
+            !vectors.is_empty(),
+            "committed script_tests.json must load at least one vector"
+        );
 
         let smoke: Vec<_> = vectors
             .iter()
@@ -435,11 +437,12 @@ mod tests {
     }
 
     #[test]
-    fn test_run_legacy_ok_progress_if_present() {
+    fn test_run_legacy_ok_progress() {
         let vectors = load_default_script_vectors().expect("load");
-        if vectors.is_empty() {
-            return;
-        }
+        assert!(
+            !vectors.is_empty(),
+            "committed script_tests.json must load at least one vector"
+        );
 
         let subset: Vec<_> = vectors
             .iter()
