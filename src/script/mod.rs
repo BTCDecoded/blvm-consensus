@@ -26,6 +26,7 @@ mod crypto_ops;
 pub mod flags;
 mod signature;
 mod stack;
+pub mod templates;
 
 pub use signature::{batch_verify_signatures, verify_pre_extracted_ecdsa};
 pub use stack::{StackElement, cast_to_bool, to_stack_element};
@@ -216,6 +217,8 @@ static FAST_PATH_P2WPKH: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_P2WSH: AtomicU64 = AtomicU64::new(0);
 static FAST_PATH_P2TR: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "production")]
+static FAST_PATH_UNEXEC_IF: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_BARE_MULTISIG: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
@@ -428,14 +431,14 @@ fn eval_script_impl(
 
 /// Push opcodes: any opcode <= OP_16 (0x60). Used by both production and non-production paths.
 #[inline(always)]
-fn is_push_opcode(opcode: u8) -> bool {
+pub(crate) fn is_push_opcode(opcode: u8) -> bool {
     opcode <= 0x60
 }
 
 /// BIP342: opcodes that cause immediate script success in Tapscript (OP_SUCCESSx).
 /// Reference: BIP342 successful witness opcodes (IsOpSuccess).
 #[inline]
-fn is_op_success(opcode: u8) -> bool {
+pub(crate) fn is_op_success(opcode: u8) -> bool {
     matches!(
         opcode,
         80 | 98
@@ -451,7 +454,7 @@ fn is_op_success(opcode: u8) -> bool {
 /// Advance past one opcode + its push data in a script byte slice.
 /// Returns the number of bytes to skip (always >= 1).
 #[inline]
-fn op_advance(script: &[u8], pc: usize) -> usize {
+pub(crate) fn op_advance(script: &[u8], pc: usize) -> usize {
     let opcode = script[pc];
     match opcode {
         // direct push: opcode byte is the data length (1–75 bytes)
@@ -3369,6 +3372,22 @@ pub fn verify_script_with_context_full(
                 schnorr_collector,
             ) {
                 FAST_PATH_P2TR.fetch_add(1, Ordering::Relaxed);
+                return result;
+            }
+            if let Some(result) = crate::script::templates::try_verify_p2tr_unexec_if_fast_path(
+                script_sig,
+                script_pubkey,
+                wit,
+                flags,
+                tx,
+                input_index,
+                prevout_values,
+                prevout_script_pubkeys,
+                block_height,
+                network,
+                schnorr_collector,
+            ) {
+                FAST_PATH_UNEXEC_IF.fetch_add(1, Ordering::Relaxed);
                 return result;
             }
             if let Some(result) = try_verify_p2tr_keypath_fast_path(
@@ -7420,9 +7439,9 @@ fn execute_opcode_cold(opcode: u8, stack: &mut Vec<StackElement>, flags: u32) ->
 ///
 /// Get and reset fast-path hit counters (production). Used by block validation to log
 /// whether P2PK/P2PKH/P2SH/P2WPKH/P2WSH fast-paths are taken vs interpreter fallback.
-/// Returns (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, bare_multisig, interpreter).
+/// Returns (p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, unexec_if, bare_multisig, interpreter).
 #[cfg(all(feature = "production", feature = "profile"))]
-pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64, u64, u64) {
+pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64, u64, u64, u64) {
     (
         FAST_PATH_P2PK.swap(0, Ordering::Relaxed),
         FAST_PATH_P2PKH.swap(0, Ordering::Relaxed),
@@ -7430,9 +7449,16 @@ pub(crate) fn get_and_reset_fast_path_counts() -> (u64, u64, u64, u64, u64, u64,
         FAST_PATH_P2WPKH.swap(0, Ordering::Relaxed),
         FAST_PATH_P2WSH.swap(0, Ordering::Relaxed),
         FAST_PATH_P2TR.swap(0, Ordering::Relaxed),
+        FAST_PATH_UNEXEC_IF.swap(0, Ordering::Relaxed),
         FAST_PATH_BARE_MULTISIG.swap(0, Ordering::Relaxed),
         FAST_PATH_INTERPRETER.swap(0, Ordering::Relaxed),
     )
+}
+
+/// Reset and return the UnexecIf fast-path hit count (production tests / 859672 gate).
+#[cfg(feature = "production")]
+pub fn take_fast_path_unexec_if() -> u64 {
+    FAST_PATH_UNEXEC_IF.swap(0, Ordering::Relaxed)
 }
 
 /// ```rust

@@ -30,7 +30,6 @@ use std::collections::{HashMap, HashSet};
 /// * `height` - Current block height
 /// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
 /// * `network` - Chain network for script verification flags (activation heights)
-#[spec_locked("9.1", "AcceptToMemoryPool")]
 pub fn accept_to_memory_pool(
     tx: &Transaction,
     witnesses: Option<&[Witness]>,
@@ -184,7 +183,6 @@ fn calculate_script_flags(
 /// Applies configurable policy overrides. When config is `None`, delegates to `is_standard_tx`.
 /// When config is present, config fields override the base policy for envelope protocol,
 /// multiple OP_RETURN, and script size limits.
-#[spec_locked("9.2", "IsStandardTxWithConfig")]
 pub fn is_standard_tx_with_config(
     tx: &crate::types::Transaction,
     config: Option<&blvm_primitives::config::MempoolConfig>,
@@ -206,7 +204,7 @@ pub fn is_standard_tx_with_config(
 
     let max_script = cfg.max_standard_script_size as usize;
     let max_op_return = cfg.max_op_return_size as usize;
-    let reject_envelope = cfg.reject_envelope_protocol;
+    let reject_envelope = cfg.reject_unexec_if;
     let reject_multi_op_return = cfg.reject_multiple_op_return;
 
     let mut op_return_count = 0usize;
@@ -247,7 +245,6 @@ pub fn is_standard_tx_with_config(
 /// 2. Script size limits
 /// 3. Standard script types
 /// 4. Fee rate requirements
-#[spec_locked("9.2", "IsStandardTx")]
 pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
     // 1. Check transaction size
     let tx_size = calculate_transaction_size(tx);
@@ -305,7 +302,6 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 /// 3. New transaction pays absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
 /// 4. New transaction conflicts with existing: tx_2 spends at least one input from tx_1
 /// 5. No new unconfirmed dependencies: All inputs of tx_2 are confirmed or from tx_1
-#[spec_locked("9.3", "ReplacementChecks")]
 pub fn replacement_checks(
     new_tx: &Transaction,
     existing_tx: &Transaction,
@@ -716,7 +712,6 @@ where
 }
 
 /// Check mempool-specific rules (relay policy).
-#[spec_locked("9.1", "CheckMempoolRules")]
 pub(crate) fn check_mempool_rules(
     tx: &Transaction,
     fee: Integer,
@@ -912,7 +907,6 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
 /// Check if transaction signals RBF
 ///
 /// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
-#[spec_locked("9.3", "SignalsRBF")]
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
         if (input.sequence as u32) < SEQUENCE_FINAL {
@@ -938,7 +932,6 @@ fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
 ///
 /// A conflict exists if new_tx spends at least one input from existing_tx.
 /// This is requirement #4 of BIP125.
-#[spec_locked("9.3", "HasConflictWithTx")]
 pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> bool {
     for new_input in &new_tx.inputs {
         for existing_input in &existing_tx.inputs {
@@ -955,7 +948,6 @@ pub fn has_conflict_with_tx(new_tx: &Transaction, existing_tx: &Transaction) -> 
 /// BIP125 requirement #5: All inputs of tx_2 must be:
 /// - Confirmed (in UTXO set), OR
 /// - From tx_1 (spending the same inputs)
-#[spec_locked("9.3", "CreatesNewDependencies")]
 pub(crate) fn creates_new_dependencies(
     new_tx: &Transaction,
     existing_tx: &Transaction,
@@ -1057,7 +1049,6 @@ fn is_disabled_policy_opcode(opcode: u8) -> bool {
 }
 
 /// Check if script is standard
-#[spec_locked("9.1", "IsStandardScript")]
 pub(crate) fn is_standard_script(script: &ByteString) -> Result<bool> {
     if script.is_empty() {
         return Ok(false);
@@ -1147,10 +1138,41 @@ fn is_coinbase(tx: &Transaction) -> bool {
 /// - Accepted transactions are valid
 /// - RBF rules are enforced
 
+/// Default `-bytespersigop`. Each sigop costs `20 / 4 = 5` vbytes.
+pub const DEFAULT_BYTES_PER_SIGOP: u64 = 20;
+
+/// Standard mempool cap: `MAX_BLOCK_SIGOPS_COST / 5` (16_000). Core rejects above this
+/// with `bad-txns-too-many-sigops`.
+pub const MAX_STANDARD_TX_SIGOPS_COST: u64 = crate::constants::MAX_BLOCK_SIGOPS_COST / 5;
+
+/// Sigop-adjusted virtual size.
+///
+/// `adjusted_weight = max(weight, sigop_cost * bytes_per_sigop)`,
+/// `vsize = ceil(adjusted_weight / 4)`.
+/// `bytes_per_sigop` is a weight multiplier, matching Bitcoin Core
+/// `GetSigOpsAdjustedWeight` / `GetVirtualTransactionSize`.
+pub fn sigop_adjusted_vsize(weight: u64, sigop_cost: u64, bytes_per_sigop: u64) -> u64 {
+    let sigop_weight = sigop_cost.saturating_mul(bytes_per_sigop);
+    weight.max(sigop_weight).div_ceil(4)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::opcodes::*;
+
+    #[test]
+    fn sigop_adjusted_vsize_matches_core_rule() {
+        // Weight wins: 400 weight, 1 sigop * 20 = 20. vsize = ceil(400/4) = 100.
+        assert_eq!(sigop_adjusted_vsize(400, 1, DEFAULT_BYTES_PER_SIGOP), 100);
+        // Sigop term wins: 100 weight, 10 sigops * 20 = 200. vsize = ceil(200/4) = 50.
+        assert_eq!(sigop_adjusted_vsize(100, 10, DEFAULT_BYTES_PER_SIGOP), 50);
+        // Ceil: 201 weight is not divisible by 4.
+        assert_eq!(sigop_adjusted_vsize(201, 0, DEFAULT_BYTES_PER_SIGOP), 51);
+        // Default multiplier is 20 weight units per sigop (5 vbytes).
+        assert_eq!(DEFAULT_BYTES_PER_SIGOP, 20);
+        assert_eq!(MAX_STANDARD_TX_SIGOPS_COST, 16_000);
+    }
 
     #[test]
     fn test_accept_to_memory_pool_valid() {

@@ -53,6 +53,9 @@ fn block859672_ordinals_tapscript_input1() {
         Network::Mainnet,
     );
 
+    #[cfg(feature = "production")]
+    let _ = blvm_consensus::script::take_fast_path_unexec_if();
+
     let r = verify_script_with_context_full(
         &tx.inputs[input_idx].script_sig,
         &spk1,
@@ -74,5 +77,11 @@ fn block859672_ordinals_tapscript_input1() {
         #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
         None,
     );
-    assert_eq!(r, Ok(true), "Ordinals tapscript spend must verify: {:?}", r);
+    assert_eq!(r, Ok(true), "tapscript spend must verify: {:?}", r);
+    #[cfg(feature = "production")]
+    assert_eq!(
+        blvm_consensus::script::take_fast_path_unexec_if(),
+        0,
+        "859672 has 229 witness elements; must not take UnexecIf"
+    );
 }

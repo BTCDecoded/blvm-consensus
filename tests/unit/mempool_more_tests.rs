@@ -209,7 +209,7 @@ fn test_envelope_protocol_rejected() {
 #[test]
 fn test_envelope_protocol_config_allow() {
     let mut config = MempoolConfig::default();
-    config.reject_envelope_protocol = false; // Allow envelope protocol
+    config.reject_unexec_if = false;
 
     let script = vec![OP_0, OP_IF, PUSH_1_BYTE, 0x00, OP_ENDIF];
 

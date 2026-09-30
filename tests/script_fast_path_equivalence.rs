@@ -7,9 +7,12 @@ mod script_asm;
 
 use blvm_consensus::opcodes::PUSH_20_BYTES;
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160,
+    OP_0, OP_1, OP_CHECKSIG, OP_DUP, OP_ENDIF, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_IF,
+    PUSH_32_BYTES,
 };
-use blvm_consensus::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS};
+use blvm_consensus::script::flags::{
+    SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
+};
 use blvm_consensus::script::{
     SigVersion, disable_fast_paths, verify_script, verify_script_with_context_full,
 };
@@ -636,4 +639,403 @@ fdbfc6936b68019e01ff60343abbea025138e58aed2544dc8d3c0b2ccb35e2073fa2f9feeff5ed01
             Some(BLOCK_HEIGHT),
         );
     }
+}
+
+fn valid_taproot_internal_key() -> [u8; 32] {
+    [
+        0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+        0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8,
+        0x17, 0x98,
+    ]
+}
+
+fn envelope_body() -> Vec<u8> {
+    vec![0x03, b'o', b'r', b'd']
+}
+
+fn envelope(body: &[u8]) -> Vec<u8> {
+    let mut s = vec![OP_0, OP_IF];
+    s.extend_from_slice(body);
+    s.push(OP_ENDIF);
+    s
+}
+
+fn push32_checksig(pk: &[u8; 32]) -> Vec<u8> {
+    let mut s = vec![PUSH_32_BYTES];
+    s.extend_from_slice(pk);
+    s.push(OP_CHECKSIG);
+    s
+}
+
+/// Build a signed P2TR script-path spend. `stack_items == 1` (the sig).
+fn build_unexec_if_spend(
+    tapscript: Vec<u8>,
+    annex: Option<Vec<u8>>,
+) -> (Transaction, Vec<u8>, blvm_consensus::witness::Witness, i64) {
+    use blvm_consensus::taproot::{
+        TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, compute_tapscript_signature_hash,
+    };
+    use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_slice(&[0x42; 32]).expect("leaf secret");
+    let keypair = Keypair::from_secret_key(&secp, &secret_key);
+    let (xonly, _) = keypair.x_only_public_key();
+    let leaf_pk = xonly.serialize();
+    assert!(
+        tapscript.windows(32).any(|w| w == leaf_pk),
+        "tapscript must contain the leaf x-only pubkey"
+    );
+
+    let internal = valid_taproot_internal_key();
+    let merkle_root =
+        compute_script_merkle_root(&tapscript, &[], TAPROOT_LEAF_VERSION_TAPSCRIPT).expect("root");
+    let (output_key, parity) =
+        blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(&internal, &merkle_root)
+            .expect("tweak");
+    let mut script_pubkey = vec![OP_1, PUSH_32_BYTES];
+    script_pubkey.extend_from_slice(&output_key);
+
+    let mut control_block = vec![TAPROOT_LEAF_VERSION_TAPSCRIPT | parity];
+    control_block.extend_from_slice(&internal);
+
+    let prevout_value = 10_000i64;
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x71; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffff_ffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 9_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+
+    let mut placeholder = vec![vec![0u8; 64], tapscript.clone(), control_block.clone()];
+    if let Some(ref a) = annex {
+        placeholder.push(a.clone());
+    }
+    let (_, annex_hash) = blvm_consensus::taproot::strip_taproot_annex(&placeholder);
+
+    let sighash = compute_tapscript_signature_hash(
+        &tx,
+        0,
+        &[prevout_value],
+        &[script_pubkey.as_slice()],
+        &tapscript,
+        TAPROOT_LEAF_VERSION_TAPSCRIPT,
+        0xffff_ffff,
+        0x00,
+        annex_hash.as_ref(),
+    )
+    .expect("tapscript sighash");
+    let msg = Message::from_digest_slice(&sighash).expect("32-byte sighash");
+    let sig = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
+    let sig_bytes = sig.as_ref().to_vec();
+
+    let mut witness = vec![sig_bytes, tapscript, control_block];
+    if let Some(a) = annex {
+        witness.push(a);
+    }
+
+    (tx, script_pubkey, witness, prevout_value)
+}
+
+fn taproot_equiv_flags() -> u32 {
+    SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT
+}
+
+fn unexec_if_equiv(tapscript: Vec<u8>, annex: Option<Vec<u8>>) {
+    use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
+
+    let (tx, script_pubkey, witness, prevout_value) = build_unexec_if_spend(tapscript, annex);
+    let pv = vec![prevout_value];
+    let psp_refs: Vec<&[u8]> = vec![script_pubkey.as_slice()];
+
+    assert_fast_path_equiv(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(TAPROOT_ACTIVATION_MAINNET),
+    );
+}
+
+#[test]
+fn fast_path_equiv_unexec_if_suffix_checksig() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = envelope(&envelope_body());
+    tapscript.extend(push32_checksig(&pk));
+    unexec_if_equiv(tapscript, None);
+}
+
+#[test]
+fn fast_path_equiv_unexec_if_prefix_checksig() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = push32_checksig(&pk);
+    tapscript.extend(envelope(&envelope_body()));
+    unexec_if_equiv(tapscript, None);
+}
+
+#[test]
+fn fast_path_equiv_unexec_if_annex() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = envelope(&envelope_body());
+    tapscript.extend(push32_checksig(&pk));
+    unexec_if_equiv(tapscript, Some(vec![0x50, 0xaa]));
+}
+
+#[test]
+fn fast_path_equiv_two_envelopes_no_unexec_if() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = envelope(&[0x01, 0xaa]);
+    tapscript.extend(envelope(&[0x01, 0xbb]));
+    tapscript.extend(push32_checksig(&pk));
+    unexec_if_equiv(tapscript, None);
+}
+
+#[test]
+fn fast_path_equiv_nested_if_no_unexec_if() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = vec![OP_0, OP_IF, OP_0, OP_IF, OP_ENDIF, OP_ENDIF];
+    tapscript.extend(push32_checksig(&pk));
+    unexec_if_equiv(tapscript, None);
+}
+
+#[test]
+fn fast_path_equiv_leftover_opcode_no_unexec_if() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = envelope(&[0x01, 0xaa]);
+    tapscript.push(OP_DUP);
+    tapscript.extend(push32_checksig(&pk));
+    // Interpreter may fail (extra stack item); still no UnexecIf shortcut.
+    let (tx, script_pubkey, witness, prevout_value) = build_unexec_if_spend(tapscript, None);
+    let pv = vec![prevout_value];
+    let psp_refs: Vec<&[u8]> = vec![script_pubkey.as_slice()];
+    disable_fast_paths(false);
+    let fast = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    )
+    .expect("fast path verify");
+    disable_fast_paths(true);
+    let full = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    )
+    .expect("interpreter verify");
+    disable_fast_paths(false);
+    assert_eq!(fast, full);
+}
+
+#[test]
+fn fast_path_equiv_op_success_no_unexec_if() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+    let mut tapscript = vec![OP_0, OP_IF, 0xba, OP_ENDIF];
+    tapscript.extend(push32_checksig(&pk));
+    let (tx, script_pubkey, witness, prevout_value) = build_unexec_if_spend(tapscript, None);
+    let pv = vec![prevout_value];
+    let psp_refs: Vec<&[u8]> = vec![script_pubkey.as_slice()];
+    disable_fast_paths(false);
+    let fast = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    disable_fast_paths(true);
+    let full = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    disable_fast_paths(false);
+    assert_eq!(fast.is_ok(), full.is_ok());
+    if let (Ok(a), Ok(b)) = (fast, full) {
+        assert_eq!(a, b);
+    }
+}
+
+/// Counter is process-global; keep this test self-contained and sequential.
+#[test]
+fn unexec_if_fast_path_counter() {
+    use secp256k1::{Keypair, Secp256k1, SecretKey};
+    let secp = Secp256k1::new();
+    let sk = SecretKey::from_slice(&[0x42; 32]).unwrap();
+    let kp = Keypair::from_secret_key(&secp, &sk);
+    let pk = kp.x_only_public_key().0.serialize();
+
+    let mut hit_script = envelope(&envelope_body());
+    hit_script.extend(push32_checksig(&pk));
+    let (tx, script_pubkey, witness, prevout_value) = build_unexec_if_spend(hit_script, None);
+    let pv = vec![prevout_value];
+    let psp_refs: Vec<&[u8]> = vec![script_pubkey.as_slice()];
+    let _ = blvm_consensus::script::take_fast_path_unexec_if();
+    disable_fast_paths(false);
+    let ok = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        &script_pubkey,
+        Some(&witness),
+        taproot_equiv_flags(),
+        &tx,
+        0,
+        &pv,
+        &psp_refs,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    )
+    .expect("verify");
+    assert!(ok);
+    assert!(
+        blvm_consensus::script::take_fast_path_unexec_if() >= 1,
+        "suffix UnexecIf must increment FAST_PATH_UNEXEC_IF"
+    );
+
+    let mut miss = envelope(&[0x01, 0xaa]);
+    miss.extend(envelope(&[0x01, 0xbb]));
+    miss.extend(push32_checksig(&pk));
+    let (tx2, spk2, wit2, val2) = build_unexec_if_spend(miss, None);
+    let pv2 = vec![val2];
+    let psp2: Vec<&[u8]> = vec![spk2.as_slice()];
+    let _ = blvm_consensus::script::take_fast_path_unexec_if();
+    let _ = verify_script_with_context_full(
+        &tx2.inputs[0].script_sig,
+        &spk2,
+        Some(&wit2),
+        taproot_equiv_flags(),
+        &tx2,
+        0,
+        &pv2,
+        &psp2,
+        Some(blvm_consensus::TAPROOT_ACTIVATION_MAINNET),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    assert_eq!(
+        blvm_consensus::script::take_fast_path_unexec_if(),
+        0,
+        "two envelopes must not take UnexecIf"
+    );
 }
