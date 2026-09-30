@@ -188,6 +188,38 @@ fn test_check_transaction_rejects_output_sum_overflow() {
 }
 
 #[test]
+fn test_check_transaction_rejects_i64_output_sum_overflow() {
+    // 4392 * MAX_MONEY fits in i64. The 4393rd output overflows.
+    const OUTPUTS: usize = 4393;
+    let mut outputs = Vec::with_capacity(OUTPUTS);
+    for _ in 0..OUTPUTS {
+        outputs.push(TransactionOutput {
+            value: MAX_MONEY,
+            script_pubkey: vec![OP_1].into(),
+        });
+    }
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![OP_1, OP_1].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: outputs.into(),
+        lock_time: 0,
+    };
+    let err = check_transaction(&tx).expect_err("i64 output sum must be Err, not Invalid");
+    assert!(
+        err.to_string().contains("overflow"),
+        "expected output-sum overflow, got {err}"
+    );
+}
+
+#[test]
 fn test_check_transaction_rejects_duplicate_inputs() {
     let prevout = OutPoint {
         hash: [0x14; 32],

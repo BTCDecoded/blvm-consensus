@@ -776,7 +776,7 @@ pub enum Bip147Network {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::{BIP66_ACTIVATION_MAINNET, BIP147_ACTIVATION_MAINNET};
+    use crate::constants::BIP147_ACTIVATION_MAINNET;
 
     use crate::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_CHECKSIG};
 
@@ -1056,24 +1056,45 @@ mod tests {
 
     #[test]
     fn test_bip66_strict_der() {
-        // Valid DER signature (minimal example)
-        let valid_der = vec![0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00];
-        let result = check_bip66_network(
-            &valid_der,
-            BIP66_ACTIVATION_MAINNET - 1,
-            crate::types::Network::Mainnet,
-        )
-        .unwrap();
-        // Note: This may fail if signature is not actually valid DER, but the check should not panic
-        assert!(
-            result || !result,
-            "BIP66 check should handle invalid DER gracefully"
+        use crate::constants::BIP66_ACTIVATION_MAINNET;
+        use crate::types::Network;
+
+        // 30 06 02 01 01 02 01 01 01 — tag, length 6, R = 1, S = 1, sighash 01.
+        let accept: Vec<u8> = vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+        assert_eq!(
+            check_bip66_network(&accept, BIP66_ACTIVATION_MAINNET, Network::Mainnet).unwrap(),
+            true,
+            "9-byte strict DER must pass at activation"
         );
 
-        // Before activation, should always pass
-        let result =
-            check_bip66_network(&valid_der, 100_000, crate::types::Network::Mainnet).unwrap();
-        assert!(result, "BIP66 should pass before activation");
+        let mut high_bit_r = accept.clone();
+        high_bit_r[4] = 0x81;
+        // R length 2, leading 0x00, next byte high bit clear.
+        let leading_zero_r: Vec<u8> =
+            vec![0x30, 0x07, 0x02, 0x02, 0x00, 0x01, 0x02, 0x01, 0x01, 0x01];
+        let mut bad_length = accept.clone();
+        bad_length[1] = 0x05;
+        let rejects = [
+            vec![0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
+            vec![0u8; 74],
+            high_bit_r.clone(),
+            leading_zero_r,
+            bad_length,
+        ];
+        for sig in &rejects {
+            assert_eq!(
+                check_bip66_network(sig, BIP66_ACTIVATION_MAINNET, Network::Mainnet).unwrap(),
+                false,
+                "non-strict encoding must fail at activation: {sig:?}"
+            );
+        }
+
+        assert_eq!(
+            check_bip66_network(&high_bit_r, BIP66_ACTIVATION_MAINNET - 1, Network::Mainnet)
+                .unwrap(),
+            true,
+            "pre-activation must accept a non-strict signature"
+        );
     }
 
     #[test]

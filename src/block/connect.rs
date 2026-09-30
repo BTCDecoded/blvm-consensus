@@ -80,6 +80,34 @@ fn invalid_block_result<'a>(
     ))
 }
 
+/// Reject a block that contains a non-final transaction.
+///
+/// Bitcoin `ContextualCheckBlock`: after CSV (BIP112) the locktime cutoff is
+/// the median time past; before that it is the block header time.
+fn enforce_tx_finality(
+    block: &Block,
+    height: Natural,
+    context: &BlockValidationContext,
+) -> std::result::Result<(), String> {
+    let csv_active = context.is_fork_active(ForkId::Bip112, height);
+    let header_time = block.header.timestamp;
+    let lock_time_cutoff = if csv_active {
+        context
+            .time_context
+            .map(|ctx| ctx.median_time_past)
+            .filter(|&mtp| mtp > 0)
+            .unwrap_or(header_time)
+    } else {
+        header_time
+    };
+    for (i, tx) in block.transactions.iter().enumerate() {
+        if !crate::mempool::is_final_tx(tx, height, lock_time_cutoff) {
+            return Err(format!("non-final transaction {i}"));
+        }
+    }
+    Ok(())
+}
+
 /// Defer [`invalid_block_result`] until the script pre-queue loop owns `utxo_set` again.
 #[cfg(all(feature = "production", feature = "rayon"))]
 #[derive(Debug)]
@@ -353,6 +381,10 @@ pub(crate) fn connect_block_inner<'a>(
     let network = context.network;
     let bip54_boundary = context.bip54_boundary;
     let bip54_active = context.is_fork_active(ForkId::Bip54, height);
+
+    if let Err(msg) = enforce_tx_finality(block, height, context) {
+        return invalid_block_result(utxo_set, &[], msg);
+    }
 
     // Preconditions: reject bad inputs without panicking (witness/API misuse or state overflow).
     if height > i64::MAX as u64 {
