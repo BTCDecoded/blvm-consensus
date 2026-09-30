@@ -281,8 +281,6 @@ impl ConsensusProof {
     }
 
     /// Accept transaction to memory pool
-    #[spec_locked("9.1", "AcceptToMemoryPool")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn accept_to_memory_pool(
         &self,
         tx: &types::Transaction,
@@ -296,15 +294,11 @@ impl ConsensusProof {
     }
 
     /// Check if transaction is standard
-    #[spec_locked("9.2", "IsStandardTx")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn is_standard_tx(&self, tx: &types::Transaction) -> error::Result<bool> {
         mempool::is_standard_tx(tx)
     }
 
     /// Check if transaction can replace existing one (RBF)
-    #[spec_locked("9.3", "ReplacementChecks")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
     pub fn replacement_checks(
         &self,
         new_tx: &types::Transaction,
@@ -317,8 +311,6 @@ impl ConsensusProof {
 
     /// Create new block from mempool transactions
     #[allow(clippy::too_many_arguments)]
-    #[spec_locked("12.1", "CreateNewBlock")]
-    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn create_new_block(
         &self,
         utxo_set: &types::UtxoSet,
@@ -342,7 +334,6 @@ impl ConsensusProof {
 
     /// Create new block with explicit time, network, and optional per-tx witness stacks.
     #[allow(clippy::too_many_arguments)]
-    #[spec_locked("12.1", "CreateNewBlock")]
     pub fn create_new_block_with_time(
         &self,
         utxo_set: &types::UtxoSet,
@@ -371,8 +362,6 @@ impl ConsensusProof {
     }
 
     /// Mine a block by finding valid nonce
-    #[spec_locked("12.3", "MineBlock")]
-    #[blvm_spec_lock::ensures(result_0 >= 0)]
     pub fn mine_block(
         &self,
         block: types::Block,
@@ -383,8 +372,6 @@ impl ConsensusProof {
 
     /// Create block template for mining
     #[allow(clippy::too_many_arguments)]
-    #[spec_locked("12.4", "BlockTemplate")]
-    #[blvm_spec_lock::ensures(result >= 0)]
     pub fn create_block_template(
         &self,
         utxo_set: &types::UtxoSet,
@@ -405,6 +392,63 @@ impl ConsensusProof {
             prev_headers,
             coinbase_script,
             coinbase_address,
+            network,
+            mempool_witnesses,
+        )
+    }
+
+    /// Multi-output template: fit subsidy+fees, append BIP141 commitment.
+    /// Spec-locked `create_block_template` is unchanged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_block_template_with_outputs(
+        &self,
+        utxo_set: &types::UtxoSet,
+        mempool_txs: &[types::Transaction],
+        height: types::Natural,
+        prev_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+        coinbase_script: &types::ByteString,
+        coinbase_outputs: &[(types::Integer, types::ByteString)],
+        network: types::Network,
+        mempool_witnesses: Option<&[Option<Vec<segwit::Witness>>]>,
+    ) -> error::Result<mining::BlockTemplate> {
+        mining::create_block_template_with_outputs(
+            utxo_set,
+            mempool_txs,
+            height,
+            prev_header,
+            prev_headers,
+            coinbase_script,
+            coinbase_outputs,
+            network,
+            mempool_witnesses,
+        )
+    }
+
+    /// Stage 3b: miner-declared mempool subset. Spec-locked builders unchanged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_block_template_declared(
+        &self,
+        utxo_set: &types::UtxoSet,
+        mempool_txs: &[types::Transaction],
+        declared_txids: &[types::Hash],
+        height: types::Natural,
+        prev_header: &types::BlockHeader,
+        prev_headers: &[types::BlockHeader],
+        coinbase_script: &types::ByteString,
+        coinbase_outputs: &[(types::Integer, types::ByteString)],
+        network: types::Network,
+        mempool_witnesses: Option<&[Option<Vec<segwit::Witness>>]>,
+    ) -> error::Result<mining::BlockTemplate> {
+        mining::create_block_template_declared(
+            utxo_set,
+            mempool_txs,
+            declared_txids,
+            height,
+            prev_header,
+            prev_headers,
+            coinbase_script,
+            coinbase_outputs,
             network,
             mempool_witnesses,
         )

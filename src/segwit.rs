@@ -289,6 +289,18 @@ pub fn validate_witness_commitment(
     Ok(ok_disc != 0)
 }
 
+/// BIP141 coinbase OP_RETURN: `OP_RETURN 0x24 0xaa21a9ed || sha256d(root || nonce)`.
+pub fn witness_commitment_script(witness_root: &Hash, nonce: &[u8; 32]) -> ByteString {
+    let mut preimage = [0u8; 64];
+    preimage[..32].copy_from_slice(witness_root);
+    preimage[32..].copy_from_slice(nonce);
+    let commitment = sha256d_bytes(&preimage);
+    let mut script = vec![OP_RETURN, 0x24];
+    script.extend_from_slice(&[0xaa, 0x21, 0xa9, 0xed]);
+    script.extend_from_slice(&commitment);
+    script
+}
+
 /// Extract the 32-byte commitment hash from a coinbase OP_RETURN witness commitment output.
 /// Orange Paper 11.1.5: Witness commitment in coinbase OP_RETURN output.
 ///
