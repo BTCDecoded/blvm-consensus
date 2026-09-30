@@ -231,7 +231,7 @@ pub fn create_block_template(
     let coinbase_tx = block.transactions[0].clone();
 
     Ok(BlockTemplate {
-        header: block.header,
+        header: block.header.clone(),
         coinbase_tx,
         transactions: block.transactions[1..].to_vec(),
         target,
