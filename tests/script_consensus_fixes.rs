@@ -6,7 +6,8 @@ use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use blvm_consensus::activation::ForkActivationTable;
 use blvm_consensus::block::get_block_script_verify_flags_core;
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DROP, OP_ELSE, OP_ENDIF, OP_IF, PUSH_32_BYTES,
+    OP_0, OP_1, OP_ADD, OP_CAT, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DROP, OP_ELSE, OP_ENDIF, OP_IF,
+    OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF, PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT,
@@ -388,6 +389,46 @@ fn tapscript_requires_one_truthy_stack_item() {
     assert!(!spend_tapscript(vec![OP_1, OP_1], vec![], flags));
     assert!(!spend_tapscript(vec![OP_0], vec![], flags));
     assert!(spend_tapscript(vec![OP_1], vec![], flags));
+}
+
+fn dead_branch(opcode: u8) -> Vec<u8> {
+    vec![OP_0, OP_IF, opcode, OP_ENDIF, OP_1]
+}
+
+fn pushdata2(len: usize, byte: u8) -> Vec<u8> {
+    let mut script = vec![OP_0, OP_IF, OP_PUSHDATA2];
+    script.extend_from_slice(&(len as u16).to_le_bytes());
+    script.extend(std::iter::repeat(byte).take(len));
+    script.extend_from_slice(&[OP_ENDIF, OP_1]);
+    script
+}
+
+#[test]
+fn dead_branch_rejects_disabled_opcode_and_verif() {
+    assert!(!p2wsh_ok(dead_branch(OP_CAT), true));
+    assert!(p2wsh_ok(dead_branch(OP_NOP), true));
+    assert!(p2wsh_ok(dead_branch(OP_ADD), true));
+    assert!(!p2wsh_ok(dead_branch(OP_VERIF), true));
+}
+
+#[test]
+fn legacy_dead_branch_keeps_ver_and_rejects_cat() {
+    let cat = one_input_tx(vec![]);
+    let cat_script = dead_branch(OP_CAT);
+    assert!(!verify(&cat, &cat_script, None, 0, 10_000, Some(100)));
+    let ver = one_input_tx(vec![]);
+    let ver_script = dead_branch(OP_VER);
+    assert!(verify(&ver, &ver_script, None, 0, 10_000, Some(100)));
+}
+
+#[test]
+fn dead_branch_rejects_oversized_push() {
+    let flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT;
+    let too_big = pushdata2(blvm_consensus::MAX_SCRIPT_ELEMENT_SIZE + 1, 0x11);
+    let small = pushdata2(1, 0x11);
+    assert!(!p2wsh_ok(too_big.clone(), true));
+    assert!(p2wsh_ok(small, true));
+    assert!(!spend_tapscript(too_big, vec![], flags));
 }
 
 #[test]

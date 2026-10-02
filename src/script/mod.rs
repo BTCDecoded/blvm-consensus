@@ -440,6 +440,32 @@ pub(crate) fn is_op_success(opcode: u8) -> bool {
     )
 }
 
+/// Opcodes that fail even when the current branch does not execute.
+///
+/// The numeric disabled set is not `OP_2MUL..=OP_RSHIFT`: that span includes
+/// `OP_NEGATE`, `OP_ABS`, `OP_NOT`, `OP_0NOTEQUAL`, `OP_ADD`, and `OP_SUB`.
+fn dead_branch_opcode_error(opcode: u8) -> Option<ScriptErrorCode> {
+    let disabled = matches!(
+        opcode,
+        OP_CAT..=OP_RIGHT
+            | OP_INVERT..=OP_XOR
+            | OP_2MUL
+            | OP_2DIV
+            | OP_MUL
+            | OP_DIV
+            | OP_MOD
+            | OP_LSHIFT
+            | OP_RSHIFT
+    );
+    if disabled {
+        return Some(ScriptErrorCode::DisabledOpcode);
+    }
+    if opcode == OP_VERIF || opcode == OP_VERNOTIF {
+        return Some(ScriptErrorCode::BadOpcode);
+    }
+    None
+}
+
 /// Advance past one opcode + its push data in a script byte slice.
 /// Returns the number of bytes to skip (always >= 1).
 #[inline]
@@ -572,19 +598,18 @@ fn eval_script_inner(
                 (&script[data_start..data_end], advance)
             };
 
+            if data.len() > MAX_SCRIPT_ELEMENT_SIZE {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::PushSize,
+                    message: format!(
+                        "Push data size {} exceeds maximum {}",
+                        data.len(),
+                        MAX_SCRIPT_ELEMENT_SIZE
+                    )
+                    .into(),
+                });
+            }
             if !in_false_branch {
-                let max_element = MAX_SCRIPT_ELEMENT_SIZE;
-                if data.len() > max_element {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::PushSize,
-                        message: format!(
-                            "Push data size {} exceeds maximum {}",
-                            data.len(),
-                            max_element
-                        )
-                        .into(),
-                    });
-                }
                 stack.push(to_stack_element(data));
             }
             i += advance;
@@ -705,6 +730,13 @@ fn eval_script_inner(
             }
             _ => {
                 if in_false_branch {
+                    if let Some(code) = dead_branch_opcode_error(opcode) {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code,
+                            message: format!("opcode 0x{opcode:02x} is invalid in an unexecuted branch")
+                                .into(),
+                        });
+                    }
                     i += 1;
                     continue;
                 }
@@ -4321,20 +4353,19 @@ fn eval_script_with_context_full_inner(
                 (&script[data_start..data_end], advance)
             };
 
+            if data.len() > MAX_SCRIPT_ELEMENT_SIZE {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::PushSize,
+                    message: format!(
+                        "Push data size {} exceeds maximum {}",
+                        data.len(),
+                        MAX_SCRIPT_ELEMENT_SIZE
+                    )
+                    .into(),
+                });
+            }
             // Only push data if not in a non-executing branch
             if !in_false_branch {
-                let max_element = MAX_SCRIPT_ELEMENT_SIZE;
-                if data.len() > max_element {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::PushSize,
-                        message: format!(
-                            "Push data size {} exceeds maximum {}",
-                            data.len(),
-                            max_element
-                        )
-                        .into(),
-                    });
-                }
                 stack.push(to_stack_element(data));
             }
             i += advance;
@@ -4659,6 +4690,13 @@ fn eval_script_with_context_full_inner(
             }
             _ => {
                 if in_false_branch {
+                    if let Some(code) = dead_branch_opcode_error(opcode) {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code,
+                            message: format!("opcode 0x{opcode:02x} is invalid in an unexecuted branch")
+                                .into(),
+                        });
+                    }
                     i += 1;
                     continue;
                 }
