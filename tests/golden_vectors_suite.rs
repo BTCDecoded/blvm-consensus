@@ -12,10 +12,12 @@ mod golden_vectors;
 
 use blvm_consensus::block::{apply_transaction, calculate_tx_id};
 use blvm_consensus::crypto::OptimizedSha256;
-use blvm_consensus::locktime::{get_locktime_type, get_locktime_type_timestamp, LocktimeType};
+use blvm_consensus::locktime::{LocktimeType, get_locktime_type, get_locktime_type_timestamp};
 use blvm_consensus::mempool::is_final_tx;
 use blvm_consensus::mining::compute_merkle_root_and_mutated;
-use blvm_consensus::segwit::{compute_witness_merkle_root_from_nested, validate_witness_commitment};
+use blvm_consensus::segwit::{
+    compute_witness_merkle_root_from_nested, validate_witness_commitment,
+};
 use blvm_consensus::serialization::transaction::deserialize_transaction_with_witness;
 use blvm_consensus::serialization::varint::{decode_varint, encode_varint};
 use blvm_consensus::transaction::{check_transaction, check_tx_inputs, is_coinbase};
@@ -115,10 +117,7 @@ fn golden_first_payment_check_tx_inputs_and_apply() {
     assert_eq!(out1.height, 170);
     assert!(!out0.is_coinbase);
     assert!(!out1.is_coinbase);
-    assert_eq!(
-        next.values().map(|u| u.value).sum::<i64>(),
-        5_000_000_000
-    );
+    assert_eq!(next.values().map(|u| u.value).sum::<i64>(), 5_000_000_000);
 }
 
 /// Duplicate prevout is rejected by CheckTransaction (rule 4).
@@ -140,7 +139,10 @@ fn golden_block9_coinbase_funds_first_payment() {
     let decoded = assert_tx_roundtrip(BLOCK9_COINBASE_HEX);
     let tx = &decoded.tx;
 
-    assert_eq!(calculate_tx_id(tx), hash_from_display(BLOCK9_COINBASE_TXID_DISPLAY));
+    assert_eq!(
+        calculate_tx_id(tx),
+        hash_from_display(BLOCK9_COINBASE_TXID_DISPLAY)
+    );
     assert_eq!(tx.outputs.len(), 1);
     assert_eq!(tx.outputs[0].value, 5_000_000_000);
     assert!(is_coinbase(tx));
@@ -258,7 +260,10 @@ fn golden_genesis_block() {
     assert_eq!(header.timestamp, 1_231_006_505);
     assert_eq!(header.bits, 0x1d00_ffff);
     assert_eq!(header.nonce, 2_083_236_893);
-    assert_eq!(block_hash(header), hash_from_display(GENESIS_BLOCK_HASH_DISPLAY));
+    assert_eq!(
+        block_hash(header),
+        hash_from_display(GENESIS_BLOCK_HASH_DISPLAY)
+    );
 
     assert_eq!(block.transactions.len(), 1);
     let coinbase = &block.transactions[0];
@@ -306,10 +311,7 @@ fn golden_block1_header_extends_genesis() {
     let header = assert_header_roundtrip(BLOCK_1_HEADER_HEX);
 
     assert_eq!(block_hash(&header), hash_from_display(BLOCK_1_HASH_DISPLAY));
-    assert_eq!(
-        header.prev_block_hash,
-        block_hash(&genesis.block.header)
-    );
+    assert_eq!(header.prev_block_hash, block_hash(&genesis.block.header));
 }
 
 // --- Encoding and crypto ---
@@ -442,7 +444,10 @@ fn golden_block_481824_segwit_activation_fixture() {
     assert_eq!(header.timestamp, 1_503_539_857);
     assert_eq!(header.bits, 0x1801_3ce9);
     assert_eq!(header.nonce, 575_995_682);
-    assert_eq!(block_hash(header), hash_from_display(BLOCK_481824_HASH_DISPLAY));
+    assert_eq!(
+        block_hash(header),
+        hash_from_display(BLOCK_481824_HASH_DISPLAY)
+    );
     assert_eq!(decoded.block.transactions.len(), 1866);
 
     let coinbase_bytes = tx_roundtrip_bytes(
@@ -453,9 +458,8 @@ fn golden_block_481824_segwit_activation_fixture() {
     assert_eq!(coinbase_bytes, hex_decode(SEGWIT_COINBASE_HEX));
 
     let first_spend_bytes = hex_decode(FIRST_SEGWIT_SPEND_HEX);
-    let first_spend_txid = hash_from_display(
-        "c586389e5e4b3acb9d6c8be1c19ae8ab2795397633176f5a6442a261bbdefc3a",
-    );
+    let first_spend_txid =
+        hash_from_display("c586389e5e4b3acb9d6c8be1c19ae8ab2795397633176f5a6442a261bbdefc3a");
     let embedded = decoded
         .block
         .transactions

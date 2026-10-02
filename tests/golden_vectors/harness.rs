@@ -110,10 +110,7 @@ pub fn assert_block_roundtrip(hex: &str) -> DecodedBlock {
     let decoded = decode_block_full(&bytes);
     let include_witness = block_has_witness_data(&decoded.witnesses);
     let roundtrip = block_roundtrip_bytes(&decoded.block, &decoded.witnesses, include_witness);
-    assert_eq!(
-        roundtrip, bytes,
-        "block re-encode must match mainnet bytes"
-    );
+    assert_eq!(roundtrip, bytes, "block re-encode must match mainnet bytes");
     decoded
 }
 

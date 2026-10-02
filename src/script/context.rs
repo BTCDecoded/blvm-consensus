@@ -25,6 +25,8 @@ pub struct ScriptContext<'a> {
     pub tapscript_for_sighash: Option<&'a [u8]>,
     pub tapscript_codesep_pos: Option<u32>,
     pub taproot_annex_hash: Option<&'a Hash>,
+    /// Remaining BIP342 validation weight. Set only while executing tapscript.
+    pub tapscript_validation_weight: Option<&'a std::cell::Cell<i64>>,
     #[cfg(feature = "production")]
     pub schnorr_collector: Option<&'a crate::bip348::SchnorrSignatureCollector>,
     #[cfg(feature = "production")]

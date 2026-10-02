@@ -39,9 +39,6 @@ tls_u64!(
     BATCH_SOA_EXTRACT_NS,
     BATCH_SECP_VERIFY_NS,
     BATCH_CACHE_WRITE_NS,
-    DRAIN_SHARD_COPY_NS,
-    DRAIN_PARSE_NS,
-    DRAIN_SECP_NS,
     ECDSA_CACHE_HITS,
     ECDSA_CACHE_MISSES,
     // process_check arm counts / ns (IBD dens attribution)
@@ -190,21 +187,6 @@ pub fn add_batch_cache_write_ns(ns: u64) {
 }
 
 #[inline(always)]
-pub fn add_drain_shard_copy_ns(ns: u64) {
-    add(&DRAIN_SHARD_COPY_NS, ns);
-}
-
-#[inline(always)]
-pub fn add_drain_parse_ns(ns: u64) {
-    add(&DRAIN_PARSE_NS, ns);
-}
-
-#[inline(always)]
-pub fn add_drain_secp_ns(ns: u64) {
-    add(&DRAIN_SECP_NS, ns);
-}
-
-#[inline(always)]
 pub fn add_ecdsa_cache_hit() {
     add(&ECDSA_CACHE_HITS, 1);
 }
@@ -295,14 +277,6 @@ pub fn get_and_reset_fallback_shape_stats() -> (u64, u64, u64, u64, u64, u64, u6
         take(&FB_NATIVE_WIT_NS),
         take(&FB_OTHER_N),
         take(&FB_OTHER_NS),
-    )
-}
-
-pub fn get_and_reset_drain_timing() -> (u64, u64, u64) {
-    (
-        take(&DRAIN_SHARD_COPY_NS),
-        take(&DRAIN_PARSE_NS),
-        take(&DRAIN_SECP_NS),
     )
 }
 

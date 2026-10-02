@@ -154,6 +154,16 @@ pub fn strip_taproot_annex(witness: &Witness) -> (Cow<'_, Witness>, Option<Hash>
     (Cow::Borrowed(witness), None)
 }
 
+/// Bitcoin `GetSerializeSize` of a witness stack: compact-size count plus each element.
+pub fn witness_stack_serialize_size(witness: &[impl AsRef<[u8]>]) -> i64 {
+    let mut n = encode_varint(witness.len() as u64).len();
+    for item in witness {
+        let item = item.as_ref();
+        n += encode_varint(item.len() as u64).len() + item.len();
+    }
+    n as i64
+}
+
 /// SHA256 of the annex element for Taproot sighash (BIP341 annex hash step).
 fn compute_taproot_annex_sighash_hash(annex: &[u8]) -> Hash {
     use sha2::{Digest, Sha256};
@@ -175,8 +185,8 @@ pub struct TaprootControlBlock {
 
 /// Parse and validate Taproot script-path witness.
 /// Returns (tapscript, stack_items) if valid, Err otherwise.
-/// Witness format: [stack_items..., script, annex?, control_block]
-/// Annex: optional, last element before control block, must start with 0x50.
+/// Witness format after `strip_taproot_annex`: [stack_items..., script, control_block].
+/// Annex is the original last element when it starts with 0x50, and is not parsed here.
 /// Control block: leaf_version (1) + internal_pubkey (32) + merkle_proof (32*n).
 #[spec_locked("11.2.4", "ParseTaprootScriptPathWitness")]
 pub fn parse_taproot_script_path_witness(
@@ -209,17 +219,9 @@ pub fn parse_taproot_script_path_witness(
         })
         .collect();
 
-    let script_idx = if witness.len() >= 3 {
-        let maybe_annex = &witness[witness.len() - 2];
-        if maybe_annex.first() == Some(&0x50) {
-            witness.len() - 3
-        } else {
-            witness.len() - 2
-        }
-    } else {
-        witness.len() - 2
-    };
-
+    // Annex is stripped once, by `strip_taproot_annex`, before this parse.
+    // The element before the control block is the tapscript even when it starts with 0x50.
+    let script_idx = witness.len() - 2;
     let tapscript = witness[script_idx].clone();
     let stack_items: Vec<ByteString> = witness[..script_idx].to_vec();
 

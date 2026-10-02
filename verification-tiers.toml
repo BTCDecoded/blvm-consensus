@@ -14,7 +14,7 @@
 #   No spec_locked required; equivalence harnesses validate against reference.
 
 [tier1]
-# Full Z3/Kani body proof required; unsupported_translation = CI fail
+# Full Z3 body proof required; unsupported_translation = CI fail
 functions = [
   "get_block_subsidy",
   "expand_target",

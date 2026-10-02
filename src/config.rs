@@ -302,15 +302,14 @@ impl ConsensusConfig {
 
 /// Global consensus configuration (cached at first use).
 ///
-/// Uses a single OnceLock — from_env() runs once, then we clone. No init_consensus_config;
-/// the node can extend from_env (e.g. config file path in env) later if needed.
+/// Uses a single OnceLock — from_env() runs once, then we clone.
+/// `init_consensus_config` overrides that cache when the node loads config.
 /// CRITICAL: Was re-running 50+ std::env::var() per block before caching.
 static GLOBAL_CONSENSUS_CONFIG: std::sync::OnceLock<ConsensusConfig> = std::sync::OnceLock::new();
 
-/// Initialize global consensus configuration (optional, for tests or future node use).
+/// Initialize global consensus configuration.
 ///
 /// If called before any get_consensus_config(), overrides the default from-env config.
-#[allow(dead_code)] // Reserved for when node loads config from file
 pub fn init_consensus_config(config: ConsensusConfig) {
     let _ = GLOBAL_CONSENSUS_CONFIG.set(config);
 }

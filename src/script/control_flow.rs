@@ -2,8 +2,6 @@
 
 use blvm_spec_lock::spec_locked;
 
-use crate::opcodes::*;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlBlock {
     If { executing: bool },
@@ -21,17 +19,9 @@ pub(crate) fn in_false_branch(control_stack: &[ControlBlock]) -> bool {
     })
 }
 
-/// Minimal IF/NOTIF condition encoding (MINIMALIF).
-/// Valid encodings: empty (false), or single byte 0, 1..16, or OP_1..OP_16.
+/// Minimal IF/NOTIF argument. Core accepts only the empty vector or exactly `[0x01]`.
 #[spec_locked("5.2.4", "IsMinimalIfCondition")]
 #[blvm_spec_lock::ensures(result == false || bytes.len() <= 1)]
 pub(crate) fn is_minimal_if_condition(bytes: &[u8]) -> bool {
-    match bytes.len() {
-        0 => true, // empty = minimal false
-        1 => {
-            let b = bytes[0];
-            b == 0 || (1..=16).contains(&b) || (OP_1..=OP_16).contains(&b)
-        }
-        _ => false,
-    }
+    bytes.is_empty() || bytes == [0x01]
 }

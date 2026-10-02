@@ -366,38 +366,6 @@ impl SighashType {
     }
 }
 
-/// Common sighash patterns (documentation; cache applies to all).
-#[cfg(feature = "production")]
-#[allow(dead_code)]
-#[inline]
-fn is_cacheable_sighash_pattern(
-    tx: &Transaction,
-    input_index: usize,
-    sighash_type: SighashType,
-) -> bool {
-    if sighash_type.is_anyonecanpay() {
-        return false;
-    }
-    // SIGHASH_ALL: 1-in-1-out, 1-in-2-out, 2-in-1-out, 2-in-2-out, 1-in-N, N-in-1 (N<=4)
-    let base = sighash_type.base_type();
-    if base == 0x01 || base == 0x00 {
-        let ni = tx.inputs.len();
-        let no = tx.outputs.len();
-        (ni == 1 && (1..=4).contains(&no))
-            || ((1..=4).contains(&ni) && no == 1)
-            || (ni == 2 && no == 2)
-            || (ni == 1 && no == 1)
-    } else if base == 0x02 {
-        // SIGHASH_NONE: no outputs
-        !tx.inputs.is_empty() && tx.inputs.len() <= 4
-    } else if base == 0x03 {
-        // SIGHASH_SINGLE: output at input index
-        input_index < tx.outputs.len() && tx.inputs.len() <= 4
-    } else {
-        false
-    }
-}
-
 /// Compute sighash with cache. First hash (of preimage) is cache key.
 /// On hit: return cached double-SHA256. On miss: compute, cache, return.
 /// Uses OptimizedSha256 (SHA-NI when available) for ~10× faster hashing vs generic sha2.

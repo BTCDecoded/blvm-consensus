@@ -368,6 +368,9 @@ pub fn try_verify_p2tr_unexec_if_fast_path(
         Ok(None) | Err(_) => return None,
     };
     let (tapscript, stack_items, control_block) = parsed;
+    if control_block.leaf_version != crate::taproot::TAPROOT_LEAF_VERSION_TAPSCRIPT {
+        return None;
+    }
     if stack_items.len() != 1 {
         return None;
     }

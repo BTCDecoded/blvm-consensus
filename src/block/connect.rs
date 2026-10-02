@@ -230,7 +230,6 @@ fn n_crypto_drain_threads() -> usize {
 
 /// HASH160(pubkey) from a standard P2PKH scriptSig (`<sig> <pubkey>`).
 #[cfg(feature = "production")]
-#[allow(dead_code)] // legacy sequential paths; production+rayon uses ScriptCheckQueue
 fn try_precompute_p2pkh_hash160(script_sig: &[u8]) -> Option<[u8; 20]> {
     use digest::Digest;
     let (_, pubkey) = crate::script::parse_p2pkh_script_sig(script_sig)?;
@@ -1407,7 +1406,7 @@ pub(crate) fn connect_block_inner<'a>(
                         None
                     };
 
-                    // Small-block fast path: skip ScriptCheckQueue overhead for blocks with <32 inputs.
+                    // Below 32 inputs, `use_serial_path` stays on.
                     const SMALL_BLOCK_THRESHOLD: usize = 32;
                     let precomputed_sighashes_arc = Arc::new(precomputed_sighashes);
                     let precomputed_p2pkh_hashes_arc = Arc::new(precomputed_p2pkh_hashes);
@@ -2828,8 +2827,6 @@ pub(crate) fn connect_block_inner<'a>(
                     ) = crate::script_profile::get_and_reset_worker_timing();
                     let (batch_extract_ns, batch_secp_ns, batch_cache_ns) =
                         crate::script_profile::get_and_reset_batch_phase_timing();
-                    let (drain_copy_ns, drain_parse_ns, drain_secp_ns) =
-                        crate::script_profile::get_and_reset_drain_timing();
                     let (ecdsa_cache_hits, ecdsa_cache_misses) =
                         crate::script_profile::get_and_reset_ecdsa_cache_stats();
                     let (
@@ -2877,13 +2874,10 @@ pub(crate) fn connect_block_inner<'a>(
                     let batch_extract_ms = batch_extract_ns as f64 / 1_000_000.0;
                     let batch_secp_ms = batch_secp_ns as f64 / 1_000_000.0;
                     let batch_cache_ms = batch_cache_ns as f64 / 1_000_000.0;
-                    let drain_copy_ms = drain_copy_ns as f64 / 1_000_000.0;
-                    let drain_parse_ms = drain_parse_ns as f64 / 1_000_000.0;
-                    let drain_secp_ms = drain_secp_ns as f64 / 1_000_000.0;
                     // script_checks_queued = inputs sent to ScriptCheckQueue (0 when assume-valid skips signatures).
                     // (Former field ecdsa_sigs was always 0 here — misleading vs real verification.)
                     profile_log!(
-                        "[PERF] Block {}: total={:?} (validation_loop={:?} batch={:?}), script_sub: sighash={:.2}ms interpreter={:.2}ms checkmultisig_ecdsa={:.2}ms p2pkh_entry={:.2}ms p2pkh_parse={:.2}ms p2pkh_hash160={:.2}ms p2pkh_bip66={:.2}ms p2pkh_collect={:.2}ms p2pkh_secp={:.2}ms collect_slot={:.2}ms collect_lock={:.2}ms collect_copy={:.2}ms collect_chunk={:.2}ms worker_refs={:.2}ms worker_p2pkh={:.2}ms worker_refs_lock={:.2}ms run_check_loop={:.2}ms results_extend={:.2}ms batch_extract={:.2}ms batch_secp={:.2}ms batch_cache={:.2}ms drain_copy={:.2}ms drain_parse={:.2}ms drain_secp={:.2}ms ecdsa_cache_hits={} ecdsa_cache_misses={}, arms: p2pkh={}/{:.2}ms p2pk={}/{:.2}ms p2sh_msig={}/{:.2}ms p2wpkh={}/{:.2}ms p2wsh={}/{:.2}ms fallback={}/{:.2}ms, fb_shapes: nested_p2wsh={}/{:.2}ms p2sh_other={}/{:.2}ms native_wit={}/{:.2}ms other={}/{:.2}ms, structure={:?}, input_lookup={:?}, check_inputs={:?}, overlay_apply={:?}, txs={} inputs={} schnorr_batch_sigs={} script_checks_queued={}",
+                        "[PERF] Block {}: total={:?} (validation_loop={:?} batch={:?}), script_sub: sighash={:.2}ms interpreter={:.2}ms checkmultisig_ecdsa={:.2}ms p2pkh_entry={:.2}ms p2pkh_parse={:.2}ms p2pkh_hash160={:.2}ms p2pkh_bip66={:.2}ms p2pkh_collect={:.2}ms p2pkh_secp={:.2}ms collect_slot={:.2}ms collect_lock={:.2}ms collect_copy={:.2}ms collect_chunk={:.2}ms worker_refs={:.2}ms worker_p2pkh={:.2}ms worker_refs_lock={:.2}ms run_check_loop={:.2}ms results_extend={:.2}ms batch_extract={:.2}ms batch_secp={:.2}ms batch_cache={:.2}ms ecdsa_cache_hits={} ecdsa_cache_misses={}, arms: p2pkh={}/{:.2}ms p2pk={}/{:.2}ms p2sh_msig={}/{:.2}ms p2wpkh={}/{:.2}ms p2wsh={}/{:.2}ms fallback={}/{:.2}ms, fb_shapes: nested_p2wsh={}/{:.2}ms p2sh_other={}/{:.2}ms native_wit={}/{:.2}ms other={}/{:.2}ms, structure={:?}, input_lookup={:?}, check_inputs={:?}, overlay_apply={:?}, txs={} inputs={} schnorr_batch_sigs={} script_checks_queued={}",
                         height,
                         total_with_batch,
                         total_script_time,
@@ -2909,9 +2903,6 @@ pub(crate) fn connect_block_inner<'a>(
                         batch_extract_ms,
                         batch_secp_ms,
                         batch_cache_ms,
-                        drain_copy_ms,
-                        drain_parse_ms,
-                        drain_secp_ms,
                         ecdsa_cache_hits,
                         ecdsa_cache_misses,
                         arm_p2pkh_n,

@@ -201,7 +201,7 @@ fn test_witness_v0_minimalif_rejects_non_minimal() {
 }
 
 #[test]
-fn test_unhandled_non_empty_witness_on_legacy_script_fails_closed() {
+fn test_unexpected_witness_is_ignored_unless_witness_flag_is_set() {
     let tx = Transaction {
         version: 2,
         inputs: vec![TransactionInput {
@@ -226,11 +226,26 @@ fn test_unhandled_non_empty_witness_on_legacy_script_fails_closed() {
     }];
     let witness = vec![vec![0x01, 0x02, 0x03]];
     assert!(
-        !verify_script_with_context(
+        verify_script_with_context(
             &tx.inputs[0].script_sig,
             &prevouts[0].script_pubkey,
             Some(&witness),
             0,
+            &tx,
+            0,
+            &prevouts,
+            None,
+            Network::Regtest,
+        )
+        .unwrap(),
+        "SCRIPT_VERIFY_WITNESS clear: Core ignores a non-empty witness"
+    );
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            Some(&witness),
+            blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS,
             &tx,
             0,
             &prevouts,

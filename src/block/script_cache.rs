@@ -4,12 +4,8 @@
 //! so block connect logic stays in the parent module.
 
 use crate::activation::{ForkActivationTable, IsForkActive};
-use crate::constants::*;
 use crate::opcodes::*;
-use crate::script::flags::{
-    SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
-    SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
-};
+use crate::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS};
 use crate::segwit::{Witness, is_segwit_transaction};
 use crate::transaction::is_coinbase;
 use crate::types::*;
@@ -104,18 +100,6 @@ fn add_per_tx_script_flags(
         && tx_requires_witness_script_flags(tx, has_witness)
     {
         flags |= 0x800;
-    }
-    if activation.is_fork_active(ForkId::Taproot, height) {
-        for output in &tx.outputs {
-            let script = &output.script_pubkey;
-            if script.len() == TAPROOT_SCRIPT_LENGTH
-                && script[0] == OP_1
-                && script[1] == PUSH_32_BYTES
-            {
-                flags |= 0x8000;
-                break;
-            }
-        }
     }
     flags
 }
@@ -221,12 +205,9 @@ pub fn get_block_script_verify_flags_core(
     activation: &impl IsForkActive,
     network: Network,
 ) -> u32 {
-    // Baseline: P2SH + WITNESS + WITNESS_PUBKEYTYPE + TAPROOT.
-    // TAPROOT is 0x20000 (bit 17). Using 0x8000 here was a bug — that is WITNESS_PUBKEYTYPE.
-    let mut flags = SCRIPT_VERIFY_P2SH
-        | SCRIPT_VERIFY_WITNESS
-        | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
-        | SCRIPT_VERIFY_TAPROOT;
+    // Baseline matches Bitcoin Core GetBlockScriptFlags: P2SH | WITNESS | TAPROOT.
+    // WITNESS_PUBKEYTYPE (0x8000) is standardness and is not set here.
+    let mut flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT;
     if let Some(v) = script_flag_exceptions_lookup(block_hash, network) {
         flags = v;
     }
@@ -594,18 +575,22 @@ mod script_flag_exceptions_tests {
         let table = ForkActivationTable::from_network(Network::Mainnet);
         let h = [0xabu8; 32];
         let flags = get_block_script_verify_flags_core(&h, 800_000, &table, Network::Mainnet);
-        // P2SH (0x1) | WITNESS (0x800) | WITNESS_PUBKEYTYPE (0x8000) | TAPROOT (0x20000)
+        // P2SH (0x1) | WITNESS (0x800) | TAPROOT (0x20000). WITNESS_PUBKEYTYPE is not a block flag.
         assert_eq!(
             flags
                 & (SCRIPT_VERIFY_P2SH
                     | SCRIPT_VERIFY_WITNESS
                     | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
                     | SCRIPT_VERIFY_TAPROOT),
-            SCRIPT_VERIFY_P2SH
-                | SCRIPT_VERIFY_WITNESS
-                | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE
-                | SCRIPT_VERIFY_TAPROOT,
-            "P2SH | WITNESS | WITNESS_PUBKEYTYPE | TAPROOT baseline"
+            SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT,
+            "P2SH | WITNESS | TAPROOT baseline"
+        );
+        assert_eq!(flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE, 0);
+        let pre_segwit = get_block_script_verify_flags_core(&h, 100, &table, Network::Mainnet);
+        assert_ne!(
+            pre_segwit & SCRIPT_VERIFY_WITNESS,
+            0,
+            "pre-segwit height still has WITNESS"
         );
         assert_ne!(flags & 0x04, 0, "DERSIG");
         assert_ne!(flags & 0x200, 0, "CLTV");

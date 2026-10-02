@@ -5,8 +5,9 @@ use blvm_consensus::taproot::{
     TAPROOT_LEAF_VERSION_TAPSCRIPT, TAPROOT_SCRIPT_PREFIX, Witness, compute_script_merkle_root,
     compute_taproot_signature_hash, compute_taproot_tweak, compute_tapscript_signature_hash,
     extract_taproot_output_key, is_taproot_output, parse_taproot_script_path_witness,
-    validate_taproot_key_aggregation, validate_taproot_script, validate_taproot_script_path,
-    validate_taproot_script_path_with_leaf_version, validate_taproot_transaction,
+    strip_taproot_annex, validate_taproot_key_aggregation, validate_taproot_script,
+    validate_taproot_script_path, validate_taproot_script_path_with_leaf_version,
+    validate_taproot_transaction,
 };
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
@@ -394,12 +395,34 @@ fn test_parse_taproot_script_path_with_annex() {
     let mut control_block = vec![TAPROOT_LEAF_VERSION_TAPSCRIPT | parity];
     control_block.extend_from_slice(&internal);
     let annex = vec![0x50, 0x01];
-    let witness: Witness = vec![vec![OP_1], tapscript.clone(), annex, control_block];
-    let parsed = parse_taproot_script_path_witness(&witness, &output_key)
+    // BIP341: annex is the last witness element. Parse runs on the stripped stack.
+    let witness: Witness = vec![vec![OP_1], tapscript.clone(), control_block, annex];
+    let (stripped, annex_hash) = strip_taproot_annex(&witness);
+    assert!(annex_hash.is_some());
+    let parsed = parse_taproot_script_path_witness(&stripped, &output_key)
         .unwrap()
         .expect("annex-bearing witness must parse");
     assert_eq!(parsed.0.as_slice(), tapscript.as_slice());
     assert_eq!(parsed.1.len(), 1);
+}
+
+#[test]
+fn test_parse_stripped_witness_script_starting_with_0x50() {
+    let internal = valid_internal_pubkey();
+    let tapscript = vec![0x50, OP_1];
+    let merkle_root =
+        compute_script_merkle_root(&tapscript, &[], TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    let (output_key, parity) =
+        blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(&internal, &merkle_root)
+            .unwrap();
+    let mut control_block = vec![TAPROOT_LEAF_VERSION_TAPSCRIPT | parity];
+    control_block.extend_from_slice(&internal);
+    let witness: Witness = vec![vec![0x01], tapscript.clone(), control_block];
+    let parsed = parse_taproot_script_path_witness(&witness, &output_key)
+        .unwrap()
+        .expect("script starting with 0x50 is the tapscript");
+    assert_eq!(parsed.0.as_slice(), tapscript.as_slice());
+    assert_eq!(parsed.1, vec![vec![0x01]]);
 }
 
 #[test]

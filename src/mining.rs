@@ -380,7 +380,9 @@ fn declared_tx_spends_witness_utxo(tx: &Transaction, utxo_set: &UtxoSet) -> bool
                 .and_then(|version| {
                     extract_witness_program(&script, version).map(|program| (version, program))
                 })
-                .is_some_and(|(version, program)| validate_witness_program_length(&program, version))
+                .is_some_and(|(version, program)| {
+                    validate_witness_program_length(&program, version)
+                })
         })
     })
 }
@@ -549,7 +551,10 @@ pub fn fit_payouts_to_reward(
         ));
     }
     let max = subsidy.saturating_add(fees);
-    let sum: Integer = payouts.iter().map(|(v, _)| *v).fold(0, |a, b| a.saturating_add(b));
+    let sum: Integer = payouts
+        .iter()
+        .map(|(v, _)| *v)
+        .fold(0, |a, b| a.saturating_add(b));
     if sum > max {
         return Err(crate::error::ConsensusError::EconomicValidation(
             format!("payouts {sum} exceed subsidy+fees {max}").into(),
@@ -1274,8 +1279,8 @@ mod tests {
             header,
             transactions: real_txs.clone().into_boxed_slice(),
         };
-        let root = crate::segwit::compute_witness_merkle_root_from_nested(&block, &nested, None)
-            .unwrap();
+        let root =
+            crate::segwit::compute_witness_merkle_root_from_nested(&block, &nested, None).unwrap();
         let expect = crate::segwit::witness_commitment_script(&root, &[0u8; 32]);
         assert_eq!(real_cb.outputs.last().unwrap().script_pubkey, expect);
     }
@@ -1952,7 +1957,10 @@ mod tests {
         assert!(tmpl.coinbase_tx.outputs.len() >= 3);
         let last = tmpl.coinbase_tx.outputs.last().unwrap();
         assert_eq!(last.value, 0);
-        assert_eq!(&last.script_pubkey[0..6], &[0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed]);
+        assert_eq!(
+            &last.script_pubkey[0..6],
+            &[0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed]
+        );
         assert_eq!(tmpl.coinbase_tx.outputs[1].script_pubkey, vec![OP_2]);
     }
 

@@ -198,7 +198,7 @@ fn test_base_script_flags_enable_nulldummy_at_segwit() {
 }
 
 #[test]
-fn test_script_flags_include_taproot_output_type_at_activation() {
+fn test_script_flags_do_not_force_witness_pubkeytype_for_taproot_output() {
     use blvm_consensus::constants::TAPROOT_ACTIVATION_MAINNET;
     use blvm_consensus::opcodes::PUSH_32_BYTES;
     let mut spk = vec![OP_1, PUSH_32_BYTES];
@@ -227,5 +227,5 @@ fn test_script_flags_include_taproot_output_type_at_activation() {
         TAPROOT_ACTIVATION_MAINNET,
         Network::Mainnet,
     );
-    assert_ne!(flags & 0x8000, 0);
+    assert_eq!(flags & 0x8000, 0);
 }

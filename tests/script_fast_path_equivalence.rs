@@ -673,7 +673,8 @@ fn build_unexec_if_spend(
     annex: Option<Vec<u8>>,
 ) -> (Transaction, Vec<u8>, blvm_consensus::witness::Witness, i64) {
     use blvm_consensus::taproot::{
-        TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, compute_tapscript_signature_hash,
+        TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root,
+        compute_tapscript_signature_hash,
     };
     use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
 

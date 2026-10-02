@@ -136,30 +136,6 @@ pub mod prefetch {
     }
 }
 
-/// Memory layout optimization: Compact stack frame
-///
-/// Compact stack frame for script execution optimization
-/// Optimized stack frame structure for cache locality.
-#[repr(C, packed)]
-pub struct CompactStackFrame {
-    pub opcode: u8,
-    pub flags: u32,
-    pub script_offset: u16,
-    pub stack_height: u16,
-}
-
-impl CompactStackFrame {
-    #[inline]
-    pub fn new(opcode: u8, flags: u32, script_offset: u16, stack_height: u16) -> Self {
-        Self {
-            opcode,
-            flags,
-            script_offset,
-            stack_height,
-        }
-    }
-}
-
 /// Inlining hints for hot functions
 ///
 /// Functions marked with HOT_INLINE should be aggressively inlined.
