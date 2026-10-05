@@ -7,7 +7,7 @@
 //! - **H01** — version ≥ 1 (floor; version 0 is rejected unconditionally)
 //! - **H03** — timestamp ≠ 0
 //! - **H04** — timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME (requires [`TimeContext`])
-//! - **H05** — timestamp ≥ median_time_past / BIP113 MTP (requires [`TimeContext`])
+//! - **H05** — timestamp > median_time_past / BIP113 MTP (requires [`TimeContext`])
 //! - **H06** — bits ≠ 0
 //! - merkle_root ≠ all-zeros (structural sanity only; full merkle verification is in ConnectBlock)
 //!
@@ -53,7 +53,7 @@ use blvm_spec_lock::spec_locked;
 /// * `time_context` - Optional time context for timestamp validation (BIP113).
 ///   If `None`, only H01/H03/H06 (version, non-zero timestamp, bits) are enforced.
 ///   If `Some`, also enforces H04 (timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME)
-///   and H05 (timestamp ≥ median_time_past).
+///   and H05 (timestamp > median_time_past).
 #[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
 #[spec_locked("5.3.1", "ValidBlockHeader")]
 #[inline]
@@ -74,7 +74,7 @@ pub(crate) fn validate_block_header(
         if header.timestamp > max_ts {
             return Ok(false);
         }
-        if header.timestamp < ctx.median_time_past {
+        if header.timestamp <= ctx.median_time_past {
             return Ok(false);
         }
     }
@@ -155,5 +155,36 @@ mod tests {
             ..parent
         };
         assert!(!validate_prev_block_hash(&child, &parent));
+    }
+
+    #[test]
+    fn validate_block_header_rejects_timestamp_equal_to_median() {
+        use crate::types::TimeContext;
+
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0u8; 32],
+            merkle_root: [1u8; 32],
+            timestamp: 1_000,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+        let ctx = TimeContext {
+            network_time: 2_000,
+            median_time_past: 1_000,
+        };
+        assert!(!validate_block_header(&header, Some(&ctx)).unwrap());
+
+        let earlier = BlockHeader {
+            timestamp: 999,
+            ..header
+        };
+        assert!(!validate_block_header(&earlier, Some(&ctx)).unwrap());
+
+        let later = BlockHeader {
+            timestamp: 1_001,
+            ..header
+        };
+        assert!(validate_block_header(&later, Some(&ctx)).unwrap());
     }
 }

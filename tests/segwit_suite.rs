@@ -232,6 +232,31 @@ fn test_coinbase_witness_must_be_exactly_one_32_byte_item() {
 }
 
 #[test]
+fn test_commitment_rejects_empty_reserved_value() {
+    let root = [0x33u8; 32];
+    let cb = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![OP_1].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 0,
+            script_pubkey: witness_commitment_script(&root, &[0u8; 32]).into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    assert!(!validate_witness_commitment(&cb, &root, &[]).unwrap());
+    assert!(!validate_witness_commitment(&cb, &root, &[vec![]]).unwrap());
+}
+
+#[test]
 fn test_validate_witness_commitment_accepts_missing_commitment_output() {
     let cb = coinbase(50_000_000_000);
     let root = [0x44u8; 32];

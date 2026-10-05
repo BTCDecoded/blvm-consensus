@@ -357,12 +357,12 @@ fn test_check_bip34_rejects_wrong_height_at_activation() {
 }
 
 #[test]
-fn test_check_bip34_errors_on_truncated_pushdata() {
+fn test_check_bip34_rejects_truncated_pushdata() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height);
     coinbase.inputs[0].script_sig = vec![0x4c, 0x05].into();
     let block = block_with_coinbase(coinbase);
-    assert!(check_bip34(&block, height, &ctx()).is_err());
+    assert!(!check_bip34(&block, height, &ctx()).unwrap());
 }
 
 #[test]
@@ -386,10 +386,10 @@ fn test_check_bip90_network_rejects_version_three_at_bip65() {
 }
 
 #[test]
-fn test_check_bip34_accepts_pushdata2_height_encoding() {
+fn test_check_bip34_rejects_pushdata2_height_encoding() {
     let height = BIP34_ACTIVATION_MAINNET;
     let block = block_with_coinbase(coinbase_with_pushdata2_height(height));
-    assert!(check_bip34(&block, height, &ctx()).unwrap());
+    assert!(!check_bip34(&block, height, &ctx()).unwrap());
 }
 
 #[test]
@@ -434,21 +434,21 @@ fn test_check_bip34_rejects_empty_script_sig_at_activation() {
 }
 
 #[test]
-fn test_check_bip34_errors_on_invalid_height_encoding() {
+fn test_check_bip34_rejects_invalid_height_encoding() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height);
     coinbase.inputs[0].script_sig = vec![0x4e, 0x01, 0x00, 0x00, 0x01].into();
     let block = block_with_coinbase(coinbase);
-    assert!(check_bip34(&block, height, &ctx()).is_err());
+    assert!(!check_bip34(&block, height, &ctx()).unwrap());
 }
 
 #[test]
-fn test_check_bip34_errors_on_height_value_too_large() {
+fn test_check_bip34_rejects_height_value_too_large() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height);
     coinbase.inputs[0].script_sig = vec![0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0].into();
     let block = block_with_coinbase(coinbase);
-    assert!(check_bip34(&block, height, &ctx()).is_err());
+    assert!(!check_bip34(&block, height, &ctx()).unwrap());
 }
 
 #[test]
@@ -486,12 +486,40 @@ fn test_check_bip147_network_requires_null_dummy_on_testnet() {
 }
 
 #[test]
-fn test_check_bip34_errors_on_truncated_direct_push() {
+fn test_check_bip34_rejects_truncated_direct_push() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height);
     coinbase.inputs[0].script_sig = vec![0x03, 0x01, 0x02].into();
     let block = block_with_coinbase(coinbase);
-    assert!(check_bip34(&block, height, &ctx()).is_err());
+    assert!(!check_bip34(&block, height, &ctx()).unwrap());
+}
+
+#[test]
+fn test_check_bip34_requires_minimal_height_push() {
+    let ctx = BlockValidationContext::for_network(Network::Regtest);
+    let mut canonical = coinbase_at_height(128);
+    canonical.inputs[0].script_sig = vec![0x02, 0x80, 0x00, 0xff].into();
+    assert!(check_bip34(&block_with_coinbase(canonical), 128, &ctx).unwrap());
+
+    let mut sign_byte = coinbase_at_height(128);
+    sign_byte.inputs[0].script_sig = vec![0x01, 0x80].into();
+    assert!(!check_bip34(&block_with_coinbase(sign_byte), 128, &ctx).unwrap());
+
+    let mut pushdata = coinbase_at_height(128);
+    pushdata.inputs[0].script_sig = vec![0x4c, 0x02, 0x80, 0x00].into();
+    assert!(!check_bip34(&block_with_coinbase(pushdata), 128, &ctx).unwrap());
+
+    let mut minimal = coinbase_at_height(127);
+    minimal.inputs[0].script_sig = vec![0x01, 0x7f].into();
+    assert!(check_bip34(&block_with_coinbase(minimal), 127, &ctx).unwrap());
+
+    let mut extra_zero = coinbase_at_height(127);
+    extra_zero.inputs[0].script_sig = vec![0x02, 0x7f, 0x00].into();
+    assert!(!check_bip34(&block_with_coinbase(extra_zero), 127, &ctx).unwrap());
+
+    let mut pushed_zero = coinbase_at_height(0);
+    pushed_zero.inputs[0].script_sig = vec![0x01, 0x00].into();
+    assert!(!check_bip34(&block_with_coinbase(pushed_zero), 0, &ctx).unwrap());
 }
 
 #[test]

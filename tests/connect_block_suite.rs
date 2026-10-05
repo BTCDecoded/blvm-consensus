@@ -729,7 +729,8 @@ fn test_connect_time_relative_lock_uses_prior_median() {
     seed_op1_utxo(&mut utxo_set, 0x65, 10_000, height - 20);
     let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
     let spend = spend_tx_seq(0x65, 9_000, 2, 0x0040_0000 | 1);
-    let block = block_with_txs_at(vec![coinbase, spend], mtp, 4);
+    // The block time must be strictly later than the median of these headers.
+    let block = block_with_txs_at(vec![coinbase, spend], mtp + 1, 4);
 
     let (result, _, _) = connect_with_ctx(&block, utxo_set.clone(), height, &ctx).unwrap();
     assert!(
@@ -834,6 +835,24 @@ fn test_connect_bip34_compliant_at_activation() {
 }
 
 #[test]
+fn test_connect_rejects_second_coinbase() {
+    let height = 1u64;
+    let first = coinbase_at_height(height, coinbase_value(height, 0));
+    let mut second = coinbase_at_height(height, 1);
+    second.inputs[0].script_sig = vec![OP_1, 0x02, 0x03].into();
+    let block = block_with_txs(vec![first, second], 1_231_006_505);
+    let (result, utxo, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("coinbase")),
+        "a second coinbase must not connect: {result:?}"
+    );
+    assert!(
+        utxo.is_empty(),
+        "a rejected coinbase must not create outputs"
+    );
+}
+
+#[test]
 fn test_connect_rejects_bip34_at_activation() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height, coinbase_value(height, 0));
@@ -910,6 +929,51 @@ fn test_connect_valid_segwit_witness_commitment() {
     assert!(
         matches!(result, ValidationResult::Valid),
         "SegWit block with valid witness commitment should connect: {result:?}"
+    );
+}
+
+#[test]
+fn test_connect_rejects_witness_data_without_commitment() {
+    let height = SEGWIT_ACTIVATION_MAINNET;
+    let subsidy = coinbase_value(height, 0);
+    let coinbase = coinbase_at_height(height, subsidy);
+    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let witnesses: Vec<Vec<Witness>> = vec![vec![vec![vec![0x11u8; 32]]]];
+    let (result, _, _) =
+        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("witness commitment")),
+        "witness data without a commitment must not connect: {result:?}"
+    );
+}
+
+#[test]
+fn test_connect_rejects_commitment_without_reserved_value() {
+    let height = SEGWIT_ACTIVATION_MAINNET;
+    let subsidy = coinbase_value(height, 0);
+    let bare = coinbase_at_height(height, subsidy);
+    let witnesses: Vec<Vec<Witness>> = vec![vec![]];
+    let temp = block_with_txs_at(vec![bare.clone()], 1_500_353_985, 4);
+    let witness_root =
+        compute_witness_merkle_root_from_nested(&temp, &witnesses, None).expect("witness root");
+    let mut coinbase = bare;
+    coinbase.outputs = vec![
+        TransactionOutput {
+            value: subsidy,
+            script_pubkey: vec![OP_1].into(),
+        },
+        TransactionOutput {
+            value: 0,
+            script_pubkey: witness_commitment_script(&witness_root, &[0u8; 32]).into(),
+        },
+    ]
+    .into();
+    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let (result, _, _) =
+        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("witness commitment")),
+        "a commitment with an empty reserved value must not connect: {result:?}"
     );
 }
 

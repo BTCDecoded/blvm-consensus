@@ -7,7 +7,7 @@
 
 use crate::activation::IsForkActive;
 use crate::block::calculate_tx_id;
-use crate::error::{ConsensusError, Result};
+use crate::error::Result;
 use crate::opcodes::{
     OP_0, OP_CHECKMULTISIG, OP_CHECKMULTISIGVERIFY, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4,
 };
@@ -125,33 +125,39 @@ pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActiv
             return Ok(true);
         }
 
-        // Extract height from coinbase scriptSig
-        // Height is encoded as CScriptNum at the beginning of scriptSig
-        let script_sig = &tx.inputs[0].script_sig;
-
-        if script_sig.is_empty() {
-            return Ok(false);
-        }
-
-        // Parse CScriptNum from scriptSig
-        // CScriptNum encoding: variable-length integer
-        // First byte indicates length and sign:
-        // - 0x00-0x4b: push data of that length (unsigned)
-        // - 0x4c: OP_PUSHDATA1, next byte is length
-        // - 0x4d: OP_PUSHDATA2, next 2 bytes are length
-        // - 0x4e: OP_PUSHDATA4, next 4 bytes are length
-        //
-        // For height encoding, it's typically a small number, so it's usually
-        // a direct push (0x01-0x4b) followed by the height bytes in little-endian.
-
-        let extracted_height = extract_height_from_script_sig(script_sig)?;
-
-        if extracted_height != height {
+        // The script must begin with the minimal push of this height.
+        // A longer encoding of the same integer is a different script.
+        if !script_sig_starts_with_height(&tx.inputs[0].script_sig, height) {
             return Ok(false);
         }
     }
 
     Ok(true)
+}
+
+/// True when `script_sig` begins with the minimal script-number push of `height`.
+///
+/// Height 0 is the single byte `OP_0`. A positive height is one length byte plus the
+/// little-endian magnitude. When the high bit of the last magnitude byte is set, one
+/// extra `0x00` follows so the number stays non-negative. Bytes after that prefix are
+/// ignored. `OP_PUSHDATA` and extra zero bytes are not this prefix.
+fn script_sig_starts_with_height(script_sig: &[u8], height: u64) -> bool {
+    let mut raw = [0u8; 9];
+    let mut n = height;
+    let mut len = 0usize;
+    while n > 0 {
+        raw[len] = (n & 0xff) as u8;
+        n >>= 8;
+        len += 1;
+    }
+    if len == 0 {
+        return script_sig.first().copied() == Some(0x00);
+    }
+    if raw[len - 1] & 0x80 != 0 {
+        raw[len] = 0x00;
+        len += 1;
+    }
+    script_sig.len() > len && script_sig[0] == len as u8 && script_sig[1..1 + len] == raw[..len]
 }
 
 /// BIP54: Consensus Cleanup activation (with optional override).
@@ -261,111 +267,6 @@ pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
         return false;
     }
     true
-}
-
-/// Extract block height from coinbase scriptSig (CScriptNum encoding)
-fn extract_height_from_script_sig(script_sig: &[u8]) -> Result<Natural> {
-    if script_sig.is_empty() {
-        return Err(ConsensusError::BlockValidation(
-            "Empty coinbase scriptSig".into(),
-        ));
-    }
-
-    let first_byte = script_sig[0];
-
-    // Handle OP_0 (0x00) → height 0
-    // In Bitcoin, CScriptNum(0).serialize() produces an empty vector,
-    // and CScript() << empty_vec pushes OP_0 (0x00).
-    if first_byte == 0x00 {
-        return Ok(0);
-    }
-
-    // Handle direct push (0x01-0x4b)
-    if (1..=0x4b).contains(&first_byte) {
-        let len = first_byte as usize;
-        if script_sig.len() < 1 + len {
-            return Err(ConsensusError::BlockValidation(
-                "Invalid scriptSig length".into(),
-            ));
-        }
-
-        let height_bytes = &script_sig[1..1 + len];
-
-        // Parse as little-endian integer
-        let mut height = 0u64;
-        for (i, &byte) in height_bytes.iter().enumerate() {
-            if i >= 8 {
-                return Err(ConsensusError::BlockValidation(
-                    "Height value too large".into(),
-                ));
-            }
-            height |= (byte as u64) << (i * 8);
-        }
-
-        return Ok(height);
-    }
-
-    // Handle OP_PUSHDATA1 (0x4c)
-    if first_byte == 0x4c {
-        if script_sig.len() < 2 {
-            return Err(ConsensusError::BlockValidation(
-                "Invalid OP_PUSHDATA1".into(),
-            ));
-        }
-        let len = script_sig[1] as usize;
-        if script_sig.len() < 2 + len {
-            return Err(ConsensusError::BlockValidation(
-                "Invalid scriptSig length".into(),
-            ));
-        }
-
-        let height_bytes = &script_sig[2..2 + len];
-
-        let mut height = 0u64;
-        for (i, &byte) in height_bytes.iter().enumerate() {
-            if i >= 8 {
-                return Err(ConsensusError::BlockValidation(
-                    "Height value too large".into(),
-                ));
-            }
-            height |= (byte as u64) << (i * 8);
-        }
-
-        return Ok(height);
-    }
-
-    // Handle OP_PUSHDATA2 (0x4d)
-    if first_byte == 0x4d {
-        if script_sig.len() < 3 {
-            return Err(ConsensusError::BlockValidation(
-                "Invalid OP_PUSHDATA2".into(),
-            ));
-        }
-        let len = u16::from_le_bytes([script_sig[1], script_sig[2]]) as usize;
-        if script_sig.len() < 3 + len {
-            return Err(ConsensusError::BlockValidation(
-                "Invalid scriptSig length".into(),
-            ));
-        }
-
-        let height_bytes = &script_sig[3..3 + len];
-
-        let mut height = 0u64;
-        for (i, &byte) in height_bytes.iter().enumerate() {
-            if i >= 8 {
-                return Err(ConsensusError::BlockValidation(
-                    "Height value too large".into(),
-                ));
-            }
-            height |= (byte as u64) << (i * 8);
-        }
-
-        return Ok(height);
-    }
-
-    Err(ConsensusError::BlockValidation(
-        "Invalid height encoding in scriptSig".into(),
-    ))
 }
 
 // Network type is now in crate::types::Network

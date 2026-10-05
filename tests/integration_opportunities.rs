@@ -68,7 +68,7 @@ fn test_mempool_to_block_integration() {
         .collect();
     let time_context = Some(TimeContext {
         network_time: block.header.timestamp,
-        median_time_past: block.header.timestamp,
+        median_time_past: block.header.timestamp.saturating_sub(1),
     });
     let network = blvm_consensus::types::Network::Regtest;
     let (validation_result, _new_utxo_set) = consensus
@@ -201,7 +201,7 @@ fn test_pow_block_integration() {
         .collect();
     let time_context = Some(TimeContext {
         network_time: regtest_block.header.timestamp,
-        median_time_past: regtest_block.header.timestamp,
+        median_time_past: regtest_block.header.timestamp.saturating_sub(1),
     });
     let (validation_result, _new_utxo_set) = consensus
         .validate_block_with_time_context(

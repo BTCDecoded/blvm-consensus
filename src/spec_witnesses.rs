@@ -1047,6 +1047,18 @@ pub(crate) fn _verify_f_header_bits_floor(bits: i64) -> i64 {
     if bits != 0 { 1 } else { 0 }
 }
 
+/// Witness for **F_HeaderTimestampAfterMtp** (PROTOCOL.md §5.3.1).
+///
+/// Proof obligation: a header timestamp is later than the median time past
+/// exactly when `timestamp > mtp`. Equality is not later.
+#[spec_locked("5.3.1", "F_HeaderTimestampAfterMtp")]
+#[blvm_spec_lock::requires(timestamp >= 0)]
+#[blvm_spec_lock::requires(mtp >= 0)]
+#[blvm_spec_lock::ensures((timestamp > mtp) == result)]
+pub(crate) fn _verify_f_header_timestamp_after_mtp(timestamp: i64, mtp: i64) -> bool {
+    timestamp > mtp
+}
+
 // ─── §5.4.1 BIP30: Duplicate Coinbase Prevention ──────────────────────────────
 
 /// Witness for **F_BIP30DeactivationPass** (PROTOCOL.md §5.4.1).

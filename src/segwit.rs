@@ -41,13 +41,52 @@ pub fn calculate_transaction_weight(
 
 /// Stripped size: the transaction serialized without witness data.
 fn calculate_base_size(tx: &Transaction) -> Natural {
-    crate::serialization::serialize_transaction(tx).len() as Natural
+    stripped_transaction_size(tx).unwrap_or(u64::MAX)
+}
+
+/// Bytes of a compact size, matching `encode_varint` without allocating it.
+fn compact_size_len(n: u64) -> u64 {
+    if n < 0xfd {
+        1
+    } else if n <= 0xffff {
+        3
+    } else if n <= 0xffff_ffff {
+        5
+    } else {
+        9
+    }
+}
+
+fn add_size(acc: u64, n: u64) -> Result<u64> {
+    acc.checked_add(n).ok_or_else(weight_overflow)
+}
+
+/// Wire length of `serialize_transaction`, without building the buffer.
+fn stripped_transaction_size(tx: &Transaction) -> Result<u64> {
+    let mut n = 8u64; // version and locktime
+    if tx.inputs.is_empty() && !tx.outputs.is_empty() {
+        n = add_size(n, compact_size_len(0) + 1 + compact_size_len(0))?;
+    } else {
+        n = add_size(n, compact_size_len(tx.inputs.len() as u64))?;
+    }
+    for input in tx.inputs.iter() {
+        n = add_size(n, 40)?; // outpoint, sequence
+        n = add_size(n, compact_size_len(input.script_sig.len() as u64))?;
+        n = add_size(n, input.script_sig.len() as u64)?;
+    }
+    n = add_size(n, compact_size_len(tx.outputs.len() as u64))?;
+    for output in tx.outputs.iter() {
+        n = add_size(n, 8)?;
+        n = add_size(n, compact_size_len(output.script_pubkey.len() as u64))?;
+        n = add_size(n, output.script_pubkey.len() as u64)?;
+    }
+    Ok(n)
 }
 
 /// Total size for the single-stack weight helper.
 ///
-/// Block connection uses [`calculate_block_weight_from_nested`], which serializes each input
-/// stack. This helper only adds the raw element lengths of one stack on top of the stripped size.
+/// Block connection uses [`calculate_block_weight_from_nested`], which counts each input stack's
+/// wire length. This helper only adds the raw element lengths of one stack on top of the stripped size.
 fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural {
     let base_size = calculate_base_size(tx);
 
@@ -214,71 +253,69 @@ fn compute_merkle_root(hashes: &[Hash]) -> Result<Hash> {
 ///
 /// Per BIP141, the commitment recorded in the coinbase OP_RETURN is:
 ///   commitment = sha256d(witness_merkle_root || coinbase_reserved_nonce)
-/// where `coinbase_reserved_nonce` is the 32-byte nonce stored in
-/// the coinbase input's witness stack (witnesses\[0\]\[0\]).
-/// If the coinbase has no witness, the reserved value is 32 zero bytes.
+/// where `coinbase_reserved_nonce` is the single 32-byte item on the coinbase
+/// input's witness stack. A commitment output requires that item. An empty or
+/// missing stack is not 32 zero bytes.
 ///
 /// The OP_RETURN output format is:
 ///   OP_RETURN 0x24 0xaa21a9ed <commitment_hash:32>
+///
+/// No commitment output returns true. Block connection rejects witness data in that case.
 #[spec_locked("11.1.5", "ValidateWitnessCommitment")]
 pub fn validate_witness_commitment(
     coinbase_tx: &Transaction,
     witness_merkle_root: &Hash,
     coinbase_witnesses: &[Witness],
 ) -> Result<bool> {
-    // Extract the reserved nonce from coinbase input 0's witness stack.
-    // BIP141: if a coinbase witness stack is present and non-empty, it MUST be
-    // exactly one 32-byte item. Empty / absent → 32 zero bytes (no-witness hash).
-    let reserved_nonce: [u8; 32] = if let Some(w) = coinbase_witnesses.first() {
-        if w.is_empty() {
-            [0u8; 32]
-        } else if w.len() == 1 && w[0].len() == 32 {
-            let mut n = [0u8; 32];
-            n.copy_from_slice(&w[0][..32]);
-            n
-        } else {
-            return Ok(false);
-        }
-    } else {
-        [0u8; 32]
+    let Some(commitment) = last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs) else {
+        return Ok(true);
+    };
+    let Some(reserved_nonce) = coinbase_reserved_nonce(coinbase_witnesses) else {
+        return Ok(false);
     };
 
-    // Compute the expected commitment: sha256d(witness_root || reserved_nonce)
     let mut preimage = [0u8; 64];
     preimage[..32].copy_from_slice(witness_merkle_root);
     preimage[32..].copy_from_slice(&reserved_nonce);
     let expected_commitment = sha256d_bytes(&preimage);
 
-    // Look for a witness commitment OP_RETURN in coinbase outputs.
-    // BIP141: if multiple outputs match the 0xaa21a9ed prefix, use the LAST one.
-    // If multiple outputs match the BIP141 prefix, use the last one (highest output index).
-    let last_commitment = last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs);
+    #[cfg(feature = "profile")]
+    if commitment != expected_commitment && std::env::var("BLVM_WITNESS_COMMIT_DEBUG").is_ok() {
+        eprintln!(
+            "BLVM_WITNESS_COMMIT_DEBUG: root={} nonce={} expected={} got={}",
+            hex::encode(witness_merkle_root),
+            hex::encode(reserved_nonce),
+            hex::encode(expected_commitment),
+            hex::encode(commitment),
+        );
+    }
 
-    // Encode validity as 0/1 so blvm-spec-lock's Option match translation (Int arms) applies.
-    let ok_disc: i64 = match last_commitment {
-        None => 1,
-        Some(commitment) => {
-            #[cfg(feature = "profile")]
-            if commitment != expected_commitment
-                && std::env::var("BLVM_WITNESS_COMMIT_DEBUG").is_ok()
-            {
-                eprintln!(
-                    "BLVM_WITNESS_COMMIT_DEBUG: root={} nonce={} expected={} got={}",
-                    hex::encode(witness_merkle_root),
-                    hex::encode(reserved_nonce),
-                    hex::encode(expected_commitment),
-                    hex::encode(commitment),
-                );
-            }
-            if commitment == expected_commitment {
-                1
-            } else {
-                0
-            }
-        }
-    };
+    Ok(commitment == expected_commitment)
+}
 
-    Ok(ok_disc != 0)
+/// One stack of one 32-byte item. Anything else is not a reserved value.
+fn coinbase_reserved_nonce(coinbase_witnesses: &[Witness]) -> Option<[u8; 32]> {
+    let stack = coinbase_witnesses.first()?;
+    if stack.len() != 1 || stack[0].len() != 32 {
+        return None;
+    }
+    let mut nonce = [0u8; 32];
+    nonce.copy_from_slice(&stack[0]);
+    Some(nonce)
+}
+
+/// After SegWit activation, witness data requires a commitment output, and a commitment
+/// output requires one 32-byte coinbase reserved value whose hash matches.
+pub(crate) fn block_witness_commitment_ok(
+    coinbase_tx: &Transaction,
+    witness_merkle_root: &Hash,
+    coinbase_witnesses: &[Witness],
+    any_witness: bool,
+) -> Result<bool> {
+    if last_witness_commitment_in_coinbase_outputs(&coinbase_tx.outputs).is_none() {
+        return Ok(!any_witness);
+    }
+    validate_witness_commitment(coinbase_tx, witness_merkle_root, coinbase_witnesses)
 }
 
 /// BIP141 coinbase OP_RETURN: `OP_RETURN 0x24 0xaa21a9ed || sha256d(root || nonce)`.
@@ -311,7 +348,9 @@ pub(crate) fn extract_witness_commitment(script: &ByteString) -> Option<Hash> {
     None
 }
 
-fn last_witness_commitment_in_coinbase_outputs(outputs: &[TransactionOutput]) -> Option<Hash> {
+pub(crate) fn last_witness_commitment_in_coinbase_outputs(
+    outputs: &[TransactionOutput],
+) -> Option<Hash> {
     let mut last_commitment: Option<Hash> = None;
     for output in outputs {
         if let Some(commitment) = extract_witness_commitment(&output.script_pubkey) {
@@ -368,10 +407,11 @@ pub fn calculate_block_weight_from_nested(
     block: &Block,
     witnesses: &[Vec<Witness>],
 ) -> Result<Natural> {
-    // Header and transaction count are non-witness, so they weigh four times their byte length.
-    let prefix = crate::serialization::serialize_block_header(&block.header).len()
-        + crate::serialization::encode_varint(block.transactions.len() as u64).len();
-    let mut total_weight = (prefix as u64).checked_mul(4).ok_or_else(weight_overflow)?;
+    // Header is 80 bytes. It and the transaction count are non-witness, so they weigh four
+    // times their length. Lengths are counted in place; the block path does not allocate a
+    // serialization just to read it.
+    let prefix = add_size(80, compact_size_len(block.transactions.len() as u64))?;
+    let mut total_weight = prefix.checked_mul(4).ok_or_else(weight_overflow)?;
 
     for (i, tx) in block.transactions.iter().enumerate() {
         let stacks = witnesses.get(i).map(Vec::as_slice);
@@ -391,12 +431,22 @@ fn weight_overflow() -> crate::error::ConsensusError {
 /// A non-empty witness is serialized with the marker, flag, and one stack per input. Empty stacks
 /// leave the transaction in its stripped encoding.
 fn transaction_weight_from_stacks(tx: &Transaction, stacks: Option<&[Witness]>) -> Result<Natural> {
-    let base_size = crate::serialization::serialize_transaction(tx).len() as Natural;
+    let base_size = stripped_transaction_size(tx)?;
     let total_size = match stacks {
         Some(stacks)
             if stacks.len() == tx.inputs.len() && stacks.iter().any(|stack| !stack.is_empty()) =>
         {
-            crate::serialization::serialize_transaction_with_witness(tx, stacks).len() as Natural
+            // Marker and flag, then one stack encoding per input. Inputs are non-empty here,
+            // so this is the stripped size plus that witness framing.
+            let mut extra = 2u64;
+            for stack in stacks {
+                extra = add_size(extra, compact_size_len(stack.len() as u64))?;
+                for element in stack {
+                    extra = add_size(extra, compact_size_len(element.len() as u64))?;
+                    extra = add_size(extra, element.len() as u64)?;
+                }
+            }
+            add_size(base_size, extra)?
         }
         Some(stacks) if stacks.iter().any(|stack| !stack.is_empty()) => {
             return Err(crate::error::ConsensusError::BlockValidation(
@@ -455,7 +505,15 @@ pub fn validate_segwit_block(
         } else {
             std::slice::from_ref(&witnesses[0])
         };
-        if !validate_witness_commitment(&block.transactions[0], &witness_root, coinbase_witness)? {
+        let any_witness = witnesses
+            .iter()
+            .any(|stack| stack.iter().any(|e| !e.is_empty()));
+        if !block_witness_commitment_ok(
+            &block.transactions[0],
+            &witness_root,
+            coinbase_witness,
+            any_witness,
+        )? {
             return Ok(false);
         }
     }
@@ -502,6 +560,15 @@ mod tests {
         // bytes and keeping a one-byte length placeholder fails this.
         assert!(weight >= (script_len as u64) * 4);
         assert_eq!(weight, ((prefix + stripped) * 4) as u64);
+    }
+
+    #[test]
+    fn test_stripped_size_matches_serializer_without_inputs() {
+        let mut tx = create_test_transaction();
+        tx.inputs.clear();
+        let counted = stripped_transaction_size(&tx).unwrap();
+        let serialized = crate::serialization::serialize_transaction(&tx).len() as u64;
+        assert_eq!(counted, serialized);
     }
 
     #[test]
@@ -598,7 +665,7 @@ mod tests {
         ];
 
         let is_valid = validate_segwit_block(&block, &witnesses, 4_000_000).unwrap();
-        assert!(is_valid);
+        assert!(!is_valid);
     }
 
     #[test]

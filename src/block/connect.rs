@@ -132,10 +132,11 @@ fn enforce_relative_locks(
             block.transactions.len()
         ));
     }
-    let needs_lock = block.transactions.iter().any(tx_has_relative_lock);
-    if !needs_lock {
+    // Most blocks have no relative lock. Stop once the last locking transaction is checked;
+    // later outputs cannot be inputs of that transaction.
+    let Some(last_lock) = block.transactions.iter().rposition(tx_has_relative_lock) else {
         return Ok(());
-    }
+    };
 
     let lookup: &dyn crate::utxo_overlay::UtxoLookup = if let Some(lookup) = ibd_utxo_lookup {
         lookup
@@ -150,7 +151,7 @@ fn enforce_relative_locks(
     let mut mtp_cache: std::collections::HashMap<u64, Option<u64>> =
         std::collections::HashMap::new();
 
-    for (i, tx) in block.transactions.iter().enumerate() {
+    for (i, tx) in block.transactions.iter().enumerate().take(last_lock + 1) {
         if !is_coinbase(tx) && tx_has_relative_lock(tx) {
             let mut prev_heights = Vec::with_capacity(tx.inputs.len());
             let mut prev_mtps = Vec::with_capacity(tx.inputs.len());
@@ -205,6 +206,9 @@ fn enforce_relative_locks(
                     return Err(format!("relative lock not satisfied for transaction {i}"));
                 }
             }
+        }
+        if i == last_lock {
+            break;
         }
         let txid = tx_ids[i];
         for (n, _) in tx.outputs.iter().enumerate() {
@@ -844,6 +848,17 @@ pub(crate) fn connect_block_inner<'a>(
 
     // Cache fork activation at block level — avoids per-tx table lookup
     let segwit_active = context.is_fork_active(ForkId::SegWit, height);
+
+    // A coinbase after the first mints outputs the subsidy check never sees.
+    if let Some((i, _)) = block
+        .transactions
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, tx)| is_coinbase(tx))
+    {
+        return invalid_block_result(utxo_set, &[], format!("Transaction {i} is a coinbase"));
+    }
 
     // Pre-compute overlay capacities once (used by all validation paths)
     let estimated_outputs: usize = block.transactions.iter().map(|tx| tx.outputs.len()).sum();
@@ -3763,25 +3778,36 @@ pub(crate) fn connect_block_inner<'a>(
             );
         }
 
-        // Validate witness commitment if witnesses are present (SegWit block).
-        // Short-circuit: no witness commitment possible before SegWit activation.
-        let has_segwit = segwit_active
-            && witnesses
-                .iter()
-                .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
-
-        if has_segwit && !witnesses.is_empty() {
-            // Skip witness commitment only on trusted assume-valid IBD replay (same invariant
-            // as merkle-mutation skip). Recent IBD blocks and all non-IBD connects validate.
-            if !(ibd_mode && skip_signatures) {
+        // Witness bytes are only valid with a matching coinbase commitment after SegWit
+        // activation. A commitment output still requires one 32-byte reserved value when
+        // every other stack is empty. Assume-valid IBD replay skips this, as it skips the
+        // merkle-mutation check.
+        let any_witness = witnesses
+            .iter()
+            .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
+        if any_witness && !segwit_active {
+            return invalid_block_result(utxo_set, tx_ids, "unexpected witness data");
+        }
+        if segwit_active && !(ibd_mode && skip_signatures) {
+            let has_commitment =
+                crate::segwit::last_witness_commitment_in_coinbase_outputs(&coinbase.outputs)
+                    .is_some();
+            if any_witness || has_commitment {
+                if !has_commitment {
+                    return invalid_block_result(
+                        utxo_set,
+                        tx_ids,
+                        "Invalid witness commitment in coinbase transaction",
+                    );
+                }
                 let witness_merkle_root = crate::segwit::compute_witness_merkle_root_from_nested(
                     block,
                     witnesses,
                     Some(tx_ids),
                 )?;
-                // `Hash` is 32 bytes; commitment compares to header field directly.
-
-                if !validate_witness_commitment(coinbase, &witness_merkle_root, &witnesses[0])? {
+                let coinbase_witnesses = witnesses.first().map(Vec::as_slice).unwrap_or(&[]);
+                if !validate_witness_commitment(coinbase, &witness_merkle_root, coinbase_witnesses)?
+                {
                     return invalid_block_result(
                         utxo_set,
                         tx_ids,
