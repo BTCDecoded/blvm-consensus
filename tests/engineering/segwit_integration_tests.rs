@@ -240,12 +240,12 @@ fn test_segwit_witness_commitment() {
     };
 
     let witness_root = [1u8; 32];
+    let nonce = [0u8; 32];
 
-    // Add witness commitment to coinbase script
-    coinbase_tx.outputs[0].script_pubkey =
-        create_witness_commitment_script(&witness_root, &[0u8; 32]);
+    coinbase_tx.outputs[0].script_pubkey = create_witness_commitment_script(&witness_root, &nonce);
 
-    let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+    let is_valid =
+        validate_witness_commitment(&coinbase_tx, &witness_root, &[vec![nonce.to_vec()]]).unwrap();
 
     assert!(is_valid);
 }
@@ -746,17 +746,16 @@ fn test_segwit_witness_commitment_validation() {
     };
 
     let witness_root = [0x42u8; 32];
+    let nonce = [0u8; 32];
 
-    // Add witness commitment
-    coinbase_tx.outputs[0].script_pubkey =
-        create_witness_commitment_script(&witness_root, &[0u8; 32]);
+    coinbase_tx.outputs[0].script_pubkey = create_witness_commitment_script(&witness_root, &nonce);
 
-    let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+    let witnesses = [vec![nonce.to_vec()]];
+    let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &witnesses).unwrap();
     assert!(is_valid);
 
-    // Test with wrong witness root (should fail)
     let wrong_root = [0x99u8; 32];
-    let is_invalid = validate_witness_commitment(&coinbase_tx, &wrong_root, &[]).unwrap();
+    let is_invalid = validate_witness_commitment(&coinbase_tx, &wrong_root, &witnesses).unwrap();
     assert!(!is_invalid);
 }
 

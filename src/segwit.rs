@@ -617,15 +617,16 @@ mod tests {
     fn test_validate_witness_commitment() {
         let mut coinbase_tx = create_test_transaction();
         let witness_root = [1u8; 32];
-        let nonce = [0u8; 32]; // default reserved nonce
+        let nonce = [0u8; 32];
 
-        // Add witness commitment to coinbase script (correct BIP141 format)
         coinbase_tx.outputs[0].script_pubkey =
             create_witness_commitment_script(&witness_root, &nonce);
 
-        // Empty coinbase witnesses → nonce defaults to [0u8; 32]
-        let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+        let is_valid =
+            validate_witness_commitment(&coinbase_tx, &witness_root, &[vec![nonce.to_vec()]])
+                .unwrap();
         assert!(is_valid);
+        assert!(!validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap());
     }
 
     #[test]
@@ -713,11 +714,13 @@ mod tests {
         let witness_root = [1u8; 32];
         let invalid_root = [2u8; 32]; // different root → wrong commitment
 
-        // Add commitment computed from a different root
+        let nonce = [0u8; 32];
         coinbase_tx.outputs[0].script_pubkey =
-            create_witness_commitment_script(&invalid_root, &[0u8; 32]);
+            create_witness_commitment_script(&invalid_root, &nonce);
 
-        let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+        let is_valid =
+            validate_witness_commitment(&coinbase_tx, &witness_root, &[vec![nonce.to_vec()]])
+                .unwrap();
         assert!(!is_valid);
     }
 
