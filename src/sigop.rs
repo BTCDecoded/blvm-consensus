@@ -178,53 +178,61 @@ pub fn is_pay_to_script_hash(script: &[u8]) -> bool {
         && script[22] == OP_EQUAL // OP_EQUAL
 }
 
-/// Extract redeem script from P2SH scriptSig
+/// An opcode is a push while extracting the P2SH redeem for sigop counting.
 ///
-/// For P2SH, the scriptSig pushes the redeem script. We need to extract
-/// the last push data item from scriptSig.
-/// Orange Paper 5.2.1: P2SH scriptSig must contain only pushes; last push = redeem script.
+/// The bound is `OP_16` (`0x60`). `OP_1NEGATE` (`0x4f`) and `OP_RESERVED` (`0x50`)
+/// are pushes. An opcode above `OP_16` drops the input's P2SH and nested-witness
+/// sigop contribution to zero.
+#[spec_locked("5.2.2", "F_SigopCountPushOpcode")]
+#[inline]
+fn sigop_count_push_opcode(opcode: u8) -> bool {
+    opcode <= OP_16
+}
+
+/// Last immediate of a push-only scriptSig, for P2SH and nested witness sigop counts.
+///
+/// A truncated push or any opcode above `OP_16` yields none. `OP_1NEGATE`,
+/// `OP_RESERVED`, and `OP_1`..=`OP_16` are pushes whose immediate data is empty;
+/// a later real push still supplies the redeem script.
 fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteString> {
     let mut i = 0;
     let mut last_data: Option<ByteString> = None;
 
     while i < script_sig.len() {
         let opcode = script_sig[i];
+        if !sigop_count_push_opcode(opcode) {
+            return None;
+        }
 
         if opcode <= OP_PUSHDATA4 {
-            // Push data opcode
             let (len, advance) = if opcode < OP_PUSHDATA1 {
-                // Direct push: opcode is the length
-                let len = opcode as usize;
-                (len, 1)
+                (opcode as usize, 1)
             } else if opcode == OP_PUSHDATA1 {
-                // OP_PUSHDATA1
                 if i + 1 >= script_sig.len() {
                     return None;
                 }
-                let len = script_sig[i + 1] as usize;
-                (len, 2)
+                (script_sig[i + 1] as usize, 2)
             } else if opcode == OP_PUSHDATA2 {
-                // OP_PUSHDATA2
                 if i + 2 >= script_sig.len() {
                     return None;
                 }
-                let len = u16::from_le_bytes([script_sig[i + 1], script_sig[i + 2]]) as usize;
-                (len, 3)
-            } else if opcode == OP_PUSHDATA4 {
-                // OP_PUSHDATA4
+                (
+                    u16::from_le_bytes([script_sig[i + 1], script_sig[i + 2]]) as usize,
+                    3,
+                )
+            } else {
                 if i + 4 >= script_sig.len() {
                     return None;
                 }
-                let len = u32::from_le_bytes([
-                    script_sig[i + 1],
-                    script_sig[i + 2],
-                    script_sig[i + 3],
-                    script_sig[i + 4],
-                ]) as usize;
-                (len, 5)
-            } else {
-                // Other push opcodes (OP_1NEGATE, OP_RESERVED, OP_1-OP_16)
-                (0, 1)
+                (
+                    u32::from_le_bytes([
+                        script_sig[i + 1],
+                        script_sig[i + 2],
+                        script_sig[i + 3],
+                        script_sig[i + 4],
+                    ]) as usize,
+                    5,
+                )
             };
 
             if i + advance + len > script_sig.len() {
@@ -233,13 +241,9 @@ fn extract_redeem_script_from_scriptsig(script_sig: &ByteString) -> Option<ByteS
 
             last_data = Some(script_sig[i + advance..i + advance + len].to_vec());
             i += advance + len;
-        } else if (OP_1..=OP_16).contains(&opcode) {
-            // OP_1 to OP_16: push single byte
-            last_data = Some(vec![opcode - OP_N_BASE]); // Convert OP_N to value N
-            i += 1;
         } else {
-            // Other opcode: not a push, invalid for P2SH
-            return None;
+            last_data = Some(Vec::new());
+            i += 1;
         }
     }
 
@@ -900,7 +904,12 @@ mod tests {
         script
     }
 
-    fn spend_cost(script_pubkey: Vec<u8>, script_sig: Vec<u8>, witness: Witness, flags: u32) -> u64 {
+    fn spend_cost(
+        script_pubkey: Vec<u8>,
+        script_sig: Vec<u8>,
+        witness: Witness,
+        flags: u32,
+    ) -> u64 {
         let prev = OutPoint {
             hash: [3u8; 32],
             index: 1,
@@ -976,5 +985,49 @@ mod tests {
             1,
             "native 20-byte program costs 1 even with an empty witness"
         );
+    }
+
+    #[test]
+    fn p2sh_sigops_keep_the_redeem_after_small_pushes() {
+        let flags = 0x01 | 0x800;
+        let redeem = vec![OP_CHECKSIG];
+        let plain = spend_cost(p2sh_script_pubkey(), direct_push(&redeem), vec![], flags);
+        assert_eq!(plain, 4, "one redeem CHECKSIG costs 4");
+
+        for prefix in [OP_1NEGATE, OP_RESERVED, OP_1] {
+            let mut script_sig = vec![prefix];
+            script_sig.extend(direct_push(&redeem));
+            assert_eq!(
+                spend_cost(p2sh_script_pubkey(), script_sig, vec![], flags),
+                4,
+                "prefix 0x{prefix:02x} is a push and must not drop the redeem sigop"
+            );
+        }
+
+        assert_eq!(
+            spend_cost(p2sh_script_pubkey(), vec![OP_1NEGATE], vec![], flags),
+            0,
+            "a lone OP_1NEGATE has an empty immediate and costs 0"
+        );
+
+        let mut then_non_push = direct_push(&redeem);
+        then_non_push.push(OP_DUP);
+        assert_eq!(
+            spend_cost(p2sh_script_pubkey(), then_non_push, vec![], flags),
+            0,
+            "an opcode above OP_16 drops the P2SH sigop count"
+        );
+
+        let mut p2wpkh = vec![OP_0, 0x14];
+        p2wpkh.extend_from_slice(&[0x22; 20]);
+        for prefix in [OP_1NEGATE, OP_RESERVED] {
+            let mut script_sig = vec![prefix];
+            script_sig.extend(direct_push(&p2wpkh));
+            assert_eq!(
+                spend_cost(p2sh_script_pubkey(), script_sig, vec![], flags),
+                1,
+                "prefix 0x{prefix:02x} must still count a nested 20-byte program"
+            );
+        }
     }
 }

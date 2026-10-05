@@ -2,7 +2,6 @@
 
 #![cfg(feature = "production")]
 
-use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use blvm_consensus::activation::ForkActivationTable;
 use blvm_consensus::block::get_block_script_verify_flags_core;
 use blvm_consensus::opcodes::{
@@ -16,12 +15,13 @@ use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
     SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
 };
-use blvm_consensus::script::{SigVersion, disable_fast_paths, verify_script_with_context_full};
+use blvm_consensus::script::{disable_fast_paths, verify_script_with_context_full, SigVersion};
 use blvm_consensus::taproot::{
-    TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, witness_stack_serialize_size,
+    compute_script_merkle_root, witness_stack_serialize_size, TAPROOT_LEAF_VERSION_TAPSCRIPT,
 };
 use blvm_consensus::transaction_hash::calculate_bip143_sighash;
 use blvm_consensus::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use ripemd::Ripemd160;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
@@ -500,7 +500,16 @@ fn cltv_and_csv_use_script_number_sign() {
         0,
         Some(height)
     ));
-    let five = vec![0x05, 0x01, 0x00, 0x00, 0x00, 0x80, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    let five = vec![
+        0x05,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x80,
+        OP_CHECKLOCKTIMEVERIFY,
+        OP_1,
+    ];
     let tx = locktime_tx(200, 0);
     assert!(!verify(
         &tx,
@@ -510,7 +519,16 @@ fn cltv_and_csv_use_script_number_sign() {
         0,
         Some(height)
     ));
-    let too_big = vec![0x05, 0x00, 0x00, 0x00, 0x00, 0x01, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    let too_big = vec![
+        0x05,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        OP_CHECKLOCKTIMEVERIFY,
+        OP_1,
+    ];
     assert!(!verify(
         &tx,
         &too_big,
@@ -566,7 +584,14 @@ fn csv_requires_version_two_unless_disabled() {
     ));
     // Disable bit on the stack is a no-op even when the version is 1.
     let disabled = vec![
-        0x05, 0x00, 0x00, 0x00, 0x80, 0x00, OP_CHECKSEQUENCEVERIFY, OP_1,
+        0x05,
+        0x00,
+        0x00,
+        0x00,
+        0x80,
+        0x00,
+        OP_CHECKSEQUENCEVERIFY,
+        OP_1,
     ];
     assert!(verify(
         &v1,
@@ -819,12 +844,8 @@ fn taproot_control_block_rejects_more_than_128_nodes() {
                 node
             })
             .collect();
-        let root = compute_script_merkle_root(
-            &tapscript,
-            &proof,
-            TAPROOT_LEAF_VERSION_TAPSCRIPT,
-        )
-        .expect("root");
+        let root = compute_script_merkle_root(&tapscript, &proof, TAPROOT_LEAF_VERSION_TAPSCRIPT)
+            .expect("root");
         let (output_key, parity) =
             blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(&internal, &root)
                 .expect("tweak");

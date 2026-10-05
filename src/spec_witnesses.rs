@@ -1620,7 +1620,18 @@ pub(crate) fn _verify_f_cltv_rejects_negative(n: i64) -> bool {
 #[blvm_spec_lock::requires(n > 4294967295)]
 #[blvm_spec_lock::ensures(result == false)]
 pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
-    n >= 0 && n <= 4294967295
+    (0..=4294967295).contains(&n)
+}
+
+/// Witness for **F_SigopCountPushOpcode** (PROTOCOL.md §5.2.2).
+///
+/// P2SH redeem extraction treats every opcode through OP_16 as a push.
+#[spec_locked("5.2.2", "F_SigopCountPushOpcode")]
+#[blvm_spec_lock::requires(op >= 0)]
+#[blvm_spec_lock::requires(op <= 255)]
+#[blvm_spec_lock::ensures(result == (op <= 96))]
+pub(crate) fn _verify_f_sigop_count_push_opcode(op: i64) -> bool {
+    op <= 96
 }
 
 /// Witness for **F_CsvVersionBelowTwoFails** (PROTOCOL.md §5.5).
