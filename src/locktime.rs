@@ -70,50 +70,29 @@ pub fn locktime_types_match(locktime1: u32, locktime2: u32) -> bool {
     get_locktime_type(locktime1) == get_locktime_type(locktime2)
 }
 
-/// Decode locktime value from minimal-encoding byte string
+/// Decode a stack element as a script number of at most 5 bytes.
 ///
-/// Decodes a little-endian, minimal-encoding locktime value from script stack.
-/// Used by both BIP65 (CLTV) and BIP112 (CSV) for stack value decoding.
-///
-/// # Arguments
-/// * `bytes` - Byte string from stack (max 5 bytes)
-///
-/// # Returns
-/// Decoded u32 value, or None if invalid encoding
-pub fn decode_locktime_value(bytes: &[u8]) -> Option<u32> {
+/// The high bit of the last byte is the sign. Negative zero (`0x80`) is 0.
+/// A fifth byte is part of the value, not padding. Returns `None` when the
+/// element is longer than 5 bytes.
+pub fn decode_locktime_value(bytes: &[u8]) -> Option<i64> {
     if bytes.len() > 5 {
-        return None; // Invalid encoding (too large)
+        return None;
+    }
+    if bytes.is_empty() {
+        return Some(0);
     }
 
-    // Runtime assertion: Byte string length must be <= 5
-    debug_assert!(
-        bytes.len() <= 5,
-        "Locktime byte string length ({}) must be <= 5",
-        bytes.len()
-    );
-
-    let mut value: u32 = 0;
+    let mut result: i64 = 0;
     for (i, &byte) in bytes.iter().enumerate() {
-        if i >= 4 {
-            break; // Only use first 4 bytes
-        }
-
-        // Runtime assertion: Index must be < 4
-        debug_assert!(i < 4, "Byte index ({i}) must be < 4 for locktime decoding");
-
-        // Runtime assertion: Shift amount must be valid (0-24, multiples of 8)
-        let shift_amount = i * 8;
-        debug_assert!(
-            shift_amount < 32,
-            "Shift amount ({shift_amount}) must be < 32 (i: {i})"
-        );
-
-        value |= (byte as u32) << shift_amount;
+        result |= (byte as i64) << (8 * i);
     }
-
-    // value is u32, so it always fits in u32 - no assertion needed
-
-    Some(value)
+    let last = bytes.len() - 1;
+    if bytes[last] & 0x80 != 0 {
+        result &= !(0x80i64 << (8 * last));
+        result = -result;
+    }
+    Some(result)
 }
 
 /// Encode locktime value to minimal-encoding byte string
@@ -144,12 +123,17 @@ pub fn encode_locktime_value(value: u32) -> ByteString {
     if bytes.is_empty() {
         bytes.push(0);
     }
+    // A last byte with the high bit set would be read as a sign. Push a
+    // zero sign byte so values at or above 2^31 stay non-negative.
+    if bytes.last().is_some_and(|b| b & 0x80 != 0) {
+        bytes.push(0);
+    }
 
-    // Runtime assertion: Encoded length must be between 1 and 4 bytes (u32 max)
+    // Runtime assertion: Encoded length must be between 1 and 5 bytes
     let len = bytes.len();
     debug_assert!(
-        !bytes.is_empty() && len <= 4,
-        "Encoded locktime length ({len}) must be between 1 and 4 bytes"
+        !bytes.is_empty() && len <= 5,
+        "Encoded locktime length ({len}) must be between 1 and 5 bytes"
     );
 
     bytes
@@ -229,11 +213,27 @@ mod tests {
     fn test_decode_locktime_value() {
         assert_eq!(decode_locktime_value(&[100, 0, 0, 0]), Some(100));
         assert_eq!(decode_locktime_value(&[0]), Some(0));
+        assert_eq!(decode_locktime_value(&[]), Some(0));
+        // High bit of the last byte is the sign. 0xff^4 is -2147483647, not u32::MAX.
         assert_eq!(
             decode_locktime_value(&[0xff, 0xff, 0xff, 0xff]),
-            Some(0xffffffff)
+            Some(-2_147_483_647)
         );
-        assert_eq!(decode_locktime_value(&[0; 6]), None); // Too large
+        assert_eq!(decode_locktime_value(&[0x80]), Some(0));
+        assert_eq!(decode_locktime_value(&[0x81]), Some(-1));
+        assert_eq!(
+            decode_locktime_value(&[0x01, 0x00, 0x00, 0x00, 0x80]),
+            Some(-1)
+        );
+        assert_eq!(
+            decode_locktime_value(&[0x00, 0x00, 0x00, 0x80, 0x00]),
+            Some(0x8000_0000)
+        );
+        assert_eq!(
+            decode_locktime_value(&[0x00, 0x00, 0x00, 0x00, 0x01]),
+            Some(1_i64 << 32)
+        );
+        assert_eq!(decode_locktime_value(&[0; 6]), None);
     }
 
     #[test]

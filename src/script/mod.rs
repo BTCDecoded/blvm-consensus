@@ -6990,9 +6990,9 @@ fn execute_opcode_with_context_full(
                 });
             }
 
-            // Decode locktime value from stack using CScriptNum rules (max 5 bytes)
+            // Script number, at most 5 bytes. The sign bit is on the last byte.
             let locktime_bytes = stack.last().expect("Stack is not empty");
-            let locktime_value = match decode_locktime_value(locktime_bytes.as_ref()) {
+            let locktime_number = match decode_locktime_value(locktime_bytes.as_ref()) {
                 Some(v) => v,
                 None => {
                     return Err(ConsensusError::ScriptErrorWithCode {
@@ -7001,6 +7001,17 @@ fn execute_opcode_with_context_full(
                     });
                 }
             };
+            if locktime_number < 0 {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::NegativeLocktime,
+                    message: "OP_CHECKLOCKTIMEVERIFY: negative locktime".into(),
+                });
+            }
+            // A value above u32::MAX cannot be <= the transaction locktime.
+            if locktime_number > u32::MAX as i64 {
+                return Ok(false);
+            }
+            let locktime_value = locktime_number as u32;
 
             let tx_locktime = tx.lock_time as u32;
 
@@ -7051,10 +7062,18 @@ fn execute_opcode_with_context_full(
             // Decode sequence value from stack using shared locktime logic.
             // Interpret the top stack element as a sequence value (BIP112).
             let sequence_bytes = stack.last().expect("Stack is not empty");
-            let sequence_value = match decode_locktime_value(sequence_bytes.as_ref()) {
+            let sequence_number = match decode_locktime_value(sequence_bytes.as_ref()) {
                 Some(v) => v,
                 None => return Ok(false), // Invalid encoding
             };
+            if sequence_number < 0 {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::NegativeLocktime,
+                    message: "OP_CHECKSEQUENCEVERIFY: negative locktime".into(),
+                });
+            }
+            // Disable flag and BIP68 masks use the low 32 bits of a non-negative number.
+            let sequence_value = sequence_number as u32;
 
             // Get input sequence number
             if input_index >= tx.inputs.len() {

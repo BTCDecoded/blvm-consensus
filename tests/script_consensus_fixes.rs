@@ -6,10 +6,12 @@ use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use blvm_consensus::activation::ForkActivationTable;
 use blvm_consensus::block::get_block_script_verify_flags_core;
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_ADD, OP_CAT, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DROP, OP_ELSE, OP_ENDIF, OP_IF,
-    OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF, PUSH_32_BYTES,
+    OP_0, OP_1, OP_ADD, OP_CAT, OP_CHECKLOCKTIMEVERIFY, OP_CHECKMULTISIG, OP_CHECKSEQUENCEVERIFY,
+    OP_CHECKSIG, OP_DROP, OP_ELSE, OP_ENDIF, OP_IF, OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF,
+    PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::{
+    SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_NULLDUMMY,
     SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
     SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
@@ -430,6 +432,77 @@ fn dead_branch_rejects_oversized_push() {
     assert!(!p2wsh_ok(too_big.clone(), true));
     assert!(p2wsh_ok(small, true));
     assert!(!spend_tapscript(too_big, vec![], flags));
+}
+
+fn locktime_tx(lock_time: u32, sequence: u32) -> Transaction {
+    let mut tx = one_input_tx(vec![]);
+    tx.lock_time = lock_time.into();
+    tx.inputs[0].sequence = sequence.into();
+    tx
+}
+
+#[test]
+fn cltv_and_csv_use_script_number_sign() {
+    let height = blvm_consensus::BIP65_ACTIVATION_MAINNET;
+    let neg = vec![0x01, 0x81, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    let tx = locktime_tx(200, 0);
+    assert!(!verify(
+        &tx,
+        &neg,
+        None,
+        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+        0,
+        Some(height)
+    ));
+    let neg_zero = vec![0x01, 0x80, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    let tx = locktime_tx(100, 0);
+    assert!(verify(
+        &tx,
+        &neg_zero,
+        None,
+        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+        0,
+        Some(height)
+    ));
+    let five = vec![0x05, 0x01, 0x00, 0x00, 0x00, 0x80, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    let tx = locktime_tx(200, 0);
+    assert!(!verify(
+        &tx,
+        &five,
+        None,
+        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+        0,
+        Some(height)
+    ));
+    let too_big = vec![0x05, 0x00, 0x00, 0x00, 0x00, 0x01, OP_CHECKLOCKTIMEVERIFY, OP_1];
+    assert!(!verify(
+        &tx,
+        &too_big,
+        None,
+        SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+        0,
+        Some(height)
+    ));
+
+    let csv_neg = vec![0x01, 0x81, OP_CHECKSEQUENCEVERIFY, OP_1];
+    let tx = locktime_tx(0, 200);
+    assert!(!verify(
+        &tx,
+        &csv_neg,
+        None,
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+        0,
+        Some(height)
+    ));
+    let csv_zero = vec![0x01, 0x80, OP_CHECKSEQUENCEVERIFY, OP_1];
+    assert!(verify(
+        &tx,
+        &csv_zero,
+        None,
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+        0,
+        Some(height)
+    ));
 }
 
 #[test]
