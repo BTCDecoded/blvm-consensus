@@ -1206,7 +1206,7 @@ pub(crate) fn _verify_f_no_duplicate_inputs(same_prevout: i64) -> i64 {
 #[blvm_spec_lock::requires(overflow != 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_output_sum_bounded(value: i64, overflow: i64) -> i64 {
-    if overflow != 0 || value < 0 || value > 2_100_000_000_000_000 {
+    if overflow != 0 || !(0..=2_100_000_000_000_000).contains(&value) {
         0
     } else {
         1

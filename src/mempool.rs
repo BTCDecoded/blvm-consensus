@@ -1123,20 +1123,11 @@ fn is_coinbase(tx: &Transaction) -> bool {
 // FORMAL VERIFICATION
 // ============================================================================
 
-/// Mathematical Specification for Mempool:
-/// ∀ tx ∈ 𝒯𝒳, utxo_set ∈ 𝒰𝒮, mempool ∈ Mempool:
-/// - accept_to_memory_pool(tx, utxo_set, mempool, height, time_context, network) = Accepted ⟹
-///   (tx ∉ mempool ∧
-///    CheckTransaction(tx) = valid ∧
-///    CheckTxInputs(tx, utxo_set) = valid ∧
-///    VerifyScripts(tx) = valid ∧
-///    ¬has_conflicts(tx, mempool))
-///
-/// Invariants:
-/// - Mempool never contains duplicate transactions
-/// - Mempool never contains conflicting transactions
-/// - Accepted transactions are valid
-/// - RBF rules are enforced
+// Mathematical specification for the mempool:
+// ∀ tx ∈ 𝒯𝒳, utxo_set ∈ 𝒰𝒮, mempool ∈ Mempool:
+// accept_to_memory_pool(...) = Accepted implies the tx is absent, CheckTransaction,
+// CheckTxInputs, and VerifyScripts succeed, and the tx does not conflict.
+// Invariants: no duplicates, no conflicts, accepted txs are valid, RBF is enforced.
 
 /// Default `-bytespersigop`. Each sigop costs `20 / 4 = 5` vbytes.
 pub const DEFAULT_BYTES_PER_SIGOP: u64 = 20;

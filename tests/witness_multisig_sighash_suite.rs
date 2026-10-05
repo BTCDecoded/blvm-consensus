@@ -73,7 +73,9 @@ fn build_p2wsh_1of2_multisig_spend() -> (
         s
     };
 
-    let witness = vec![vec![OP_0], sig1, witness_script.clone()];
+    // NULLDUMMY requires a zero-length extra element. OP_0 in a script pushes
+    // that; a witness stack item of `[0x00]` is the one-byte dummy BIP147 rejects.
+    let witness = vec![vec![], sig1, witness_script.clone()];
     (tx, script_pubkey, witness, prevouts)
 }
 
