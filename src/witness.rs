@@ -58,15 +58,14 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
             return Ok(false);
         }
 
-        // Control block must be at least 33 bytes (internal key + leaf version + parity)
+        // Control block: 33 + 32n bytes, n at most 128.
         let control_block = &witness[witness.len() - 1];
-        if control_block.len() < 33 {
-            return Ok(false);
-        }
-
-        // Control block size: 33 + 32n (where n is number of merkle proof levels)
-        // Must be valid multiple
-        if (control_block.len() - 33) % 32 != 0 {
+        if control_block.len() < crate::taproot::TAPROOT_CONTROL_BASE_SIZE
+            || control_block.len() > crate::taproot::TAPROOT_CONTROL_MAX_SIZE
+            || (control_block.len() - crate::taproot::TAPROOT_CONTROL_BASE_SIZE)
+                % crate::taproot::TAPROOT_CONTROL_NODE_SIZE
+                != 0
+        {
             return Ok(false);
         }
     } else {
@@ -140,31 +139,52 @@ pub fn weight_to_vsize(weight: Natural) -> Natural {
 
 /// True when `scriptPubKey` is a witness program that is not standard v0 (P2WPKH/P2WSH) or v1 P2TR.
 ///
+/// Version 0 is never upgradable. A v0 program of 20 or 32 bytes is P2WPKH or P2WSH.
+/// Any other v0 length is invalid (`is_invalid_v0_witness_program`), not a future program.
 /// Used with `SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM`.
 #[inline]
 pub fn is_upgradable_witness_program(script: &[u8]) -> bool {
-    if script.len() < 4 {
+    let Some(program_len) = witness_program_len(script) else {
+        return false;
+    };
+    if script[0] == OP_0 {
         return false;
     }
-    let version = script[0];
-    if version > OP_16 {
-        return false;
-    }
-    let push = script[1];
-    if !(0x02..=0x28).contains(&push) {
-        return false;
-    }
-    let program_len = push as usize;
-    if script.len() != 2 + program_len {
-        return false;
-    }
-    if version == OP_0 {
-        return program_len != 20 && program_len != 32;
-    }
-    if version == OP_1 && program_len == 32 {
+    if script[0] == OP_1 && program_len == 32 {
         return false;
     }
     true
+}
+
+/// Version-0 witness program whose payload is not 20 or 32 bytes.
+///
+/// When witness verification is active this spend fails. With the flag clear the
+/// script is ordinary and the length is not special.
+#[inline]
+pub fn is_invalid_v0_witness_program(script: &[u8]) -> bool {
+    let Some(program_len) = witness_program_len(script) else {
+        return false;
+    };
+    script[0] == OP_0 && program_len != 20 && program_len != 32
+}
+
+/// Payload length of a witness program, or `None` when `script` is not one.
+///
+/// A witness program is `OP_0`..`OP_16`, a direct push of 2–40 bytes, and nothing else.
+#[inline]
+fn witness_program_len(script: &[u8]) -> Option<usize> {
+    if script.len() < 4 || script[0] > OP_16 {
+        return None;
+    }
+    let push = script[1];
+    if !(0x02..=0x28).contains(&push) {
+        return None;
+    }
+    let program_len = push as usize;
+    if script.len() != 2 + program_len {
+        return None;
+    }
+    Some(program_len)
 }
 
 /// Validate witness version in scriptPubKey

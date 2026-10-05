@@ -530,7 +530,13 @@ fn eval_script_inner(
     let mut altstack: Vec<StackElement> = Vec::new();
 
     let mut i = 0;
+    // The combined stack limit is applied after an opcode finishes, not before it runs.
+    let mut finished_opcode = false;
     while i < script.len() {
+        if finished_opcode && stack.len() + altstack.len() > MAX_STACK_SIZE {
+            return Err(make_stack_overflow_error());
+        }
+        finished_opcode = true;
         let opcode = script[i];
         let in_false_branch = control_flow::in_false_branch(&control_stack);
 
@@ -545,12 +551,6 @@ fn eval_script_inner(
                 op_count <= MAX_SCRIPT_OPS,
                 "Operation count ({op_count}) must not exceed MAX_SCRIPT_OPS ({MAX_SCRIPT_OPS})"
             );
-        }
-
-        // Check combined stack + altstack size (BIP62/consensus).
-        // Stack size limit uses > MAX_STACK_SIZE (allows exactly 1000 items).
-        if stack.len() + altstack.len() > MAX_STACK_SIZE {
-            return Err(make_stack_overflow_error());
         }
 
         // Handle push opcodes with embedded data (0x01-0x4b direct, OP_PUSHDATA1/2/4).
@@ -746,13 +746,13 @@ fn eval_script_inner(
                 if !execute_opcode(opcode, stack, flags, sigversion)? {
                     return Ok(false);
                 }
-
-                if stack.len() + altstack.len() > MAX_STACK_SIZE {
-                    return Err(make_stack_overflow_error());
-                }
             }
         }
         i += 1;
+    }
+
+    if finished_opcode && stack.len() + altstack.len() > MAX_STACK_SIZE {
+        return Err(make_stack_overflow_error());
     }
 
     if !control_stack.is_empty() {
@@ -762,7 +762,6 @@ fn eval_script_inner(
         });
     }
 
-    // No final stack check — EvalScript behavior (VerifyScript checks stack afterward).
     Ok(true)
 }
 
@@ -3649,6 +3648,13 @@ pub fn verify_script_with_context_full(
     // P2WSH: [OP_0, PUSH_32_BYTES, <32 bytes>] = 34 bytes
     use crate::script::flags::SCRIPT_VERIFY_WITNESS;
     let witness_flag = flags & SCRIPT_VERIFY_WITNESS != 0;
+    // v0 programs must be 20 or 32 bytes. Other lengths are not future witness versions.
+    if witness_flag
+        && redeem_script.is_none()
+        && crate::witness::is_invalid_v0_witness_program(script_pubkey)
+    {
+        return Ok(false);
+    }
     let is_direct_witness_program = witness_flag
         && redeem_script.is_none()
         && !is_taproot
@@ -3899,7 +3905,11 @@ pub fn verify_script_with_context_full(
             && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)  // P2WPKH: push 20 bytes, total 22
                 || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34)); // P2WSH: push 32 bytes, total 34
 
-        if witness_flag && is_witness_program && witness.is_some() {
+        if witness_flag && crate::witness::is_invalid_v0_witness_program(redeem.as_ref()) {
+            return Ok(false);
+        }
+
+        if witness_flag && is_witness_program {
             // For P2WSH-in-P2SH or P2WPKH-in-P2SH:
             // - We've already verified the redeem script hash matches (scriptPubkey check passed)
             // - We should NOT execute the redeem script as a normal script
@@ -4208,12 +4218,6 @@ fn eval_script_with_context_full_inner(
             message: "Script size exceeds maximum".into(),
         });
     }
-    // Tapscript defers this until after the OP_SUCCESS scan. Core's success scan
-    // overrides the initial stack-count limit.
-    if sigversion != SigVersion::Tapscript && stack.len() > MAX_STACK_SIZE {
-        return Err(make_stack_overflow_error());
-    }
-
     // BIP342: In Tapscript, pre-scan the entire script for OP_SUCCESSx opcodes.
     // If any OP_SUCCESSx is encountered (even in unexecuted branches), the whole
     // script succeeds immediately. This must happen before any opcode is executed.
@@ -4269,9 +4273,15 @@ fn eval_script_with_context_full_inner(
     let mut code_separator_pos: usize = 0;
     let mut last_codesep_opcode_pos: u32 = 0xffff_ffff;
 
-    // Use index-based iteration to properly handle push opcodes
+    // Use index-based iteration to properly handle push opcodes.
+    // The combined stack limit is applied after an opcode finishes, not before it runs.
     let mut i = 0;
+    let mut finished_opcode = false;
     while i < script.len() {
+        if finished_opcode && stack.len() + altstack.len() > MAX_STACK_SIZE {
+            return Err(make_stack_overflow_error());
+        }
+        finished_opcode = true;
         #[cfg(feature = "production")]
         {
             // Prefetch next cache line(s) ahead for sequential script access
@@ -4298,11 +4308,6 @@ fn eval_script_with_context_full_inner(
             if op_count > MAX_SCRIPT_OPS {
                 return Err(make_operation_limit_error());
             }
-        }
-
-        // Check combined stack + altstack size (BIP62/consensus)
-        if stack.len() + altstack.len() > MAX_STACK_SIZE {
-            return Err(make_stack_overflow_error());
         }
 
         // Handle push opcodes (0x01-0x4b: direct push, OP_PUSHDATA1/2/4)
@@ -4761,6 +4766,10 @@ fn eval_script_with_context_full_inner(
             }
         }
         i += 1;
+    }
+
+    if finished_opcode && stack.len() + altstack.len() > MAX_STACK_SIZE {
+        return Err(make_stack_overflow_error());
     }
 
     // Invariant: control stack must be empty — return Err if not (unclosed IF/NOTIF)
@@ -7041,6 +7050,7 @@ fn execute_opcode_with_context_full(
         // Behavior must match consensus (BIP65/112):
         // - If SCRIPT_VERIFY_CHECKSEQUENCEVERIFY flag is not set, behaves as a NOP (no-op)
         // - If the *stack* sequence has the disable flag set (0x80000000), behaves as a NOP
+        // - Otherwise the transaction version must be at least 2
         // - If the *input* nSequence disable flag is set (and stack is not disabled), fail
         // - Does NOT remove the top stack item on success (non-consuming)
         OP_CHECKSEQUENCEVERIFY => {
@@ -7081,9 +7091,13 @@ fn execute_opcode_with_context_full(
             }
             let input_sequence = tx.inputs[input_index].sequence as u32;
 
-            // BIP112: stack disable flag → NOP. Input disable flag → fail.
+            // Stack disable flag is a NOP on every version. A real relative lock
+            // requires transaction version 2 or greater.
             if is_sequence_disabled(sequence_value) {
                 return Ok(true);
+            }
+            if tx.version < 2 {
+                return Ok(false);
             }
             if is_sequence_disabled(input_sequence) {
                 return Ok(false);
@@ -7232,16 +7246,16 @@ fn execute_opcode_with_context_full(
         OP_CHECKSIGFROMSTACK => {
             #[cfg(not(feature = "csfs"))]
             {
-                // Without feature flag, OP_SUCCESS204 behavior (succeeds)
-                // But discourage if flag is set
-                const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
-                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::BadOpcode,
-                        message: "OP_CHECKSIGFROMSTACK requires --features csfs".into(),
-                    });
+                // OP_CHECKSIGFROMSTACK is an immediate success only while scanning a tapscript.
+                // Executing it in a legacy script or a version-0 witness script
+                // is an undefined opcode and fails the script.
+                if sigversion == SigVersion::Tapscript {
+                    return Ok(true);
                 }
-                Ok(true) // OP_SUCCESS204 succeeds
+                Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::BadOpcode,
+                    message: "OP_CHECKSIGFROMSTACK is undefined outside tapscript".into(),
+                })
             }
 
             #[cfg(feature = "csfs")]

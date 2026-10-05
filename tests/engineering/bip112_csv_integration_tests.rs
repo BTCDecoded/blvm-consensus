@@ -363,7 +363,7 @@ fn test_csv_bip68_encoding() {
 fn test_csv_multiple_inputs_context() {
     // Test CSV with multiple inputs (each input needs correct context)
     let tx = Transaction {
-        version: 1,
+        version: 2,
         inputs: vec![
             TransactionInput {
                 prevout: OutPoint {
@@ -462,7 +462,7 @@ fn test_csv_in_script_pubkey() {
     script_pubkey.push(OP_CHECKSEQUENCEVERIFY); // CSV
 
     let tx = Transaction {
-        version: 1,
+        version: 2,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [1; 32].into(),

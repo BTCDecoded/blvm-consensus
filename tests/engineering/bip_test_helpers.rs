@@ -156,7 +156,7 @@ pub fn create_csv_transaction(
     script.push(OP_CHECKSEQUENCEVERIFY);
 
     Transaction {
-        version: 1,
+        version: 2,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [1; 32].into(),

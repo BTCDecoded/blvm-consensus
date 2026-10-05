@@ -11,6 +11,16 @@ use blvm_spec_lock::spec_locked;
 /// BIP 341 default tapscript leaf version.
 pub const TAPROOT_LEAF_VERSION_TAPSCRIPT: u8 = 0xc0;
 
+/// Leaf-version byte plus the 32-byte internal key.
+pub const TAPROOT_CONTROL_BASE_SIZE: usize = 33;
+/// One merkle node in a control block.
+pub const TAPROOT_CONTROL_NODE_SIZE: usize = 32;
+/// A script-path control block holds at most 128 merkle nodes.
+pub const TAPROOT_CONTROL_MAX_NODE_COUNT: usize = 128;
+/// `33 + 32 * 128`.
+pub const TAPROOT_CONTROL_MAX_SIZE: usize =
+    TAPROOT_CONTROL_BASE_SIZE + TAPROOT_CONTROL_NODE_SIZE * TAPROOT_CONTROL_MAX_NODE_COUNT;
+
 /// Witness Data: 𝒲 = 𝕊* (stack of witness elements)
 ///
 /// Uses unified witness type from witness module for consistency with SegWit
@@ -200,7 +210,10 @@ pub fn parse_taproot_script_path_witness(
     let Some(control_block) = witness.last() else {
         return Ok(None);
     };
-    if control_block.len() < 33 || (control_block.len() - 33) % 32 != 0 {
+    if control_block.len() < TAPROOT_CONTROL_BASE_SIZE
+        || control_block.len() > TAPROOT_CONTROL_MAX_SIZE
+        || (control_block.len() - TAPROOT_CONTROL_BASE_SIZE) % TAPROOT_CONTROL_NODE_SIZE != 0
+    {
         return Ok(None);
     }
 
@@ -475,14 +488,17 @@ pub fn compute_taproot_signature_hash(
     }
 
     if output_type == 0x03 {
-        // SIGHASH_SINGLE: hash of this input's corresponding output
-        if let Some(output) = tx.outputs.get(input_index) {
-            let mut out_data = Vec::new();
-            out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
-            out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
-            out_data.extend_from_slice(&output.script_pubkey);
-            sigmsg.extend_from_slice(&Sha256::digest(&out_data));
-        }
+        // SIGHASH_SINGLE: no corresponding output fails the signature check.
+        let Some(output) = tx.outputs.get(input_index) else {
+            return Err(crate::error::ConsensusError::InvalidSignature(
+                "SIGHASH_SINGLE has no corresponding output".into(),
+            ));
+        };
+        let mut out_data = Vec::new();
+        out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+        out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        out_data.extend_from_slice(&output.script_pubkey);
+        sigmsg.extend_from_slice(&Sha256::digest(&out_data));
     }
 
     Ok(crate::secp256k1_backend::tap_sighash_hash(&sigmsg))
@@ -575,13 +591,17 @@ pub fn compute_tapscript_signature_hash(
     }
 
     if output_type == 0x03 {
-        if let Some(output) = tx.outputs.get(input_index) {
-            let mut out_data = Vec::new();
-            out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
-            out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
-            out_data.extend_from_slice(&output.script_pubkey);
-            sigmsg.extend_from_slice(&Sha256::digest(&out_data));
-        }
+        // SIGHASH_SINGLE: no corresponding output fails the signature check.
+        let Some(output) = tx.outputs.get(input_index) else {
+            return Err(crate::error::ConsensusError::InvalidSignature(
+                "SIGHASH_SINGLE has no corresponding output".into(),
+            ));
+        };
+        let mut out_data = Vec::new();
+        out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+        out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        out_data.extend_from_slice(&output.script_pubkey);
+        sigmsg.extend_from_slice(&Sha256::digest(&out_data));
     }
 
     // BIP342 extension: tapleaf_hash || key_version(0x00) || codesep_pos

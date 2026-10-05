@@ -309,6 +309,34 @@ fn test_taproot_sighash_anyonecanpay_differs() {
 }
 
 #[test]
+fn test_sighash_single_without_output_fails() {
+    let (tx, pv, ps) = multi_input_tx();
+    let ps_refs: Vec<&[u8]> = ps.iter().map(|s| s.as_slice()).collect();
+    assert!(compute_taproot_signature_hash(&tx, 2, &pv, &ps_refs, 0x03, None).is_err());
+    assert!(
+        compute_tapscript_signature_hash(&tx, 2, &pv, &ps_refs, &[OP_1], 0xc0, 0xffff_ffff, 0x03, None)
+            .is_err()
+    );
+    let one_out = Transaction {
+        outputs: vec![tx.outputs[0].clone()].into(),
+        ..tx
+    };
+    assert!(compute_taproot_signature_hash(&one_out, 1, &pv, &ps_refs, 0x83, None).is_err());
+    assert!(compute_tapscript_signature_hash(
+        &one_out,
+        1,
+        &pv,
+        &ps_refs,
+        &[OP_1],
+        0xc0,
+        0xffff_ffff,
+        0x83,
+        None
+    )
+    .is_err());
+}
+
+#[test]
 fn test_taproot_sighash_invalid_type_errors() {
     let tx = sample_tx();
     let spk = p2tr_scriptpubkey(&[0x02; 32]);

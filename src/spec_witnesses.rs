@@ -1582,3 +1582,97 @@ pub(crate) fn _verify_f_taproot_activation_regtest(network: u64) -> u64 {
         0
     }
 }
+
+/// Witness for **F_DecodeLocktimeNegativeZero** (PROTOCOL.md §5.4.7).
+///
+/// A one-byte element 0x80 is negative zero and decodes to 0.
+#[spec_locked("5.4.7", "F_DecodeLocktimeNegativeZero")]
+#[blvm_spec_lock::requires(byte == 128)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_decode_locktime_negative_zero(byte: i64) -> i64 {
+    if byte >= 128 { -(byte - 128) } else { byte }
+}
+
+/// Witness for **F_DecodeLocktimeNegativeOne** (PROTOCOL.md §5.4.7).
+///
+/// A one-byte element 0x81 has the sign bit set and magnitude 1.
+#[spec_locked("5.4.7", "F_DecodeLocktimeNegativeOne")]
+#[blvm_spec_lock::requires(byte == 129)]
+#[blvm_spec_lock::ensures(result == -1)]
+pub(crate) fn _verify_f_decode_locktime_negative_one(byte: i64) -> i64 {
+    if byte >= 128 { -(byte - 128) } else { byte }
+}
+
+/// Witness for **F_CltvRejectsNegative** (PROTOCOL.md §5.4.7).
+///
+/// A negative script number fails CLTV before the locktime comparison.
+#[spec_locked("5.4.7", "F_CltvRejectsNegative")]
+#[blvm_spec_lock::requires(n < 0)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_cltv_rejects_negative(n: i64) -> bool {
+    n >= 0
+}
+
+/// Witness for **F_CltvRejectsAboveU32** (PROTOCOL.md §5.4.7).
+///
+/// A non-negative value above 2^32-1 cannot satisfy CLTV.
+#[spec_locked("5.4.7", "F_CltvRejectsAboveU32")]
+#[blvm_spec_lock::requires(n > 4294967295)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
+    n >= 0 && n <= 4294967295
+}
+
+/// Witness for **F_CsvVersionBelowTwoFails** (PROTOCOL.md §5.5).
+///
+/// CSV fails when the stack disable bit is clear and the transaction version is below 2.
+#[spec_locked("5.5", "F_CsvVersionBelowTwoFails")]
+#[blvm_spec_lock::requires(version < 2)]
+#[blvm_spec_lock::requires(disable_bit == 0)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_csv_version_below_two_fails(version: i64, disable_bit: i64) -> bool {
+    disable_bit != 0 || version >= 2
+}
+
+/// Witness for **F_CsvDisableBitSkipsVersion** (PROTOCOL.md §5.5).
+///
+/// A set stack disable bit succeeds even when the transaction version is below 2.
+#[spec_locked("5.5", "F_CsvDisableBitSkipsVersion")]
+#[blvm_spec_lock::requires(disable_bit != 0)]
+#[blvm_spec_lock::requires(version < 2)]
+#[blvm_spec_lock::ensures(result == true)]
+pub(crate) fn _verify_f_csv_disable_bit_skips_version(version: i64, disable_bit: i64) -> bool {
+    disable_bit != 0 || version >= 2
+}
+
+/// Witness for **F_TaprootSighashSingleMissingOutput** (PROTOCOL.md §11.2.6).
+///
+/// SIGHASH_SINGLE with no output at the input index produces no hash.
+#[spec_locked("11.2.6", "F_TaprootSighashSingleMissingOutput")]
+#[blvm_spec_lock::requires(output_type == 3)]
+#[blvm_spec_lock::requires(n_outputs >= 0)]
+#[blvm_spec_lock::requires(input_index >= n_outputs)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_taproot_sighash_single_missing_output(
+    output_type: i64,
+    input_index: i64,
+    n_outputs: i64,
+) -> bool {
+    output_type != 3 || input_index < n_outputs
+}
+
+/// Witness for **F_TapscriptSighashSingleMissingOutput** (PROTOCOL.md §11.2.7).
+///
+/// Tapscript SIGHASH_SINGLE with no output at the input index produces no hash.
+#[spec_locked("11.2.7", "F_TapscriptSighashSingleMissingOutput")]
+#[blvm_spec_lock::requires(output_type == 3)]
+#[blvm_spec_lock::requires(n_outputs >= 0)]
+#[blvm_spec_lock::requires(input_index >= n_outputs)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_tapscript_sighash_single_missing_output(
+    output_type: i64,
+    input_index: i64,
+    n_outputs: i64,
+) -> bool {
+    output_type != 3 || input_index < n_outputs
+}

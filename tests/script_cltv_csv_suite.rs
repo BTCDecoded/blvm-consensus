@@ -137,7 +137,7 @@ fn test_cltv_fails_with_final_sequence() {
 fn test_csv_success_with_context() {
     let script_pubkey = helpers::push_locktime_script(4, OP_CHECKSEQUENCEVERIFY);
     let tx = Transaction {
-        version: 1,
+        version: 2,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [0x21; 32],
@@ -178,7 +178,7 @@ fn test_csv_success_with_context() {
 fn test_csv_fails_when_sequence_too_low() {
     let script_pubkey = helpers::push_locktime_script(4, OP_CHECKSEQUENCEVERIFY);
     let tx = Transaction {
-        version: 1,
+        version: 2,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: [0x22; 32],

@@ -7,8 +7,8 @@ use blvm_consensus::activation::ForkActivationTable;
 use blvm_consensus::block::get_block_script_verify_flags_core;
 use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_ADD, OP_CAT, OP_CHECKLOCKTIMEVERIFY, OP_CHECKMULTISIG, OP_CHECKSEQUENCEVERIFY,
-    OP_CHECKSIG, OP_DROP, OP_ELSE, OP_ENDIF, OP_IF, OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF,
-    PUSH_32_BYTES,
+    OP_CHECKSIG, OP_CHECKSIGFROMSTACK, OP_DROP, OP_DUP, OP_ELSE, OP_ENDIF, OP_EQUAL, OP_HASH160,
+    OP_IF, OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF, PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
@@ -64,6 +64,42 @@ fn verify(
         height,
         true,
     )
+}
+
+fn verify_result(
+    tx: &Transaction,
+    script_pubkey: &[u8],
+    witness: Option<&blvm_consensus::witness::Witness>,
+    flags: u32,
+    prevout_value: i64,
+    height: Option<u64>,
+) -> blvm_consensus::error::Result<bool> {
+    disable_fast_paths(true);
+    let values = [prevout_value];
+    let scripts = [script_pubkey];
+    let result = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        script_pubkey,
+        witness,
+        flags,
+        tx,
+        0,
+        &values,
+        &scripts,
+        height,
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    disable_fast_paths(false);
+    result
 }
 
 fn verify_at(
@@ -506,6 +542,43 @@ fn cltv_and_csv_use_script_number_sign() {
 }
 
 #[test]
+fn csv_requires_version_two_unless_disabled() {
+    let height = blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
+    let script = vec![OP_0, OP_CHECKSEQUENCEVERIFY, OP_1];
+    let mut v1 = locktime_tx(0, 0);
+    v1.version = 1;
+    assert!(!verify(
+        &v1,
+        &script,
+        None,
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+        0,
+        Some(height)
+    ));
+    let v2 = locktime_tx(0, 0);
+    assert!(verify(
+        &v2,
+        &script,
+        None,
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+        0,
+        Some(height)
+    ));
+    // Disable bit on the stack is a no-op even when the version is 1.
+    let disabled = vec![
+        0x05, 0x00, 0x00, 0x00, 0x80, 0x00, OP_CHECKSEQUENCEVERIFY, OP_1,
+    ];
+    assert!(verify(
+        &v1,
+        &disabled,
+        None,
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+        0,
+        Some(height)
+    ));
+}
+
+#[test]
 fn nulldummy_rejects_one_byte_zero() {
     let flags = SCRIPT_VERIFY_NULLDUMMY;
     let height = blvm_consensus::BIP147_ACTIVATION_MAINNET;
@@ -573,4 +646,236 @@ fn tapscript_op_success_overrides_initial_stack_limits() {
     let many = vec![Vec::new(); blvm_consensus::MAX_STACK_SIZE + 1];
     assert!(spend_tapscript(script.clone(), many, flags));
     assert!(spend_tapscript(script, vec![vec![0x01]], flags));
+}
+
+#[test]
+fn stack_limit_is_checked_after_each_opcode() {
+    use blvm_consensus::MAX_STACK_SIZE;
+
+    let exact = one_input_tx(vec![OP_1; MAX_STACK_SIZE]);
+    assert!(verify(&exact, &[], None, 0, 0, None));
+
+    let over = one_input_tx(vec![OP_1; MAX_STACK_SIZE + 1]);
+    assert!(!verify(&over, &[], None, 0, 0, None));
+
+    let mut duped = vec![OP_1; MAX_STACK_SIZE];
+    duped.push(OP_DUP);
+    assert!(!verify(&one_input_tx(duped), &[], None, 0, 0, None));
+
+    let mut pushed = Vec::new();
+    for _ in 0..=MAX_STACK_SIZE {
+        pushed.extend_from_slice(&[0x01, 0x11]);
+    }
+    assert!(!verify(&one_input_tx(pushed), &[], None, 0, 0, None));
+
+    // One pop brings 1001 items back to the limit. The spend still fails because
+    // more than one item remains, but it is not a stack-limit error.
+    let dropped = vec![vec![0x01]; MAX_STACK_SIZE + 1];
+    let (tx, spk, witness) = p2wsh(vec![OP_DROP], dropped);
+    assert!(matches!(
+        verify_result(
+            &tx,
+            &spk,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            10_000,
+            Some(800_000),
+        ),
+        Ok(false)
+    ));
+
+    let still_over = vec![vec![0x01]; MAX_STACK_SIZE + 1];
+    let (tx, spk, witness) = p2wsh(vec![OP_NOP], still_over);
+    assert!(matches!(
+        verify_result(
+            &tx,
+            &spk,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            10_000,
+            Some(800_000),
+        ),
+        Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode { .. })
+    ));
+
+    let flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT;
+    assert!(!spend_tapscript(
+        vec![OP_DROP, OP_1],
+        vec![Vec::new(); MAX_STACK_SIZE + 1],
+        flags,
+    ));
+}
+
+fn v0_program(len: usize) -> Vec<u8> {
+    let mut script = vec![OP_0, len as u8];
+    script.extend(std::iter::repeat_n(0x11, len));
+    script
+}
+
+#[test]
+fn witness_v0_wrong_program_length_fails() {
+    let program = v0_program(2);
+    let tx = one_input_tx(vec![]);
+    assert!(!verify(
+        &tx,
+        &program,
+        None,
+        SCRIPT_VERIFY_WITNESS,
+        0,
+        Some(800_000),
+    ));
+    assert!(verify(&tx, &program, None, 0, 0, Some(800_000)));
+
+    let future = vec![OP_1, 0x02, 0x4e, 0x73];
+    assert!(verify(
+        &one_input_tx(vec![]),
+        &future,
+        None,
+        SCRIPT_VERIFY_WITNESS,
+        0,
+        Some(800_000),
+    ));
+
+    let redeem = v0_program(21);
+    let mut script_sig = vec![redeem.len() as u8];
+    script_sig.extend_from_slice(&redeem);
+    let hash = Ripemd160::digest(Sha256::digest(&redeem));
+    let mut spk = vec![OP_HASH160, 0x14];
+    spk.extend_from_slice(&hash);
+    spk.push(OP_EQUAL);
+    let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+    assert!(!verify(
+        &one_input_tx(script_sig.clone()),
+        &spk,
+        None,
+        flags,
+        0,
+        Some(800_000),
+    ));
+    assert!(verify(
+        &one_input_tx(script_sig),
+        &spk,
+        None,
+        SCRIPT_VERIFY_P2SH,
+        0,
+        Some(800_000),
+    ));
+}
+
+fn p2sh_of(redeem: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let mut script_sig = vec![redeem.len() as u8];
+    script_sig.extend_from_slice(redeem);
+    let hash = Ripemd160::digest(Sha256::digest(redeem));
+    let mut spk = vec![OP_HASH160, 0x14];
+    spk.extend_from_slice(&hash);
+    spk.push(OP_EQUAL);
+    (script_sig, spk)
+}
+
+#[test]
+fn nested_v0_without_witness_fails() {
+    let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+    let empty: Vec<Vec<u8>> = Vec::new();
+    for len in [20usize, 32] {
+        let (script_sig, spk) = p2sh_of(&v0_program(len));
+        assert!(!verify(
+            &one_input_tx(script_sig.clone()),
+            &spk,
+            None,
+            flags,
+            0,
+            Some(800_000),
+        ));
+        assert!(!verify(
+            &one_input_tx(script_sig.clone()),
+            &spk,
+            Some(&empty),
+            flags,
+            0,
+            Some(800_000),
+        ));
+        assert!(verify(
+            &one_input_tx(script_sig),
+            &spk,
+            None,
+            SCRIPT_VERIFY_P2SH,
+            0,
+            Some(800_000),
+        ));
+    }
+}
+
+#[test]
+fn taproot_control_block_rejects_more_than_128_nodes() {
+    let flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT;
+    let internal = internal_key();
+    let tapscript = vec![OP_1];
+    for n in [128usize, 129] {
+        let proof: Vec<[u8; 32]> = (0..n)
+            .map(|i| {
+                let mut node = [0u8; 32];
+                node[0] = i as u8;
+                node[1] = (i >> 8) as u8;
+                node
+            })
+            .collect();
+        let root = compute_script_merkle_root(
+            &tapscript,
+            &proof,
+            TAPROOT_LEAF_VERSION_TAPSCRIPT,
+        )
+        .expect("root");
+        let (output_key, parity) =
+            blvm_consensus::secp256k1_backend::taproot_output_key_with_parity(&internal, &root)
+                .expect("tweak");
+        let mut spk = vec![OP_1, PUSH_32_BYTES];
+        spk.extend_from_slice(&output_key);
+        let mut control = vec![TAPROOT_LEAF_VERSION_TAPSCRIPT | parity];
+        control.extend_from_slice(&internal);
+        for node in &proof {
+            control.extend_from_slice(node);
+        }
+        let witness = vec![tapscript.clone(), control];
+        let ok = verify(
+            &one_input_tx(vec![]),
+            &spk,
+            Some(&witness),
+            flags,
+            10_000,
+            Some(TAPROOT_ACTIVATION_MAINNET),
+        );
+        if n == 128 {
+            assert!(ok);
+        } else {
+            assert!(!ok);
+        }
+    }
+}
+
+#[test]
+fn checksigfromstack_fails_outside_tapscript() {
+    let script = vec![OP_1, OP_CHECKSIGFROMSTACK];
+    assert!(!verify(
+        &one_input_tx(vec![]),
+        &script,
+        None,
+        0,
+        0,
+        Some(800_000),
+    ));
+    assert!(!p2wsh_ok(script, true));
+    let skipped = vec![OP_0, OP_IF, OP_CHECKSIGFROMSTACK, OP_ENDIF, OP_1];
+    assert!(verify(
+        &one_input_tx(vec![]),
+        &skipped,
+        None,
+        0,
+        0,
+        Some(800_000),
+    ));
+    assert!(spend_tapscript(
+        vec![OP_CHECKSIGFROMSTACK],
+        vec![],
+        SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT,
+    ));
 }

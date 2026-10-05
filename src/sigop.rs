@@ -313,10 +313,63 @@ pub fn get_p2sh_sigop_count<U: UtxoLookup>(tx: &Transaction, utxo_lookup: &U) ->
     Ok(count)
 }
 
+/// True for a version-0 witness program of 20 or 32 bytes.
+fn is_version_zero_witness_program(script: &[u8]) -> bool {
+    (script.len() == 22 && script[0] == OP_0 && script[1] == 0x14)
+        || (script.len() == 34 && script[0] == OP_0 && script[1] == 0x20)
+}
+
+/// Sigops for one version-0 witness program.
+///
+/// A 20-byte program costs 1 even when the witness stack is empty. A 32-byte program
+/// costs the accurate sigop count of its witness script, and costs 0 when that stack
+/// is empty. Any other script costs 0. This cost is not scaled by four.
+fn witness_program_sigops(script: &[u8], witness: Option<&Witness>) -> u64 {
+    if script.len() == 22 && script[0] == OP_0 && script[1] == 0x14 {
+        return 1;
+    }
+    if script.len() == 34 && script[0] == OP_0 && script[1] == 0x20 {
+        let Some(witness) = witness.filter(|w| !w.is_empty()) else {
+            return 0;
+        };
+        let Some(witness_script) = witness.last() else {
+            return 0;
+        };
+        return count_sigops_in_script(witness_script, true) as u64;
+    }
+    0
+}
+
+/// Witness sigops for one input.
+///
+/// Native version-0 programs are counted from the scriptPubKey. When P2SH is enabled,
+/// a redeem script that is itself a version-0 program is counted the same way. Version-1
+/// programs, including those wrapped in P2SH, add nothing: their limit is the tapscript
+/// validation weight, not the block sigop cost.
+fn input_witness_sigops(
+    script_pubkey: &[u8],
+    script_sig: &ByteString,
+    witness: Option<&Witness>,
+    flags: u32,
+) -> u64 {
+    if flags & 0x800 == 0 {
+        return 0;
+    }
+    if is_version_zero_witness_program(script_pubkey) {
+        return witness_program_sigops(script_pubkey, witness);
+    }
+    if flags & 0x01 != 0 && is_pay_to_script_hash(script_pubkey) {
+        if let Some(redeem) = extract_redeem_script_from_scriptsig(script_sig) {
+            return witness_program_sigops(&redeem, witness);
+        }
+    }
+    0
+}
+
 /// Count witness sigops in transaction
 ///
-/// Counts sigops in witness scripts for SegWit transactions.
-/// P2WPKH: 1 sigop; P2WSH: count in witness script; P2TR: count in tapscript.
+/// Native version-0 programs and P2SH-wrapped version-0 programs. A 20-byte program
+/// costs 1. A 32-byte program costs the sigops in the witness script. Version 1 adds 0.
 ///
 /// # Arguments
 /// * `tx` - Transaction
@@ -335,48 +388,19 @@ pub(crate) fn count_witness_sigops<U: UtxoLookup>(
 ) -> Result<u64> {
     use crate::transaction::is_coinbase;
 
-    // SegWit flag must be enabled
-    if (flags & 0x800) == 0 {
-        return Ok(0);
-    }
-
     if is_coinbase(tx) {
         return Ok(0);
     }
 
     let mut count = 0u64;
-
     for (i, input) in tx.inputs.iter().enumerate() {
         if let Some(utxo) = utxo_lookup.get(&input.prevout) {
-            let script_pubkey = &utxo.script_pubkey;
-
-            // P2WPKH: OP_0 <20-byte-hash>
-            if script_pubkey.len() == 22 && script_pubkey[0] == OP_0 && script_pubkey[1] == 0x14 {
-                // P2WPKH has 1 sigop (the CHECKSIG in the witness script)
-                if let Some(witness) = witnesses.get(i) {
-                    if !witness.is_empty() {
-                        count = count.saturating_add(1);
-                    }
-                }
-            }
-            // P2WSH: OP_0 <32-byte-hash>
-            else if script_pubkey.len() == 34
-                && script_pubkey[0] == OP_0
-                && script_pubkey[1] == 0x20
-            {
-                // P2WSH: count sigops in witness script
-                if let Some(witness) = witnesses.get(i) {
-                    if let Some(witness_script) = witness.last() {
-                        count = count
-                            .saturating_add(count_sigops_in_script(witness_script, true) as u64);
-                    }
-                }
-            }
-            // P2TR (witness v1): do **not** add tapscript sigops here.
-            // Witness sigop counting only handles version 0; v1 returns 0.
-            // BIP 342 enforces signature-related limits via tapscript validation weight during
-            // execution, not `MAX_BLOCK_SIGOPS_COST`. Counting tapscript ops here overstates the
-            // block total and rejects mined mainnet blocks (e.g. heavy tapscript spends).
+            count = count.saturating_add(input_witness_sigops(
+                utxo.script_pubkey.as_ref(),
+                &input.script_sig,
+                witnesses.get(i),
+                flags,
+            ));
         }
     }
 
@@ -495,35 +519,14 @@ pub fn get_transaction_sigop_cost_with_utxos(
     }
 
     if let Some(witnesses) = witnesses {
-        if (flags & 0x800) != 0 {
-            for (i, (input, utxo_opt)) in tx.inputs.iter().zip(utxos.iter()).enumerate() {
-                if let Some(utxo) = utxo_opt {
-                    let script_pubkey = utxo.script_pubkey.as_ref();
-                    if script_pubkey.len() == 22
-                        && script_pubkey[0] == OP_0
-                        && script_pubkey[1] == 0x14
-                    {
-                        if let Some(witness) = witnesses.get(i) {
-                            if !witness.is_empty() {
-                                total_cost = total_cost.saturating_add(1);
-                            }
-                        }
-                    } else if script_pubkey.len() == 34
-                        && script_pubkey[0] == OP_0
-                        && script_pubkey[1] == 0x20
-                    {
-                        if let Some(witness) = witnesses.get(i) {
-                            if let Some(witness_script) = witness.last() {
-                                total_cost = total_cost.saturating_add(count_sigops_in_script(
-                                    witness_script,
-                                    true,
-                                )
-                                    as u64);
-                            }
-                        }
-                    }
-                    // P2TR / witness v1: witness sigop cost is 0 for block limit.
-                }
+        for (i, (input, utxo_opt)) in tx.inputs.iter().zip(utxos.iter()).enumerate() {
+            if let Some(utxo) = utxo_opt {
+                total_cost = total_cost.saturating_add(input_witness_sigops(
+                    utxo.script_pubkey.as_ref(),
+                    &input.script_sig,
+                    witnesses.get(i),
+                    flags,
+                ));
             }
         }
     }
@@ -882,5 +885,96 @@ mod tests {
                 "tapscript in P2TR witness must not add to block sigop cost"
             );
         }
+    }
+
+    fn p2sh_script_pubkey() -> Vec<u8> {
+        let mut script = vec![OP_HASH160, 0x14];
+        script.extend_from_slice(&[0x11; 20]);
+        script.push(OP_EQUAL);
+        script
+    }
+
+    fn direct_push(payload: &[u8]) -> Vec<u8> {
+        let mut script = vec![payload.len() as u8];
+        script.extend_from_slice(payload);
+        script
+    }
+
+    fn spend_cost(script_pubkey: Vec<u8>, script_sig: Vec<u8>, witness: Witness, flags: u32) -> u64 {
+        let prev = OutPoint {
+            hash: [3u8; 32],
+            index: 1,
+        };
+        let utxo = UTXO {
+            value: 50_000,
+            script_pubkey: script_pubkey.into(),
+            height: 500_000,
+            is_coinbase: false,
+        };
+        let mut set: UtxoSet = Default::default();
+        crate::utxo_set_insert(&mut set, prev, utxo);
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: prev,
+                script_sig,
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 10_000,
+                script_pubkey: vec![OP_1],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let witnesses = vec![witness];
+        let with_slices =
+            get_transaction_sigop_cost_with_witness_slices(&tx, &set, Some(&witnesses), flags)
+                .unwrap();
+        let uref = set.get(&prev).map(|a| a.as_ref());
+        let with_utxos =
+            get_transaction_sigop_cost_with_utxos(&tx, &[uref], Some(&witnesses), flags).unwrap();
+        assert_eq!(with_utxos, with_slices);
+        with_slices
+    }
+
+    #[test]
+    fn nested_v0_witness_sigops_count_toward_block_cost() {
+        let flags = 0x01 | 0x800;
+        let mut p2wpkh = vec![OP_0, 0x14];
+        p2wpkh.extend_from_slice(&[0x22; 20]);
+        assert_eq!(
+            spend_cost(p2sh_script_pubkey(), direct_push(&p2wpkh), vec![], flags),
+            1,
+            "nested 20-byte program costs 1 even with an empty witness"
+        );
+
+        let mut p2wsh = vec![OP_0, 0x20];
+        p2wsh.extend_from_slice(&[0x33; 32]);
+        let witness_script = vec![OP_CHECKSIG, OP_CHECKSIG];
+        assert_eq!(
+            spend_cost(
+                p2sh_script_pubkey(),
+                direct_push(&p2wsh),
+                vec![witness_script],
+                flags,
+            ),
+            2,
+            "nested 32-byte program costs the witness script's sigops"
+        );
+        assert_eq!(
+            spend_cost(p2sh_script_pubkey(), direct_push(&p2wsh), vec![], flags),
+            0,
+            "nested 32-byte program with an empty witness costs 0"
+        );
+
+        let mut native = vec![OP_0, 0x14];
+        native.extend_from_slice(&[0x44; 20]);
+        assert_eq!(
+            spend_cost(native, vec![], vec![], flags),
+            1,
+            "native 20-byte program costs 1 even with an empty witness"
+        );
     }
 }
