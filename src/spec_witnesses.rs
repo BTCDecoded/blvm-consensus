@@ -1631,7 +1631,10 @@ pub(crate) fn _verify_f_cltv_rejects_negative(n: i64) -> bool {
 #[spec_locked("5.4.7", "F_CltvRejectsAboveU32")]
 #[blvm_spec_lock::requires(n > 4294967295)]
 #[blvm_spec_lock::ensures(result == false)]
+#[allow(clippy::manual_range_contains)]
 pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
+    // Comparisons translate. `RangeInclusive::contains` leaves this witness partial, and the
+    // partial ceiling is zero.
     n >= 0 && n <= 4294967295
 }
 
