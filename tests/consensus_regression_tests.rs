@@ -358,19 +358,16 @@ fn test_nested_segwit_detection() {
 }
 
 // ============================================================================
-// Bug #5: BIP30 Deactivation
+// BIP30: duplicate coinbase stays invalid after block 91,722
 // ============================================================================
 
-/// Regression test: BIP30 must be deactivated after block 91,722
-///
-/// **Bug Fixed:** BIP30 was being enforced after its deactivation height (91,722).
-///
-/// **Fix:** Added BIP30_DEACTIVATION_MAINNET = 91722 and skip check after this height.
-///
-/// **Test:** Verify that duplicate coinbases are allowed after deactivation height.
+/// A coinbase whose transaction id still has an unspent output is invalid above
+/// block 91,722. Height 91,842 is not exempt unless the block hash matches.
 #[test]
-fn test_bip30_deactivation() {
-    // Create a block with duplicate coinbase (would fail BIP30 if active)
+fn test_bip30_rejects_duplicate_after_block_91722() {
+    use blvm_consensus::bip_validation::{bip30_lookup_skippable, is_bip30_repeat_block};
+    use blvm_consensus::block::calculate_tx_id;
+
     let block = Block {
         header: BlockHeader {
             version: 1,
@@ -387,37 +384,85 @@ fn test_bip30_deactivation() {
                     hash: [0u8; 32],
                     index: 0xffffffff,
                 },
-                script_sig: vec![0x04, 0xff, 0xff, 0x00, 0x1d, 0x01, 0x04], // Block height
+                script_sig: vec![0x04, 0xff, 0xff, 0x00, 0x1d, 0x01, 0x04],
                 sequence: 0xffffffff,
             }]
             .into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![0x41, 0x04], // Pubkey
+                script_pubkey: vec![0x41, 0x04],
             }]
             .into(),
             lock_time: 0,
         }]
         .into(),
     };
-
-    let utxo_set = UtxoSet::default();
-    let network = Network::Mainnet;
-
-    // Before deactivation (block 91,721): BIP30 should be active
-    let height_before = BIP30_DEACTIVATION_MAINNET - 1;
-    let _result_before = check_bip30_network(&block, &utxo_set, None, height_before, network, None);
-    // Should check BIP30 (may pass or fail depending on UTXO set state)
-
-    // After deactivation (block 91,723): BIP30 should be skipped
-    let height_after = BIP30_DEACTIVATION_MAINNET + 1;
-    let result_after = check_bip30_network(&block, &utxo_set, None, height_after, network, None);
-
-    // CRITICAL: After deactivation, BIP30 check should always pass
-    assert!(
-        result_after.is_ok() && result_after.unwrap(),
-        "BIP30 check must pass after deactivation height (91,722)"
+    let txid = calculate_tx_id(&block.transactions[0]);
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        OutPoint {
+            hash: txid,
+            index: 0,
+        },
+        std::sync::Arc::new(UTXO {
+            value: 5000000000,
+            script_pubkey: vec![0x41, 0x04].into(),
+            height: 1,
+            is_coinbase: true,
+        }),
     );
+
+    let rejected = check_bip30_network(
+        &block,
+        &utxo_set,
+        None,
+        91_723,
+        Network::Mainnet,
+        Some(&txid),
+    )
+    .unwrap();
+    assert!(
+        !rejected,
+        "duplicate coinbase at height 91723 must be rejected"
+    );
+
+    let wrong_hash_at_exception = check_bip30_network(
+        &block,
+        &utxo_set,
+        None,
+        91_842,
+        Network::Mainnet,
+        Some(&txid),
+    )
+    .unwrap();
+    assert!(
+        !wrong_hash_at_exception,
+        "height 91842 is not exempt when the block hash does not match"
+    );
+
+    let testnet = check_bip30_network(
+        &block,
+        &utxo_set,
+        None,
+        50_000,
+        Network::Testnet,
+        Some(&txid),
+    )
+    .unwrap();
+    assert!(!testnet, "testnet enforces the duplicate-coinbase check");
+
+    assert!(!is_bip30_repeat_block(
+        91_842,
+        &block.header.prev_block_hash
+    ));
+    assert!(!bip30_lookup_skippable(Network::Mainnet, 100_000, false));
+    assert!(bip30_lookup_skippable(Network::Mainnet, 300_000, true));
+    assert!(!bip30_lookup_skippable(
+        Network::Mainnet,
+        blvm_consensus::bip_validation::BIP34_IMPLIES_BIP30_LIMIT,
+        true
+    ));
+    assert!(!bip30_lookup_skippable(Network::Regtest, 300_000, true));
 }
 
 // ============================================================================

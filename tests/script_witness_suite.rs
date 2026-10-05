@@ -4,12 +4,15 @@
 mod helpers;
 
 use bitcoin_hashes::{Hash as BitcoinHash, sha256};
-use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_ENDIF, OP_IF, PUSH_20_BYTES, PUSH_32_BYTES};
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_1NEGATE, OP_2, OP_ENDIF, OP_IF, OP_RESERVED, PUSH_20_BYTES, PUSH_32_BYTES,
+};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
 use blvm_consensus::script::{SigVersion, verify_script_with_context};
 use blvm_consensus::types::Network;
 use blvm_consensus::{
-    OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
+    OutPoint, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, Transaction, TransactionInput,
+    TransactionOutput,
 };
 
 #[path = "core_test_vectors/script_tests.rs"]
@@ -251,6 +254,150 @@ fn test_unexpected_witness_is_ignored_unless_witness_flag_is_set() {
             &prevouts,
             None,
             Network::Regtest,
+        )
+        .unwrap()
+    );
+}
+
+fn verify_pubkey(script_sig: &[u8], script_pubkey: &[u8], witness: Option<&Vec<Vec<u8>>>) -> bool {
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x11; 32],
+                index: 0,
+            },
+            script_sig: script_sig.to_vec().into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let prevouts = vec![TransactionOutput {
+        value: 10_000,
+        script_pubkey: script_pubkey.to_vec().into(),
+    }];
+    verify_script_with_context(
+        &tx.inputs[0].script_sig,
+        script_pubkey,
+        witness,
+        SCRIPT_VERIFY_WITNESS,
+        &tx,
+        0,
+        &prevouts,
+        Some(SEGWIT_ACTIVATION_MAINNET),
+        Network::Mainnet,
+    )
+    .unwrap_or(false)
+}
+
+#[test]
+fn test_reserved_and_negate_are_not_witness_programs() {
+    // OP_RESERVED fails when executed. It must not be spent as a future witness program.
+    assert!(!verify_pubkey(&[], &[OP_RESERVED, 0x02, 0x01, 0x01], None));
+    // OP_1NEGATE then a push of zeros leaves a false item. The witness shortcut would accept it.
+    assert!(!verify_pubkey(&[], &[OP_1NEGATE, 0x02, 0x00, 0x00], None));
+    // A 3-byte push of [0x02, 0xaa, 0xbb] has the same length as a 2-byte witness program.
+    assert!(verify_pubkey(&[OP_1], &[0x03, 0x02, 0xaa, 0xbb], None));
+    // OP_2 plus a 2-byte program is a real future witness version. Its witness is ignored.
+    let witness = vec![vec![0x01u8]];
+    assert!(verify_pubkey(
+        &[],
+        &[OP_2, 0x02, 0x11, 0x22],
+        Some(&witness),
+    ));
+}
+
+#[test]
+fn test_v1_program_before_taproot_ignores_witness() {
+    let mut script_pubkey = vec![OP_1, PUSH_32_BYTES];
+    script_pubkey.extend_from_slice(&[0x11u8; 32]);
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x11; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let prevouts = vec![TransactionOutput {
+        value: 10_000,
+        script_pubkey: script_pubkey.clone().into(),
+    }];
+    let height = TAPROOT_ACTIVATION_MAINNET - 1;
+    let witness = vec![vec![0x01u8]];
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(height),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
+    assert!(
+        verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(height),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
+
+    let mut malleated = tx.clone();
+    malleated.inputs[0].script_sig = vec![OP_1].into();
+    assert!(
+        !verify_script_with_context(
+            &malleated.inputs[0].script_sig,
+            &script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            &malleated,
+            0,
+            &prevouts,
+            Some(height),
+            Network::Mainnet,
+        )
+        .unwrap()
+    );
+
+    assert!(
+        !verify_script_with_context(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &prevouts,
+            Some(TAPROOT_ACTIVATION_MAINNET),
+            Network::Mainnet,
         )
         .unwrap()
     );

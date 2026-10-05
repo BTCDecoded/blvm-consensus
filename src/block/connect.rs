@@ -3841,8 +3841,8 @@ pub(crate) fn connect_block_inner<'a>(
         );
     }
 
-    // BIP30 index is only read by check_bip30 while the fork is active; skip index mutations
-    // after deactivation to avoid redundant HashMap work on every coinbase touch.
+    // The duplicate-coinbase index stays live. Production networks never deactivate
+    // the fork; the two historical blocks are exempt inside check_bip30.
     let maintain_bip30_index = context.is_fork_active(ForkId::Bip30, height);
 
     #[cfg(feature = "production")]

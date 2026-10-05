@@ -24,7 +24,8 @@ pub trait IsForkActive {
 /// chain params, version-bits (e.g. BIP54), and config overrides. Consensus only reads.
 #[derive(Debug, Clone)]
 pub struct ForkActivationTable {
-    /// BIP30: active when height <= this (deactivation fork).
+    /// BIP30: active when `height <=` this. Production networks use `u64::MAX`
+    /// (always active). The two historical duplicates are exempt by block hash.
     pub bip30_deactivation: u64,
     /// Activation heights (active when height >= value; u64::MAX = never active).
     pub bip16: u64,
@@ -44,7 +45,9 @@ impl IsForkActive for ForkActivationTable {
     #[inline]
     fn is_fork_active(&self, fork: ForkId, height: u64) -> bool {
         match fork {
-            ForkId::Bip30 => height <= self.bip30_deactivation,
+            // No deactivation height. The two historical duplicates are exempt by
+            // block hash inside `check_bip30`, not by turning this fork off.
+            ForkId::Bip30 => true,
             ForkId::Bip16 => height >= self.bip16,
             ForkId::Bip34 => height >= self.bip34,
             ForkId::Bip66 => height >= self.bip66,

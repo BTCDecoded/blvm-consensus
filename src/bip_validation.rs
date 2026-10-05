@@ -35,21 +35,95 @@ pub fn build_bip30_index(utxo_set: &UtxoSet) -> Bip30Index {
     index
 }
 
+/// Mainnet block 91842. Digest order, matching `block_header_hash`.
+const BIP30_REPEAT_91842: Hash = [
+    0xec, 0xca, 0xe0, 0x00, 0xe3, 0xc8, 0xe4, 0xe0, 0x93, 0x93, 0x63, 0x60, 0x43, 0x1f, 0x3b, 0x76,
+    0x03, 0xc5, 0x63, 0xc1, 0xff, 0x61, 0x81, 0x39, 0x0a, 0x4d, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+/// Mainnet block 91880. Digest order, matching `block_header_hash`.
+const BIP30_REPEAT_91880: Hash = [
+    0x21, 0xd7, 0x7c, 0xcb, 0x4c, 0x08, 0x38, 0x6a, 0x04, 0xac, 0x01, 0x96, 0xae, 0x10, 0xf6, 0xa1,
+    0xd2, 0xc2, 0xa3, 0x77, 0x55, 0x8c, 0xa1, 0x90, 0xf1, 0x43, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+/// Known mainnet block at the height-in-coinbase activation. Digest order.
+const BIP34_MAINNET_HASH: Hash = [
+    0xb8, 0x08, 0x08, 0x9c, 0x75, 0x6a, 0xdd, 0x15, 0x91, 0xb1, 0xd1, 0x7b, 0xab, 0x44, 0xbb, 0xa3,
+    0xfe, 0xd9, 0xe0, 0x2f, 0x94, 0x2a, 0xb4, 0x89, 0x4b, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+/// Known testnet block at the height-in-coinbase activation. Digest order.
+const BIP34_TESTNET_HASH: Hash = [
+    0xf8, 0x8e, 0xcd, 0x99, 0x12, 0xd0, 0x0d, 0x3f, 0x5c, 0x2a, 0x8e, 0x0f, 0x50, 0x41, 0x7d, 0x3e,
+    0x41, 0x5c, 0x75, 0xb3, 0xab, 0xe5, 0x84, 0x34, 0x6d, 0xa9, 0xb3, 0x23, 0x00, 0x00, 0x00, 0x00,
+];
+
+/// From this height the duplicate-coinbase lookup is mandatory again, even on a chain
+/// whose height-in-coinbase activation block is the known one. A coinbase from before
+/// that rule can carry an indicated height this large.
+pub const BIP34_IMPLIES_BIP30_LIMIT: u64 = 1_983_702;
+
+/// True only for the two mainnet blocks whose coinbase repeats an earlier unspent one.
+pub fn is_bip30_repeat_block(height: u64, block_hash: &Hash) -> bool {
+    match height {
+        91_842 => block_hash == &BIP30_REPEAT_91842,
+        91_880 => block_hash == &BIP30_REPEAT_91880,
+        _ => false,
+    }
+}
+
+/// True when this header is the known block at the height-in-coinbase activation.
+/// The header is hashed only at that height.
+pub fn is_known_bip34_header(network: Network, height: u64, header: &BlockHeader) -> bool {
+    let expected = match network {
+        Network::Mainnet if height == crate::constants::BIP34_ACTIVATION_MAINNET => {
+            &BIP34_MAINNET_HASH
+        }
+        Network::Testnet if height == crate::constants::BIP34_ACTIVATION_TESTNET => {
+            &BIP34_TESTNET_HASH
+        }
+        _ => return false,
+    };
+    &crate::block::block_header_hash(header) == expected
+}
+
+/// True when `block_hash` is the known block at this network's height-in-coinbase activation.
+pub fn is_known_bip34_block(network: Network, height: u64, block_hash: &Hash) -> bool {
+    match network {
+        Network::Mainnet => {
+            height == crate::constants::BIP34_ACTIVATION_MAINNET
+                && block_hash == &BIP34_MAINNET_HASH
+        }
+        Network::Testnet => {
+            height == crate::constants::BIP34_ACTIVATION_TESTNET
+                && block_hash == &BIP34_TESTNET_HASH
+        }
+        Network::Regtest | Network::Signet => false,
+    }
+}
+
+/// The duplicate lookup may be skipped only after the known height-in-coinbase block,
+/// and only before [`BIP34_IMPLIES_BIP30_LIMIT`].
+pub fn bip30_lookup_skippable(network: Network, height: u64, bip34_hash_matches: bool) -> bool {
+    if !bip34_hash_matches || height >= BIP34_IMPLIES_BIP30_LIMIT {
+        return false;
+    }
+    let activation = match network {
+        Network::Mainnet => crate::constants::BIP34_ACTIVATION_MAINNET,
+        Network::Testnet => crate::constants::BIP34_ACTIVATION_TESTNET,
+        Network::Regtest | Network::Signet => return false,
+    };
+    height > activation
+}
+
 /// BIP30: Duplicate Coinbase Prevention
 ///
-/// Prevents duplicate coinbase transactions (same txid) from being added to the blockchain.
+/// A coinbase whose transaction id already has an unspent output is invalid.
 /// Mathematical specification: Orange Paper Section 5.4.1
 ///
 /// **BIP30Check**: ℬ × 𝒰𝒮 × ℕ × Network → {valid, invalid}
 ///
-/// For block b = (h, txs) with UTXO set us, height h, and network n:
-/// - invalid if h ≤ deactivation_height(n) ∧ ∃ tx ∈ txs : IsCoinbase(tx) ∧ txid(tx) ∈ CoinbaseTxids(us)
-/// - valid otherwise
-///
-/// **Deactivation**: BIP30 was disabled after block 91722 (mainnet) to allow duplicate coinbases
-/// in blocks 91842 and 91880 (historical bug, grandfathered in).
-///
-/// Activation: Block 0 (always active until deactivation)
+/// Two mainnet blocks are exempt, and only when the block hash matches:
+/// height 91842 and height 91880. Every other duplicate is invalid, on every
+/// network, at every height. There is no deactivation height.
 ///
 /// **Optimization**: When `bip30_index` is `Some`, uses O(1) lookup instead of O(n) iteration
 /// over the UTXO set. Caller must maintain the index in sync with UTXO changes.
@@ -65,6 +139,14 @@ pub fn check_bip30(
 ) -> Result<bool> {
     if !activation.is_fork_active(ForkId::Bip30, height) {
         return Ok(true);
+    }
+    // The two historical duplicates are exempt by hash. Any other block at
+    // those heights is still checked. The header is hashed only then.
+    if height == 91_842 || height == 91_880 {
+        let hash = crate::block::block_header_hash(&block.header);
+        if is_bip30_repeat_block(height, &hash) {
+            return Ok(true);
+        }
     }
     // Find coinbase transaction
     let coinbase = block.transactions.first();
@@ -680,6 +762,38 @@ mod tests {
     use crate::constants::BIP147_ACTIVATION_MAINNET;
 
     use crate::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_CHECKSIG};
+
+    #[test]
+    fn test_bip30_repeat_hashes_are_display_ids_reversed() {
+        fn digest(display: &str) -> Hash {
+            let mut bytes = hex::decode(display).unwrap();
+            bytes.reverse();
+            bytes.try_into().unwrap()
+        }
+        assert!(is_bip30_repeat_block(
+            91_842,
+            &digest("00000000000a4d0a398161ffc163c503763b1f4360639393e0e4c8e300e0caec")
+        ));
+        assert!(is_bip30_repeat_block(
+            91_880,
+            &digest("00000000000743f190a18c5577a3c2d2a1f610ae9601ac046a38084ccb7cd721")
+        ));
+        assert!(!is_bip30_repeat_block(91_842, &[0; 32]));
+        assert!(!is_bip30_repeat_block(
+            91_722,
+            &digest("00000000000a4d0a398161ffc163c503763b1f4360639393e0e4c8e300e0caec")
+        ));
+        assert!(is_known_bip34_block(
+            Network::Mainnet,
+            crate::constants::BIP34_ACTIVATION_MAINNET,
+            &digest("000000000000024b89b42a942fe0d9fea3bb44ab7bd1b19115dd6a759c0808b8")
+        ));
+        assert!(!is_known_bip34_block(
+            Network::Mainnet,
+            crate::constants::BIP34_ACTIVATION_MAINNET,
+            &[0; 32]
+        ));
+    }
 
     #[test]
     fn test_bip30_basic() {

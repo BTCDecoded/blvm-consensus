@@ -1061,22 +1061,20 @@ pub(crate) fn _verify_f_header_timestamp_after_mtp(timestamp: i64, mtp: i64) -> 
 
 // ─── §5.4.1 BIP30: Duplicate Coinbase Prevention ──────────────────────────────
 
-/// Witness for **F_BIP30DeactivationPass** (PROTOCOL.md §5.4.1).
+/// Witness for **F_BIP30DuplicateRejected** (PROTOCOL.md §5.4.1).
 ///
-/// Proof obligation: after BIP30 deactivation, the BIP30 check always passes.
-///
-/// The production `check_bip30` short-circuits `return Ok(true)` when
-/// `!is_fork_active(Bip30, height)`.  Encoded as an integer flag (0 = inactive):
-/// under `requires(bip30_active == 0)`, the `if` branch is taken and `result = 1`.
-/// Z3 proves this via linear arithmetic: `bip30_active == 0 → result == 1`.
-///
-/// Proves the deactivation-pass invariant: once BIP30 is deactivated, no block
-/// can be rejected by the duplicate-coinbase rule.
-#[spec_locked("5.4.1", "F_BIP30DeactivationPass")]
-#[blvm_spec_lock::requires(bip30_active == 0)]
-#[blvm_spec_lock::ensures(result == 1)]
-pub(crate) fn _verify_f_bip30_deactivation_pass(bip30_active: i64) -> i64 {
-    if bip30_active == 0 { 1 } else { 0 }
+/// A duplicate coinbase that is not one of the two exempt blocks is invalid.
+/// `duplicate == 1` and `exception == 0` yield result 0.
+#[spec_locked("5.4.1", "F_BIP30DuplicateRejected")]
+#[blvm_spec_lock::requires(duplicate == 1)]
+#[blvm_spec_lock::requires(exception == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_bip30_duplicate_rejected(duplicate: i64, exception: i64) -> i64 {
+    if duplicate == 1 && exception == 0 {
+        0
+    } else {
+        1
+    }
 }
 
 // ─── §5.4.2 BIP34: Block Height in Coinbase ───────────────────────────────────
@@ -1464,6 +1462,28 @@ pub(crate) fn _verify_f_witness_program_length_32_valid(program_len: u64) -> boo
 #[blvm_spec_lock::ensures(result == false)]
 pub(crate) fn _verify_f_witness_program_length_invalid(program_len: u64) -> bool {
     program_len == 20 || program_len == 32
+}
+
+/// Witness for **F_WitnessVersionRejected** (PROTOCOL.md §11.1.3).
+///
+/// `OP_1NEGATE` (79) and `OP_RESERVED` (80) are not witness versions.
+#[spec_locked("11.1.3", "F_WitnessVersionRejected")]
+#[blvm_spec_lock::requires(op == 79 || op == 80)]
+#[blvm_spec_lock::ensures(result == false)]
+#[allow(clippy::manual_range_contains)]
+pub(crate) fn _verify_f_witness_version_rejected(op: i64) -> bool {
+    op == 0 || (op >= 81 && op <= 96)
+}
+
+/// Witness for **F_WitnessVersionAccepted** (PROTOCOL.md §11.1.3).
+///
+/// `OP_0` (0), `OP_1` (81), and `OP_16` (96) are witness versions.
+#[spec_locked("11.1.3", "F_WitnessVersionAccepted")]
+#[blvm_spec_lock::requires(op == 0 || op == 81 || op == 96)]
+#[blvm_spec_lock::ensures(result == true)]
+#[allow(clippy::manual_range_contains)]
+pub(crate) fn _verify_f_witness_version_accepted(op: i64) -> bool {
+    op == 0 || (op >= 81 && op <= 96)
 }
 
 // ─── §5.2.4 IsMinimalIfCondition ─────────────────────────────────────────────

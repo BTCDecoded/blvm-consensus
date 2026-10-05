@@ -3607,33 +3607,34 @@ pub fn verify_script_with_context_full(
         }
     }
 
-    // CRITICAL FIX: Check if scriptPubkey is Taproot (P2TR) - OP_1 <32-byte-hash>
-    // Taproot format: [OP_1, PUSH_32_BYTES, <32 bytes>] = 34 bytes total
-    // For Taproot, scriptSig must be empty and validation happens via witness using Taproot-specific logic
+    // Taproot format: [OP_1, PUSH_32_BYTES, <32 bytes>] = 34 bytes total.
+    // The byte check comes first so a non-matching output skips the activation lookup.
     use crate::activation::taproot_active_at_height;
-    let is_taproot = redeem_script.is_none()  // Not P2SH
-        && taproot_active_at_height(block_height, network)
-        && script_pubkey.len() == 34
-        && script_pubkey[0] == OP_1  // OP_1 (witness version 1)
-        && script_pubkey[1] == PUSH_32_BYTES; // push 32 bytes
+    use crate::script::flags::{
+        SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, SCRIPT_VERIFY_WITNESS,
+    };
+    let witness_flag = flags & SCRIPT_VERIFY_WITNESS != 0;
+    let v1_32 =
+        script_pubkey.len() == 34 && script_pubkey[0] == OP_1 && script_pubkey[1] == PUSH_32_BYTES;
+    let is_taproot =
+        redeem_script.is_none() && v1_32 && taproot_active_at_height(block_height, network);
 
     // If Taproot, scriptSig must be empty
     if is_taproot && !script_sig.is_empty() {
         return Ok(false); // Taproot requires empty scriptSig
     }
 
-    // Future / non-standard witness programs (BIP141 §2; discourage-upgradable-witness).
+    // Future witness programs, and a v1 32-byte program before Taproot activation.
+    // Empty scriptSig, witness ignored. After activation `is_taproot` handles v1-32.
+    let untaproot_v1 = witness_flag && !is_taproot && v1_32;
     if redeem_script.is_none()
         && !is_taproot
-        && crate::witness::is_upgradable_witness_program(script_pubkey)
+        && (untaproot_v1 || crate::witness::is_upgradable_witness_program(script_pubkey))
     {
-        use crate::script::flags::{
-            SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, SCRIPT_VERIFY_WITNESS,
-        };
         if !script_sig.is_empty() {
             return Ok(false);
         }
-        if (flags & SCRIPT_VERIFY_WITNESS) == 0 {
+        if !witness_flag {
             return Ok(false);
         }
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0 {
@@ -3646,8 +3647,6 @@ pub fn verify_script_with_context_full(
     // With the flag clear, OP_0 <20>/<32> is a bare script.
     // P2WPKH: [OP_0, PUSH_20_BYTES, <20 bytes>] = 22 bytes
     // P2WSH: [OP_0, PUSH_32_BYTES, <32 bytes>] = 34 bytes
-    use crate::script::flags::SCRIPT_VERIFY_WITNESS;
-    let witness_flag = flags & SCRIPT_VERIFY_WITNESS != 0;
     // v0 programs must be 20 or 32 bytes. Other lengths are not future witness versions.
     if witness_flag
         && redeem_script.is_none()

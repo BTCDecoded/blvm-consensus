@@ -170,10 +170,11 @@ pub fn is_invalid_v0_witness_program(script: &[u8]) -> bool {
 
 /// Payload length of a witness program, or `None` when `script` is not one.
 ///
-/// A witness program is `OP_0`..`OP_16`, a direct push of 2–40 bytes, and nothing else.
+/// A witness program is `OP_0` or `OP_1`..=`OP_16`, a direct push of 2–40 bytes, and nothing else.
+/// `OP_1NEGATE` and `OP_RESERVED` sit below `OP_1` and are ordinary opcodes.
 #[inline]
 fn witness_program_len(script: &[u8]) -> Option<usize> {
-    if script.len() < 4 || script[0] > OP_16 {
+    if script.len() < 4 || !is_witness_version_opcode(script[0]) {
         return None;
     }
     let push = script[1];
@@ -185,6 +186,12 @@ fn witness_program_len(script: &[u8]) -> Option<usize> {
         return None;
     }
     Some(program_len)
+}
+
+/// Witness version byte: `OP_0`, or `OP_1` through `OP_16`.
+#[inline]
+fn is_witness_version_opcode(opcode: u8) -> bool {
+    opcode == OP_0 || (OP_1..=OP_16).contains(&opcode)
 }
 
 /// Validate witness version in scriptPubKey
