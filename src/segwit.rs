@@ -39,23 +39,15 @@ pub fn calculate_transaction_weight(
     ))
 }
 
-/// Calculate base size (transaction without witness data).
-///
-/// Simplified consensus-facing estimate (version + inputs + outputs + lock_time). Split into
-/// bounded `usize` steps then a single cast so blvm-spec-lock Z3 can verify `ensures` without
-/// timing out on one huge arithmetic expression.
+/// Stripped size: the transaction serialized without witness data.
 fn calculate_base_size(tx: &Transaction) -> Natural {
-    const VERSION_AND_LOCKTIME: usize = 4 + 4;
-    const PER_INPUT: usize = 32 + 4 + 1 + 4;
-    const PER_OUTPUT: usize = 8 + 1;
-    let n_in = tx.inputs.len();
-    let n_out = tx.outputs.len();
-    let inputs_part = n_in.saturating_mul(PER_INPUT);
-    let outputs_part = n_out.saturating_mul(PER_OUTPUT);
-    (VERSION_AND_LOCKTIME + inputs_part + outputs_part) as Natural
+    crate::serialization::serialize_transaction(tx).len() as Natural
 }
 
-/// Calculate total size (transaction with witness data)
+/// Total size for the single-stack weight helper.
+///
+/// Block connection uses [`calculate_block_weight_from_nested`], which serializes each input
+/// stack. This helper only adds the raw element lengths of one stack on top of the stripped size.
 fn calculate_total_size(tx: &Transaction, witness: Option<&Witness>) -> Natural {
     let base_size = calculate_base_size(tx);
 
@@ -366,32 +358,61 @@ pub fn calculate_block_weight(block: &Block, witnesses: &[Witness]) -> Result<Na
 }
 
 /// Calculate block weight from nested witnesses without flattening.
-/// Accepts `&[Vec<Witness>]` where each `Vec<Witness>` is one tx's input witness stacks.
-/// Avoids allocating the flattened structure in the hot block validation path.
-/// Orange Paper 11.1.1: Weight(tx) = 4 × BaseSize + TotalSize
+///
+/// Accepts `&[Vec<Witness>]` where each `Vec<Witness>` is one transaction's input stacks.
+/// Weight is `3 × stripped size + total size` for each transaction, plus four times the header
+/// and the transaction-count length. Script bytes and witness framing are part of those sizes.
 #[spec_locked("11.1.1", "CalculateBlockWeight")]
 #[inline]
 pub fn calculate_block_weight_from_nested(
     block: &Block,
     witnesses: &[Vec<Witness>],
 ) -> Result<Natural> {
-    let mut total_weight = 0;
+    // Header and transaction count are non-witness, so they weigh four times their byte length.
+    let prefix = crate::serialization::serialize_block_header(&block.header).len()
+        + crate::serialization::encode_varint(block.transactions.len() as u64).len();
+    let mut total_weight = (prefix as u64).checked_mul(4).ok_or_else(weight_overflow)?;
+
     for (i, tx) in block.transactions.iter().enumerate() {
-        let witness_size: Natural = if i < witnesses.len() {
-            witnesses[i]
-                .iter()
-                .flat_map(|w| w.iter())
-                .map(|e| e.len() as Natural)
-                .sum()
-        } else {
-            0
-        };
-        let base_size =
-            (4 + tx.inputs.len() * (32 + 4 + 1 + 4) + tx.outputs.len() * (8 + 1) + 4) as Natural;
-        total_weight +=
-            witness::calculate_transaction_weight_segwit(base_size, base_size + witness_size);
+        let stacks = witnesses.get(i).map(Vec::as_slice);
+        total_weight = total_weight
+            .checked_add(transaction_weight_from_stacks(tx, stacks)?)
+            .ok_or_else(weight_overflow)?;
     }
     Ok(total_weight)
+}
+
+fn weight_overflow() -> crate::error::ConsensusError {
+    crate::error::ConsensusError::BlockValidation("block weight overflow".into())
+}
+
+/// Weight of one transaction: `3 × stripped size + total size`.
+///
+/// A non-empty witness is serialized with the marker, flag, and one stack per input. Empty stacks
+/// leave the transaction in its stripped encoding.
+fn transaction_weight_from_stacks(tx: &Transaction, stacks: Option<&[Witness]>) -> Result<Natural> {
+    let base_size = crate::serialization::serialize_transaction(tx).len() as Natural;
+    let total_size = match stacks {
+        Some(stacks)
+            if stacks.len() == tx.inputs.len() && stacks.iter().any(|stack| !stack.is_empty()) =>
+        {
+            crate::serialization::serialize_transaction_with_witness(tx, stacks).len() as Natural
+        }
+        Some(stacks) if stacks.iter().any(|stack| !stack.is_empty()) => {
+            return Err(crate::error::ConsensusError::BlockValidation(
+                format!(
+                    "witness stack count {} does not match input count {}",
+                    stacks.len(),
+                    tx.inputs.len()
+                )
+                .into(),
+            ));
+        }
+        _ => base_size,
+    };
+    Ok(witness::calculate_transaction_weight_segwit(
+        base_size, total_size,
+    ))
 }
 
 /// Validate SegWit block
@@ -462,6 +483,43 @@ mod tests {
 
         let weight = calculate_transaction_weight(&tx, None).unwrap();
         assert!(weight > 0);
+    }
+
+    #[test]
+    fn test_block_weight_counts_output_script() {
+        let mut tx = create_test_transaction();
+        tx.outputs[0].script_pubkey = vec![0u8; 100_000].into();
+        let block = Block {
+            header: create_test_header(1, [0u8; 32]),
+            transactions: vec![tx.clone()].into_boxed_slice(),
+        };
+        let weight = calculate_block_weight_from_nested(&block, &[]).unwrap();
+        let stripped = crate::serialization::serialize_transaction(&tx).len();
+        let prefix = crate::serialization::serialize_block_header(&block.header).len()
+            + crate::serialization::encode_varint(1).len();
+        let script_len = tx.outputs[0].script_pubkey.len();
+        // Non-witness bytes, including the output script, weigh 4. Dropping the script
+        // bytes and keeping a one-byte length placeholder fails this.
+        assert!(weight >= (script_len as u64) * 4);
+        assert_eq!(weight, ((prefix + stripped) * 4) as u64);
+    }
+
+    #[test]
+    fn test_block_weight_counts_witness_framing() {
+        let tx = create_test_transaction();
+        let stacks: Vec<Vec<Witness>> = vec![vec![vec![vec![0u8; 10]]]];
+        let block = Block {
+            header: create_test_header(1, [0u8; 32]),
+            transactions: vec![tx.clone()].into_boxed_slice(),
+        };
+        let weight = calculate_block_weight_from_nested(&block, &stacks).unwrap();
+        let base = crate::serialization::serialize_transaction(&tx).len() as u64;
+        let total =
+            crate::serialization::serialize_transaction_with_witness(&tx, &stacks[0]).len() as u64;
+        let prefix = (crate::serialization::serialize_block_header(&block.header).len()
+            + crate::serialization::encode_varint(1).len()) as u64;
+        assert_eq!(weight, prefix * 4 + 3 * base + total);
+        assert!(total > base);
     }
 
     #[test]

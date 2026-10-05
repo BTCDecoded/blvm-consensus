@@ -1379,6 +1379,18 @@ pub(crate) fn _verify_f_weight_equiv(base: i64, wit: i64, total: i64) -> i64 {
     3 * base + total
 }
 
+/// Witness for **F_StrippedSizeCountsScripts** (PROTOCOL.md §11.1.1).
+///
+/// The stripped-size lower bound includes every script byte. Omitting those bytes and keeping
+/// only a length placeholder undercounts block weight.
+#[spec_locked("11.1.1", "F_StrippedSizeCountsScripts")]
+#[blvm_spec_lock::requires(script_sig >= 0)]
+#[blvm_spec_lock::requires(script_pubkey >= 0)]
+#[blvm_spec_lock::ensures(result >= script_sig + script_pubkey)]
+pub(crate) fn _verify_f_stripped_size_counts_scripts(script_sig: i64, script_pubkey: i64) -> i64 {
+    script_sig + script_pubkey
+}
+
 // ─── §11.1.2 Witness Structure ───────────────────────────────────────────────
 
 /// Witness for **F_WitnessEmptyByLength** (PROTOCOL.md §11.1.2).
@@ -1629,7 +1641,7 @@ pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
 #[spec_locked("5.2.2", "F_SigopCountPushOpcode")]
 #[blvm_spec_lock::requires(op >= 0)]
 #[blvm_spec_lock::requires(op <= 255)]
-#[blvm_spec_lock::ensures(op <= 96)]
+#[blvm_spec_lock::ensures((op <= 96) == result)]
 pub(crate) fn _verify_f_sigop_count_push_opcode(op: i64) -> bool {
     op <= 96
 }
