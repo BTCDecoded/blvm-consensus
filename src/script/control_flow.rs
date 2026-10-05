@@ -23,5 +23,9 @@ pub(crate) fn in_false_branch(control_stack: &[ControlBlock]) -> bool {
 #[spec_locked("5.2.4", "IsMinimalIfCondition")]
 #[blvm_spec_lock::ensures(result == false || bytes.len() <= 1)]
 pub(crate) fn is_minimal_if_condition(bytes: &[u8]) -> bool {
-    bytes.is_empty() || bytes == [0x01]
+    match bytes.len() {
+        0 => true,
+        1 => bytes[0] == 0x01,
+        _ => false,
+    }
 }

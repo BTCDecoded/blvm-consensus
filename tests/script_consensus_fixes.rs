@@ -10,8 +10,9 @@ use blvm_consensus::opcodes::{
     OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF, PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::{
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_NULLDUMMY, SCRIPT_VERIFY_P2SH,
-    SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS, SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_NULLDUMMY,
+    SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
+    SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
 };
 use blvm_consensus::script::{SigVersion, disable_fast_paths, verify_script_with_context_full};
 use blvm_consensus::taproot::{
@@ -441,14 +442,7 @@ fn nulldummy_rejects_one_byte_zero() {
     let one_byte = vec![0x01, 0x00, OP_0, OP_0, OP_CHECKMULTISIG];
     let tx = one_input_tx(vec![]);
     assert!(!verify(&tx, &one_byte, None, flags, 0, Some(height)));
-    assert!(verify(
-        &tx,
-        &one_byte,
-        None,
-        flags,
-        0,
-        Some(height - 1)
-    ));
+    assert!(verify(&tx, &one_byte, None, flags, 0, Some(height - 1)));
 }
 
 #[test]

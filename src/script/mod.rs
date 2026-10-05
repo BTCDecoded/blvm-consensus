@@ -733,8 +733,10 @@ fn eval_script_inner(
                     if let Some(code) = dead_branch_opcode_error(opcode) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code,
-                            message: format!("opcode 0x{opcode:02x} is invalid in an unexecuted branch")
-                                .into(),
+                            message: format!(
+                                "opcode 0x{opcode:02x} is invalid in an unexecuted branch"
+                            )
+                            .into(),
                         });
                     }
                     i += 1;
@@ -4693,8 +4695,10 @@ fn eval_script_with_context_full_inner(
                     if let Some(code) = dead_branch_opcode_error(opcode) {
                         return Err(ConsensusError::ScriptErrorWithCode {
                             code,
-                            message: format!("opcode 0x{opcode:02x} is invalid in an unexecuted branch")
-                                .into(),
+                            message: format!(
+                                "opcode 0x{opcode:02x} is invalid in an unexecuted branch"
+                            )
+                            .into(),
                         });
                     }
                     i += 1;
