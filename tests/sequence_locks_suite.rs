@@ -3,7 +3,7 @@
 use blvm_consensus::sequence_locks::{
     calculate_sequence_locks, evaluate_sequence_locks, sequence_locks,
 };
-use blvm_consensus::{BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput};
+use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 const SEQUENCE_LOCKTIME_DISABLE_FLAG: u32 = 0x8000_0000;
@@ -30,19 +30,6 @@ fn sample_tx(sequence: u64) -> Transaction {
     }
 }
 
-fn sample_headers(count: usize) -> Vec<BlockHeader> {
-    (0..count)
-        .map(|i| BlockHeader {
-            version: 1,
-            prev_block_hash: [i as u8; 32],
-            merkle_root: [0x22; 32],
-            timestamp: 1_000_000 + (i as u64 * 600),
-            bits: 0x1d00ffff,
-            nonce: 0,
-        })
-        .collect()
-}
-
 #[test]
 fn test_sequence_locks_convenience_satisfied() {
     let tx = sample_tx(50);
@@ -60,15 +47,20 @@ fn test_sequence_locks_convenience_not_satisfied() {
 }
 
 #[test]
-fn test_time_based_sequence_lock_with_headers() {
+fn test_time_based_sequence_lock_uses_prior_block_mtp() {
     let tx = sample_tx(SEQUENCE_LOCKTIME_TYPE_FLAG as u64 | 2);
     let prev_heights = vec![10u64];
-    let headers = sample_headers(11);
-    let (min_height, min_time) =
-        calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &prev_heights, Some(&headers))
-            .unwrap();
+    let coin_mtp = 1_000_000i64;
+    let (min_height, min_time) = calculate_sequence_locks(
+        &tx,
+        LOCKTIME_VERIFY_SEQUENCE,
+        &prev_heights,
+        Some(&[coin_mtp]),
+    )
+    .unwrap();
     assert_eq!(min_height, -1);
-    assert!(min_time > 0, "time-based lock must set min_time");
+    // 2 × 512 seconds, last-invalid: coin_mtp + 1024 - 1
+    assert_eq!(min_time, 1_001_023);
     assert!(!evaluate_sequence_locks(
         100,
         min_time as u64,
@@ -76,8 +68,18 @@ fn test_time_based_sequence_lock_with_headers() {
     ));
     assert!(evaluate_sequence_locks(
         100,
-        min_time as u64 + 10,
+        min_time as u64 + 1,
         (min_height, min_time)
+    ));
+}
+
+#[test]
+fn test_time_based_sequence_lock_without_mtp_errors() {
+    let tx = sample_tx(SEQUENCE_LOCKTIME_TYPE_FLAG as u64 | 2);
+    let err = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[10], None).unwrap_err();
+    assert!(matches!(
+        err,
+        blvm_consensus::ConsensusError::ConsensusRuleViolation(_)
     ));
 }
 

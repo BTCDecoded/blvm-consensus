@@ -2,6 +2,7 @@
 
 use arbitrary::{Arbitrary, Unstructured};
 use blvm_consensus::{
+    bip113::get_median_time_past,
     locktime::{
         check_bip65, extract_sequence_locktime_value, extract_sequence_type_flag,
         get_locktime_type, is_sequence_disabled, locktime_types_match,
@@ -143,16 +144,14 @@ fuzz_target!(|data: &[u8]| {
     ));
 
     let headers = build_headers(&case.header_timestamps);
-    let recent_headers = headers.as_slice();
-
-    // FIX: randomize Some / None path
-    let headers_opt = if case.header_timestamps.is_empty() {
-        None
-    } else {
-        Some(recent_headers)
-    };
 
     let (tx, prev_heights) = build_transaction(&case);
+    let prev_mtps = if headers.is_empty() {
+        None
+    } else {
+        let mtp = get_median_time_past(&headers) as i64;
+        Some(vec![mtp; tx.inputs.len()])
+    };
 
     let all_sequences_disabled = tx
         .inputs
@@ -166,13 +165,16 @@ fuzz_target!(|data: &[u8]| {
         let expected_disabled = (entry.sequence & 0x8000_0000) != 0;
 
         assert_eq!(extract_sequence_type_flag(entry.sequence), expected_type);
-        assert_eq!(extract_sequence_locktime_value(entry.sequence), expected_value);
+        assert_eq!(
+            extract_sequence_locktime_value(entry.sequence),
+            expected_value
+        );
         assert_eq!(is_sequence_disabled(entry.sequence), expected_disabled);
     }
 
     // FIX: no unwrap
     let Ok(calculated) =
-        calculate_sequence_locks(&tx, case.flags, &prev_heights, headers_opt)
+        calculate_sequence_locks(&tx, case.flags, &prev_heights, prev_mtps.as_deref())
     else {
         return;
     };
@@ -185,7 +187,7 @@ fuzz_target!(|data: &[u8]| {
         &prev_heights,
         case.block_height,
         case.block_time,
-        headers_opt,
+        prev_mtps.as_deref(),
     ) else {
         return;
     };

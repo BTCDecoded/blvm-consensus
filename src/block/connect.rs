@@ -108,6 +108,132 @@ fn enforce_tx_finality(
     Ok(())
 }
 
+/// Reject a version-2 spend whose relative lock has not elapsed.
+///
+/// Active once CSV is active. A height lock counts blocks from the coin's
+/// confirmation height. A time lock counts 512-second units from the median
+/// time of the block before that confirmation. A missing coin is left for the
+/// input check. A time lock with no median time is rejected.
+fn enforce_relative_locks(
+    block: &Block,
+    height: Natural,
+    tx_ids: &[Hash],
+    utxo_set: &UtxoSet,
+    ibd_utxo_lookup: Option<&dyn crate::utxo_overlay::UtxoLookup>,
+    context: &BlockValidationContext,
+) -> std::result::Result<(), String> {
+    if !context.is_fork_active(ForkId::Bip112, height) {
+        return Ok(());
+    }
+    if tx_ids.len() != block.transactions.len() {
+        return Err(format!(
+            "Transaction ID count {} must match transaction count {}",
+            tx_ids.len(),
+            block.transactions.len()
+        ));
+    }
+    let needs_lock = block.transactions.iter().any(tx_has_relative_lock);
+    if !needs_lock {
+        return Ok(());
+    }
+
+    let lookup: &dyn crate::utxo_overlay::UtxoLookup = if let Some(lookup) = ibd_utxo_lookup {
+        lookup
+    } else {
+        utxo_set
+    };
+    let block_mtp = context
+        .time_context
+        .map(|ctx| ctx.median_time_past)
+        .unwrap_or(0);
+    let mut created: std::collections::HashMap<OutPoint, u64> = std::collections::HashMap::new();
+    let mut mtp_cache: std::collections::HashMap<u64, Option<u64>> =
+        std::collections::HashMap::new();
+
+    for (i, tx) in block.transactions.iter().enumerate() {
+        if !is_coinbase(tx) && tx_has_relative_lock(tx) {
+            let mut prev_heights = Vec::with_capacity(tx.inputs.len());
+            let mut prev_mtps = Vec::with_capacity(tx.inputs.len());
+            let mut missing = false;
+            for input in tx.inputs.iter() {
+                let coin_height = if let Some(h) = created.get(&input.prevout) {
+                    *h
+                } else if let Some(utxo) = lookup.get(&input.prevout) {
+                    utxo.height
+                } else {
+                    missing = true;
+                    break;
+                };
+                prev_heights.push(coin_height);
+                let seq = input.sequence as u32;
+                if crate::locktime::extract_sequence_type_flag(seq)
+                    && !crate::locktime::is_sequence_disabled(seq)
+                {
+                    let prior = coin_height.saturating_sub(1);
+                    let mtp = if let Some(hit) = mtp_cache.get(&prior) {
+                        *hit
+                    } else {
+                        let found = context
+                            .sequence_prev_mtp
+                            .as_ref()
+                            .and_then(|lookup_mtp| lookup_mtp(prior));
+                        mtp_cache.insert(prior, found);
+                        found
+                    };
+                    let Some(mtp) = mtp else {
+                        return Err(format!(
+                            "relative lock time unavailable for transaction {i}"
+                        ));
+                    };
+                    let mtp = i64::try_from(mtp).map_err(|_| {
+                        format!("relative lock time does not fit for transaction {i}")
+                    })?;
+                    prev_mtps.push(mtp);
+                } else {
+                    prev_mtps.push(-1);
+                }
+            }
+            if !missing {
+                let locks = crate::sequence_locks::calculate_sequence_locks(
+                    tx,
+                    crate::sequence_locks::LOCKTIME_VERIFY_SEQUENCE,
+                    &prev_heights,
+                    Some(&prev_mtps),
+                )
+                .map_err(|e| e.to_string())?;
+                if !crate::sequence_locks::evaluate_sequence_locks(height, block_mtp, locks) {
+                    return Err(format!("relative lock not satisfied for transaction {i}"));
+                }
+            }
+        }
+        let txid = tx_ids[i];
+        for (n, _) in tx.outputs.iter().enumerate() {
+            created.insert(
+                OutPoint {
+                    hash: txid,
+                    index: n as u32,
+                },
+                height,
+            );
+        }
+    }
+    Ok(())
+}
+
+fn tx_has_relative_lock(tx: &Transaction) -> bool {
+    if tx.version < 2 {
+        return false;
+    }
+    tx.inputs.iter().any(|input| {
+        let seq = input.sequence as u32;
+        if crate::locktime::is_sequence_disabled(seq) {
+            return false;
+        }
+        crate::locktime::extract_sequence_type_flag(seq)
+            || crate::locktime::extract_sequence_locktime_value(seq) != 0
+    })
+}
+
 /// Defer [`invalid_block_result`] until the script pre-queue loop owns `utxo_set` again.
 #[cfg(all(feature = "production", feature = "rayon"))]
 #[derive(Debug)]
@@ -667,6 +793,12 @@ pub(crate) fn connect_block_inner<'a>(
                 ),
             );
         }
+    }
+
+    if let Err(msg) =
+        enforce_relative_locks(block, height, tx_ids, &utxo_set, ibd_utxo_lookup, context)
+    {
+        return invalid_block_result(utxo_set, tx_ids, msg);
     }
 
     // Assume-valid: skip signature/script verification for blocks below the configured height.

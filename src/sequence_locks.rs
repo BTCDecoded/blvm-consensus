@@ -6,7 +6,6 @@
 //!
 //! Reference: consensus `tx_verify.cpp` CalculateSequenceLocks and EvaluateSequenceLocks
 
-use crate::bip113::get_median_time_past;
 use crate::error::Result;
 use crate::locktime::{
     extract_sequence_locktime_value, extract_sequence_type_flag, is_sequence_disabled,
@@ -20,7 +19,7 @@ const SEQUENCE_LOCKTIME_GRANULARITY: u32 = 9; // 2^9 = 512 seconds
 
 /// Locktime verify sequence flag (BIP68)
 /// Must be set in script verification flags to enforce sequence locks.
-const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
+pub const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 
 /// Calculate sequence locks for a transaction (BIP68)
 ///
@@ -33,7 +32,9 @@ const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 /// * `tx` - Transaction to calculate locks for
 /// * `flags` - Script verification flags (must include LOCKTIME_VERIFY_SEQUENCE)
 /// * `prev_heights` - Block heights at which each input confirmed
-/// * `recent_headers` - Recent block headers for median time-past calculation
+/// * `prev_mtps` - Median time of the block before each input's confirmation.
+///   Required for a time-based relative lock. `-1` marks an input that is not time-based.
+///   `None` is only valid when no input uses a time lock.
 ///
 /// # Returns
 /// Pair (min_height, min_time) that must be satisfied:
@@ -48,7 +49,7 @@ pub fn calculate_sequence_locks(
     tx: &Transaction,
     flags: u32,
     prev_heights: &[u64],
-    recent_headers: Option<&[BlockHeader]>,
+    prev_mtps: Option<&[i64]>,
 ) -> Result<(i64, i64)> {
     // Ensure prev_heights matches input count
     if prev_heights.len() != tx.inputs.len() {
@@ -90,22 +91,17 @@ pub fn calculate_sequence_locks(
 
         // Check locktime type (bit 22)
         if extract_sequence_type_flag(input.sequence as u32) {
-            // Time-based relative locktime
-            // Need median time-past of the block prior to the coin's block
-            let coin_time = if let Some(headers) = recent_headers {
-                // Calculate median time-past for the block prior to coin_height
-                // For simplicity, we'll use the most recent header's median time-past
-                // In a full implementation, we'd need to look up the actual block
-                i64::try_from(get_median_time_past(headers)).map_err(|_| {
+            // Time-based relative locktime starts at the median time of the
+            // block before the one that confirmed this coin.
+            let coin_time = prev_mtps
+                .and_then(|mtps| mtps.get(i).copied())
+                .filter(|mtp| *mtp >= 0)
+                .ok_or_else(|| {
                     crate::error::ConsensusError::ConsensusRuleViolation(
-                        "median time-past does not fit in i64 for sequence lock calculation".into(),
+                        "time-based relative lock requires the median time of the prior block"
+                            .into(),
                     )
-                })?
-            } else {
-                // No headers available - can't calculate time-based lock
-                // This is acceptable for some contexts (e.g., mempool validation)
-                continue;
-            };
+                })?;
 
             // Extract locktime value and multiply by granularity (512 seconds)
             let locktime_value = extract_sequence_locktime_value(input.sequence as u32) as i64;
@@ -231,7 +227,7 @@ pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i
 /// * `prev_heights` - Block heights at which each input confirmed
 /// * `block_height` - Current block height
 /// * `block_time` - Current block's median time-past
-/// * `recent_headers` - Recent headers for median time-past calculation
+/// * `prev_mtps` - Median time of the block before each input's confirmation
 ///
 /// # Returns
 /// true if sequence locks are satisfied, false otherwise
@@ -241,9 +237,9 @@ pub fn sequence_locks(
     prev_heights: &[u64],
     block_height: u64,
     block_time: u64,
-    recent_headers: Option<&[BlockHeader]>,
+    prev_mtps: Option<&[i64]>,
 ) -> Result<bool> {
-    let lock_pair = calculate_sequence_locks(tx, flags, prev_heights, recent_headers)?;
+    let lock_pair = calculate_sequence_locks(tx, flags, prev_heights, prev_mtps)?;
     Ok(evaluate_sequence_locks(block_height, block_time, lock_pair))
 }
 

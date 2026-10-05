@@ -38,12 +38,13 @@ fuzz_target!(|data: &[u8]| {
             break;
         }
     }
-    let recent = if headers.is_empty() {
+    let prev_mtps = if headers.is_empty() {
         None
     } else {
-        Some(headers.as_slice())
+        let mtp = get_median_time_past(&headers) as i64;
+        Some(vec![mtp; tx.inputs.len()])
     };
-    if let Ok(pair) = calculate_sequence_locks(&tx, flags, &prev_heights, recent) {
+    if let Ok(pair) = calculate_sequence_locks(&tx, flags, &prev_heights, prev_mtps.as_deref()) {
         let bh = data
             .get(off)
             .map(|b| *b as u64)

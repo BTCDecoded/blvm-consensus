@@ -333,7 +333,13 @@ pub struct BlockValidationContext {
     pub signet_challenge: Option<ByteString>,
     /// IBD assume-valid: pre-built output `Arc<UTXO>` map for overlay apply (I2).
     pub ibd_block_outputs: Option<IbdBlockOutputCache>,
+    /// Median time of the block at this height. Used for time-based relative locks.
+    /// The argument is the height of the block before the coin was confirmed.
+    pub sequence_prev_mtp: Option<SequencePrevMtp>,
 }
+
+/// Median time of one ancestor block, keyed by that block's height.
+pub type SequencePrevMtp = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
 
 impl BlockValidationContext {
     /// Build context from the same inputs as `connect_block_ibd` (for migration).
@@ -357,6 +363,7 @@ impl BlockValidationContext {
             bip54_boundary,
             signet_challenge: None,
             ibd_block_outputs: None,
+            sequence_prev_mtp: None,
         }
     }
 
@@ -376,6 +383,7 @@ impl BlockValidationContext {
             bip54_boundary,
             signet_challenge: None,
             ibd_block_outputs: None,
+            sequence_prev_mtp: None,
         }
     }
 

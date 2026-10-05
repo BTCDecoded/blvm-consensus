@@ -646,6 +646,112 @@ fn test_connect_rejects_block_weight_exceeded() {
     );
 }
 
+fn spend_tx_seq(prevout_byte: u8, output_value: i64, version: u64, sequence: u64) -> Transaction {
+    let mut tx = spend_tx(prevout_byte, 0, output_value);
+    tx.version = version;
+    tx.inputs[0].sequence = sequence;
+    tx
+}
+
+#[test]
+fn test_connect_rejects_relative_height_lock_until_it_elapses() {
+    let height = blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
+    let mut too_soon = UtxoSet::default();
+    seed_op1_utxo(&mut too_soon, 0x61, 10_000, height - 10);
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
+    let spend = spend_tx_seq(0x61, 9_000, 2, 50);
+    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&block, too_soon, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("relative lock")),
+        "50-block relative lock from 10 blocks ago must fail: {result:?}"
+    );
+
+    let mut elapsed = UtxoSet::default();
+    seed_op1_utxo(&mut elapsed, 0x62, 10_000, height - 10);
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
+    let spend = spend_tx_seq(0x62, 9_000, 2, 5);
+    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&block, elapsed, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Valid),
+        "5-block relative lock from 10 blocks ago must pass: {result:?}"
+    );
+}
+
+#[test]
+fn test_connect_skips_relative_lock_before_csv_and_on_version_one() {
+    let height = blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
+    let mut utxo_set = UtxoSet::default();
+    seed_op1_utxo(&mut utxo_set, 0x63, 10_000, height - 10);
+    let coinbase = coinbase_at_height(height - 1, coinbase_value(height - 1, 1_000));
+    let spend = spend_tx_seq(0x63, 9_000, 2, 50);
+    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&block, utxo_set, height - 1).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Valid),
+        "relative lock is not enforced before CSV: {result:?}"
+    );
+
+    let mut utxo_set = UtxoSet::default();
+    seed_op1_utxo(&mut utxo_set, 0x64, 10_000, height - 10);
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
+    let spend = spend_tx_seq(0x64, 9_000, 1, 50);
+    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&block, utxo_set, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Valid),
+        "version 1 ignores a relative lock: {result:?}"
+    );
+}
+
+#[test]
+fn test_connect_time_relative_lock_uses_prior_median() {
+    let height = blvm_consensus::BIP112_CSV_ACTIVATION_MAINNET;
+    let mtp = 1_700_000_000u64;
+    let header = BlockHeader {
+        version: 4,
+        prev_block_hash: [0; 32],
+        merkle_root: [0; 32],
+        timestamp: mtp,
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+    let headers = vec![header; 11];
+    let mut ctx = BlockValidationContext::from_connect_block_ibd_args(
+        Some(headers.as_slice()),
+        mtp + 1,
+        Network::Mainnet,
+        None,
+        None,
+    );
+    let mut utxo_set = UtxoSet::default();
+    seed_op1_utxo(&mut utxo_set, 0x65, 10_000, height - 20);
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
+    let spend = spend_tx_seq(0x65, 9_000, 2, 0x0040_0000 | 1);
+    let block = block_with_txs_at(vec![coinbase, spend], mtp, 4);
+
+    let (result, _, _) = connect_with_ctx(&block, utxo_set.clone(), height, &ctx).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("unavailable")),
+        "a time lock with no median lookup must fail: {result:?}"
+    );
+
+    ctx.sequence_prev_mtp = Some(Arc::new(move |_| Some(mtp)));
+    let (result, _, _) = connect_with_ctx(&block, utxo_set.clone(), height, &ctx).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("not satisfied")),
+        "one 512-second unit from the current median must fail: {result:?}"
+    );
+
+    ctx.sequence_prev_mtp = Some(Arc::new(move |_| Some(mtp - 1_000)));
+    let (result, _, _) = connect_with_ctx(&block, utxo_set, height, &ctx).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Valid),
+        "a time lock measured from an earlier median must pass: {result:?}"
+    );
+}
+
 #[test]
 fn test_connect_valid_spend_from_utxo() {
     let mut utxo_set = UtxoSet::default();
