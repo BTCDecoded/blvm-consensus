@@ -623,8 +623,10 @@ mod tests {
         coinbase_tx.outputs[0].script_pubkey =
             create_witness_commitment_script(&witness_root, &nonce);
 
-        // Empty coinbase witnesses → nonce defaults to [0u8; 32]
-        let is_valid = validate_witness_commitment(&coinbase_tx, &witness_root, &[]).unwrap();
+        // BIP141 reserved value: one stack of one 32-byte item (empty/missing is invalid).
+        let coinbase_witnesses = vec![vec![vec![0u8; 32]]];
+        let is_valid =
+            validate_witness_commitment(&coinbase_tx, &witness_root, &coinbase_witnesses).unwrap();
         assert!(is_valid);
     }
 
