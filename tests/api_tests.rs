@@ -114,7 +114,7 @@ fn test_validate_block() {
                 hash: [0; 32],
                 index: 0xffffffff,
             },
-            script_sig: vec![0x01, 0x00], // Height 0 - valid length (2 bytes)
+            script_sig: vec![0x00, 0xff], // OP_0 height plus one extra byte
             sequence: 0xffffffff,
         }]
         .into(),

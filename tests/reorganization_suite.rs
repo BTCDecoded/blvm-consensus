@@ -17,8 +17,7 @@ use std::collections::{HashMap, HashSet};
 const TEST_NETWORK_TIME: u64 = 2_000_000_000;
 
 fn block_hash(header: &BlockHeader) -> Hash {
-    use blvm_consensus::serialization::block::serialize_block_header;
-    blvm_consensus::crypto::OptimizedSha256::new().hash256(&serialize_block_header(header))
+    blvm_consensus::block::block_header_hash(header)
 }
 
 thread_local! {
@@ -332,7 +331,9 @@ fn extend_regtest_fork(
 
     for i in 0..extra_blocks {
         let height = start_height + i;
-        let coinbase = regtest_coinbase(height as u64);
+        let mut coinbase = regtest_coinbase(height as u64);
+        // A competing block must not reuse the same coinbase transaction.
+        coinbase.inputs[0].script_sig.push(0x01);
         let merkle_root = calculate_merkle_root(&[coinbase.clone()]).expect("merkle");
         let block = Block {
             header: BlockHeader {

@@ -44,7 +44,7 @@ fn test_consensus_proof_coinbase_validation() {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x01, 0x00], // BIP34 height 0 — valid coinbase script length
+            script_sig: vec![0x00, 0xff], // OP_0 height plus one extra byte
             sequence: 0xffffffff,
         }]
         .into(),
@@ -170,7 +170,7 @@ fn test_consensus_proof_block_validation() {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x01, 0x00],
+            script_sig: vec![0x00, 0xff],
             sequence: 0xffffffff,
         }]
         .into(),

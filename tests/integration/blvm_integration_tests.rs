@@ -49,7 +49,7 @@ fn create_test_block() -> Block {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x01, 0x00],
+            script_sig: vec![0x00, 0xff],
             sequence: 0xffffffff,
         }]
         .into(),

@@ -41,7 +41,7 @@ fn test_coinbase_block(value: i64, timestamp: u64) -> Block {
                 hash: [0; 32].into(),
                 index: 0xffffffff,
             },
-            script_sig: vec![0x01, 0x00].into(),
+            script_sig: vec![0x00, 0xff].into(),
             sequence: 0xffffffff,
         }]
         .into(),

@@ -13,9 +13,30 @@ mod tests {
     use blvm_consensus::*;
     use std::time::Instant;
 
+    fn bip34_script_sig(height: u64) -> Vec<u8> {
+        if height == 0 {
+            return vec![0x00, 0xff];
+        }
+        let mut raw = Vec::new();
+        let mut n = height;
+        while n > 0 {
+            raw.push((n & 0xff) as u8);
+            n >>= 8;
+        }
+        if raw.last().is_some_and(|b| b & 0x80 != 0) {
+            raw.push(0x00);
+        }
+        let mut script_sig = Vec::with_capacity(raw.len() + 2);
+        script_sig.push(raw.len() as u8);
+        script_sig.extend(raw);
+        if script_sig.len() < 2 {
+            script_sig.push(0xff);
+        }
+        script_sig
+    }
+
     fn regtest_coinbase(height: u64) -> Transaction {
-        let mut script_sig = vec![0x01];
-        script_sig.push(height as u8);
+        let script_sig = bip34_script_sig(height);
         Transaction {
             version: 2,
             inputs: vec![TransactionInput {
