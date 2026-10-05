@@ -1632,7 +1632,7 @@ pub(crate) fn _verify_f_cltv_rejects_negative(n: i64) -> bool {
 #[blvm_spec_lock::requires(n > 4294967295)]
 #[blvm_spec_lock::ensures(result == false)]
 pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
-    (0..=4294967295).contains(&n)
+    n >= 0 && n <= 4294967295
 }
 
 /// Witness for **F_SigopCountPushOpcode** (PROTOCOL.md §5.2.2).
