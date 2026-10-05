@@ -185,8 +185,8 @@ pub fn is_pay_to_script_hash(script: &[u8]) -> bool {
 /// sigop contribution to zero.
 #[spec_locked("5.2.2", "F_SigopCountPushOpcode")]
 #[inline]
-fn sigop_count_push_opcode(opcode: u8) -> bool {
-    opcode <= OP_16
+fn sigop_count_push_opcode(op: u8) -> bool {
+    op <= OP_16
 }
 
 /// Last immediate of a push-only scriptSig, for P2SH and nested witness sigop counts.

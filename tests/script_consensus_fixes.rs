@@ -2,6 +2,7 @@
 
 #![cfg(feature = "production")]
 
+use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use blvm_consensus::activation::ForkActivationTable;
 use blvm_consensus::block::get_block_script_verify_flags_core;
 use blvm_consensus::opcodes::{
@@ -15,13 +16,12 @@ use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS,
     SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
 };
-use blvm_consensus::script::{disable_fast_paths, verify_script_with_context_full, SigVersion};
+use blvm_consensus::script::{SigVersion, disable_fast_paths, verify_script_with_context_full};
 use blvm_consensus::taproot::{
-    compute_script_merkle_root, witness_stack_serialize_size, TAPROOT_LEAF_VERSION_TAPSCRIPT,
+    TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, witness_stack_serialize_size,
 };
 use blvm_consensus::transaction_hash::calculate_bip143_sighash;
 use blvm_consensus::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
-use blvm_consensus::TAPROOT_ACTIVATION_MAINNET;
 use ripemd::Ripemd160;
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};

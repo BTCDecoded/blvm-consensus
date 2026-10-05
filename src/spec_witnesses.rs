@@ -1629,7 +1629,7 @@ pub(crate) fn _verify_f_cltv_rejects_above_u32(n: i64) -> bool {
 #[spec_locked("5.2.2", "F_SigopCountPushOpcode")]
 #[blvm_spec_lock::requires(op >= 0)]
 #[blvm_spec_lock::requires(op <= 255)]
-#[blvm_spec_lock::ensures(result == (op <= 96))]
+#[blvm_spec_lock::ensures(op <= 96)]
 pub(crate) fn _verify_f_sigop_count_push_opcode(op: i64) -> bool {
     op <= 96
 }
