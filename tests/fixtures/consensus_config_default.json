@@ -25,7 +25,7 @@
     "max_op_return_outputs": 1,
     "reject_multiple_op_return": true,
     "max_standard_script_size": 200,
-    "reject_envelope_protocol": true,
+    "reject_unexec_if": true,
     "reject_spam_in_mempool": false,
     "min_fee_rate_large_tx": 2,
     "large_tx_threshold_bytes": 1000
