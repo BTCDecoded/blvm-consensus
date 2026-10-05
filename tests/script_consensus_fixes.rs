@@ -10,8 +10,8 @@ use blvm_consensus::opcodes::{
     OP_NOP, OP_PUSHDATA2, OP_VER, OP_VERIF, PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::{
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT,
-    SCRIPT_VERIFY_WITNESS, SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION, SCRIPT_VERIFY_NULLDUMMY, SCRIPT_VERIFY_P2SH,
+    SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS, SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
 };
 use blvm_consensus::script::{SigVersion, disable_fast_paths, verify_script_with_context_full};
 use blvm_consensus::taproot::{
@@ -429,6 +429,72 @@ fn dead_branch_rejects_oversized_push() {
     assert!(!p2wsh_ok(too_big.clone(), true));
     assert!(p2wsh_ok(small, true));
     assert!(!spend_tapscript(too_big, vec![], flags));
+}
+
+#[test]
+fn nulldummy_rejects_one_byte_zero() {
+    let flags = SCRIPT_VERIFY_NULLDUMMY;
+    let height = blvm_consensus::BIP147_ACTIVATION_MAINNET;
+    let empty = vec![OP_0, OP_0, OP_0, OP_CHECKMULTISIG];
+    let tx = one_input_tx(vec![]);
+    assert!(verify(&tx, &empty, None, flags, 0, Some(height)));
+    let one_byte = vec![0x01, 0x00, OP_0, OP_0, OP_CHECKMULTISIG];
+    let tx = one_input_tx(vec![]);
+    assert!(!verify(&tx, &one_byte, None, flags, 0, Some(height)));
+    assert!(verify(
+        &tx,
+        &one_byte,
+        None,
+        flags,
+        0,
+        Some(height - 1)
+    ));
+}
+
+#[test]
+fn p2wsh_nulldummy_rejects_one_byte_zero() {
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(&[0x22; 32]).expect("key");
+    let pubkey = PublicKey::from_secret_key(&secp, &secret).serialize();
+    let mut script = vec![OP_1, 33];
+    script.extend_from_slice(&pubkey);
+    script.extend_from_slice(&[OP_1, OP_CHECKMULTISIG]);
+    let tx = one_input_tx(vec![]);
+    let sighash = calculate_bip143_sighash(&tx, 0, &script, 10_000, 0x01, None).unwrap();
+    let msg = Message::from_digest_slice(&sighash).unwrap();
+    let mut sig = secp.sign_ecdsa(&msg, &secret).serialize_der().to_vec();
+    sig.push(0x01);
+    let flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_NULLDUMMY;
+    let height = blvm_consensus::BIP147_ACTIVATION_MAINNET;
+    let (tx, spk, witness) = p2wsh(script.clone(), vec![vec![], sig.clone()]);
+    assert!(verify_at(
+        &tx,
+        &spk,
+        Some(&witness),
+        flags,
+        10_000,
+        Some(height),
+        false,
+    ));
+    let (tx, spk, witness) = p2wsh(script, vec![vec![0x00], sig]);
+    assert!(!verify_at(
+        &tx,
+        &spk,
+        Some(&witness),
+        flags,
+        10_000,
+        Some(height),
+        false,
+    ));
+    assert!(verify_at(
+        &tx,
+        &spk,
+        Some(&witness),
+        flags,
+        10_000,
+        Some(height - 1),
+        false,
+    ));
 }
 
 #[test]

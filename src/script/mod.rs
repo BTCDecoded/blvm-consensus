@@ -1547,7 +1547,7 @@ fn try_verify_p2sh_multisig_fast_path(
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
             crate::types::Network::Regtest | crate::types::Network::Signet => 0,
         };
-        if height >= activation && !dummy.is_empty() && dummy != [0x00] {
+        if height >= activation && !dummy.is_empty() {
             return Some(Ok(false));
         }
     }
@@ -1795,7 +1795,7 @@ fn try_verify_bare_multisig_fast_path(
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
             crate::types::Network::Regtest | crate::types::Network::Signet => 0,
         };
-        if height >= activation && !dummy.is_empty() && dummy != [0x00] {
+        if height >= activation && !dummy.is_empty() {
             return Some(Ok(false));
         }
     }
@@ -2815,7 +2815,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                     crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
                     crate::types::Network::Regtest | crate::types::Network::Signet => 0,
                 };
-                if height >= activation && !dummy.is_empty() && dummy != [0x00] {
+                if height >= activation && !dummy.is_empty() {
                     return Some(Ok(false));
                 }
             }
@@ -6565,9 +6565,8 @@ fn execute_opcode_with_context_full(
                     }
                 };
 
-                // For BIP147, the dummy element must be exactly [0x00] (OP_0) after activation
-                // BIP147 requires the dummy to be exactly one byte: 0x00
-                // Not empty [], not multi-byte [0x00, ...], not non-zero [0x01, ...]
+                // NULLDUMMY: the extra element must be zero-length. OP_0 pushes that.
+                // A one-byte 0x00 has length 1 and is rejected.
                 use crate::constants::{BIP147_ACTIVATION_MAINNET, BIP147_ACTIVATION_TESTNET};
 
                 let bip147_active = height
@@ -6577,20 +6576,14 @@ fn execute_opcode_with_context_full(
                         Bip147Network::Regtest => 0,
                     };
 
-                if bip147_active {
-                    // BIP147: Dummy must be empty (either [] or [0x00])
-                    // In Bitcoin script, both empty [] and [0x00] (OP_0) are considered "empty"
-                    // Both accepted as valid NULLDUMMY (BIP147)
-                    let is_empty = dummy.is_empty() || dummy.as_ref() == [0x00];
-                    if !is_empty {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::SigNullDummy,
-                message: format!(
-                    "OP_CHECKMULTISIG: dummy element {dummy:?} violates BIP147 NULLDUMMY (must be empty: [] or [0x00])"
-                )
-                            .into(),
-                        });
-                    }
+                if bip147_active && !dummy.is_empty() {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::SigNullDummy,
+                        message: format!(
+                            "OP_CHECKMULTISIG: dummy element {dummy:?} violates BIP147 NULLDUMMY (must be zero-length)"
+                        )
+                        .into(),
+                    });
                 }
             }
 
@@ -8461,7 +8454,7 @@ mod tests {
         script_pubkey.extend_from_slice(&wsh_hash);
 
         let witness: Vec<Vec<u8>> = vec![
-            vec![0x00],       // NULLDUMMY
+            vec![],           // zero-length NULLDUMMY
             vec![0x30u8; 72], // placeholder sig 1
             vec![0x30u8; 72], // placeholder sig 2
             witness_script.clone(),
