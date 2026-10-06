@@ -1079,8 +1079,8 @@ mod tests {
         let coinbase_script = vec![OP_1];
         let coinbase_address = vec![OP_1];
 
-        // This will fail due to target expansion, but that's expected for now
-        let result = create_block_template(
+        // Height 100 is not a retarget boundary, so the template copies the parent bits.
+        let template = create_block_template(
             &utxo_set,
             &mempool_txs,
             height,
@@ -1090,10 +1090,10 @@ mod tests {
             &coinbase_address,
             Network::Mainnet,
             None,
-        );
-
-        // Expected to fail due to target expansion issues
-        assert!(result.is_err());
+        )
+        .expect("off-boundary template");
+        assert_eq!(template.header.bits, prev_header.bits);
+        assert_eq!(template.height, height);
     }
 
     #[test]
