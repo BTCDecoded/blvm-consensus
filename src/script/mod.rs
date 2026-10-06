@@ -2239,12 +2239,12 @@ fn try_verify_p2sh_fast_path(
         network,
         SigVersion::Base,
         Some(redeem.as_ref()),
-        None, // script_sig_for_sighash (P2SH redeem context)
-        None, // taproot_annex_hash
-        None, // tapscript_validation_weight
+        Some(script_sig), // FindAndDelete uses the same scriptSig as the slow path
+        None,             // taproot_annex_hash
+        None,             // tapscript_validation_weight
         #[cfg(feature = "production")]
         None, // schnorr_collector
-        None, // precomputed_bip143 - Base sigversion
+        None,             // precomputed_bip143 - Base sigversion
         #[cfg(feature = "production")]
         sighash_cache,
     );

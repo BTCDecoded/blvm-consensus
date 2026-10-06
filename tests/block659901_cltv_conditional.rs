@@ -48,7 +48,10 @@ fn make_tx() -> Transaction {
     };
     let nin = read_varint(&raw, &mut off);
     assert_eq!(nin, 1);
-    off += 36;
+    let prev_hash: [u8; 32] = raw[off..off + 32].try_into().unwrap();
+    off += 32;
+    let prev_index = u32::from_le_bytes(raw[off..off + 4].try_into().unwrap());
+    off += 4;
     let script_len = read_varint(&raw, &mut off);
     let script_sig = raw[off..off + script_len].to_vec();
     off += script_len;
@@ -56,6 +59,7 @@ fn make_tx() -> Transaction {
     off += 4;
     let nout = read_varint(&raw, &mut off);
     assert_eq!(nout, 1);
+    let output_value = u64::from_le_bytes(raw[off..off + 8].try_into().unwrap());
     off += 8;
     let spk_len = read_varint(&raw, &mut off);
     let output_spk = raw[off..off + spk_len].to_vec();
@@ -66,17 +70,15 @@ fn make_tx() -> Transaction {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: hex("7736103ae33c45d50bc8217203168f5fb0163ea9a18f67968c9b5049d3150050")
-                    .try_into()
-                    .unwrap(),
-                index: 0,
+                hash: prev_hash,
+                index: prev_index,
             },
             script_sig: script_sig.into(),
             sequence: sequence as u64,
         }]
         .into(),
         outputs: vec![TransactionOutput {
-            value: 39429704,
+            value: output_value as i64,
             script_pubkey: output_spk.into(),
         }]
         .into(),
