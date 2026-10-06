@@ -586,6 +586,35 @@ pub(crate) fn connect_block_inner<'a>(
         return invalid_block_result(utxo_set, &[], "Invalid block header");
     }
 
+    if let Some(lookup) = context.difficulty_ancestor.as_ref() {
+        match crate::pow::next_required_bits(
+            network,
+            height,
+            block.header.timestamp,
+            lookup.as_ref(),
+        ) {
+            Ok(None) => {}
+            Ok(Some(required)) if block.header.bits == required => {}
+            Ok(Some(required)) => {
+                return invalid_block_result(
+                    utxo_set,
+                    &[],
+                    format!(
+                        "Block bits {:#x} do not match required work {:#x}",
+                        block.header.bits, required
+                    ),
+                );
+            }
+            Err(err) => {
+                return invalid_block_result(
+                    utxo_set,
+                    &[],
+                    format!("Difficulty check failed: {err}"),
+                );
+            }
+        }
+    }
+
     // BIP54 timewarp: at period boundaries require boundary timestamps and enforce rules
     if !crate::bip_validation::check_bip54_timewarp(
         &block.header,

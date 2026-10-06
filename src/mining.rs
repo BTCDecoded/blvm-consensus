@@ -2,13 +2,56 @@
 
 use crate::economic::get_block_subsidy;
 use crate::error::Result;
-use crate::pow::{check_proof_of_work, get_next_work_required};
+use crate::pow::{check_proof_of_work, next_required_bits};
 use crate::transaction::check_transaction;
 use crate::types::*;
 use blvm_spec_lock::spec_locked;
 
 #[cfg(test)]
 use crate::transaction::is_coinbase;
+
+/// Compact bits for a block template.
+///
+/// `prev_headers` is oldest-to-newest and ends at `prev_header`'s height.
+/// Height 0 uses the network proof-of-work limit.
+fn template_bits(
+    network: Network,
+    height: Natural,
+    block_timestamp: u64,
+    parent: &BlockHeader,
+    prev_headers: &[BlockHeader],
+) -> Result<Natural> {
+    if height == 0 {
+        return Ok(match network {
+            Network::Regtest => 0x207fffff,
+            Network::Signet => 0x1e0377ae,
+            Network::Mainnet | Network::Testnet => crate::constants::MAX_TARGET as u64,
+        });
+    }
+    let parent_height = height - 1;
+    let window_end = parent_height;
+    let window_start = if prev_headers.is_empty() {
+        window_end
+    } else {
+        window_end.saturating_sub(prev_headers.len() as u64 - 1)
+    };
+    next_required_bits(network, height, block_timestamp, &|h| {
+        if h == parent_height {
+            return Some((parent.bits, parent.timestamp));
+        }
+        if prev_headers.is_empty() || h < window_start || h > window_end {
+            return None;
+        }
+        prev_headers
+            .get((h - window_start) as usize)
+            .map(|hdr| (hdr.bits, hdr.timestamp))
+    })?
+    .ok_or_else(|| {
+        crate::error::ConsensusError::InvalidProofOfWork(
+            "genesis template has no parent bits".into(),
+        )
+    })
+}
 
 /// CreateNewBlock: 𝒰𝒮 × 𝒯𝒳* → ℬ
 ///
@@ -120,8 +163,10 @@ pub fn create_new_block_with_time(
     // 4. Calculate merkle root
     let merkle_root = calculate_merkle_root(&transactions)?;
 
-    // 5. Get next work required
-    let next_work = get_next_work_required(prev_header, prev_headers)?;
+    // 5. Required compact bits for this height. Off a period boundary this is the
+    // parent's bits (or the minimum-difficulty exception). The retarget formula
+    // runs only when this height starts a new difficulty period.
+    let next_work = template_bits(network, height, block_time, prev_header, prev_headers)?;
 
     // 6. Create block header
     let header = BlockHeader {

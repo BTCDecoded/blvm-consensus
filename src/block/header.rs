@@ -16,6 +16,8 @@
 //! - **H02** — height-dependent version minimums (version ≥ 2/3/4 after BIP34/66/65): see
 //!   [`crate::bip_validation::check_bip90`], called by `connect_block_inner`.
 //! - **H07** — proof of work (hash vs compact target): see [`crate::pow::check_proof_of_work`].
+//!   The header's compact bits must also equal [`crate::pow::next_required_bits`] when connect
+//!   is given ancestor headers. That comparison is not done here.
 //! - **H08** — parent hash linkage: pure predicate [`validate_prev_block_hash`]; the node chain
 //!   layer supplies the parent header/hash and rejects blocks that fail H08 before `connect_block`.
 //!

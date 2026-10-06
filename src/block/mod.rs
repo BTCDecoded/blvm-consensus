@@ -336,10 +336,18 @@ pub struct BlockValidationContext {
     /// Median time of the block at this height. Used for time-based relative locks.
     /// The argument is the height of the block before the coin was confirmed.
     pub sequence_prev_mtp: Option<SequencePrevMtp>,
+    /// Ancestor bits and timestamps for the required-work check. `None` skips it.
+    pub difficulty_ancestor: Option<DifficultyAncestor>,
 }
 
 /// Median time of one ancestor block, keyed by that block's height.
 pub type SequencePrevMtp = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sync>;
+
+/// Ancestor compact bits and timestamp, keyed by height.
+///
+/// When set on [`BlockValidationContext`], connect requires the header's bits
+/// to equal [`crate::pow::next_required_bits`]. `None` skips that check.
+pub type DifficultyAncestor = std::sync::Arc<dyn Fn(u64) -> Option<(u64, u64)> + Send + Sync>;
 
 impl BlockValidationContext {
     /// Build context from the same inputs as `connect_block_ibd` (for migration).
@@ -364,6 +372,7 @@ impl BlockValidationContext {
             signet_challenge: None,
             ibd_block_outputs: None,
             sequence_prev_mtp: None,
+            difficulty_ancestor: None,
         }
     }
 
@@ -384,6 +393,7 @@ impl BlockValidationContext {
             signet_challenge: None,
             ibd_block_outputs: None,
             sequence_prev_mtp: None,
+            difficulty_ancestor: None,
         }
     }
 
@@ -592,6 +602,58 @@ fn test_connect_block_invalid_header() {
     let (result, _, _undo_log) = connect_block(&block, &witnesses[..], utxo_set, 0, &ctx).unwrap();
 
     assert!(matches!(result, ValidationResult::Invalid(_)));
+}
+
+#[test]
+fn test_connect_block_rejects_bits_that_are_not_the_parents() {
+    let coinbase_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x51, 0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5000000000,
+            script_pubkey: vec![],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [1; 32],
+            timestamp: 1_000,
+            bits: 0x1b00ffff,
+            nonce: 0,
+        },
+        transactions: vec![coinbase_tx].into_boxed_slice(),
+    };
+    let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
+    let mut ctx = BlockValidationContext::for_network(crate::types::Network::Mainnet);
+    ctx.difficulty_ancestor = Some(std::sync::Arc::new(|height| {
+        if height == 0 {
+            Some((0x1d00ffff, 100))
+        } else {
+            None
+        }
+    }));
+    let (result, _, _) = connect_block(&block, &witnesses, UtxoSet::default(), 1, &ctx).unwrap();
+    match result {
+        ValidationResult::Invalid(reason) => {
+            assert!(
+                reason.contains("required work"),
+                "unexpected reject: {reason}"
+            );
+        }
+        ValidationResult::Valid => panic!("wrong bits were accepted"),
+    }
 }
 
 #[test]

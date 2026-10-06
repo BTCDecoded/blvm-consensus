@@ -189,6 +189,168 @@ fn get_next_work_required_internal(
     Ok(clamped_bits)
 }
 
+/// Network difficulty parameters for [`next_required_bits`].
+///
+/// `get_next_work_required` is only the retarget formula. This struct is the
+/// rest of the rule: how often retarget happens, the proof-of-work ceiling, and
+/// whether a late block may use that ceiling.
+struct PowParams {
+    limit_bits: u64,
+    interval: u64,
+    timespan: u64,
+    spacing: u64,
+    allow_min_difficulty: bool,
+    no_retargeting: bool,
+}
+
+fn pow_params(network: Network) -> PowParams {
+    let mainnet_timespan = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
+    match network {
+        Network::Mainnet => PowParams {
+            limit_bits: MAX_TARGET as u64,
+            interval: DIFFICULTY_ADJUSTMENT_INTERVAL,
+            timespan: mainnet_timespan,
+            spacing: TARGET_TIME_PER_BLOCK,
+            allow_min_difficulty: false,
+            no_retargeting: false,
+        },
+        Network::Testnet => PowParams {
+            limit_bits: MAX_TARGET as u64,
+            interval: DIFFICULTY_ADJUSTMENT_INTERVAL,
+            timespan: mainnet_timespan,
+            spacing: TARGET_TIME_PER_BLOCK,
+            allow_min_difficulty: true,
+            no_retargeting: false,
+        },
+        Network::Signet => PowParams {
+            limit_bits: 0x1e0377ae,
+            interval: DIFFICULTY_ADJUSTMENT_INTERVAL,
+            timespan: mainnet_timespan,
+            spacing: TARGET_TIME_PER_BLOCK,
+            allow_min_difficulty: false,
+            no_retargeting: false,
+        },
+        Network::Regtest => PowParams {
+            limit_bits: 0x207fffff,
+            interval: 144,
+            timespan: 24 * 60 * 60,
+            spacing: TARGET_TIME_PER_BLOCK,
+            allow_min_difficulty: true,
+            no_retargeting: true,
+        },
+    }
+}
+
+/// Compact `nBits` the block at `height` must carry.
+///
+/// Off a difficulty boundary the result is the parent’s bits. On a boundary it
+/// is the retarget of that period, unless the network does not retarget.
+/// Testnet and regtest may use the proof-of-work limit when the block is more
+/// than two target spacings after its parent; otherwise the bits are those of
+/// the last block in the period that is not itself a minimum-difficulty block.
+///
+/// `ancestor(height)` returns that block’s compact bits and timestamp.
+/// Height 0 has no parent and returns `Ok(None)`.
+///
+/// This is not [`get_next_work_required`]. That function always retargets from
+/// whatever headers it is given.
+pub fn next_required_bits(
+    network: Network,
+    height: u64,
+    block_timestamp: u64,
+    ancestor: &dyn Fn(u64) -> Option<(u64, u64)>,
+) -> Result<Option<u64>> {
+    if height == 0 {
+        return Ok(None);
+    }
+    let params = pow_params(network);
+    let parent_height = height - 1;
+    let (parent_bits, parent_time) = ancestor(parent_height).ok_or_else(|| {
+        ConsensusError::InvalidProofOfWork(
+            format!("missing ancestor header at height {parent_height} for difficulty").into(),
+        )
+    })?;
+
+    if params.interval == 0 || height % params.interval != 0 {
+        if params.allow_min_difficulty {
+            let limit_time = parent_time.saturating_add(params.spacing.saturating_mul(2));
+            if block_timestamp > limit_time {
+                return Ok(Some(params.limit_bits));
+            }
+            let mut walk_height = parent_height;
+            let mut bits = parent_bits;
+            while walk_height > 0 && walk_height % params.interval != 0 && bits == params.limit_bits
+            {
+                walk_height -= 1;
+                let (prev_bits, _) = ancestor(walk_height).ok_or_else(|| {
+                    ConsensusError::InvalidProofOfWork(
+                        format!("missing ancestor header at height {walk_height} for difficulty")
+                            .into(),
+                    )
+                })?;
+                bits = prev_bits;
+            }
+            return Ok(Some(bits));
+        }
+        return Ok(Some(parent_bits));
+    }
+
+    if params.no_retargeting {
+        return Ok(Some(parent_bits));
+    }
+
+    // First block of the period: parent is the last block of the previous period.
+    let first_height = parent_height - (params.interval - 1);
+    let (_, first_time) = ancestor(first_height).ok_or_else(|| {
+        ConsensusError::InvalidProofOfWork(
+            format!("missing ancestor header at height {first_height} for difficulty").into(),
+        )
+    })?;
+    Ok(Some(retarget_bits(
+        parent_bits,
+        first_time,
+        parent_time,
+        params.timespan,
+        params.limit_bits,
+    )?))
+}
+
+fn retarget_bits(
+    prev_bits: u64,
+    first_time: u64,
+    last_time: u64,
+    timespan: u64,
+    limit_bits: u64,
+) -> Result<u64> {
+    let actual = (last_time as i64).saturating_sub(first_time as i64);
+    let min_span = (timespan / 4) as i64;
+    let max_span = timespan.saturating_mul(4) as i64;
+    let span = if actual < min_span {
+        min_span
+    } else if actual > max_span {
+        max_span
+    } else {
+        actual
+    } as u64;
+
+    let old = expand_target(prev_bits)?;
+    if old.is_zero() {
+        return Ok(0);
+    }
+    let limit = expand_target(limit_bits)?;
+    let product = old.checked_mul_u64(span).ok_or_else(|| {
+        ConsensusError::InvalidProofOfWork("difficulty adjustment overflow".into())
+    })?;
+    let new_target = product.div_u64(timespan);
+    if new_target.is_zero() {
+        return Ok(0);
+    }
+    if new_target > limit {
+        return Ok(limit_bits);
+    }
+    compress_target(&new_target)
+}
+
 /// CheckProofOfWork: ℋ → {true, false}
 ///
 /// Check if the block header satisfies the proof of work requirement.
@@ -891,9 +1053,10 @@ pub(crate) fn compress_target(target: &U256) -> Result<Natural> {
     let mantissa = (n_compact & 0x007fffff) as u32;
 
     // Validate exponent is reasonable (clamp to 29 for safety)
-    if n_size_final > 29 {
+    // Exponent 32 is the regtest minimum-difficulty compact form (0x207fffff).
+    if n_size_final > 32 {
         return Err(ConsensusError::InvalidProofOfWork(
-            format!("Target too large: exponent {n_size_final} exceeds maximum 29").into(),
+            format!("Target too large: exponent {n_size_final} exceeds maximum 32").into(),
         ));
     }
 
@@ -1715,5 +1878,107 @@ mod tests {
         // The function reads bytes in big-endian order from the first 16 bytes
         // So 0x78, 0x56, 0x34, 0x12 becomes 0x78563412...
         assert_eq!(value, 0x78563412000000000000000000000000);
+    }
+
+    fn ancestor_from(headers: &[(u64, u64, u64)]) -> impl Fn(u64) -> Option<(u64, u64)> + '_ {
+        move |height| {
+            headers
+                .iter()
+                .find(|(h, _, _)| *h == height)
+                .map(|(_, bits, ts)| (*bits, *ts))
+        }
+    }
+
+    #[test]
+    fn off_boundary_copies_parent_bits() {
+        let headers = [(99u64, 0x1b012dcd, 1_000u64)];
+        let bits = next_required_bits(Network::Mainnet, 100, 2_000, &ancestor_from(&headers))
+            .unwrap()
+            .unwrap();
+        assert_eq!(bits, 0x1b012dcd);
+    }
+
+    #[test]
+    fn testnet_late_block_uses_pow_limit() {
+        let headers = [(99u64, 0x1b012dcd, 1_000u64)];
+        let late = next_required_bits(
+            Network::Testnet,
+            100,
+            1_000 + 1_201,
+            &ancestor_from(&headers),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(late, 0x1d00ffff);
+        let on_time = next_required_bits(
+            Network::Testnet,
+            100,
+            1_000 + 1_200,
+            &ancestor_from(&headers),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(on_time, 0x1b012dcd);
+    }
+
+    #[test]
+    fn testnet_walks_back_past_minimum_difficulty_blocks() {
+        let headers = [
+            (8u64, 0x1b012dcd, 1_000u64),
+            (9, 0x1d00ffff, 1_600),
+            (10, 0x1d00ffff, 2_200),
+        ];
+        let bits = next_required_bits(Network::Testnet, 11, 2_800, &ancestor_from(&headers))
+            .unwrap()
+            .unwrap();
+        assert_eq!(bits, 0x1b012dcd);
+    }
+
+    #[test]
+    fn regtest_does_not_retarget_and_uses_its_own_limit() {
+        let headers = [(143u64, 0x181bc330, 10_000u64)];
+        let bits = next_required_bits(Network::Regtest, 144, 20_000, &ancestor_from(&headers))
+            .unwrap()
+            .unwrap();
+        assert_eq!(bits, 0x181bc330);
+
+        let min = [(0u64, 0x207fffff, 1_000u64), (1, 0x207fffff, 1_600)];
+        let late = next_required_bits(Network::Regtest, 2, 1_600 + 1_201, &ancestor_from(&min))
+            .unwrap()
+            .unwrap();
+        assert_eq!(late, 0x207fffff);
+        let walked = next_required_bits(Network::Regtest, 2, 1_600 + 600, &ancestor_from(&min))
+            .unwrap()
+            .unwrap();
+        assert_eq!(walked, 0x207fffff);
+    }
+
+    #[test]
+    fn mainnet_retarget_height_112896_matches_chain_bits() {
+        let first_ts = 1_298_800_760u64;
+        let last_ts = 1_299_683_275u64;
+        let period_bits = 453_062_093u64;
+        let headers = [
+            (110_880u64, period_bits, first_ts),
+            (112_895, period_bits, last_ts),
+        ];
+        let bits = next_required_bits(
+            Network::Mainnet,
+            112_896,
+            1_299_684_355,
+            &ancestor_from(&headers),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(bits, 453_041_201);
+    }
+
+    #[test]
+    fn genesis_has_no_required_bits() {
+        assert!(
+            next_required_bits(Network::Mainnet, 0, 1, &|_| None)
+                .unwrap()
+                .is_none()
+        );
     }
 }
