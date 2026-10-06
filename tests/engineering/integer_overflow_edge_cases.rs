@@ -64,9 +64,9 @@ fn test_input_value_overflow() {
         lock_time: 0,
     };
 
-    // With MAX_MONEY-bounded inputs, i64 sum cannot overflow; verify conservation holds.
+    // Each input is inside MAX_MONEY, but the running sum is not. That spend is invalid.
     let result = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
-    assert!(matches!(result.0, ValidationResult::Valid));
+    assert!(matches!(result.0, ValidationResult::Invalid(_)));
 }
 
 #[test]
