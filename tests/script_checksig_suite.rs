@@ -51,7 +51,7 @@ fn test_op_checksig_invalid_signature_pushes_false() {
     stack.push(vec![0x02, 0x01, 0x01].into());
     let script = vec![OP_CHECKSIG];
     assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap());
-    assert_eq!(stack.last().unwrap().as_slice(), &[OP_0]);
+    assert!(stack.last().unwrap().is_empty());
 }
 
 #[test]
