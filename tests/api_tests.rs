@@ -528,28 +528,25 @@ fn test_create_block_template() {
     };
     let prev_headers = vec![prev_header.clone()];
 
-    let template = consensus.create_block_template(
-        &utxo_set,
-        &mempool_txs,
-        0,
-        &prev_header,
-        &prev_headers,
-        &vec![OP_1],
-        &vec![OP_1],
-        blvm_consensus::types::Network::Mainnet,
-        None,
-    );
+    let template = consensus
+        .create_block_template(
+            &utxo_set,
+            &mempool_txs,
+            0,
+            &prev_header,
+            &prev_headers,
+            &vec![OP_1],
+            &vec![OP_1],
+            blvm_consensus::types::Network::Mainnet,
+            None,
+        )
+        .expect("height 0 uses the network proof-of-work limit");
 
-    // This might fail due to target expansion issues, which is expected
-    match template {
-        Ok(template) => {
-            assert_eq!(template.coinbase_tx.outputs[0].value, 5000000000);
-            assert_eq!(template.transactions.len(), 1); // Only coinbase
-        }
-        Err(_) => {
-            // Expected failure due to target expansion issues
-        }
-    }
+    assert_eq!(template.coinbase_tx.outputs[0].value, 5000000000);
+    // The coinbase is stored on `coinbase_tx`. `transactions` is the selected mempool set.
+    assert!(template.transactions.is_empty());
+    assert_eq!(template.header.bits, 0x1d00ffff);
+    assert_eq!(template.height, 0);
 }
 
 #[test]
