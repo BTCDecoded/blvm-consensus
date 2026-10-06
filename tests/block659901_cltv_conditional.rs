@@ -66,7 +66,8 @@ fn make_tx() -> Transaction {
         version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: hex("7736103ae33c45d50bc8217203168f5fb0163ea9a18f67968c9b5049d3150050")
+                // Prevout hash in little-endian (wire format), not big-endian (display format)
+                hash: hex("500015d349509b8c96678fa1a93e16b05f8f16037221c80bd5453ce33a103677")
                     .try_into()
                     .unwrap(),
                 index: 0,
@@ -135,4 +136,24 @@ fn check_bip65_zero_zero_matches_core() {
         !check_bip65(0, 100),
         "stack locktime above tx locktime must fail"
     );
+}
+
+#[test]
+fn libbitcoinconsensus_accepts_block659901() {
+    use bitcoinconsensus::{Utxo, verify_with_flags};
+    use blvm_consensus::serialization::transaction::serialize_transaction;
+    
+    let tx = make_tx();
+    let prevout_script = hex(PREVOUT_SCRIPT_HEX);
+    let flags = 0x01 | 0x04 | 0x200 | 0x400; // P2SH | DERSIG | CLTV | CSV @ 659901
+    
+    let raw = serialize_transaction(&tx);
+    let spent = [Utxo {
+        script_pubkey: prevout_script.as_ptr(),
+        script_pubkey_len: prevout_script.len() as u32,
+        value: PREVOUT_VALUE,
+    }];
+    
+    let result = verify_with_flags(&prevout_script, PREVOUT_VALUE as u64, &raw, Some(&spent), 0, flags);
+    assert!(result.is_ok(), "libbitcoinconsensus should accept this transaction: {:?}", result);
 }
