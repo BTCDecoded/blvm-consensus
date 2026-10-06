@@ -87,6 +87,11 @@ criterion = "0.5"
 # hash_operations bench: sequential ECDSA baseline uses crates.io secp256k1 even when the library
 # default backend is blvm-secp256k1 (optional `secp256k1` dep is off).
 secp256k1 = "0.28"
+# Script verdict vs libbitcoinconsensus (activation heights and the off-chain
+# sweep). This crate does not link libbitcoinkernel.
+bitcoinconsensus = "0.106"
+# HASH160 for P2SH scriptPubKeys in tests/synthetic_script_diff.rs.
+ripemd = "=0.1.3"
 
 # Local monorepo: sibling paths override the blvm-* version pins above.
 [features]

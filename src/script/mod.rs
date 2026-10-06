@@ -2248,6 +2248,12 @@ fn try_verify_p2sh_fast_path(
         #[cfg(feature = "production")]
         sighash_cache,
     );
+    // Base eval returns Ok(true) without looking at the stack. VerifyScript
+    // still requires a truthy top, so a redeem of OP_0 fails.
+    let result = match result {
+        Ok(true) => Ok(!stack.is_empty() && cast_to_bool(stack.last().expect("redeem stack"))),
+        other => other,
+    };
     Some(result)
 }
 
