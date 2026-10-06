@@ -11,10 +11,12 @@
 #[path = "integration/helpers.rs"]
 mod helpers;
 
+use bitcoinconsensus::verify_with_flags;
 use blvm_consensus::script::flags::SCRIPT_VERIFY_P2SH;
 use blvm_consensus::script::{
     SigVersion, verify_script_with_context, verify_script_with_context_full,
 };
+use blvm_consensus::serialization::transaction::serialize_transaction;
 use blvm_consensus::types::Network;
 use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput};
 
@@ -169,6 +171,17 @@ ad74926404162c5658b15167762103db22e387923ad0552e1c4a4355324313af85926d4266c0eaa8
         result.unwrap_or(false),
         "block 443992 P2SH+CLTV+CODESEPARATOR tx must verify (mined by Bitcoin Core)"
     );
+
+    let raw = serialize_transaction(&tx);
+    verify_with_flags(
+        &prevout_script,
+        PREVOUT_VALUE as u64,
+        &raw,
+        None,
+        0,
+        flags(),
+    )
+    .expect("block 443992 P2SH spend must match libbitcoinconsensus");
 }
 
 #[test]
