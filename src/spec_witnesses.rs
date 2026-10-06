@@ -1764,6 +1764,7 @@ pub(crate) fn _verify_f_tapscript_truncated_push_not_success(header_fits: i64) -
 #[blvm_spec_lock::requires(n_keys <= 20)]
 #[blvm_spec_lock::requires(op_count + n_keys > 201)]
 #[blvm_spec_lock::ensures(result == 0)]
+#[allow(clippy::manual_range_contains)]
 pub(crate) fn _verify_f_checkmultisig_counts_pubkeys(op_count: i64, n_keys: i64) -> i64 {
     if n_keys >= 0 && n_keys <= 20 && op_count + n_keys > 201 {
         0
