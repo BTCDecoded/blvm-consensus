@@ -2014,12 +2014,11 @@ fn try_verify_p2sh_fast_path(
     let redeem = pushes.pop().expect("at least one push");
     let mut stack = pushes;
 
-    // Redeem must not be a witness program (P2WPKH-in-P2SH / P2WSH-in-P2SH use witness; we don't handle here)
-    if redeem.len() >= 3
-        && redeem[0] == OP_0
-        && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)
-            || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34))
-    {
+    // Any witness-program redeem, including a future version. The interpreter
+    // checks the hash, the canonical push, and that the program bytes are a
+    // true stack value. Executing the redeem here would report success for a
+    // base script without that check.
+    if crate::witness::is_any_witness_program(redeem.as_ref()) {
         return None;
     }
 
@@ -3720,6 +3719,11 @@ pub fn verify_script_with_context_full(
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0 {
             return Ok(false);
         }
+        // The program is the stack top once this script runs. A false top
+        // (all zeros, or negative zero) fails before the witness shortcut.
+        if !cast_to_bool(&script_pubkey[2..]) {
+            return Ok(false);
+        }
         return Ok(true);
     }
 
@@ -3745,6 +3749,9 @@ pub fn verify_script_with_context_full(
     if is_direct_witness_program {
         // Non-empty scriptSig is WITNESS_MALLEATED.
         if !script_sig.is_empty() {
+            return Ok(false);
+        }
+        if !cast_to_bool(&script_pubkey[2..]) {
             return Ok(false);
         }
         let Some(witness_stack) = witness else {
@@ -3989,6 +3996,9 @@ pub fn verify_script_with_context_full(
         }
 
         if witness_flag && is_witness_program {
+            if !cast_to_bool(&redeem[2..]) {
+                return Ok(false);
+            }
             // For P2WSH-in-P2SH or P2WPKH-in-P2SH:
             // - We've already verified the redeem script hash matches (scriptPubkey check passed)
             // - We should NOT execute the redeem script as a normal script
@@ -4137,6 +4147,9 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
             if flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM != 0 {
+                return Ok(false);
+            }
+            if !cast_to_bool(&redeem[2..]) {
                 return Ok(false);
             }
             return Ok(true);
@@ -7666,6 +7679,17 @@ mod tests {
         assert!(!eval(&[0x4e, 0x7e]).unwrap());
         // 0x50 inside a real push is data. The following OP_0 leaves two stack items.
         assert!(!eval(&[0x01, 0x50, 0x00]).unwrap());
+
+        // A push whose payload does not fit is not an immediate-success opcode,
+        // whatever byte is left over. One supplied byte is short of every
+        // direct push except a one-byte push, which is truncated by itself.
+        assert!(!eval(&[0x01]).unwrap(), "direct push 1");
+        for opcode in 2u8..=0x4b {
+            assert!(!eval(&[opcode, 0x50]).unwrap(), "direct push {opcode}");
+        }
+        for (header, leftover) in [(0x4cu8, 0x50u8), (0x4d, 0x50), (0x4e, 0x50), (0x4e, 0x7e)] {
+            assert!(!eval(&[header, leftover]).unwrap(), "header {header:#x}");
+        }
     }
 
     #[test]
@@ -7903,6 +7927,91 @@ mod tests {
             None,
         );
         assert!(!result.unwrap());
+    }
+
+    /// A witness program is executed as a script before the anyone-can-spend
+    /// shortcut. The program bytes are the stack top, so an all-zero or
+    /// negative-zero payload is a failed script. A non-zero payload of a
+    /// future version succeeds.
+    #[test]
+    fn witness_program_false_payload_is_rejected() {
+        use crate::constants::TAPROOT_ACTIVATION_MAINNET;
+        use digest::Digest;
+
+        let verify = |script_pubkey: &[u8], script_sig: &[u8], height: u64| {
+            let script_sig = script_sig.to_vec();
+            let (tx, pv, psp) = minimal_tx_and_prevouts(&script_sig, script_pubkey);
+            let refs: Vec<&[u8]> = psp.iter().map(|b| b.as_ref()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                0x801,
+                &tx,
+                0,
+                &pv,
+                &refs,
+                Some(height),
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                None,
+            )
+        };
+
+        let payloads: &[(&[u8], bool)] = &[
+            (&[0x00, 0x00], false),
+            (&[0x00, 0x80], false),
+            (&[0x01, 0x00], true),
+        ];
+        for version in 0x51u8..=0x60 {
+            for &(payload, truthy) in payloads {
+                let mut script = vec![version, payload.len() as u8];
+                script.extend_from_slice(payload);
+                let got = verify(&script, &[], 400_000).unwrap();
+                let taproot_v1 = version == 0x51 && payload.len() == 32;
+                let expect = truthy && !taproot_v1;
+                assert_eq!(got, expect, "native {script:02x?}");
+            }
+        }
+
+        let zeros = vec![0u8; 32];
+        let mut neg = vec![0u8; 32];
+        neg[31] = 0x80;
+        let mut nonzero = vec![0u8; 32];
+        nonzero[0] = 1;
+        for (payload, truthy) in [(&zeros[..], false), (&neg[..], false), (&nonzero[..], true)] {
+            let mut script = vec![0x51, 0x20];
+            script.extend_from_slice(payload);
+            assert!(!verify(&script, &[], TAPROOT_ACTIVATION_MAINNET).unwrap());
+            let before = verify(&script, &[], 400_000).unwrap();
+            assert_eq!(before, truthy, "v1-32 before taproot {payload:02x?}");
+        }
+
+        let redeem = vec![0x52, 0x02, 0x00, 0x00];
+        let hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem));
+        let mut p2sh = vec![OP_HASH160, 0x14];
+        p2sh.extend_from_slice(&hash);
+        p2sh.push(OP_EQUAL);
+        let push = serialize_push_data(&redeem);
+        assert!(!verify(&p2sh, &push, 400_000).unwrap());
+
+        let redeem_ok = vec![0x52, 0x02, 0x01, 0x00];
+        let hash_ok = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem_ok));
+        let mut p2sh_ok = vec![OP_HASH160, 0x14];
+        p2sh_ok.extend_from_slice(&hash_ok);
+        p2sh_ok.push(OP_EQUAL);
+        assert!(verify(&p2sh_ok, &serialize_push_data(&redeem_ok), 400_000).unwrap());
     }
 
     #[test]
