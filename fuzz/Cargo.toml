@@ -454,3 +454,10 @@ path = "fuzz_targets/bip_check_bip147.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "offchain_class"
+path = "fuzz_targets/offchain_class.rs"
+test = false
+doc = false
+bench = false

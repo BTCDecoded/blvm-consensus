@@ -280,6 +280,53 @@ mod tests {
         assert_eq!(undo.len(), 3);
         assert!(undo.iter().all(|entry| entry.new_utxo.is_none()));
     }
+
+    #[test]
+    fn bip30_repeat_retires_only_the_repeated_txid() {
+        for n in [1usize, 2, 7, 20] {
+            let repeated = [n as u8; 32];
+            let other = [0xab; 32];
+            let mut set = UtxoSet::default();
+            for index in 0..n as u32 {
+                set.insert(
+                    OutPoint {
+                        hash: repeated,
+                        index,
+                    },
+                    Arc::new(UTXO {
+                        value: 1,
+                        script_pubkey: vec![].into(),
+                        height: 1,
+                        is_coinbase: true,
+                    }),
+                );
+            }
+            set.insert(
+                OutPoint {
+                    hash: other,
+                    index: 0,
+                },
+                Arc::new(UTXO {
+                    value: 5,
+                    script_pubkey: vec![0x51].into(),
+                    height: 2,
+                    is_coinbase: false,
+                }),
+            );
+            let mut index = Bip30Index::default();
+            index.insert(repeated, n);
+            index.insert(other, 1);
+            let undo = take_outputs_for_txid(&mut set, repeated, Some(&mut index));
+            assert_eq!(undo.len(), n);
+            assert_eq!(set.len(), 1);
+            assert!(set.contains_key(&OutPoint {
+                hash: other,
+                index: 0
+            }));
+            assert!(!index.contains_key(&repeated));
+            assert!(index.contains_key(&other));
+        }
+    }
 }
 
 /// Calculate transaction ID using proper Bitcoin double SHA256

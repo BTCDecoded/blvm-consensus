@@ -2011,9 +2011,10 @@ mod tests {
         };
 
         let first = sighash(1_000);
-        let second = sighash(2_000);
-        assert_ne!(first, second);
-        // Same transaction again, after the other spend filled the cache.
+        for value in [2_000i64, 3, 50_000_000, i64::MAX / 4] {
+            assert_ne!(first, sighash(value), "output {value}");
+        }
+        // Same transaction again, after the other spends filled the cache.
         assert_eq!(first, sighash(1_000));
 
         let mut later_locktime = tx_paying(1_000);
