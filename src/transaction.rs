@@ -551,6 +551,16 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
                     format!("Input value overflow at input {i}").into(),
                 )
             })?;
+            // Each input is capped, but the running sum must stay in range too.
+            // Two MAX_MONEY inputs fit in i64 and are still an invalid transaction.
+            if total_input_value > MAX_MONEY {
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "Total input value {total_input_value} exceeds maximum money supply at input {i}"
+                    )),
+                    0,
+                ));
+            }
             // Invariant assertion: Total input value must remain non-negative after addition
             assert!(
                 total_input_value >= 0,
@@ -664,6 +674,14 @@ pub fn check_tx_inputs_with_owned_data(
                     format!("Input value overflow at input {i}").into(),
                 )
             })?;
+            if total_input_value > MAX_MONEY {
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "Total input value {total_input_value} exceeds maximum at input {i}"
+                    )),
+                    0,
+                ));
+            }
         } else {
             return Ok((
                 ValidationResult::Invalid(format!("Input {i} not found in UTXO set")),
@@ -1308,6 +1326,40 @@ mod tests {
         let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
         assert_eq!(result, ValidationResult::Valid);
         assert_eq!(fee, 100_000_000); // 8 BTC in - 7 BTC out
+    }
+
+    #[test]
+    fn test_check_tx_inputs_input_sum_exceeds_max_money() {
+        let utxo_set = make_utxo_set(&[([1; 32], 0, MAX_MONEY), ([2; 32], 0, MAX_MONEY)]);
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![make_input([1; 32], 0), make_input([2; 32], 0)].into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        };
+        let (result, fee) = check_tx_inputs(&tx, &utxo_set, 0).unwrap();
+        assert!(matches!(result, ValidationResult::Invalid(_)));
+        assert_eq!(fee, 0);
+
+        let owned = [
+            Some((MAX_MONEY, false, 0u64)),
+            Some((MAX_MONEY, false, 0u64)),
+        ];
+        let (result, fee) = check_tx_inputs_with_owned_data(&tx, 0, &owned).unwrap();
+        assert!(matches!(result, ValidationResult::Invalid(_)));
+        assert_eq!(fee, 0);
+
+        // The sum may sit on the cap. One input of MAX_MONEY spends cleanly.
+        let at_cap = make_utxo_set(&[([1; 32], 0, MAX_MONEY)]);
+        let tx_at_cap = Transaction {
+            version: 1,
+            inputs: vec![make_input([1; 32], 0)].into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        };
+        let (result, fee) = check_tx_inputs(&tx_at_cap, &at_cap, 0).unwrap();
+        assert_eq!(result, ValidationResult::Valid);
+        assert_eq!(fee, MAX_MONEY);
     }
 
     fn bare_tx(inputs: Vec<TransactionInput>) -> Transaction {

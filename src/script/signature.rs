@@ -82,7 +82,10 @@ pub(crate) fn verify_signature(
     if flags & 0x04 != 0
         && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)?
     {
-        return Ok(false);
+        return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+            code: crate::error::ScriptErrorCode::SigDer,
+            message: "non-DER signature".into(),
+        });
     }
 
     if flags & 0x02 != 0 {
@@ -139,7 +142,12 @@ pub(crate) fn verify_signature(
         let signature = if strict_der {
             match Signature::from_der(der_sig) {
                 Ok(sig) => sig,
-                Err(_) => return Ok(false),
+                Err(_) => {
+                    return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+                        code: crate::error::ScriptErrorCode::SigDer,
+                        message: "non-DER signature".into(),
+                    });
+                }
             }
         } else {
             match Signature::from_der_lax(der_sig) {

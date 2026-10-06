@@ -10,6 +10,37 @@ use crate::transaction::is_coinbase;
 use crate::types::{Hash, Natural, OutPoint, Transaction, UTXO, UtxoSet};
 use blvm_spec_lock::spec_locked;
 
+/// Remove every output of `txid` before a BIP30 exception coinbase is inserted.
+///
+/// The two historical repeats replace the earlier coinbase. Outputs the new
+/// coinbase does not recreate must not stay spendable. The bip30 index is
+/// cleared so the following insert records only the new outputs.
+pub(crate) fn take_outputs_for_txid(
+    utxo_set: &mut UtxoSet,
+    txid: Hash,
+    bip30_index: Option<&mut Bip30Index>,
+) -> Vec<UndoEntry> {
+    let stale: Vec<OutPoint> = utxo_set
+        .iter()
+        .filter(|(outpoint, _)| outpoint.hash == txid)
+        .map(|(outpoint, _)| *outpoint)
+        .collect();
+    let mut undo = Vec::with_capacity(stale.len());
+    for outpoint in stale {
+        if let Some(previous) = utxo_set.remove(&outpoint) {
+            undo.push(UndoEntry {
+                outpoint,
+                previous_utxo: Some(previous),
+                new_utxo: None,
+            });
+        }
+    }
+    if let Some(index) = bip30_index {
+        index.remove(&txid);
+    }
+    undo
+}
+
 /// ApplyTransaction (Orange Paper 5.3.2)
 ///
 /// For transaction tx and UTXO set us:
@@ -219,6 +250,36 @@ pub(crate) fn apply_transaction_with_id(
     }
 
     Ok((utxo_set, undo_entries))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn bip30_repeat_removes_every_old_output() {
+        let txid = [7u8; 32];
+        let mut set = UtxoSet::default();
+        for index in 0..3 {
+            set.insert(
+                OutPoint { hash: txid, index },
+                Arc::new(UTXO {
+                    value: 1,
+                    script_pubkey: vec![].into(),
+                    height: 1,
+                    is_coinbase: true,
+                }),
+            );
+        }
+        let mut index = Bip30Index::default();
+        index.insert(txid, 3);
+        let undo = take_outputs_for_txid(&mut set, txid, Some(&mut index));
+        assert!(set.is_empty());
+        assert!(index.is_empty());
+        assert_eq!(undo.len(), 3);
+        assert!(undo.iter().all(|entry| entry.new_utxo.is_none()));
+    }
 }
 
 /// Calculate transaction ID using proper Bitcoin double SHA256

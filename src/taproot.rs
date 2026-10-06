@@ -356,10 +356,39 @@ impl Bip341PrecomputedHashes {
     }
 }
 
-/// N7: reuse BIP341 commitments across inputs on the same thread (same `&Transaction` pointer).
+/// One thread-local BIP341 commitment set. The key is the data those hashes cover,
+/// not the transaction's address: a later spend can be allocated in the same slot.
 thread_local! {
-    static BIP341_TLS: std::cell::RefCell<Option<(usize, Bip341PrecomputedHashes)>> =
+    static BIP341_TLS: std::cell::RefCell<Option<(u64, Bip341PrecomputedHashes)>> =
         const { std::cell::RefCell::new(None) };
+}
+
+fn bip341_cache_tag(
+    tx: &Transaction,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    #[cfg(feature = "production")]
+    let mut hasher = rustc_hash::FxHasher::default();
+    #[cfg(not(feature = "production"))]
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+
+    tx.inputs.len().hash(&mut hasher);
+    prevout_values.len().hash(&mut hasher);
+    prevout_script_pubkeys.len().hash(&mut hasher);
+    for (i, input) in tx.inputs.iter().enumerate() {
+        input.prevout.hash(&mut hasher);
+        input.sequence.hash(&mut hasher);
+        prevout_values[i].hash(&mut hasher);
+        prevout_script_pubkeys[i].hash(&mut hasher);
+    }
+    tx.outputs.len().hash(&mut hasher);
+    for output in &tx.outputs {
+        output.value.hash(&mut hasher);
+        output.script_pubkey.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn bip341_precompute(
@@ -367,7 +396,7 @@ fn bip341_precompute(
     prevout_values: &[i64],
     prevout_script_pubkeys: &[&[u8]],
 ) -> Bip341PrecomputedHashes {
-    let key = tx as *const Transaction as usize;
+    let key = bip341_cache_tag(tx, prevout_values, prevout_script_pubkeys);
     BIP341_TLS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if let Some((k, ref hashes)) = *slot {
@@ -859,6 +888,46 @@ mod tests {
             cached_ns < fresh_ns,
             "TLS cache should beat full bip341_precompute"
         );
+    }
+
+    #[test]
+    fn bip341_cache_does_not_reuse_another_spend() {
+        let mut tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [4u8; 32],
+                    index: 0,
+                },
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1_000,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let script = create_taproot_script(&[1u8; 32]);
+        let pv = vec![2_000i64];
+        let psp: Vec<&[u8]> = vec![script.as_slice()];
+        let first = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None).unwrap();
+
+        // Same allocation, different output. An address key would return `first`.
+        tx.outputs[0].value = 2_000;
+        let other_output = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None).unwrap();
+        assert_ne!(first, other_output);
+
+        tx.outputs[0].value = 1_000;
+        let other_amount = vec![9_000i64];
+        let spent =
+            compute_taproot_signature_hash(&tx, 0, &other_amount, &psp, 0x01, None).unwrap();
+        assert_ne!(first, spent);
+
+        let again = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None).unwrap();
+        assert_eq!(first, again);
     }
 
     #[test]

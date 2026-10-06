@@ -173,6 +173,11 @@ pub fn is_invalid_v0_witness_program(script: &[u8]) -> bool {
 /// A witness program is `OP_0` or `OP_1`..=`OP_16`, a direct push of 2–40 bytes, and nothing else.
 /// `OP_1NEGATE` and `OP_RESERVED` sit below `OP_1` and are ordinary opcodes.
 #[inline]
+pub(crate) fn is_any_witness_program(script: &[u8]) -> bool {
+    witness_program_len(script).is_some()
+}
+
+#[inline]
 fn witness_program_len(script: &[u8]) -> Option<usize> {
     if script.len() < 4 || !is_witness_version_opcode(script[0]) {
         return None;

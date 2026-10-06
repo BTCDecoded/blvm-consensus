@@ -54,6 +54,34 @@ fn make_operation_limit_error() -> ConsensusError {
     }
 }
 
+/// CHECKMULTISIG counts each executed pubkey toward the 201-opcode limit.
+///
+/// The opcode itself is already counted. `n` is added only when it decodes and
+/// is in `0..=20`, and only on an executing non-tapscript path. A count the
+/// handler will reject is left unchanged.
+#[inline]
+fn charge_checkmultisig_pubkeys(stack: &[StackElement], op_count: usize) -> Result<usize> {
+    let Some(n_bytes) = stack.last() else {
+        return Ok(op_count);
+    };
+    let Ok(n_raw) = script_num_decode(n_bytes, 4) else {
+        return Ok(op_count);
+    };
+    if !(0..=20).contains(&n_raw) {
+        return Ok(op_count);
+    }
+    let next = op_count.saturating_add(n_raw as usize);
+    if next > MAX_SCRIPT_OPS {
+        return Err(make_operation_limit_error());
+    }
+    Ok(next)
+}
+
+#[inline]
+fn script_bool_bytes(value: bool) -> &'static [u8] {
+    if value { &[1] } else { &[] }
+}
+
 #[cold]
 fn make_stack_overflow_error() -> ConsensusError {
     ConsensusError::ScriptErrorWithCode {
@@ -507,6 +535,42 @@ pub(crate) fn op_advance(script: &[u8], pc: usize) -> usize {
     }
 }
 
+/// End offset of the opcode at `pc`, or `None` when a push does not fit.
+///
+/// A short `OP_PUSHDATA*` header is not an opcode. The tapscript success scan
+/// must stop there instead of reading the leftover length bytes as opcodes.
+fn tapscript_opcode_end(script: &[u8], pc: usize) -> Option<usize> {
+    let opcode = *script.get(pc)?;
+    let end = if opcode == 0 {
+        pc.checked_add(1)?
+    } else if opcode <= 0x4b {
+        pc.checked_add(1)?.checked_add(opcode as usize)?
+    } else if opcode == OP_PUSHDATA1 {
+        let len = *script.get(pc + 1)? as usize;
+        pc.checked_add(2)?.checked_add(len)?
+    } else if opcode == OP_PUSHDATA2 {
+        if pc + 2 >= script.len() {
+            return None;
+        }
+        let len = u16::from_le_bytes([script[pc + 1], script[pc + 2]]) as usize;
+        pc.checked_add(3)?.checked_add(len)?
+    } else if opcode == OP_PUSHDATA4 {
+        if pc + 4 >= script.len() {
+            return None;
+        }
+        let len = u32::from_le_bytes([
+            script[pc + 1],
+            script[pc + 2],
+            script[pc + 3],
+            script[pc + 4],
+        ]) as usize;
+        pc.checked_add(5)?.checked_add(len)?
+    } else {
+        pc.checked_add(1)?
+    };
+    (end <= script.len()).then_some(end)
+}
+
 fn eval_script_inner(
     script: &[u8],
     stack: &mut Vec<StackElement>,
@@ -743,6 +807,11 @@ fn eval_script_inner(
                     continue;
                 }
 
+                if sigversion != SigVersion::Tapscript
+                    && (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
+                {
+                    op_count = charge_checkmultisig_pubkeys(stack, op_count)?;
+                }
                 if !execute_opcode(opcode, stack, flags, sigversion)? {
                     return Ok(false);
                 }
@@ -2343,6 +2412,9 @@ pub fn verify_p2wpkh_in_p2sh_inline(
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return Ok(false);
     }
+    if !redeem_push_is_canonical(script_sig, redeem.as_ref()) {
+        return Ok(false);
+    }
     let sha256_hash = OptimizedSha256::new().hash(redeem.as_ref());
     let redeem_hash = Ripemd160::digest(sha256_hash);
     if &redeem_hash[..] != expected_hash {
@@ -2547,6 +2619,9 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return None;
     }
+    if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+        return Some(Ok(false));
+    }
     let height = block_height.unwrap_or(0);
     let prevout_value = prevout_values.get(input_index).copied().unwrap_or(0);
     Some(verify_p2wpkh_in_p2sh_inline(
@@ -2611,6 +2686,9 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     let redeem = &pushes[0];
     if redeem.len() != 34 || redeem[0] != OP_0 || redeem[1] != PUSH_32_BYTES {
         return None;
+    }
+    if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+        return Some(Ok(false));
     }
     let expected_hash = &script_pubkey[2..22];
     let sha256_hash = OptimizedSha256::new().hash(redeem.as_ref());
@@ -3599,12 +3677,14 @@ pub fn verify_script_with_context_full(
             && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)
                 || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34))
     });
-    // BIP141: nested P2WPKH/P2WSH scriptSig must be exactly one push of the redeem.
-    if nested_witness_program {
-        match parse_script_sig_push_only(script_sig.as_ref()) {
-            Some(items) if items.len() == 1 => {}
-            _ => return Ok(false),
-        }
+    // Nested v0 scriptSig must be the canonical push of the redeem script.
+    if nested_witness_program
+        && !redeem_push_is_canonical(
+            script_sig.as_ref(),
+            redeem_script.as_ref().expect("nested redeem"),
+        )
+    {
+        return Ok(false);
     }
 
     // Taproot format: [OP_1, PUSH_32_BYTES, <32 bytes>] = 34 bytes total.
@@ -4049,6 +4129,17 @@ pub fn verify_script_with_context_full(
                 return Ok(false); // Invalid witness program format
             }
             // P2WSH-in-P2SH path falls through to final stack check above
+        } else if witness_flag && crate::witness::is_any_witness_program(redeem.as_ref()) {
+            // A P2SH-wrapped program that is not v0 P2WPKH/P2WSH is not taproot.
+            // It succeeds when the redeem push is canonical, unless the
+            // discourage-upgradable flag is set. Witness bytes are ignored.
+            if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+                return Ok(false);
+            }
+            if flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM != 0 {
+                return Ok(false);
+            }
+            return Ok(true);
         } else {
             // Regular P2SH: execute the redeem script with the remaining stack (signatures pushed by scriptSig)
             // The redeem script will consume the signatures and should leave exactly one true value
@@ -4235,8 +4326,11 @@ fn eval_script_with_context_full_inner(
                 }
                 return Ok(true);
             }
-            // Advance past push data so we inspect opcodes, not push payloads.
-            pc += op_advance(script, pc);
+            // A push that does not fit ends the scan. Its leftover bytes are not opcodes.
+            let Some(next) = tapscript_opcode_end(script, pc) else {
+                break;
+            };
+            pc = next;
         }
         if stack.len() > MAX_STACK_SIZE {
             return Err(make_stack_overflow_error());
@@ -4468,7 +4562,7 @@ fn eval_script_with_context_full_inner(
                 }
                 let a = stack.pop().unwrap();
                 let b = stack.pop().unwrap();
-                stack.push(to_stack_element(&[if a == b { 1 } else { 0 }]));
+                stack.push(to_stack_element(script_bool_bytes(a == b)));
             }
             i += 1;
             continue;
@@ -4713,6 +4807,11 @@ fn eval_script_with_context_full_inner(
                 // From the last OP_CODESEPARATOR position to the end of the script.
                 // scriptCode = slice from pbegincodehash to pend
                 // Only allocate for opcodes that actually use the script code.
+                if sigversion != SigVersion::Tapscript
+                    && (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY)
+                {
+                    op_count = charge_checkmultisig_pubkeys(stack, op_count)?;
+                }
                 let subscript_for_sighash = if matches!(
                     opcode,
                     OP_CHECKSIG
@@ -5033,7 +5132,7 @@ fn execute_opcode(
             let b = stack.pop().unwrap();
             let f_equal = a == b;
             // Push result (like OP_EQUAL does)
-            stack.push(to_stack_element(&[if f_equal { 1 } else { 0 }]));
+            stack.push(to_stack_element(script_bool_bytes(f_equal)));
             if f_equal {
                 // Pop the true value
                 stack.pop();
@@ -5523,7 +5622,7 @@ fn execute_opcode(
             }
             stack.pop();
             // Without tx context only 0-sig multisig can succeed
-            stack.push(to_stack_element(&[if m == 0 { 1 } else { 0 }]));
+            stack.push(to_stack_element(script_bool_bytes(m == 0)));
             Ok(true)
         }
 
@@ -5970,6 +6069,17 @@ fn script_num_from_opcode(opcode: u8) -> i64 {
 /// Serialize data as a Bitcoin push operation: `push_opcode` followed by `data` bytes.
 /// This creates the byte pattern that FindAndDelete searches for.
 /// Push data to script (BIP62 encoding rules).
+#[inline]
+fn redeem_push_is_canonical(script_sig: &[u8], redeem: &[u8]) -> bool {
+    let len = redeem.len();
+    if len < 76 {
+        return script_sig.len() == len + 1
+            && script_sig[0] as usize == len
+            && &script_sig[1..] == redeem;
+    }
+    script_sig == serialize_push_data(redeem).as_slice()
+}
+
 pub(crate) fn serialize_push_data(data: &[u8]) -> Vec<u8> {
     let len = data.len();
     let mut result = Vec::with_capacity(len + 5);
@@ -6239,7 +6349,7 @@ fn execute_opcode_with_context_full(
                     )? {
                         None => Ok(false),
                         Some(ok) => {
-                            stack.push(to_stack_element(&[u8::from(ok)]));
+                            stack.push(to_stack_element(script_bool_bytes(ok)));
                             Ok(true)
                         }
                     };
@@ -6247,7 +6357,7 @@ fn execute_opcode_with_context_full(
 
                 // Empty signature always fails but is valid script execution
                 if signature_bytes.is_empty() {
-                    stack.push(to_stack_element(&[0]));
+                    stack.push(to_stack_element(&[]));
                     return Ok(true);
                 }
 
@@ -6348,7 +6458,7 @@ fn execute_opcode_with_context_full(
                     )?
                 };
 
-                stack.push(to_stack_element(&[if is_valid { 1 } else { 0 }]));
+                stack.push(to_stack_element(script_bool_bytes(is_valid)));
                 Ok(true)
             } else {
                 Ok(false)
@@ -6928,7 +7038,7 @@ fn execute_opcode_with_context_full(
             };
 
             // Push result: 1 if valid_sigs >= m, 0 otherwise
-            stack.push(to_stack_element(&[if valid_sigs >= m { 1 } else { 0 }]));
+            stack.push(to_stack_element(script_bool_bytes(valid_sigs >= m)));
             Ok(true)
         }
 
@@ -7499,6 +7609,301 @@ pub fn reset_benchmarking_state() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tapscript_truncated_push_is_not_op_success() {
+        use crate::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0u8; 32],
+                    index: 0,
+                },
+                sequence: 0xffff_ffff,
+                script_sig: vec![],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let eval = |script: &[u8]| {
+            let mut stack = Vec::new();
+            eval_script_with_context_full(
+                script,
+                &mut stack,
+                0,
+                &tx,
+                0,
+                &[0],
+                &[&[]],
+                None,
+                None,
+                Network::Mainnet,
+                SigVersion::Tapscript,
+                None,
+                None,
+                None,
+                Some(0),
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+            )
+        };
+
+        // Opcode 80 is an immediate success. A bare one succeeds.
+        assert!(eval(&[0x50]).unwrap());
+        // OP_PUSHDATA2 with a one-byte header. 0x50 is leftover length, not an opcode.
+        assert!(!eval(&[0x4d, 0x50]).unwrap());
+        // OP_PUSHDATA4 with a one-byte header. 0x7e is opcode 126, also an immediate success.
+        assert!(!eval(&[0x4e, 0x7e]).unwrap());
+        // 0x50 inside a real push is data. The following OP_0 leaves two stack items.
+        assert!(!eval(&[0x01, 0x50, 0x00]).unwrap());
+    }
+
+    #[test]
+    fn checkmultisig_pubkeys_count_toward_opcode_limit() {
+        let mut within = vec![0x61; 160];
+        within.push(0x00);
+        within.push(0x00);
+        within.extend(std::iter::repeat(0x00).take(20));
+        within.extend_from_slice(&[0x01, 20, 0xae]);
+        let mut stack = Vec::new();
+        assert!(eval_script(&within, &mut stack, 0, SigVersion::Base).unwrap());
+
+        let mut over = vec![0x61; 181];
+        over.push(0x00);
+        over.push(0x00);
+        over.extend(std::iter::repeat(0x00).take(20));
+        over.extend_from_slice(&[0x01, 20, 0xae]);
+        let mut stack = Vec::new();
+        assert!(eval_script(&over, &mut stack, 0, SigVersion::Base).is_err());
+
+        // n outside 0..=20 is not added. 181 NOPs plus the opcode stay within 201.
+        let mut ignored = vec![0x61; 181];
+        ignored.extend_from_slice(&[0x00, 0x00, 0x01, 21, 0xae]);
+        let mut stack = Vec::new();
+        assert!(!eval_script(&ignored, &mut stack, 0, SigVersion::Base).unwrap());
+    }
+
+    #[test]
+    fn false_script_result_is_an_empty_vector() {
+        let mut stack = Vec::new();
+        assert!(eval_script(&[0x51, 0x52, 0x87], &mut stack, 0, SigVersion::Base).unwrap());
+        assert!(stack.last().unwrap().is_empty());
+
+        let mut stack = Vec::new();
+        assert!(eval_script(&[0x51, 0x51, 0x87], &mut stack, 0, SigVersion::Base).unwrap());
+        assert_eq!(stack[0].as_ref(), &[1]);
+
+        let mut stack = Vec::new();
+        assert!(
+            eval_script(
+                &[0x00, 0x01, 0x02, 0xac, 0x82],
+                &mut stack,
+                0,
+                SigVersion::Base
+            )
+            .unwrap()
+        );
+        assert!(stack.last().unwrap().is_empty());
+
+        let mut stack = Vec::new();
+        assert!(
+            eval_script(
+                &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
+                &mut stack,
+                0,
+                SigVersion::Base
+            )
+            .unwrap()
+        );
+        assert!(stack.last().unwrap().is_empty());
+    }
+
+    #[test]
+    fn non_der_signature_aborts_the_script() {
+        use crate::constants::BIP66_ACTIVATION_MAINNET;
+        use crate::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0u8; 32],
+                    index: 0,
+                },
+                sequence: 0xffff_ffff,
+                script_sig: vec![],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let eval = |script: &[u8], flags: u32| {
+            let mut stack = Vec::new();
+            eval_script_with_context_full(
+                script,
+                &mut stack,
+                flags,
+                &tx,
+                0,
+                &[0],
+                &[&[]],
+                Some(BIP66_ACTIVATION_MAINNET),
+                None,
+                Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+            )
+        };
+
+        let bad = [0x03, 0x30, 0x01, 0x01, 0x01, 0x02, 0xac, 0x75, 0x51];
+        assert!(eval(&bad, 0x04).is_err());
+        let empty = [0x00, 0x01, 0x02, 0xac, 0x75, 0x51];
+        assert!(eval(&empty, 0x04).unwrap());
+        assert!(eval(&bad, 0).unwrap());
+    }
+
+    #[test]
+    fn nested_v0_redeem_push_must_be_canonical() {
+        let mut redeem = vec![0x00, 0x14];
+        redeem.extend_from_slice(&[0xab; 20]);
+        let canonical = serialize_push_data(&redeem);
+        let mut pushdata1 = vec![0x4c, redeem.len() as u8];
+        pushdata1.extend_from_slice(&redeem);
+        assert!(redeem_push_is_canonical(&canonical, &redeem));
+        assert!(!redeem_push_is_canonical(&pushdata1, &redeem));
+        assert_eq!(canonical[0], 22);
+    }
+
+    #[test]
+    fn p2sh_wrapped_unknown_witness_program_succeeds() {
+        use digest::Digest;
+
+        let redeem = vec![0x52, 0x02, 0x11, 0x22];
+        let hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem));
+        let mut script_pubkey = vec![OP_HASH160, 0x14];
+        script_pubkey.extend_from_slice(&hash);
+        script_pubkey.push(OP_EQUAL);
+        let script_sig = serialize_push_data(&redeem);
+        let witness = vec![vec![1u8]];
+        let (tx, pv, psp) = minimal_tx_and_prevouts(&script_sig, &script_pubkey);
+        let psp_refs: Vec<&[u8]> = psp.iter().map(|b| b.as_ref()).collect();
+        let verify = |flags: u32, wit: Option<&Vec<Vec<u8>>>| {
+            verify_script_with_context_full(
+                &script_sig,
+                &script_pubkey,
+                wit,
+                flags,
+                &tx,
+                0,
+                &pv,
+                &psp_refs,
+                Some(500_000),
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                None,
+            )
+        };
+        assert!(verify(0x801, Some(&witness)).unwrap());
+        assert!(!verify(0x801 | 0x1000, Some(&witness)).unwrap());
+        let mut pushdata1 = vec![0x4c, redeem.len() as u8];
+        pushdata1.extend_from_slice(&redeem);
+        let (tx_pd, pv_pd, psp_pd) = minimal_tx_and_prevouts(&pushdata1, &script_pubkey);
+        let psp_pd_refs: Vec<&[u8]> = psp_pd.iter().map(|b| b.as_ref()).collect();
+        let noncanonical = verify_script_with_context_full(
+            &pushdata1,
+            &script_pubkey,
+            Some(&witness),
+            0x801,
+            &tx_pd,
+            0,
+            &pv_pd,
+            &psp_pd_refs,
+            Some(500_000),
+            None,
+            crate::types::Network::Mainnet,
+            SigVersion::Base,
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+            None,
+        );
+        assert!(!noncanonical.unwrap());
+
+        let invalid_v0 = vec![0x00, 0x02, 0x11, 0x22];
+        let hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&invalid_v0));
+        let mut script_pubkey = vec![OP_HASH160, 0x14];
+        script_pubkey.extend_from_slice(&hash);
+        script_pubkey.push(OP_EQUAL);
+        let script_sig = serialize_push_data(&invalid_v0);
+        let (tx, pv, psp) = minimal_tx_and_prevouts(&script_sig, &script_pubkey);
+        let psp_refs: Vec<&[u8]> = psp.iter().map(|b| b.as_ref()).collect();
+        let result = verify_script_with_context_full(
+            &script_sig,
+            &script_pubkey,
+            Some(&witness),
+            0x801,
+            &tx,
+            0,
+            &pv,
+            &psp_refs,
+            Some(500_000),
+            None,
+            crate::types::Network::Mainnet,
+            SigVersion::Base,
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+            None,
+        );
+        assert!(!result.unwrap());
+    }
 
     #[test]
     fn test_eval_script_simple() {

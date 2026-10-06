@@ -192,28 +192,30 @@ fn get_next_work_required_internal(
 /// CheckProofOfWork: ℋ → {true, false}
 ///
 /// Check if the block header satisfies the proof of work requirement.
-/// Formula: SHA256(SHA256(header)) < ExpandTarget(header.bits)
+/// Formula: SHA256(SHA256(header)) <= ExpandTarget(header.bits)
 #[spec_locked("7.2", "CheckProofOfWork")]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
-    // Serialize header
     let header_bytes = serialize_header(header);
-
-    // Double SHA256
     let hash1 = Sha256::digest(header_bytes);
     let hash2 = Sha256::digest(hash1);
-
-    // Convert to U256 (big-endian)
     let mut hash_bytes = [0u8; 32];
     hash_bytes.copy_from_slice(&hash2);
-    let hash_value = U256::from_bytes(&hash_bytes);
+    proof_hash_meets_target(header.bits, &U256::from_bytes(&hash_bytes))
+}
 
-    // Expand target from compact representation
-    let target = expand_target(header.bits)?;
-
-    // Check if hash < target
-    Ok(hash_value < target)
+#[inline]
+fn proof_hash_meets_target(bits: Natural, hash_value: &U256) -> Result<bool> {
+    // The compact sign bit is not part of the target. A negative encoding is not work.
+    if bits & 0x0080_0000 != 0 {
+        return Ok(false);
+    }
+    let target = expand_target(bits)?;
+    if target.is_zero() {
+        return Ok(false);
+    }
+    Ok(*hash_value <= target)
 }
 
 /// Batch check proof of work for multiple headers
@@ -265,15 +267,10 @@ pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, O
         let hash_value = U256::from_bytes(&hash);
 
         // Expand target from compact representation
-        match expand_target(header.bits) {
-            Ok(target) => {
-                let is_valid = hash_value < target;
-                results.push((is_valid, if is_valid { Some(hash) } else { None }));
-            }
-            Err(_e) => {
-                // Invalid target, mark as invalid
-                results.push((false, None));
-            }
+        match proof_hash_meets_target(header.bits, &hash_value) {
+            Ok(true) => results.push((true, Some(hash))),
+            Ok(false) => results.push((false, None)),
+            Err(_) => results.push((false, None)),
         }
     }
 
@@ -1057,6 +1054,29 @@ mod property_tests {
 mod tests {
     use super::*;
     use crate::constants::MAX_TARGET;
+
+    #[test]
+    fn negative_or_zero_target_fails_and_equal_hash_passes() {
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 1,
+            bits: 0x1d80_0001,
+            nonce: 0,
+        };
+        assert!(!check_proof_of_work(&header).unwrap());
+
+        let mut zero = header;
+        zero.bits = 0x0300_0000;
+        assert!(!check_proof_of_work(&zero).unwrap());
+
+        let bits = 0x1d00ffff;
+        let target = expand_target(bits).unwrap();
+        assert!(proof_hash_meets_target(bits, &target).unwrap());
+        let above = target.checked_add(U256::one()).unwrap();
+        assert!(!proof_hash_meets_target(bits, &above).unwrap());
+    }
 
     #[test]
     fn test_get_next_work_required_insufficient_headers() {

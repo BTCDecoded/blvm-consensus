@@ -3979,12 +3979,29 @@ fn connect_block_inner_with_tx_ids(
         // Normal path: Apply transactions sequentially to build undo log
         let mut bip30_none_slot: Option<&mut crate::bip_validation::Bip30Index> = None;
         for (i, tx) in block.transactions.iter().enumerate() {
-            let initial_utxo_size = utxo_set.len();
             let bip30_apply_ref = if maintain_bip30_index {
                 &mut bip30_index
             } else {
                 &mut bip30_none_slot
             };
+            if i == 0
+                && crate::bip_validation::is_bip30_repeat_block(
+                    height,
+                    &super::header::block_header_hash(&block.header),
+                )
+            {
+                let removed = apply::take_outputs_for_txid(
+                    &mut utxo_set,
+                    tx_ids[i],
+                    bip30_apply_ref.as_deref_mut(),
+                );
+                if collect_undo {
+                    for entry in removed {
+                        undo_log.push(entry);
+                    }
+                }
+            }
+            let initial_utxo_size = utxo_set.len();
             let (new_utxo_set, tx_undo_entries) = apply::apply_transaction_with_id(
                 tx,
                 tx_ids[i],

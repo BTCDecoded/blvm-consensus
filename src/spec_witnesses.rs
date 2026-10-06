@@ -1734,3 +1734,118 @@ pub(crate) fn _verify_f_tapscript_sighash_single_missing_output(
 ) -> bool {
     output_type != 3 || input_index < n_outputs
 }
+
+/// Witness for **F_InputSumWithinMaxMoney** (PROTOCOL.md §5.1).
+///
+/// `sum` is the running total of input values. Above `MAX_MONEY` the result is rejection.
+#[spec_locked("5.1", "F_InputSumWithinMaxMoney")]
+#[blvm_spec_lock::requires(sum > 2_100_000_000_000_000)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_input_sum_within_max_money(sum: i64) -> i64 {
+    if sum > 2_100_000_000_000_000 { 0 } else { 1 }
+}
+
+/// Witness for **F_TapscriptTruncatedPushNotSuccess** (PROTOCOL.md §11.2.8).
+///
+/// `header_fits == 0` means the push header or payload does not fit in the script.
+/// The success scan does not accept that script.
+#[spec_locked("11.2.8", "F_TapscriptTruncatedPushNotSuccess")]
+#[blvm_spec_lock::requires(header_fits == 0)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_tapscript_truncated_push_not_success(header_fits: i64) -> bool {
+    header_fits != 0
+}
+
+/// Witness for **F_CheckMultisigCountsPubkeys** (PROTOCOL.md §5.2).
+///
+/// `n_keys` is in range and the running opcode count plus that key count is past 201.
+#[spec_locked("5.2", "F_CheckMultisigCountsPubkeys")]
+#[blvm_spec_lock::requires(n_keys >= 0)]
+#[blvm_spec_lock::requires(n_keys <= 20)]
+#[blvm_spec_lock::requires(op_count + n_keys > 201)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_checkmultisig_counts_pubkeys(op_count: i64, n_keys: i64) -> i64 {
+    if (0..=20).contains(&n_keys) && op_count + n_keys > 201 {
+        0
+    } else {
+        1
+    }
+}
+
+/// Witness for **F_FalseResultEmpty** (PROTOCOL.md §5.2).
+///
+/// `is_true == 0` is a false script result. Its stack length is 0.
+#[spec_locked("5.2", "F_FalseResultEmpty")]
+#[blvm_spec_lock::requires(is_true == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_false_result_empty(is_true: i64) -> i64 {
+    if is_true == 0 { 0 } else { 1 }
+}
+
+/// Witness for **F_Bip30RepeatRetiresPriorOutputs** (PROTOCOL.md §5.4.1).
+///
+/// `exception == 1` is one of the two historical repeats. Prior outputs of that txid are gone.
+#[spec_locked("5.4.1", "F_Bip30RepeatRetiresPriorOutputs")]
+#[blvm_spec_lock::requires(exception == 1)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_bip30_repeat_retires_prior_outputs(exception: i64) -> i64 {
+    if exception == 1 { 0 } else { 1 }
+}
+
+/// Witness for **F_NonDerAbortsScript** (PROTOCOL.md §5.4.3).
+///
+/// A non-empty signature that is not strict DER aborts. An empty signature does not.
+#[spec_locked("5.4.3", "F_NonDerAbortsScript")]
+#[blvm_spec_lock::requires(sig_len > 0)]
+#[blvm_spec_lock::requires(strict_der == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_non_der_aborts_script(sig_len: i64, strict_der: i64) -> i64 {
+    if sig_len > 0 && strict_der == 0 { 0 } else { 1 }
+}
+
+/// Witness for **F_NestedRedeemPushCanonical** (PROTOCOL.md §11.1.8).
+///
+/// `canonical == 0` means the scriptSig is not the direct push of the redeem.
+#[spec_locked("11.1.8", "F_NestedRedeemPushCanonical")]
+#[blvm_spec_lock::requires(canonical == 0)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_nested_redeem_push_canonical(canonical: i64) -> bool {
+    canonical != 0
+}
+
+/// Witness for **F_P2shUnknownWitnessSucceeds** (PROTOCOL.md §11.1.8).
+///
+/// Discourage is off and the redeem push is canonical.
+#[spec_locked("11.1.8", "F_P2shUnknownWitnessSucceeds")]
+#[blvm_spec_lock::requires(discourage == 0)]
+#[blvm_spec_lock::requires(canonical == 1)]
+#[blvm_spec_lock::ensures(result == true)]
+pub(crate) fn _verify_f_p2sh_unknown_witness_succeeds(discourage: i64, canonical: i64) -> bool {
+    discourage == 0 && canonical == 1
+}
+
+/// Witness for **F_ProofNegativeCompactRejected** (PROTOCOL.md §7.2).
+///
+/// `negative == 1` means compact bit `0x00800000` is set.
+#[spec_locked("7.2", "F_ProofNegativeCompactRejected")]
+#[blvm_spec_lock::requires(negative == 1)]
+#[blvm_spec_lock::ensures(result == false)]
+pub(crate) fn _verify_f_proof_negative_compact_rejected(negative: i64) -> bool {
+    negative == 0
+}
+
+/// Witness for **F_ProofEqualHashAccepted** (PROTOCOL.md §7.2).
+///
+/// `hash_above == 0` means the header hash is not above the expanded target.
+#[spec_locked("7.2", "F_ProofEqualHashAccepted")]
+#[blvm_spec_lock::requires(hash_above == 0)]
+#[blvm_spec_lock::requires(negative == 0)]
+#[blvm_spec_lock::requires(target_zero == 0)]
+#[blvm_spec_lock::ensures(result == true)]
+pub(crate) fn _verify_f_proof_equal_hash_accepted(
+    hash_above: i64,
+    negative: i64,
+    target_zero: i64,
+) -> bool {
+    hash_above == 0 && negative == 0 && target_zero == 0
+}

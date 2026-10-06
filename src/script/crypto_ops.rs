@@ -233,7 +233,7 @@ pub(crate) fn op_checksig_simple(stack: &mut Vec<StackElement>, flags: u32) -> R
         )
     };
 
-    let ok = result.unwrap_or(false);
+    let ok = result?;
 
     if !ok && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
         return Err(ConsensusError::ScriptErrorWithCode {
@@ -242,7 +242,7 @@ pub(crate) fn op_checksig_simple(stack: &mut Vec<StackElement>, flags: u32) -> R
         });
     }
 
-    stack.push(to_stack_element(&[if ok { 1 } else { 0 }]));
+    stack.push(to_stack_element(super::script_bool_bytes(ok)));
     Ok(true)
 }
 
@@ -285,7 +285,7 @@ pub(crate) fn op_checksigverify_simple(stack: &mut Vec<StackElement>, flags: u32
         )
     };
 
-    let ok = result.unwrap_or(false);
+    let ok = result?;
 
     if !ok && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
         return Err(ConsensusError::ScriptErrorWithCode {

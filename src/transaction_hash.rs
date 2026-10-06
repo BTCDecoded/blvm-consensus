@@ -187,20 +187,25 @@ use std::cell::RefCell;
 #[cfg(feature = "production")]
 use std::hash::{Hash as StdHash, Hasher};
 
-/// Per-block sighash cache: (prevout, code_hash, sighash_byte) -> hash.
-/// Uses hash of scriptCode instead of owned Vec to avoid allocation on insert.
+/// Legacy sighash cache key.
+///
+/// `tx_tag` binds the entry to the transaction fields the preimage still depends on
+/// (version, locktime, prevouts, sequences, outputs). The same output spent by a
+/// different transaction must not reuse this hash.
 #[cfg(feature = "production")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SighashCacheKey {
     prevout: crate::types::OutPoint,
     code_hash: u64,
     sighash_byte: u8,
+    tx_tag: u64,
 }
 
 #[cfg(feature = "production")]
 impl std::hash::Hash for SighashCacheKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_u64(self.code_hash);
+        state.write_u64(self.tx_tag);
     }
 }
 
@@ -208,8 +213,8 @@ impl std::hash::Hash for SighashCacheKey {
 pub type SighashMidstateCache =
     std::sync::Arc<std::sync::Mutex<FxHashMap<SighashCacheKey, [u8; 32]>>>;
 
-/// Thread-local midstate cache: (prevout, code_hash, sighash_byte) -> hash. Avoids Mutex contention
-/// across script-check workers. Used when block passes None (parallel script-check / rayon path).
+/// Thread-local sighash cache. Avoids Mutex contention across script-check workers.
+/// Used when block validation passes None. Entries are bound to one transaction.
 /// LRU-bounded: unbounded growth OOM'd sort-merge step6 at ~450k blocks (~80 GiB RSS).
 #[cfg(feature = "production")]
 thread_local! {
@@ -230,6 +235,7 @@ fn insert_midstate_cache(
     prevout: crate::types::OutPoint,
     code: &[u8],
     sighash_byte: u8,
+    tx_tag: u64,
     hash: [u8; 32],
 ) {
     let key_hash = sighash_cache_hash(&prevout, code, sighash_byte);
@@ -237,6 +243,7 @@ fn insert_midstate_cache(
         prevout,
         code_hash: key_hash,
         sighash_byte,
+        tx_tag,
     };
     if let Some(c) = sighash_cache {
         let _ = c.lock().map(|mut g| g.insert(key, hash));
@@ -255,6 +262,29 @@ fn sighash_cache_hash(prevout: &crate::types::OutPoint, code: &[u8], sighash_byt
     prevout.hash(&mut hasher);
     code.hash(&mut hasher);
     sighash_byte.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Fields of `tx` that the legacy preimage still depends on after the signing input's
+/// script code and the sighash byte are fixed. Other inputs' scriptSigs are blanked
+/// in the preimage, so they are not part of the tag. Counts are written so an extra
+/// input cannot line up with an output and share a tag.
+#[cfg(feature = "production")]
+#[inline]
+fn legacy_sighash_tx_tag(tx: &Transaction) -> u64 {
+    let mut hasher = FxHasher::default();
+    tx.version.hash(&mut hasher);
+    tx.lock_time.hash(&mut hasher);
+    tx.inputs.len().hash(&mut hasher);
+    for input in &tx.inputs {
+        input.prevout.hash(&mut hasher);
+        input.sequence.hash(&mut hasher);
+    }
+    tx.outputs.len().hash(&mut hasher);
+    for output in &tx.outputs {
+        output.value.hash(&mut hasher);
+        output.script_pubkey.hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -797,7 +827,7 @@ pub fn calculate_transaction_sighash_single_input(
 ///
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
-/// When sighash_cache is provided (parallel script-check path), caches (scriptCode, sighash_byte) -> hash for multisig reuse.
+/// When sighash_cache is provided (parallel script-check path), caches the hash for reuse on this same transaction.
 #[spec_locked("5.1.1", "CalculateSighash")]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
@@ -843,8 +873,10 @@ pub fn calculate_transaction_sighash_with_script_code(
         return Ok(result);
     }
 
-    // Midstate cache: (prevout, scriptCode, sighash_byte) -> hash. Key must include prevout.
+    // Cache is (prevout, scriptCode, sighash byte, tx tag) -> full sighash.
     // When sighash_cache is None, use thread-local (avoids Mutex contention across workers).
+    #[cfg(feature = "production")]
+    let tx_tag = legacy_sighash_tx_tag(tx);
     #[cfg(feature = "production")]
     {
         let prevout = &tx.inputs[input_index].prevout;
@@ -855,6 +887,7 @@ pub fn calculate_transaction_sighash_with_script_code(
             prevout: *prevout,
             code_hash: hash,
             sighash_byte: sighash_byte_u8,
+            tx_tag,
         };
         let cached = if let Some(cache) = sighash_cache {
             cache
@@ -891,6 +924,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[0].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[0]),
                         sighash_byte as u8,
+                        tx_tag,
                         h,
                     );
                     return Ok(h);
@@ -910,6 +944,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[0].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[0]),
                         sighash_byte as u8,
+                        tx_tag,
                         h,
                     );
                     return Ok(h);
@@ -941,6 +976,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[input_index].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
                         sighash_byte as u8,
+                        tx_tag,
                         h,
                     );
                     return Ok(h);
@@ -961,6 +997,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[input_index].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
                         sighash_byte as u8,
+                        tx_tag,
                         h,
                     );
                     return Ok(h);
@@ -1021,6 +1058,7 @@ pub fn calculate_transaction_sighash_with_script_code(
             tx.inputs[input_index].prevout,
             script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
             sighash_byte as u8,
+            tx_tag,
             *h,
         );
     }
@@ -1933,6 +1971,100 @@ mod tests {
         assert!(st84.is_all());
         assert!(st84.is_anyonecanpay());
         assert_eq!(st84.as_u32(), 0x84);
+    }
+
+    #[test]
+    fn legacy_sighash_cache_is_bound_to_the_transaction() {
+        use crate::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let prevout = OutPoint {
+            hash: [9u8; 32],
+            index: 0,
+        };
+        let script = [0x51u8];
+        let tx_paying = |value: i64| Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout,
+                sequence: 0xffff_ffff,
+                script_sig: vec![0x01],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash = |value: i64| {
+            calculate_transaction_sighash_single_input(
+                &tx_paying(value),
+                0,
+                &script,
+                value,
+                SighashType::ALL,
+                #[cfg(feature = "production")]
+                None,
+            )
+            .unwrap()
+        };
+
+        let first = sighash(1_000);
+        let second = sighash(2_000);
+        assert_ne!(first, second);
+        // Same transaction again, after the other spend filled the cache.
+        assert_eq!(first, sighash(1_000));
+
+        let mut later_locktime = tx_paying(1_000);
+        later_locktime.lock_time = 50;
+        let locktime_hash = calculate_transaction_sighash_single_input(
+            &later_locktime,
+            0,
+            &script,
+            1_000,
+            SighashType::ALL,
+            #[cfg(feature = "production")]
+            None,
+        )
+        .unwrap();
+        assert_ne!(first, locktime_hash);
+
+        let mut extra_input = tx_paying(1_000);
+        extra_input.inputs.push(TransactionInput {
+            prevout: OutPoint {
+                hash: [8u8; 32],
+                index: 1,
+            },
+            sequence: 0xffff_ffff,
+            script_sig: vec![],
+        });
+        let extra_hash = calculate_transaction_sighash_single_input(
+            &extra_input,
+            0,
+            &script,
+            1_000,
+            SighashType::ALL,
+            #[cfg(feature = "production")]
+            None,
+        )
+        .unwrap();
+        assert_ne!(first, extra_hash);
+
+        // scriptSig is blanked for every input except the signing script code.
+        let mut other_script_sig = tx_paying(1_000);
+        other_script_sig.inputs[0].script_sig = vec![0x02, 0x03];
+        let script_sig_hash = calculate_transaction_sighash_single_input(
+            &other_script_sig,
+            0,
+            &script,
+            1_000,
+            SighashType::ALL,
+            #[cfg(feature = "production")]
+            None,
+        )
+        .unwrap();
+        assert_eq!(first, script_sig_hash);
     }
 
     #[test]
