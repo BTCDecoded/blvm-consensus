@@ -1506,13 +1506,15 @@ mod tests {
     }
 
     /// Encode a block height into a BIP34-compliant coinbase scriptSig prefix.
-    /// Follows Bitcoin's CScriptNum serialization:
-    /// - Height 0: OP_0 (0x00)
-    /// - Height 1+: push N bytes of little-endian height (with sign-bit padding)
+    /// Height 0 is `OP_0`. Heights 1..=16 are `OP_1`..=`OP_16`. Taller heights
+    /// are a minimal little-endian push. A trailing `0xff` keeps a one-byte
+    /// prefix at the two-byte coinbase scriptSig minimum.
     fn encode_bip34_height(height: u64) -> Vec<u8> {
         if height == 0 {
-            // CScriptNum(0) serializes to empty vec, CScript << empty = OP_0
-            return vec![0x00, 0xff]; // OP_0 + padding to meet 2-byte minimum
+            return vec![0x00, 0xff];
+        }
+        if (1..=16).contains(&height) {
+            return vec![0x50 + height as u8, 0xff];
         }
         let mut height_bytes = Vec::new();
         let mut n = height;
