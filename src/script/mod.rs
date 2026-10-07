@@ -7294,6 +7294,8 @@ fn execute_opcode_with_context_full(
                     crate::types::Network::Regtest | crate::types::Network::Signet => {
                         CTV_ACTIVATION_REGTEST
                     }
+                    // Same sentinel as ForkActivationTable: not active on testnet4.
+                    crate::types::Network::Testnet4 => u64::MAX,
                 };
 
                 let ctv_active = block_height.map(|h| h >= ctv_activation).unwrap_or(false);
@@ -7413,6 +7415,8 @@ fn execute_opcode_with_context_full(
                     crate::types::Network::Regtest | crate::types::Network::Signet => {
                         CSFS_ACTIVATION_REGTEST
                     }
+                    // Same sentinel as ForkActivationTable: not active on testnet4.
+                    crate::types::Network::Testnet4 => u64::MAX,
                 };
 
                 let csfs_active = block_height.map(|h| h >= csfs_activation).unwrap_or(false);
