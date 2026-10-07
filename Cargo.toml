@@ -250,3 +250,4 @@ codegen-units = 16  # Faster compilation
 # secp256k1: optional, activated only via "secp256k1-fallback" feature. blvm-secp256k1 is default backend. NO secp256k1-fork.
 
 # Monorepo: use sibling paths so config types stay in sync before crates.io publish.
+

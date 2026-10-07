@@ -3258,6 +3258,20 @@ pub(crate) fn connect_block_inner<'a>(
                 );
             }
         }
+        // BIP94: first block of a difficulty period cannot be more than 600s
+        // before its parent. Genesis is not a retarget.
+        if network == crate::types::Network::Testnet4 && height > 0 && height % 2016 == 0 {
+            if let Some((_, parent_time)) = lookup.as_ref()(height - 1) {
+                const MAX_TIMEWARP: u64 = 600;
+                if block.header.timestamp < parent_time.saturating_sub(MAX_TIMEWARP) {
+                    return invalid_block_result(
+                        utxo_set,
+                        &[],
+                        "BIP94: block timestamp is too early on a difficulty adjustment block",
+                    );
+                }
+            }
+        }
     }
 
     // BIP54 timewarp: at period boundaries require boundary timestamps and enforce rules

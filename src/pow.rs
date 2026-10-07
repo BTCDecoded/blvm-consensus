@@ -201,6 +201,8 @@ struct PowParams {
     spacing: u64,
     allow_min_difficulty: bool,
     no_retargeting: bool,
+    /// BIP94: retarget from the first block of the period, not the last.
+    enforce_bip94: bool,
 }
 
 fn pow_params(network: Network) -> PowParams {
@@ -213,6 +215,7 @@ fn pow_params(network: Network) -> PowParams {
             spacing: TARGET_TIME_PER_BLOCK,
             allow_min_difficulty: false,
             no_retargeting: false,
+            enforce_bip94: false,
         },
         Network::Testnet => PowParams {
             limit_bits: MAX_TARGET as u64,
@@ -221,6 +224,16 @@ fn pow_params(network: Network) -> PowParams {
             spacing: TARGET_TIME_PER_BLOCK,
             allow_min_difficulty: true,
             no_retargeting: false,
+            enforce_bip94: false,
+        },
+        Network::Testnet4 => PowParams {
+            limit_bits: MAX_TARGET as u64,
+            interval: DIFFICULTY_ADJUSTMENT_INTERVAL,
+            timespan: mainnet_timespan,
+            spacing: TARGET_TIME_PER_BLOCK,
+            allow_min_difficulty: true,
+            no_retargeting: false,
+            enforce_bip94: true,
         },
         Network::Signet => PowParams {
             limit_bits: 0x1e0377ae,
@@ -229,6 +242,7 @@ fn pow_params(network: Network) -> PowParams {
             spacing: TARGET_TIME_PER_BLOCK,
             allow_min_difficulty: false,
             no_retargeting: false,
+            enforce_bip94: false,
         },
         Network::Regtest => PowParams {
             limit_bits: 0x207fffff,
@@ -237,6 +251,7 @@ fn pow_params(network: Network) -> PowParams {
             spacing: TARGET_TIME_PER_BLOCK,
             allow_min_difficulty: true,
             no_retargeting: true,
+            enforce_bip94: false,
         },
     }
 }
@@ -300,14 +315,21 @@ pub fn next_required_bits(
     }
 
     // First block of the period: parent is the last block of the previous period.
+    // BIP94 keeps real difficulty in that first block, because the last block of
+    // the period may be a min-difficulty exception.
     let first_height = parent_height - (params.interval - 1);
-    let (_, first_time) = ancestor(first_height).ok_or_else(|| {
+    let (first_bits, first_time) = ancestor(first_height).ok_or_else(|| {
         ConsensusError::InvalidProofOfWork(
             format!("missing ancestor header at height {first_height} for difficulty").into(),
         )
     })?;
+    let base_bits = if params.enforce_bip94 {
+        first_bits
+    } else {
+        parent_bits
+    };
     Ok(Some(retarget_bits(
-        parent_bits,
+        base_bits,
         first_time,
         parent_time,
         params.timespan,
@@ -1896,6 +1918,24 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(bits, 0x1b012dcd);
+    }
+
+    #[test]
+    fn testnet4_retarget_uses_the_first_block_of_the_period() {
+        let timespan = 2016 * 600;
+        let headers = [
+            (0u64, 0x1b012dcd, 1_700_000_000u64),
+            (2015, 0x1d00ffff, 1_700_000_000 + timespan),
+        ];
+        let lookup = ancestor_from(&headers);
+        let testnet3 = next_required_bits(Network::Testnet, 2016, 0, &lookup)
+            .unwrap()
+            .unwrap();
+        let testnet4 = next_required_bits(Network::Testnet4, 2016, 0, &lookup)
+            .unwrap()
+            .unwrap();
+        assert_eq!(testnet3, 0x1d00ffff);
+        assert_eq!(testnet4, 0x1b012dcd);
     }
 
     #[test]

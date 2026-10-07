@@ -25,7 +25,9 @@ fn template_bits(
         return Ok(match network {
             Network::Regtest => 0x207fffff,
             Network::Signet => 0x1e0377ae,
-            Network::Mainnet | Network::Testnet => crate::constants::MAX_TARGET as u64,
+            Network::Mainnet | Network::Testnet | Network::Testnet4 => {
+                crate::constants::MAX_TARGET as u64
+            }
         });
     }
     let parent_height = height - 1;

@@ -96,7 +96,7 @@ pub fn is_known_bip34_block(network: Network, height: u64, block_hash: &Hash) ->
             height == crate::constants::BIP34_ACTIVATION_TESTNET
                 && block_hash == &BIP34_TESTNET_HASH
         }
-        Network::Regtest | Network::Signet => false,
+        Network::Regtest | Network::Signet | Network::Testnet4 => false,
     }
 }
 
@@ -109,7 +109,7 @@ pub fn bip30_lookup_skippable(network: Network, height: u64, bip34_hash_matches:
     let activation = match network {
         Network::Mainnet => crate::constants::BIP34_ACTIVATION_MAINNET,
         Network::Testnet => crate::constants::BIP34_ACTIVATION_TESTNET,
-        Network::Regtest | Network::Signet => return false,
+        Network::Regtest | Network::Signet | Network::Testnet4 => return false,
     };
     height > activation
 }
@@ -217,13 +217,22 @@ pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActiv
     Ok(true)
 }
 
-/// True when `script_sig` begins with the minimal script-number push of `height`.
+/// True when `script_sig` begins with the BIP34 height prefix.
 ///
-/// Height 0 is the single byte `OP_0`. A positive height is one length byte plus the
-/// little-endian magnitude. When the high bit of the last magnitude byte is set, one
-/// extra `0x00` follows so the number stays non-negative. Bytes after that prefix are
-/// ignored. `OP_PUSHDATA` and extra zero bytes are not this prefix.
+/// Height 0 is `OP_0`. Heights 1 through 16 are the single opcodes `OP_1`..=`OP_16`
+/// (`0x51`..=`0x60`), not a length-prefixed push of the same integer. Testnet4 and
+/// signet activate BIP34 at height 1, and testnet4 block 1's coinbase starts with
+/// `OP_1`. A longer height is one length byte plus the little-endian magnitude.
+/// When the high bit of the last magnitude byte is set, one extra `0x00` follows so
+/// the number stays non-negative. Bytes after that prefix are ignored.
 fn script_sig_starts_with_height(script_sig: &[u8], height: u64) -> bool {
+    if height == 0 {
+        return script_sig.first().copied() == Some(0x00);
+    }
+    if (1..=16).contains(&height) {
+        // OP_1 = 0x51. Heights 1..=16 are the single opcode 0x50 + height.
+        return script_sig.first().copied() == Some(0x50 + height as u8);
+    }
     let mut raw = [0u8; 9];
     let mut n = height;
     let mut len = 0usize;
@@ -231,9 +240,6 @@ fn script_sig_starts_with_height(script_sig: &[u8], height: u64) -> bool {
         raw[len] = (n & 0xff) as u8;
         n >>= 8;
         len += 1;
-    }
-    if len == 0 {
-        return script_sig.first().copied() == Some(0x00);
     }
     if raw[len - 1] & 0x80 != 0 {
         raw[len] = 0x00;
@@ -259,9 +265,9 @@ pub fn is_bip54_active_at(
         None => match network {
             crate::types::Network::Mainnet => crate::constants::BIP54_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP54_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest | crate::types::Network::Signet => {
-                crate::constants::BIP54_ACTIVATION_REGTEST
-            }
+            crate::types::Network::Regtest
+            | crate::types::Network::Signet
+            | crate::types::Network::Testnet4 => crate::constants::BIP54_ACTIVATION_REGTEST,
         },
     };
     height >= activation
@@ -762,6 +768,21 @@ mod tests {
     use crate::constants::BIP147_ACTIVATION_MAINNET;
 
     use crate::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_CHECKSIG};
+
+    #[test]
+    fn bip34_height_1_through_16_is_a_single_opcode() {
+        // Testnet4 block 1 coinbase scriptSig (mempool.space): OP_1, OP_0, then a 6-byte push.
+        let block1: &[u8] = &[0x51, 0x00, 0x06, 0x2f, 0x40, 0x77, 0x69, 0x7a, 0x2f];
+        assert!(script_sig_starts_with_height(block1, 1));
+        assert!(!script_sig_starts_with_height(&[0x01, 0x01], 1));
+        assert!(script_sig_starts_with_height(&[0x52, 0x00], 2));
+        assert!(script_sig_starts_with_height(&[0x60], 16));
+        // Height 17 is a one-byte push, not OP_17.
+        assert!(script_sig_starts_with_height(&[0x01, 0x11, 0xff], 17));
+        assert!(!script_sig_starts_with_height(&[0x51], 17));
+        assert!(script_sig_starts_with_height(&[0x00], 0));
+        assert_eq!(OP_1, 0x51);
+    }
 
     #[test]
     fn test_bip30_repeat_hashes_are_display_ids_reversed() {

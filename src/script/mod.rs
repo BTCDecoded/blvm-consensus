@@ -1615,7 +1615,9 @@ fn try_verify_p2sh_multisig_fast_path(
         let activation = match network {
             crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest | crate::types::Network::Signet => 0,
+            crate::types::Network::Regtest
+            | crate::types::Network::Signet
+            | crate::types::Network::Testnet4 => 0,
         };
         if height >= activation && !dummy.is_empty() {
             return Some(Ok(false));
@@ -1863,7 +1865,9 @@ fn try_verify_bare_multisig_fast_path(
         let activation = match network {
             crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
             crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest | crate::types::Network::Signet => 0,
+            crate::types::Network::Regtest
+            | crate::types::Network::Signet
+            | crate::types::Network::Testnet4 => 0,
         };
         if height >= activation && !dummy.is_empty() {
             return Some(Ok(false));
@@ -2897,7 +2901,9 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 let activation = match network {
                     crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
                     crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest | crate::types::Network::Signet => 0,
+                    crate::types::Network::Regtest
+                    | crate::types::Network::Signet
+                    | crate::types::Network::Testnet4 => 0,
                 };
                 if height >= activation && !dummy.is_empty() {
                     return Some(Ok(false));
@@ -6701,9 +6707,9 @@ fn execute_opcode_with_context_full(
                 let bip147_network = match network {
                     crate::types::Network::Mainnet => Bip147Network::Mainnet,
                     crate::types::Network::Testnet => Bip147Network::Testnet,
-                    crate::types::Network::Regtest | crate::types::Network::Signet => {
-                        Bip147Network::Regtest
-                    }
+                    crate::types::Network::Regtest
+                    | crate::types::Network::Signet
+                    | crate::types::Network::Testnet4 => Bip147Network::Regtest,
                 };
 
                 // NULLDUMMY: the extra element must be zero-length. OP_0 pushes that.

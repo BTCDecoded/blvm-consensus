@@ -142,7 +142,7 @@ impl ForkActivationTable {
                 CTV_ACTIVATION_REGTEST,
                 CSFS_ACTIVATION_REGTEST,
             ),
-            Network::Signet => (
+            Network::Signet | Network::Testnet4 => (
                 BIP30_DEACTIVATION_REGTEST,
                 BIP16_P2SH_ACTIVATION_REGTEST,
                 1,
@@ -161,7 +161,7 @@ impl ForkActivationTable {
             Network::Mainnet => BIP54_ACTIVATION_MAINNET,
             Network::Testnet => BIP54_ACTIVATION_TESTNET,
             Network::Regtest => BIP54_ACTIVATION_REGTEST,
-            Network::Signet => u64::MAX,
+            Network::Signet | Network::Testnet4 => u64::MAX,
         });
 
         Self {
@@ -201,7 +201,7 @@ pub fn taproot_activation_height(network: Network) -> u64 {
         TAPROOT_ACTIVATION_MAINNET
     } else if network == Network::Testnet {
         TAPROOT_ACTIVATION_TESTNET
-    } else if network == Network::Signet {
+    } else if network == Network::Signet || network == Network::Testnet4 {
         1
     } else {
         0
