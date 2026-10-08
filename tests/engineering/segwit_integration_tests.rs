@@ -898,8 +898,10 @@ fn test_segwit_block_weight_sum() {
     let tx1_weight =
         calculate_transaction_weight(&block.transactions[1], Some(&witnesses[1])).unwrap();
 
-    // Block weight should equal sum of transaction weights
-    assert_eq!(block_weight, tx0_weight + tx1_weight);
+    // Header bytes plus the tx-count compact size are weight at the witness scale.
+    // Two transactions encode the count in one byte: 4 * (80 + 1) = 324.
+    let prefix = 4 * (80 + 1);
+    assert_eq!(block_weight, tx0_weight + tx1_weight + prefix);
 }
 
 #[test]
