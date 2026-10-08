@@ -198,9 +198,13 @@ fn test_segwit_errors() {
     let witnesses = vec![];
     // An empty block still weighs the 80-byte header plus a one-byte tx count.
     let prefix = 4 * (80 + 1);
-    let under = consensus.validate_segwit_block(&block, &witnesses, 0).unwrap();
+    let under = consensus
+        .validate_segwit_block(&block, &witnesses, 0)
+        .unwrap();
     assert!(!under);
-    let exact = consensus.validate_segwit_block(&block, &witnesses, prefix).unwrap();
+    let exact = consensus
+        .validate_segwit_block(&block, &witnesses, prefix)
+        .unwrap();
     assert!(exact);
 }
 
