@@ -299,6 +299,34 @@ mod tests {
     }
 
     #[test]
+    fn high_bit_version_enforces_sequence_locks() {
+        fn locks(version: u64) -> (i64, i64) {
+            let tx = Transaction {
+                version,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint {
+                        hash: [0; 32],
+                        index: 0,
+                    },
+                    script_sig: vec![],
+                    sequence: 100,
+                }]
+                .into(),
+                outputs: vec![].into(),
+                lock_time: 0,
+            };
+            calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[1000], None).unwrap()
+        }
+
+        // Wire versions are unsigned. 0xffffffff and 0x80000000 are both >= 2.
+        assert_eq!(locks(0xffff_ffff), (1099, -1));
+        assert_eq!(locks(0x8000_0000), (1099, -1));
+        assert_eq!(locks(2), (1099, -1));
+        assert_eq!(locks(1), (-1, -1));
+        assert_eq!(locks(0), (-1, -1));
+    }
+
+    #[test]
     fn test_prev_height_overflowing_i64_returns_err() {
         let tx = Transaction {
             version: 2,

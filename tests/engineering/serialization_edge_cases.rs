@@ -262,10 +262,11 @@ fn test_transaction_negative_version() {
         lock_time: 0,
     };
 
-    // Serialization should handle this (stores as i32 in wire format)
     let serialized = serialize_transaction(&tx);
     let deserialized = deserialize_transaction(&serialized).unwrap();
 
-    // Wire format stores version as i32; round-trip preserves the signed value.
+    // Four wire bytes, stored as that unsigned value. The signed reading is -1.
+    assert_eq!(&serialized[0..4], &[0xff, 0xff, 0xff, 0xff]);
+    assert_eq!(deserialized.version, 0xffff_ffff);
     assert_eq!(deserialized.version as i32, -1i32);
 }

@@ -52,20 +52,6 @@ pub fn reorganize_chain(
             .into(),
         ));
     }
-    if new_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!("New chain length {} must be reasonable", new_chain.len()).into(),
-        ));
-    }
-    if current_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!(
-                "Current chain length {} must be reasonable",
-                current_chain.len()
-            )
-            .into(),
-        ));
-    }
 
     // Empty per-input witness stacks (legacy path only; SegWit rejected above).
     let empty_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
@@ -162,20 +148,6 @@ pub fn reorganize_chain_with_witnesses(
             .into(),
         ));
     }
-    if new_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!("New chain length {} must be reasonable", new_chain.len()).into(),
-        ));
-    }
-    if current_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!(
-                "Current chain length {} must be reasonable",
-                current_chain.len()
-            )
-            .into(),
-        ));
-    }
     if new_chain_witnesses.len() != new_chain.len() {
         return Err(crate::error::ConsensusError::BlockValidation(
             format!(
@@ -253,18 +225,16 @@ pub fn reorganize_chain_with_witnesses(
                 ));
             }
 
-            // Retrieve undo log from persistent storage via callback
-            // The callback should use BlockStore::get_undo_log() which reads from the database
+            // The node stores undo logs under the 80-byte block id. A miss must
+            // not disconnect with an empty log: that leaves the old fork's coins
+            // spendable and the coins it spent still spent.
             let undo_log = if let Some(ref get_undo_log) = get_undo_log_for_block {
-                get_undo_log(&block_hash).unwrap_or_else(|| {
-                    // If undo log is not found in database, this is an error condition
-                    // Undo logs should always be stored when blocks are connected
-                    // Log a warning but continue with empty undo log for graceful degradation
-                    BlockUndoLog::new()
-                })
+                get_undo_log(&block_hash).ok_or_else(|| {
+                    crate::error::ConsensusError::BlockValidation(
+                        format!("missing undo log for block {block_hash:?}").into(),
+                    )
+                })?
             } else {
-                // No callback provided - cannot retrieve undo log from storage
-                // This should only happen in testing or when undo logs are not needed
                 BlockUndoLog::new()
             };
 
@@ -596,12 +566,12 @@ struct CommonAncestorResult {
     current_chain_index: usize,
 }
 
-/// Find common ancestor between two chains by comparing block hashes
+/// Find common ancestor between two chains by comparing block hashes.
 ///
-/// Algorithm: Walk forward from genesis while block hashes match at the same
-/// index. The last matching block is the fork point. This is correct for
-/// full chains collected genesis-to-tip (unlike tip-distance comparison, which
-/// misaligns when fork branches differ in length).
+/// Both slices are oldest-to-tip and may start at different heights. The fork
+/// point is the shared block nearest the new tip, not the block at the same
+/// index. Index comparison rejects a valid heavier chain once either tip is
+/// far enough from genesis that the windows no longer start on the same block.
 /// Orange Paper 11.3: Chain reorganization finds common ancestor before disconnect/connect.
 /// Height of the common ancestor when reorganizing from `current_chain` at `current_height`.
 pub fn common_ancestor_height_at_reorg(
@@ -627,29 +597,29 @@ fn find_common_ancestor(
         ));
     }
 
-    let max_compare = new_chain.len().min(current_chain.len());
-    let mut last_match: Option<usize> = None;
-    for i in 0..max_compare {
-        let new_hash = calculate_block_hash(&new_chain[i].header);
-        let current_hash = calculate_block_hash(&current_chain[i].header);
-        if new_hash == current_hash {
-            last_match = Some(i);
-        } else {
-            break;
+    let mut current_at: HashMap<Hash, usize> = HashMap::with_capacity(current_chain.len());
+    for (i, block) in current_chain.iter().enumerate() {
+        current_at.insert(calculate_block_hash(&block.header), i);
+    }
+
+    let mut found: Option<(usize, usize)> = None;
+    for (new_i, block) in new_chain.iter().enumerate() {
+        let hash = calculate_block_hash(&block.header);
+        if let Some(&cur_i) = current_at.get(&hash) {
+            found = Some((new_i, cur_i));
         }
     }
 
-    if let Some(idx) = last_match {
-        return Ok(CommonAncestorResult {
-            header: new_chain[idx].header.clone(),
-            new_chain_index: idx,
-            current_chain_index: idx,
-        });
-    }
-
-    Err(crate::error::ConsensusError::ConsensusRuleViolation(
-        "Chains do not share a common ancestor".into(),
-    ))
+    let Some((new_i, cur_i)) = found else {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            "Chains do not share a common ancestor".into(),
+        ));
+    };
+    Ok(CommonAncestorResult {
+        header: new_chain[new_i].header.clone(),
+        new_chain_index: new_i,
+        current_chain_index: cur_i,
+    })
 }
 
 /// Disconnect a block from the chain (reverse of ConnectBlock)
@@ -686,16 +656,6 @@ fn disconnect_block(
             format!("UTXO set size {} must not exceed maximum", utxo_set.len()).into(),
         ));
     }
-    if undo_log.entries.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!(
-                "Undo log entry count {} must be reasonable",
-                undo_log.entries.len()
-            )
-            .into(),
-        ));
-    }
-
     // Process undo entries in reverse order (most recent first)
     // This reverses the order of operations from connect_block
     for entry in undo_log.entries.iter() {
@@ -718,21 +678,6 @@ fn disconnect_block(
 #[allow(clippy::redundant_comparisons)] // Intentional assertions for formal verification
 #[spec_locked("11.3", "ShouldReorganize")]
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
-    if new_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!("New chain length {} must be reasonable", new_chain.len()).into(),
-        ));
-    }
-    if current_chain.len() > 10_000 {
-        return Err(crate::error::ConsensusError::BlockValidation(
-            format!(
-                "Current chain length {} must be reasonable",
-                current_chain.len()
-            )
-            .into(),
-        ));
-    }
-
     // Reorganize when new chain has strictly more cumulative work.
     let new_work = calculate_chain_work(new_chain)?;
     let current_work = calculate_chain_work(current_chain)?;
@@ -781,29 +726,9 @@ fn calculate_tx_id(tx: &Transaction) -> Hash {
     hash
 }
 
-/// Calculate block hash for indexing undo logs
-///
-/// Uses the block header to compute a unique identifier for the block.
-/// This is used to store and retrieve undo logs during reorganization.
+/// Undo-log key. This is the 80-byte header hash, the same id the node stores.
 fn calculate_block_hash(header: &BlockHeader) -> Hash {
-    use sha2::{Digest, Sha256};
-
-    // Serialize block header (80 bytes: version, prev_block_hash, merkle_root, timestamp, bits, nonce)
-    let mut bytes = Vec::with_capacity(80);
-    bytes.extend_from_slice(&header.version.to_le_bytes());
-    bytes.extend_from_slice(&header.prev_block_hash);
-    bytes.extend_from_slice(&header.merkle_root);
-    bytes.extend_from_slice(&header.timestamp.to_le_bytes());
-    bytes.extend_from_slice(&header.bits.to_le_bytes());
-    bytes.extend_from_slice(&header.nonce.to_le_bytes());
-
-    // Double SHA256 (Bitcoin standard)
-    let first_hash = Sha256::digest(&bytes);
-    let second_hash = Sha256::digest(first_hash);
-
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&second_hash);
-    hash
+    crate::block::block_header_hash(header)
 }
 
 // ============================================================================
@@ -1165,6 +1090,79 @@ mod tests {
     }
 
     #[test]
+    fn test_common_ancestor_when_slices_start_at_different_heights() {
+        let h0 = create_test_block_at_height(0);
+        let h1 = create_test_block_at_height(1);
+        let h2 = create_test_block_at_height(2);
+        let h3 = create_test_block_at_height(3);
+        let current_chain = vec![h0, h1.clone(), h2.clone()];
+        let new_chain = vec![h1, h2, h3];
+
+        let ancestor = find_common_ancestor(&new_chain, &current_chain).unwrap();
+        assert_eq!(ancestor.new_chain_index, 1);
+        assert_eq!(ancestor.current_chain_index, 2);
+    }
+
+    #[test]
+    fn test_disconnect_block_accepts_more_than_10_000_undo_entries() {
+        let block = create_test_block();
+        let mut undo_log = BlockUndoLog::new();
+        for i in 0..10_001u32 {
+            undo_log.push(UndoEntry {
+                outpoint: OutPoint {
+                    hash: [1; 32],
+                    index: i,
+                },
+                previous_utxo: None,
+                new_utxo: None,
+            });
+        }
+        let utxo_set = UtxoSet::default();
+        assert!(disconnect_block(&block, &undo_log, utxo_set, 1).is_ok());
+    }
+
+    #[test]
+    fn test_disconnect_block_restores_a_utxo_past_10_000_entries() {
+        let block = create_test_block();
+        let restored_outpoint = OutPoint {
+            hash: [2; 32],
+            index: 7,
+        };
+        let restored = std::sync::Arc::new(UTXO {
+            value: 42,
+            script_pubkey: vec![0x51].into(),
+            height: 3,
+            is_coinbase: false,
+        });
+        let mut undo_log = BlockUndoLog::new();
+        for i in 0..10_000u32 {
+            undo_log.push(UndoEntry {
+                outpoint: OutPoint {
+                    hash: [1; 32],
+                    index: i,
+                },
+                previous_utxo: None,
+                new_utxo: None,
+            });
+        }
+        undo_log.push(UndoEntry {
+            outpoint: restored_outpoint,
+            previous_utxo: Some(std::sync::Arc::clone(&restored)),
+            new_utxo: None,
+        });
+        let utxo_set = disconnect_block(&block, &undo_log, UtxoSet::default(), 1).unwrap();
+        let got = utxo_set.get(&restored_outpoint).expect("restored coin");
+        assert_eq!(got.value, 42);
+        assert_eq!(utxo_set.len(), 1);
+    }
+
+    #[test]
+    fn test_should_reorganize_accepts_a_chain_longer_than_10_000() {
+        let chain = vec![create_test_block(); 10_001];
+        assert!(should_reorganize(&chain, &chain).is_ok());
+    }
+
+    #[test]
     fn test_calculate_chain_work() {
         let mut block = create_test_block();
         // Use a bits value with exponent <= 18 so the target fits in u128
@@ -1233,6 +1231,15 @@ mod tests {
                 // Expected failure due to simplified validation
             }
         }
+    }
+
+    #[test]
+    fn undo_lookup_uses_the_block_header_hash() {
+        let header = create_test_block().header.clone();
+        assert_eq!(
+            calculate_block_hash(&header),
+            crate::block::block_header_hash(&header)
+        );
     }
 
     #[test]
@@ -1505,42 +1512,11 @@ mod tests {
         assert_ne!(id1, id2);
     }
 
-    /// Encode a block height into a BIP34-compliant coinbase scriptSig prefix.
-    /// Height 0 is `OP_0`. Heights 1..=16 are `OP_1`..=`OP_16`. Taller heights
-    /// are a minimal little-endian push. A trailing `0xff` keeps a one-byte
-    /// prefix at the two-byte coinbase scriptSig minimum.
-    fn encode_bip34_height(height: u64) -> Vec<u8> {
-        if height == 0 {
-            return vec![0x00, 0xff];
-        }
-        if (1..=16).contains(&height) {
-            return vec![0x50 + height as u8, 0xff];
-        }
-        let mut height_bytes = Vec::new();
-        let mut n = height;
-        while n > 0 {
-            height_bytes.push((n & 0xff) as u8);
-            n >>= 8;
-        }
-        // If high bit is set, add 0x00 for positive sign
-        if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
-            height_bytes.push(0x00);
-        }
-        let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
-        script_sig.push(height_bytes.len() as u8); // direct push length
-        script_sig.extend_from_slice(&height_bytes);
-        // Pad to at least 2 bytes (coinbase scriptSig minimum)
-        if script_sig.len() < 2 {
-            script_sig.push(0xff);
-        }
-        script_sig
-    }
-
     /// Create a test block with BIP34-compliant coinbase encoding for the given height.
     fn create_test_block_at_height(height: u64) -> Block {
         use crate::mining::calculate_merkle_root;
 
-        let script_sig = encode_bip34_height(height);
+        let script_sig = crate::bip_validation::encode_bip34_coinbase_script(height);
         let coinbase_tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {

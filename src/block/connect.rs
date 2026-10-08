@@ -5,7 +5,6 @@
 
 use crate::activation::IsForkActive;
 use crate::constants::*;
-use crate::economic::get_block_subsidy;
 use crate::error::{ConsensusError, Result};
 use crate::opcodes::*;
 #[cfg(feature = "profile")]
@@ -21,6 +20,8 @@ use crate::utxo_overlay::{
     UtxoOverlay, apply_transaction_to_overlay_no_undo_cached, build_block_output_utxo_cache,
 };
 use crate::witness::is_witness_empty;
+#[cfg(all(not(feature = "production"), not(feature = "rayon")))]
+use crate::witness::witness_stack_is_null;
 use std::borrow::Cow;
 
 #[cfg(feature = "production")]
@@ -55,6 +56,29 @@ fn coinbase_script_sig_len(coinbase: &crate::types::Transaction) -> usize {
         .first()
         .map(|i| i.script_sig.len())
         .unwrap_or(0)
+}
+
+fn is_genesis_block(block: &Block, network: Network) -> bool {
+    header::block_header_hash(&block.header) == header::genesis_header_hash(network)
+}
+
+fn genesis_utxo_unchanged<'a>(
+    utxo_set: UtxoSet,
+    tx_ids: Cow<'a, [Hash]>,
+) -> Result<(
+    ValidationResult,
+    UtxoSet,
+    Cow<'a, [Hash]>,
+    crate::reorganization::BlockUndoLog,
+    Option<UtxoDelta>,
+)> {
+    Ok((
+        ValidationResult::Valid,
+        utxo_set,
+        tx_ids,
+        crate::reorganization::BlockUndoLog::new(),
+        None,
+    ))
 }
 
 fn invalid_block_result<'a>(
@@ -2987,8 +3011,13 @@ fn validate_production_transactions<'a, 'b>(
                     // Reuse input_utxos instead of overlay.get()
                     if let Some(utxo) = input_utxos.get(j).and_then(|opt| *opt) {
                         let witness_elem = tx_witnesses.and_then(|w| w.get(j));
-                        let witness_for_script = witness_elem
-                            .and_then(|w| if is_witness_empty(w) { None } else { Some(w) });
+                        let witness_for_script = witness_elem.and_then(|w| {
+                            if witness_stack_is_null(w) {
+                                None
+                            } else {
+                                Some(w)
+                            }
+                        });
                         let input_flags = flags;
 
                         if !verify_script_with_context_full(
@@ -3769,8 +3798,13 @@ pub(crate) fn connect_block_inner<'a>(
                         // witnesses is Vec<Vec<Witness>> where each Vec<Witness> is for one transaction
                         // and each Witness is for one input
                         let witness_stack = tx_witnesses.and_then(|tx_wits| tx_wits.get(j));
-                        let witness_for_script = witness_stack
-                            .and_then(|w| if is_witness_empty(w) { None } else { Some(w) });
+                        let witness_for_script = witness_stack.and_then(|w| {
+                            if witness_stack_is_null(w) {
+                                None
+                            } else {
+                                Some(w)
+                            }
+                        });
                         let input_flags = flags;
 
                         // Use verify_script_with_context_full for BIP65/112 support
@@ -3886,7 +3920,7 @@ pub(crate) fn connect_block_inner<'a>(
             );
         }
 
-        let subsidy = get_block_subsidy(height);
+        let subsidy = crate::economic::get_block_subsidy_for_network(height, network);
         if !(0..=MAX_MONEY).contains(&subsidy) {
             return Err(ConsensusError::BlockValidation(
                 format!("Block subsidy {subsidy} out of valid range").into(),
@@ -3967,6 +4001,11 @@ pub(crate) fn connect_block_inner<'a>(
     // The duplicate-coinbase index stays live. Production networks never deactivate
     // the fork; the two historical blocks are exempt inside check_bip30.
     let maintain_bip30_index = context.is_fork_active(ForkId::Bip30, height);
+
+    // The genesis coinbase is not an output. Later spends of it are missing inputs.
+    if is_genesis_block(block, network) {
+        return genesis_utxo_unchanged(utxo_set, tx_ids_cow);
+    }
 
     #[cfg(feature = "production")]
     if crate::config::use_overlay_delta() {
@@ -4223,10 +4262,14 @@ fn connect_block_inner_with_tx_ids(
     // This ensures no money creation or destruction beyond expected inflation
     #[cfg(any(debug_assertions, feature = "runtime-invariants"))]
     {
-        debug_assert!(
-            crate::economic::verify_utxo_supply(&utxo_set, height),
-            "UTXO supply invariant violated at height {height}"
-        );
+        // `verify_utxo_supply` sums the 210,000-block schedule. Regtest halves
+        // every 150 blocks, so that identity does not apply there.
+        if crate::economic::subsidy_halving_interval(network) == HALVING_INTERVAL {
+            debug_assert!(
+                crate::economic::verify_utxo_supply(&utxo_set, height),
+                "UTXO supply invariant violated at height {height}"
+            );
+        }
     }
 
     if utxo_set.len() > u32::MAX as usize {

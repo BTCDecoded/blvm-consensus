@@ -45,6 +45,44 @@ pub fn get_block_subsidy(height: Natural) -> Integer {
     subsidy
 }
 
+/// Regtest subsidy halves every 150 blocks. Other networks use [`HALVING_INTERVAL`].
+pub const REGTEST_HALVING_INTERVAL: u64 = 150;
+
+/// Halving interval for `network`. Regtest is 150; every other network is 210,000.
+pub fn subsidy_halving_interval(network: Network) -> u64 {
+    match network {
+        Network::Regtest => REGTEST_HALVING_INTERVAL,
+        Network::Mainnet | Network::Testnet | Network::Testnet4 | Network::Signet => {
+            HALVING_INTERVAL
+        }
+    }
+}
+
+/// Block subsidy for `network`. Mainnet, testnet, testnet4, and signet use
+/// [`get_block_subsidy`]. Regtest uses the same right-shift with interval 150.
+pub fn get_block_subsidy_for_network(height: Natural, network: Network) -> Integer {
+    let interval = subsidy_halving_interval(network);
+    if interval == HALVING_INTERVAL {
+        return get_block_subsidy(height);
+    }
+    block_subsidy_at_interval(height, interval, INITIAL_SUBSIDY)
+}
+
+/// Right-shift subsidy for an explicit interval and initial amount.
+///
+/// `interval == 0` yields 0. The 210,000-block schedule stays in
+/// [`get_block_subsidy`].
+pub fn block_subsidy_at_interval(height: Natural, interval: u64, initial: Integer) -> Integer {
+    if interval == 0 {
+        return 0;
+    }
+    let halving_period = height / interval;
+    if halving_period >= 64 {
+        return 0;
+    }
+    initial >> halving_period
+}
+
 /// CheckCoinbaseSubsidy: 𝒯𝒳 × ℤ × ℤ → {true, false}
 ///
 /// Coinbase output sum must not exceed block subsidy plus aggregated fees.
@@ -418,6 +456,119 @@ mod tests {
             total_supply(after_last_reward),
             "heights after 64×H−1 should not increase supply"
         );
+    }
+
+    fn coinbase_only_block(height: u64, value: i64) -> Block {
+        use crate::mining::calculate_merkle_root;
+
+        let coinbase = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0xffff_ffff,
+                },
+                // Height 150 is `0x96`. The high bit is set, so the prefix is
+                // `02 96 00` once BIP34 is active.
+                script_sig: vec![0x02, 0x96, 0x00],
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle");
+        Block {
+            header: BlockHeader {
+                version: 4,
+                prev_block_hash: [0; 32],
+                merkle_root,
+                timestamp: 1_600_000_000 + height,
+                bits: 0x207f_ffff,
+                nonce: height,
+            },
+            transactions: vec![coinbase].into(),
+        }
+    }
+
+    fn connect_coinbase(network: Network, height: u64, value: i64) -> ValidationResult {
+        use crate::block::{BlockValidationContext, connect_block};
+        use crate::segwit::Witness;
+
+        let block = coinbase_only_block(height, value);
+        let witnesses: Vec<Vec<Witness>> = block
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Witness::default()).collect())
+            .collect();
+        let ctx = BlockValidationContext::for_network(network);
+        connect_block(&block, &witnesses, UtxoSet::default(), height, &ctx)
+            .expect("connect")
+            .0
+    }
+
+    #[test]
+    fn regtest_subsidy_halves_every_150_blocks() {
+        let full = INITIAL_SUBSIDY;
+        assert_eq!(subsidy_halving_interval(Network::Regtest), 150);
+        assert_eq!(get_block_subsidy_for_network(149, Network::Regtest), full);
+        assert_eq!(
+            get_block_subsidy_for_network(150, Network::Regtest),
+            full / 2
+        );
+        assert_eq!(
+            get_block_subsidy_for_network(299, Network::Regtest),
+            full / 2
+        );
+        assert_eq!(
+            get_block_subsidy_for_network(300, Network::Regtest),
+            full / 4
+        );
+        assert_eq!(get_block_subsidy_for_network(150 * 33, Network::Regtest), 0);
+        // The 210,000-block function is unchanged at the regtest boundary.
+        assert_eq!(get_block_subsidy(150), full);
+    }
+
+    #[test]
+    fn non_regtest_subsidy_stays_on_210_000_blocks() {
+        for network in [
+            Network::Mainnet,
+            Network::Testnet,
+            Network::Testnet4,
+            Network::Signet,
+        ] {
+            assert_eq!(subsidy_halving_interval(network), HALVING_INTERVAL);
+            assert_eq!(get_block_subsidy_for_network(150, network), INITIAL_SUBSIDY);
+            assert_eq!(
+                get_block_subsidy_for_network(HALVING_INTERVAL, network),
+                INITIAL_SUBSIDY / 2
+            );
+        }
+    }
+
+    #[test]
+    fn regtest_connect_rejects_unhalved_coinbase_at_height_150() {
+        assert!(matches!(
+            connect_coinbase(Network::Regtest, 150, INITIAL_SUBSIDY / 2),
+            ValidationResult::Valid
+        ));
+        let rejected = connect_coinbase(Network::Regtest, 150, INITIAL_SUBSIDY);
+        assert!(
+            matches!(rejected, ValidationResult::Invalid(ref msg) if msg.contains("subsidy")),
+            "50 BTC coinbase at regtest height 150 must fail, got {rejected:?}"
+        );
+    }
+
+    #[test]
+    fn mainnet_connect_accepts_full_subsidy_at_height_150() {
+        assert!(matches!(
+            connect_coinbase(Network::Mainnet, 150, INITIAL_SUBSIDY),
+            ValidationResult::Valid
+        ));
     }
 
     #[test]

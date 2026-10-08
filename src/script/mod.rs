@@ -1600,13 +1600,11 @@ fn try_verify_p2sh_multisig_fast_path(
         return Some(Ok(false));
     }
     let (m, _n, pubkeys) = parse_redeem_multisig(redeem)?;
-    let signatures: Vec<&[u8]> = pushes
-        .iter()
-        .take(pushes.len() - 1)
-        .skip(1)
-        .map(|e| e.as_ref())
-        .collect();
-    let dummy = pushes.first().expect("at least 2 pushes").as_ref();
+    // The redeem is the last push. Items under it are the stack, bottom to top.
+    let stack = &pushes[..pushes.len() - 1];
+    let Some((dummy, signatures)) = checkmultisig_window(stack, m, false) else {
+        return Some(Ok(false));
+    };
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
@@ -1725,11 +1723,8 @@ fn try_verify_p2sh_multisig_fast_path(
         if sig_index >= signatures.len() {
             break;
         }
-        while sig_index < signatures.len() && signatures[sig_index].is_empty() {
-            sig_index += 1;
-        }
-        if sig_index >= signatures.len() {
-            break;
+        if signatures[sig_index].is_empty() {
+            continue;
         }
         let signature_bytes = &signatures[sig_index];
         let sighash_byte = signature_bytes[signature_bytes.len() - 1];
@@ -1799,7 +1794,7 @@ fn try_verify_p2sh_multisig_fast_path(
         }
     }
 
-    Some(Ok(valid_sigs >= m))
+    Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m))
 }
 
 /// IBD entry: P2SH-multisig with optional SoA deferral (see [`try_verify_p2sh_multisig_fast_path`]).
@@ -1833,8 +1828,8 @@ pub(crate) fn try_verify_p2sh_multisig_ibd(
     )
 }
 
-/// Bare multisig fast path: scriptPubKey is `OP_n <pubkeys> OP_m OP_CHECKMULTISIG` directly.
-/// No P2SH wrapper; scriptSig is \[dummy, sig_1, ..., sig_m\]. Same verification as P2SH multisig.
+/// Bare multisig fast path: scriptPubKey is `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
+/// scriptSig is bottom-to-top. The top `m` pushes are the signatures.
 #[allow(clippy::too_many_arguments)]
 fn try_verify_bare_multisig_fast_path(
     script_sig: &ByteString,
@@ -1852,11 +1847,9 @@ fn try_verify_bare_multisig_fast_path(
 ) -> Option<Result<bool>> {
     let (m, _n, pubkeys) = parse_redeem_multisig(script_pubkey)?;
     let pushes = parse_p2sh_script_sig_pushes(script_sig.as_ref())?;
-    if pushes.len() < 2 {
-        return None;
-    }
-    let dummy = pushes.first().expect("at least 2 pushes").as_ref();
-    let signatures: Vec<&[u8]> = pushes[1..].iter().map(|e| e.as_ref()).collect();
+    let Some((dummy, signatures)) = checkmultisig_window(&pushes, m, false) else {
+        return Some(Ok(false));
+    };
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
@@ -1895,11 +1888,8 @@ fn try_verify_bare_multisig_fast_path(
         if sig_index >= signatures.len() {
             break;
         }
-        while sig_index < signatures.len() && signatures[sig_index].is_empty() {
-            sig_index += 1;
-        }
-        if sig_index >= signatures.len() {
-            break;
+        if signatures[sig_index].is_empty() {
+            continue;
         }
         let signature_bytes = &signatures[sig_index];
         let sighash_byte = signature_bytes[signature_bytes.len() - 1];
@@ -1969,7 +1959,7 @@ fn try_verify_bare_multisig_fast_path(
         }
     }
 
-    Some(Ok(valid_sigs >= m))
+    Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m))
 }
 
 /// P2SH fast-path for regular P2SH (redeem script is not a witness program).
@@ -2884,15 +2874,13 @@ pub(crate) fn try_verify_p2wsh_fast_path(
         }
     }
 
-    // P2WSH-with-multisig fast-path: witness_script = OP_n <pubkeys> OP_m OP_CHECKMULTISIG,
-    // stack = [dummy, sig_1, ..., sig_m]. BIP143 scriptCode = witness script (no FindAndDelete).
+    // P2WSH multisig: witness script is `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
+    // The stack under the script must be exactly the dummy plus `m` signatures.
     if witness_sigversion == SigVersion::WitnessV0 {
         if let Some((m, _n, pubkeys)) = parse_redeem_multisig(witness_script.as_ref()) {
-            if stack.len() < 2 {
+            let Some((dummy, signatures)) = checkmultisig_window(&stack, m, true) else {
                 return Some(Ok(false));
-            }
-            let dummy = stack[0].as_ref();
-            let signatures: Vec<&[u8]> = stack[1..].iter().map(|e| e.as_ref()).collect();
+            };
 
             const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
             const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
@@ -2998,11 +2986,8 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 if sig_index >= signatures.len() {
                     break;
                 }
-                while sig_index < signatures.len() && signatures[sig_index].is_empty() {
-                    sig_index += 1;
-                }
-                if sig_index >= signatures.len() {
-                    break;
+                if signatures[sig_index].is_empty() {
+                    continue;
                 }
                 let signature_bytes = &signatures[sig_index];
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
@@ -3053,7 +3038,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 }
             }
 
-            return Some(Ok(valid_sigs >= m));
+            return Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m));
         }
     }
 
@@ -4215,7 +4200,7 @@ pub fn verify_script_with_context_full(
     let accepts_witness = is_direct_witness_program || is_taproot || nested_witness_program;
     if witness_flag {
         if let Some(witness_stack) = witness {
-            if !crate::witness::is_witness_empty(witness_stack) && !accepts_witness {
+            if !crate::witness::witness_stack_is_null(witness_stack) && !accepts_witness {
                 return Ok(false);
             }
         }
@@ -5887,6 +5872,26 @@ fn parse_p2sh_script_sig_pushes(script_sig: &[u8]) -> Option<Vec<StackElement>> 
     parse_script_sig_push_only(script_sig)
 }
 
+/// Stack items are bottom-to-top, before the script pushes `m`, the keys, and `n`.
+///
+/// `OP_CHECKMULTISIG` pops exactly `m` signatures from the top and the item
+/// under them as the dummy. `exact` is the witness rule: the stack must be
+/// that dummy plus those signatures and nothing underneath.
+fn checkmultisig_window(items: &[StackElement], m: u8, exact: bool) -> Option<(&[u8], Vec<&[u8]>)> {
+    let m = m as usize;
+    let need = m + 1;
+    if m == 0 || items.len() < need {
+        return None;
+    }
+    if exact && items.len() != need {
+        return None;
+    }
+    let sig_at = items.len() - m;
+    let dummy = items[sig_at - 1].as_ref();
+    let signatures = items[sig_at..].iter().map(|item| item.as_ref()).collect();
+    Some((dummy, signatures))
+}
+
 /// Parse redeem script as `OP_m <pubkeys> OP_n OP_CHECKMULTISIG` (Bitcoin standard).
 ///
 /// `m` = required signatures (threshold), `n` = pubkey count. Standard mainnet
@@ -6007,6 +6012,126 @@ mod parse_redeem_multisig_tests {
         redeem.push(OP_CHECKMULTISIG);
         redeem.push(OP_DROP);
         assert!(parse_redeem_multisig(&redeem).is_none());
+    }
+
+    #[test]
+    fn checkmultisig_window_is_the_top_m_signatures() {
+        let items = vec![
+            to_stack_element(&[]),
+            to_stack_element(&[0x11]),
+            to_stack_element(&[0x22]),
+        ];
+        let (dummy, sigs) = checkmultisig_window(&items, 1, false).expect("legacy window");
+        assert_eq!(dummy, &[0x11]);
+        assert_eq!(sigs, vec![&[0x22][..]]);
+        assert!(checkmultisig_window(&items, 1, true).is_none());
+
+        let exact = vec![to_stack_element(&[]), to_stack_element(&[0x22])];
+        let (dummy, sigs) = checkmultisig_window(&exact, 1, true).expect("witness window");
+        assert!(dummy.is_empty());
+        assert_eq!(sigs, vec![&[0x22][..]]);
+        assert!(checkmultisig_window(&exact, 2, false).is_none());
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn p2sh_multisig_fast_path_rejects_a_signature_above_the_window() {
+        use crate::script::flags::{
+            SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS,
+        };
+        use crate::transaction_hash::compute_legacy_sighash_nocache;
+        use crate::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let sk = SecretKey::from_slice(&[0x41; 32]).expect("secret");
+        let pk1 = PublicKey::from_secret_key(&secp, &sk).serialize();
+        let pk2 =
+            PublicKey::from_secret_key(&secp, &SecretKey::from_slice(&[0x42; 32]).expect("secret"))
+                .serialize();
+        let mut redeem = vec![OP_1, PUSH_33_BYTES];
+        redeem.extend_from_slice(&pk1);
+        redeem.push(PUSH_33_BYTES);
+        redeem.extend_from_slice(&pk2);
+        redeem.push(OP_2);
+        redeem.push(OP_CHECKMULTISIG);
+
+        let hash160 = Ripemd160::digest(OptimizedSha256::new().hash(&redeem));
+        let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+        script_pubkey.extend_from_slice(&hash160);
+        script_pubkey.push(OP_EQUAL);
+
+        let mut tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0x11; 32],
+                    index: 0,
+                },
+                script_sig: Vec::new().into(),
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1_000,
+                script_pubkey: vec![OP_1].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash = compute_legacy_sighash_nocache(&tx, 0, &redeem, 0x01);
+        let mut sig = secp
+            .sign_ecdsa(&Message::from_digest_slice(&sighash).expect("digest"), &sk)
+            .serialize_der()
+            .to_vec();
+        sig.push(0x01);
+
+        let mut exact = vec![OP_0];
+        exact.push(sig.len() as u8);
+        exact.extend_from_slice(&sig);
+        exact.push(redeem.len() as u8);
+        exact.extend_from_slice(&redeem);
+        tx.inputs[0].script_sig = exact.into();
+
+        // No NULLDUMMY: rejection has to come from the signature window itself.
+        let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_DERSIG;
+        let values = [50_000_000i64];
+        let prevouts: [&[u8]; 1] = [&script_pubkey];
+        let height = Some(crate::constants::BIP147_ACTIVATION_MAINNET);
+        let verdict = |tx: &Transaction| {
+            try_verify_p2sh_multisig_fast_path(
+                &tx.inputs[0].script_sig,
+                &script_pubkey,
+                flags,
+                tx,
+                0,
+                &values,
+                &prevouts,
+                height,
+                Network::Mainnet,
+                None,
+                None,
+            )
+        };
+        assert_eq!(
+            verdict(&tx).expect("handled").expect("no script error"),
+            true,
+            "dummy plus one signature"
+        );
+
+        let garbage = [0x22u8; 9];
+        let mut extra = vec![OP_0];
+        extra.push(sig.len() as u8);
+        extra.extend_from_slice(&sig);
+        extra.push(garbage.len() as u8);
+        extra.extend_from_slice(&garbage);
+        extra.push(redeem.len() as u8);
+        extra.extend_from_slice(&redeem);
+        tx.inputs[0].script_sig = extra.into();
+        assert!(
+            !matches!(verdict(&tx), Some(Ok(true))),
+            "a non-matching push above the real signature is not in the window"
+        );
     }
 
     /// Regression: P2WSH-in-P2SH (wit.len()==2) must not be claimed as nested P2WPKH.

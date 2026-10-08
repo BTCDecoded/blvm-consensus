@@ -189,15 +189,16 @@ impl EcdsaSignatureCollector {
                     "CHECKMULTISIG deferred: trial_indices length mismatch".into(),
                 ));
             }
-            // Match: for each pubkey in order, try current sig; on success advance sig.
+            // Every one of the m signatures has to match. An empty signature
+            // stays current and fails against each following key.
             let mut sig_cursor = 0usize;
             let mut valid_sigs = 0u8;
             for i in 0..n_pubs {
-                while sig_cursor < p.sig_empty.len() && p.sig_empty[sig_cursor] {
-                    sig_cursor += 1;
-                }
                 if sig_cursor >= p.sig_empty.len() {
                     break;
+                }
+                if p.sig_empty[sig_cursor] {
+                    continue;
                 }
                 let sh_ord = p.sig_empty[..sig_cursor].iter().filter(|e| !**e).count();
                 let gidx = p.trial_indices[sh_ord * n_pubs + i];
@@ -206,9 +207,9 @@ impl EcdsaSignatureCollector {
                     sig_cursor += 1;
                 }
             }
-            // Core NULLFAIL (EvalCheckMultisig cleanup): only when the multisig fails
-            // overall, require every signature in the sig region to be empty.
-            let success = valid_sigs >= p.m;
+            // NULLFAIL applies only when the multisig fails: every signature
+            // in the window must then be empty.
+            let success = p.sig_empty.len() == p.m as usize && valid_sigs == p.m;
             if p.nullfail && !success {
                 for &empty in &p.sig_empty {
                     if !empty {
@@ -553,5 +554,25 @@ mod multisig_resolve_tests {
         });
         let map2 = HashMap::new(); // trial false
         assert!(c2.resolve_multisig_pending(&map2).is_err());
+    }
+
+    #[test]
+    fn signature_list_longer_than_m_is_not_success() {
+        // 1-of-2 with two signature slots. The first matches. The extra one
+        // must not be ignored: the script popped only m signatures.
+        let c = EcdsaSignatureCollector::new_with_capacity(0);
+        c.push_multisig_pending(MultisigPending {
+            m: 1,
+            n_pubs: 2,
+            trial_indices: vec![tag(0), tag(1), tag(2), tag(3)],
+            sig_empty: vec![false, false],
+            nullfail: false,
+        });
+        let mut map = HashMap::new();
+        map.insert(tag(0), true);
+        map.insert(tag(1), false);
+        map.insert(tag(2), false);
+        map.insert(tag(3), false);
+        assert!(c.resolve_multisig_pending(&map).is_err());
     }
 }

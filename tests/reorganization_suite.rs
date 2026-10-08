@@ -206,28 +206,7 @@ fn test_update_mempool_after_reorg_with_lookup_removes_conflict() {
 }
 
 fn encode_bip34_height(height: u64) -> Vec<u8> {
-    if height == 0 {
-        return vec![0x00, 0xff];
-    }
-    if (1..=16).contains(&height) {
-        return vec![0x50 + height as u8, 0xff];
-    }
-    let mut height_bytes = Vec::new();
-    let mut n = height;
-    while n > 0 {
-        height_bytes.push((n & 0xff) as u8);
-        n >>= 8;
-    }
-    if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
-        height_bytes.push(0x00);
-    }
-    let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
-    script_sig.push(height_bytes.len() as u8);
-    script_sig.extend_from_slice(&height_bytes);
-    if script_sig.len() < 2 {
-        script_sig.push(0xff);
-    }
-    script_sig
+    blvm_consensus::bip_validation::encode_bip34_coinbase_script(height)
 }
 
 fn regtest_coinbase(height: u64) -> Transaction {
@@ -725,6 +704,121 @@ fn test_reorganize_fork_disconnects_tip_with_undo_logs() {
     assert_eq!(result.reorganization_depth, 1);
     assert_eq!(result.disconnected_blocks.len(), 1);
     assert_eq!(result.connected_blocks.len(), 2);
+
+    let stale = &result.disconnected_blocks[0];
+    let stale_coinbase = blvm_consensus::block::calculate_tx_id(&stale.transactions[0]);
+    assert!(
+        !result.new_utxo_set.contains_key(&OutPoint {
+            hash: stale_coinbase,
+            index: 0
+        }),
+        "disconnected coinbase must leave the UTXO set"
+    );
+    let tip = result.connected_blocks.last().expect("fork tip");
+    let tip_coinbase = blvm_consensus::block::calculate_tx_id(&tip.transactions[0]);
+    assert!(
+        result.new_utxo_set.contains_key(&OutPoint {
+            hash: tip_coinbase,
+            index: 0
+        }),
+        "fork tip coinbase must be spendable"
+    );
+}
+
+#[test]
+fn test_reorganize_fork_when_slices_do_not_share_an_index() {
+    let (current, utxo_at_3, mut undo_store) = connect_regtest_chain_with_undo(3);
+    let prefix = current[0..2].to_vec();
+    let (_, utxo_at_2, _) = connect_regtest_chain_with_undo(2);
+    let (longer, _, longer_undo) =
+        extend_regtest_fork(&prefix, utxo_at_2, HashMap::new(), 2, 10_000);
+    undo_store.extend(longer_undo);
+
+    // Drop the genesis of the candidate only. Index 0 is then a different block
+    // on each slice; the shared block sits at current index 1 and new index 0.
+    let new_chain = longer[1..].to_vec();
+    assert_ne!(
+        block_hash(&new_chain[0].header),
+        block_hash(&current[0].header)
+    );
+
+    let store = RefCell::new(undo_store);
+    let get_undo = |hash: &Hash| store.borrow().get(hash).cloned();
+    let put_undo = |hash: &Hash, log: &BlockUndoLog| {
+        store.borrow_mut().insert(*hash, log.clone());
+        Ok(())
+    };
+    let witnesses = witnesses_for_chain(&new_chain);
+    let result = reorganize_chain_with_witnesses(
+        &new_chain,
+        &witnesses,
+        None,
+        &current,
+        utxo_at_3,
+        3,
+        Some(noop_get_witnesses),
+        Some(noop_get_headers),
+        Some(get_undo),
+        Some(put_undo),
+        TEST_NETWORK_TIME,
+        Network::Regtest,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(result.new_height, 4);
+    assert_eq!(result.reorganization_depth, 1);
+    assert_eq!(result.disconnected_blocks.len(), 1);
+    assert_eq!(
+        block_hash(&result.disconnected_blocks[0].header),
+        block_hash(&current[2].header)
+    );
+    assert_eq!(result.connected_blocks.len(), 2);
+    let stale_coinbase = blvm_consensus::block::calculate_tx_id(&current[2].transactions[0]);
+    assert!(!result.new_utxo_set.contains_key(&OutPoint {
+        hash: stale_coinbase,
+        index: 0
+    }));
+    let tip = result.connected_blocks.last().expect("fork tip");
+    let tip_coinbase = blvm_consensus::block::calculate_tx_id(&tip.transactions[0]);
+    assert!(result.new_utxo_set.contains_key(&OutPoint {
+        hash: tip_coinbase,
+        index: 0
+    }));
+}
+
+#[test]
+fn test_reorganize_fork_rejects_a_missing_undo_log() {
+    let (current, utxo_at_3, _) = connect_regtest_chain_with_undo(3);
+    let prefix = current[0..2].to_vec();
+    let (_, utxo_at_2, _) = connect_regtest_chain_with_undo(2);
+    let (longer, _, _) = extend_regtest_fork(&prefix, utxo_at_2, HashMap::new(), 2, 10_000);
+    let witnesses = witnesses_for_chain(&longer);
+    let get_undo = |_hash: &Hash| None;
+    let put_undo = |_hash: &Hash, _log: &BlockUndoLog| Ok(());
+
+    let result = reorganize_chain_with_witnesses(
+        &longer,
+        &witnesses,
+        None,
+        &current,
+        utxo_at_3,
+        3,
+        Some(noop_get_witnesses),
+        Some(noop_get_headers),
+        Some(get_undo),
+        Some(put_undo),
+        TEST_NETWORK_TIME,
+        Network::Regtest,
+        None,
+    );
+
+    match result {
+        Err(blvm_consensus::ConsensusError::BlockValidation(msg)) => {
+            assert!(msg.contains("missing undo log"), "{msg}");
+        }
+        other => panic!("expected missing undo log, got {other:?}"),
+    }
 }
 
 #[test]

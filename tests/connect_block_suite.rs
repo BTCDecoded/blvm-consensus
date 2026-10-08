@@ -91,28 +91,7 @@ fn tx_witness_stripped_size_64() -> Transaction {
 }
 
 fn encode_bip34_height(height: u64) -> Vec<u8> {
-    if height == 0 {
-        return vec![0x00, 0xff];
-    }
-    if (1..=16).contains(&height) {
-        return vec![0x50 + height as u8, 0xff];
-    }
-    let mut height_bytes = Vec::new();
-    let mut n = height;
-    while n > 0 {
-        height_bytes.push((n & 0xff) as u8);
-        n >>= 8;
-    }
-    if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
-        height_bytes.push(0x00);
-    }
-    let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
-    script_sig.push(height_bytes.len() as u8);
-    script_sig.extend_from_slice(&height_bytes);
-    if script_sig.len() < 2 {
-        script_sig.push(0xff);
-    }
-    script_sig
+    blvm_consensus::bip_validation::encode_bip34_coinbase_script(height)
 }
 
 fn coinbase_value(height: u64, fees: i64) -> i64 {
@@ -1301,6 +1280,59 @@ fn test_connect_rejects_script_verification_failure() {
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "script failure must reject block connect: {result:?}"
+    );
+}
+
+/// Legacy anyone-can-spend after SegWit, with a coinbase witness nonce so the
+/// commitment is required. `spend_witness` is the second transaction's only input.
+fn legacy_op1_spend_with_witness(spend_witness: Witness) -> (Block, Vec<Vec<Witness>>, UtxoSet) {
+    let height = SEGWIT_ACTIVATION_MAINNET;
+    let nonce = [0x55u8; 32];
+    let timestamp = 1_500_353_985;
+    let mut utxo_set = UtxoSet::default();
+    seed_op1_utxo(&mut utxo_set, 0x6e, 10_000, 0);
+
+    let fee = 1_000i64;
+    let spend = spend_tx(0x6e, 10_000, 9_000);
+    let subsidy = coinbase_value(height, fee);
+    let temp_coinbase = coinbase_at_height(height, subsidy);
+    let temp_block = block_with_txs_at(vec![temp_coinbase, spend.clone()], timestamp, 4);
+    let witnesses = vec![vec![vec![nonce.to_vec()]], vec![spend_witness]];
+    let witness_root = compute_witness_merkle_root_from_nested(&temp_block, &witnesses, None)
+        .expect("witness root");
+
+    let mut coinbase = coinbase_at_height(height, subsidy);
+    coinbase.outputs = vec![
+        TransactionOutput {
+            value: subsidy,
+            script_pubkey: vec![OP_1].into(),
+        },
+        TransactionOutput {
+            value: 0,
+            script_pubkey: witness_commitment_script(&witness_root, &nonce).into(),
+        },
+    ]
+    .into();
+    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    (block, witnesses, utxo_set)
+}
+
+#[test]
+fn test_connect_legacy_spend_rejects_witness_stack_of_empty_items() {
+    let height = SEGWIT_ACTIVATION_MAINNET;
+
+    let (block, witnesses, utxo_set) = legacy_op1_spend_with_witness(Vec::new());
+    let (result, _, _) = connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Valid),
+        "a legacy input with no witness items must connect: {result:?}"
+    );
+
+    let (block, witnesses, utxo_set) = legacy_op1_spend_with_witness(vec![vec![]]);
+    let (result, _, _) = connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("Invalid script")),
+        "one empty witness item on a non-witness spend must be rejected: {result:?}"
     );
 }
 

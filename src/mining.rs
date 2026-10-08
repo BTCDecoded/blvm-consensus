@@ -1,6 +1,8 @@
 //! Mining and block creation functions from Orange Paper Section 10.1
 
+#[cfg(test)]
 use crate::economic::get_block_subsidy;
+use crate::economic::get_block_subsidy_for_network;
 use crate::error::Result;
 use crate::pow::{check_proof_of_work, next_required_bits};
 use crate::transaction::check_transaction;
@@ -112,7 +114,7 @@ pub fn create_new_block_with_time(
     // 1. Create coinbase transaction
     let coinbase_tx = create_coinbase_transaction(
         height,
-        get_block_subsidy(height),
+        get_block_subsidy_for_network(height, network),
         coinbase_script,
         coinbase_address,
     )?;
@@ -372,7 +374,7 @@ pub fn create_block_template_with_outputs(
         network,
         mempool_witnesses,
     )?;
-    let subsidy = get_block_subsidy(height);
+    let subsidy = get_block_subsidy_for_network(height, network);
     let fees = sum_selected_fees(utxo_set, &tmpl.transactions);
     let fitted = fit_payouts_to_reward(coinbase_outputs, subsidy, fees)?;
     tmpl.coinbase_tx = create_coinbase_with_outputs(height, coinbase_script, &fitted)?;

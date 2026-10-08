@@ -292,6 +292,15 @@ pub fn is_witness_empty(witness: &Witness) -> bool {
     witness.is_empty() || witness.iter().all(|elem| elem.is_empty())
 }
 
+/// True when the witness stack has no items.
+///
+/// A stack of empty items is still present. Script verification uses this for
+/// unexpected witness data. [`is_witness_empty`] also treats those items as
+/// empty, and stays the flag-gating predicate.
+pub(crate) fn witness_stack_is_null(witness: &Witness) -> bool {
+    witness.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,5 +513,8 @@ mod tests {
         assert!(is_witness_empty(&vec![]));
         assert!(is_witness_empty(&vec![vec![]]));
         assert!(!is_witness_empty(&vec![vec![0x01]]));
+        assert!(witness_stack_is_null(&vec![]));
+        assert!(!witness_stack_is_null(&vec![vec![]]));
+        assert!(!witness_stack_is_null(&vec![vec![], vec![]]));
     }
 }

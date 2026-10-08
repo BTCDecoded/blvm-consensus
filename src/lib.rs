@@ -262,6 +262,15 @@ impl ConsensusProof {
         economic::get_block_subsidy(height)
     }
 
+    /// Block subsidy for `network`. Regtest halves every 150 blocks.
+    pub fn get_block_subsidy_for_network(
+        &self,
+        height: types::Natural,
+        network: types::Network,
+    ) -> types::Integer {
+        economic::get_block_subsidy_for_network(height, network)
+    }
+
     /// Calculate total supply at height
     #[spec_locked("6.2", "TotalSupply")]
     #[blvm_spec_lock::ensures(result >= 0)]

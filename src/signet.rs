@@ -3,7 +3,7 @@
 use crate::block::calculate_tx_id;
 use crate::error::Result;
 use crate::mining::compute_merkle_root_and_mutated;
-use crate::opcodes::OP_RETURN;
+use crate::opcodes::{OP_0, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4, OP_RETURN};
 use crate::script::flags::{
     SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_NULLDUMMY, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS,
 };
@@ -119,14 +119,16 @@ fn build_signet_solution_txs(block: &Block, challenge: &[u8]) -> Result<Option<S
         block.header.timestamp as u32,
     );
 
+    // BIP325: null prevout (index 0xffffffff) and scriptSig = OP_0 PUSH72(block_data).
+    // Both are committed by the to_spend txid, which the solution signature signs.
     let to_spend = Transaction {
         version: 0,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
                 hash: Hash::from([0u8; 32]),
-                index: 0,
+                index: 0xffff_ffff,
             },
-            script_sig: block_data,
+            script_sig: signet_to_spend_script_sig(&block_data),
             sequence: 0,
         }]
         .into(),
@@ -187,22 +189,87 @@ fn witness_commitment_output_index(outputs: &[TransactionOutput]) -> Option<usiz
     last
 }
 
+/// BIP325 to_spend scriptSig: `OP_0` then a push of the 72-byte header image.
+fn signet_to_spend_script_sig(block_data: &[u8]) -> Vec<u8> {
+    let mut script_sig = Vec::with_capacity(2 + block_data.len());
+    script_sig.push(OP_0);
+    push_script_data(&mut script_sig, block_data);
+    script_sig
+}
+
+/// Minimal data push: direct length below 76, then PUSHDATA1/2/4.
+fn push_script_data(out: &mut Vec<u8>, data: &[u8]) {
+    let len = data.len();
+    if len < OP_PUSHDATA1 as usize {
+        out.push(len as u8);
+    } else if len <= 0xff {
+        out.push(OP_PUSHDATA1);
+        out.push(len as u8);
+    } else if len <= 0xffff {
+        out.push(OP_PUSHDATA2);
+        out.extend_from_slice(&(len as u16).to_le_bytes());
+    } else if let Ok(len) = u32::try_from(len) {
+        out.push(OP_PUSHDATA4);
+        out.extend_from_slice(&len.to_le_bytes());
+    } else {
+        return;
+    }
+    out.extend_from_slice(data);
+}
+
+/// One opcode. Empty push data means the opcode byte itself is kept (`OP_0`, a zero-length push).
+fn read_script_op(script: &[u8], i: usize) -> Option<(u8, &[u8], usize)> {
+    if i >= script.len() {
+        return None;
+    }
+    let opcode = script[i];
+    if opcode > OP_PUSHDATA4 {
+        return Some((opcode, &[], i + 1));
+    }
+    let (len, data_at) = if opcode < OP_PUSHDATA1 {
+        (opcode as usize, i + 1)
+    } else if opcode == OP_PUSHDATA1 {
+        let at = i + 1;
+        if at >= script.len() {
+            return None;
+        }
+        (script[at] as usize, at + 1)
+    } else if opcode == OP_PUSHDATA2 {
+        let at = i + 1;
+        if at + 2 > script.len() {
+            return None;
+        }
+        let len = u16::from_le_bytes([script[at], script[at + 1]]) as usize;
+        (len, at + 2)
+    } else {
+        let at = i + 1;
+        if at + 4 > script.len() {
+            return None;
+        }
+        let len = u32::from_le_bytes([script[at], script[at + 1], script[at + 2], script[at + 3]])
+            as usize;
+        (len, at + 4)
+    };
+    let end = data_at.checked_add(len)?;
+    if end > script.len() {
+        return None;
+    }
+    Some((opcode, &script[data_at..end], end))
+}
+
 fn fetch_and_clear_commitment_section(script: &mut Vec<u8>) -> Option<Vec<u8>> {
     let bytes = script.clone();
-    let mut replacement = Vec::new();
+    let mut replacement = Vec::with_capacity(bytes.len());
     let mut found_header = false;
     let mut result = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
-        let opcode = bytes[i];
-        i += 1;
-        if opcode <= 0x4b {
-            let len = opcode as usize;
-            if i + len > bytes.len() {
-                break;
-            }
-            let mut pushdata = bytes[i..i + len].to_vec();
-            i += len;
+        let Some((opcode, pushdata, next)) = read_script_op(&bytes, i) else {
+            break;
+        };
+        i = next;
+        if !pushdata.is_empty() {
+            let mut pushdata = pushdata.to_vec();
             if !found_header
                 && pushdata.len() > SIGNET_HEADER.len()
                 && pushdata[..SIGNET_HEADER.len()] == SIGNET_HEADER
@@ -211,10 +278,9 @@ fn fetch_and_clear_commitment_section(script: &mut Vec<u8>) -> Option<Vec<u8>> {
                 pushdata.truncate(SIGNET_HEADER.len());
                 found_header = true;
             }
-            if !pushdata.is_empty() {
-                replacement.push(opcode);
-                replacement.extend_from_slice(&pushdata);
-            }
+            // Re-encode the remaining push. A stripped solution leaves the 4-byte
+            // header, which is a direct push, not the original PUSHDATA opcode.
+            push_script_data(&mut replacement, &pushdata);
         } else {
             replacement.push(opcode);
         }
@@ -414,5 +480,218 @@ mod tests {
         assert_eq!(challenge.as_ref() as &[u8], &[0x51]);
         let block = signet_test_block(&SIGNET_HEADER);
         assert!(check_signet_block_solution(&block, &[0x51], 1).unwrap());
+    }
+
+    #[test]
+    fn signet_to_spend_uses_null_outpoint_and_op0_push() {
+        let block = signet_test_block(&SIGNET_HEADER);
+        let pair = build_signet_solution_txs(&block, &[0x51])
+            .unwrap()
+            .expect("commitment present");
+        assert_eq!(pair.to_spend.inputs[0].prevout.hash, Hash::from([0u8; 32]));
+        assert_eq!(pair.to_spend.inputs[0].prevout.index, 0xffff_ffff);
+        assert_eq!(pair.to_sign.inputs[0].prevout.index, 0);
+        let script: &[u8] = &pair.to_spend.inputs[0].script_sig;
+        assert_eq!(script[0], OP_0);
+        assert_eq!(script[1], 72);
+        assert_eq!(script.len(), 74);
+        assert_eq!(
+            pair.to_sign.inputs[0].prevout.hash,
+            calculate_tx_id(&pair.to_spend)
+        );
+    }
+
+    fn test_header() -> BlockHeader {
+        BlockHeader {
+            version: 1,
+            prev_block_hash: Hash::from([0u8; 32]),
+            merkle_root: Hash::from([0u8; 32]),
+            timestamp: 1_600_000_000,
+            bits: 0x1e0377ae,
+            nonce: 0,
+        }
+    }
+
+    fn coinbase_and_dummy(commit_script: Vec<u8>) -> (Transaction, Transaction) {
+        let coinbase = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: Hash::from([0u8; 32]),
+                    index: 0xffffffff,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: commit_script.into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let dummy = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: Hash::from([1u8; 32]),
+                    index: 0,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        (coinbase, dummy)
+    }
+
+    /// Expected to_spend scriptSig once the solution push has been reduced to the 4-byte header.
+    fn expected_spend_script(
+        header: &BlockHeader,
+        modified_cb: &Transaction,
+        dummy: &Transaction,
+    ) -> Vec<u8> {
+        let tx_ids = vec![calculate_tx_id(modified_cb), calculate_tx_id(dummy)];
+        let (merkle, _) = compute_merkle_root_and_mutated(&tx_ids).unwrap();
+        let block_data = serialize_signet_block_data(
+            header.version as i32,
+            &header.prev_block_hash,
+            &merkle,
+            header.timestamp as u32,
+        );
+        signet_to_spend_script_sig(&block_data)
+    }
+
+    #[test]
+    fn signet_pushdata1_solution_strips_to_direct_header_push() {
+        // Empty scriptSig and empty witness. Longer than a direct push so the
+        // commitment uses PUSHDATA1; after the strip only the 4-byte header remains.
+        let mut payload = SIGNET_HEADER.to_vec();
+        payload.extend_from_slice(&[0x00, 0x00]);
+        let mut commit = vec![OP_RETURN, 0x24, 0xaa, 0x21, 0xa9, 0xed];
+        commit.extend(std::iter::repeat_n(0xff, 32));
+        commit.push(OP_PUSHDATA1);
+        commit.push(payload.len() as u8);
+        commit.extend_from_slice(&payload);
+
+        let mut stripped = commit.clone();
+        stripped.truncate(38);
+        stripped.push(4);
+        stripped.extend_from_slice(&SIGNET_HEADER);
+
+        let header = test_header();
+        let (coinbase, dummy) = coinbase_and_dummy(commit);
+        let (modified_cb, _) = coinbase_and_dummy(stripped);
+        let expected = expected_spend_script(&header, &modified_cb, &dummy);
+        let block = Block {
+            header,
+            transactions: vec![coinbase, dummy].into(),
+        };
+        let pair = build_signet_solution_txs(&block, &[0x51])
+            .unwrap()
+            .expect("pushdata solution");
+        assert_eq!(
+            pair.to_spend.inputs[0].script_sig.as_slice(),
+            expected.as_slice()
+        );
+        assert_eq!(pair.to_spend.inputs[0].prevout.index, 0xffff_ffff);
+        assert!(check_signet_block_solution(&block, &[0x51], 1).unwrap());
+    }
+
+    #[cfg(feature = "production")]
+    #[test]
+    fn signet_p2pk_solution_verifies_bip325_message() {
+        use crate::opcodes::OP_CHECKSIG;
+
+        let seckey = [0x11u8; 32];
+        let mut sec = blvm_secp256k1::scalar::Scalar::zero();
+        assert!(!sec.set_b32(&seckey));
+        assert!(!sec.is_zero());
+        let pubkey = blvm_secp256k1::ecdsa::ge_to_compressed(
+            &blvm_secp256k1::ecdsa::pubkey_from_secret(&sec),
+        );
+        let mut challenge = Vec::with_capacity(35);
+        challenge.push(33);
+        challenge.extend_from_slice(&pubkey);
+        challenge.push(OP_CHECKSIG);
+
+        let header = test_header();
+        let mut stripped = vec![OP_RETURN, 0x24, 0xaa, 0x21, 0xa9, 0xed];
+        stripped.extend(std::iter::repeat_n(0xff, 32));
+        stripped.push(4);
+        stripped.extend_from_slice(&SIGNET_HEADER);
+        let (modified_cb, dummy) = coinbase_and_dummy(stripped);
+        let script_sig_spend = expected_spend_script(&header, &modified_cb, &dummy);
+
+        let to_spend = Transaction {
+            version: 0,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: Hash::from([0u8; 32]),
+                    index: 0xffff_ffff,
+                },
+                script_sig: script_sig_spend.into(),
+                sequence: 0,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: challenge.clone().into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let to_sign = Transaction {
+            version: 0,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: calculate_tx_id(&to_spend),
+                    index: 0,
+                },
+                script_sig: vec![].into(),
+                sequence: 0,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![OP_RETURN].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash =
+            crate::transaction_hash::compute_legacy_sighash_nocache(&to_sign, 0, &challenge, 0x01);
+        let mut sig =
+            blvm_secp256k1::ecdsa::ecdsa_sign_der_rfc6979(&sighash, &seckey).expect("sign");
+        sig.push(0x01);
+        let mut spend_script = Vec::with_capacity(1 + sig.len());
+        spend_script.push(sig.len() as u8);
+        spend_script.extend_from_slice(&sig);
+        let mut solution = Vec::with_capacity(1 + spend_script.len() + 1);
+        solution.push(spend_script.len() as u8);
+        solution.extend_from_slice(&spend_script);
+        solution.push(0);
+        let mut payload = SIGNET_HEADER.to_vec();
+        payload.extend_from_slice(&solution);
+        assert!(payload.len() > 75, "solution must need PUSHDATA1");
+
+        let mut commit = vec![OP_RETURN, 0x24, 0xaa, 0x21, 0xa9, 0xed];
+        commit.extend(std::iter::repeat_n(0xff, 32));
+        commit.push(OP_PUSHDATA1);
+        commit.push(payload.len() as u8);
+        commit.extend_from_slice(&payload);
+        let (coinbase, dummy) = coinbase_and_dummy(commit);
+        let block = Block {
+            header,
+            transactions: vec![coinbase, dummy].into(),
+        };
+        assert!(check_signet_block_solution(&block, &challenge, 1).unwrap());
     }
 }

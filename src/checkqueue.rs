@@ -10,7 +10,7 @@ use crate::error::{ConsensusError, Result};
 use crate::script::verify_script_with_context_full;
 use crate::types::{Block, ForkId, Natural, Network};
 use crate::witness::Witness;
-use crate::witness::is_witness_empty;
+use crate::witness::witness_stack_is_null;
 use crossbeam_queue::SegQueue;
 
 use std::cell::RefCell;
@@ -215,7 +215,13 @@ impl ScriptCheckQueue {
                 .witness_buffer
                 .get(ctx.tx_index)
                 .and_then(|w| w.get(check.input_idx))
-                .and_then(|w| if is_witness_empty(w) { None } else { Some(w) })
+                .and_then(|w| {
+                    if witness_stack_is_null(w) {
+                        None
+                    } else {
+                        Some(w)
+                    }
+                })
         };
         let ecdsa_global_idx = ctx.ecdsa_index_base + check.input_idx;
 

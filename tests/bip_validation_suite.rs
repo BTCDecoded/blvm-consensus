@@ -23,21 +23,7 @@ fn ctx() -> BlockValidationContext {
 }
 
 fn coinbase_at_height(height: u64) -> Transaction {
-    let mut height_bytes = Vec::new();
-    let mut n = height;
-    while n > 0 {
-        height_bytes.push((n & 0xff) as u8);
-        n >>= 8;
-    }
-    if height_bytes.last().is_some_and(|&b| b & 0x80 != 0) {
-        height_bytes.push(0x00);
-    }
-    let mut script_sig = Vec::with_capacity(1 + height_bytes.len() + 1);
-    script_sig.push(height_bytes.len() as u8);
-    script_sig.extend_from_slice(&height_bytes);
-    if script_sig.len() < 2 {
-        script_sig.push(0xff);
-    }
+    let script_sig = blvm_consensus::bip_validation::encode_bip34_coinbase_script(height);
     Transaction {
         version: 2,
         inputs: vec![TransactionInput {

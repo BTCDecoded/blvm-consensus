@@ -217,6 +217,45 @@ pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActiv
     Ok(true)
 }
 
+/// Little-endian magnitude of `height`, plus a trailing `0x00` when the high bit is set.
+fn bip34_magnitude(height: u64) -> ([u8; 9], usize) {
+    let mut raw = [0u8; 9];
+    let mut n = height;
+    let mut len = 0usize;
+    while n > 0 {
+        raw[len] = (n & 0xff) as u8;
+        n >>= 8;
+        len += 1;
+    }
+    if len > 0 && raw[len - 1] & 0x80 != 0 {
+        raw[len] = 0x00;
+        len += 1;
+    }
+    (raw, len)
+}
+
+/// Coinbase `scriptSig` whose prefix is the BIP34 height encoding.
+///
+/// Height 0 is `OP_0`. Heights 1..=16 are `OP_1`..=`OP_16`. Taller heights are
+/// one length byte plus the minimal little-endian magnitude. A trailing `0xff`
+/// keeps the script at least 2 bytes, the coinbase minimum.
+pub fn encode_bip34_coinbase_script(height: u64) -> Vec<u8> {
+    if height == 0 {
+        return vec![0x00, 0xff];
+    }
+    if (1..=16).contains(&height) {
+        return vec![0x50 + height as u8, 0xff];
+    }
+    let (raw, len) = bip34_magnitude(height);
+    let mut script = Vec::with_capacity(len + 2);
+    script.push(len as u8);
+    script.extend_from_slice(&raw[..len]);
+    if script.len() < 2 {
+        script.push(0xff);
+    }
+    script
+}
+
 /// True when `script_sig` begins with the BIP34 height prefix.
 ///
 /// Height 0 is `OP_0`. Heights 1 through 16 are the single opcodes `OP_1`..=`OP_16`
@@ -233,18 +272,7 @@ fn script_sig_starts_with_height(script_sig: &[u8], height: u64) -> bool {
         // OP_1 = 0x51. Heights 1..=16 are the single opcode 0x50 + height.
         return script_sig.first().copied() == Some(0x50 + height as u8);
     }
-    let mut raw = [0u8; 9];
-    let mut n = height;
-    let mut len = 0usize;
-    while n > 0 {
-        raw[len] = (n & 0xff) as u8;
-        n >>= 8;
-        len += 1;
-    }
-    if raw[len - 1] & 0x80 != 0 {
-        raw[len] = 0x00;
-        len += 1;
-    }
+    let (raw, len) = bip34_magnitude(height);
     script_sig.len() > len && script_sig[0] == len as u8 && script_sig[1..1 + len] == raw[..len]
 }
 
@@ -782,6 +810,35 @@ mod tests {
         assert!(!script_sig_starts_with_height(&[0x51], 17));
         assert!(script_sig_starts_with_height(&[0x00], 0));
         assert_eq!(OP_1, 0x51);
+    }
+
+    #[test]
+    fn encode_bip34_coinbase_script_satisfies_the_prefix_check() {
+        for height in [0u64, 1, 16, 17, 127, 128, 150, 255, 256, 210_000] {
+            let script = encode_bip34_coinbase_script(height);
+            assert!(
+                script_sig_starts_with_height(&script, height),
+                "height {height} script {script:?}"
+            );
+            assert!(
+                (2..=100).contains(&script.len()),
+                "height {height} len {}",
+                script.len()
+            );
+        }
+        assert_eq!(encode_bip34_coinbase_script(0), vec![0x00, 0xff]);
+        assert_eq!(encode_bip34_coinbase_script(1), vec![0x51, 0xff]);
+        assert_eq!(encode_bip34_coinbase_script(16), vec![0x60, 0xff]);
+        assert_eq!(encode_bip34_coinbase_script(17), vec![0x01, 0x11]);
+        assert_eq!(encode_bip34_coinbase_script(127), vec![0x01, 0x7f]);
+        assert_eq!(encode_bip34_coinbase_script(128), vec![0x02, 0x80, 0x00]);
+        assert_eq!(encode_bip34_coinbase_script(150), vec![0x02, 0x96, 0x00]);
+        assert_eq!(encode_bip34_coinbase_script(255), vec![0x02, 0xff, 0x00]);
+        assert_eq!(encode_bip34_coinbase_script(256), vec![0x02, 0x00, 0x01]);
+        assert_eq!(
+            encode_bip34_coinbase_script(210_000),
+            vec![0x03, 0x50, 0x34, 0x03]
+        );
     }
 
     #[test]

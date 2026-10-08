@@ -11,6 +11,15 @@ mod header;
 mod script_cache;
 pub use apply::{apply_transaction, calculate_tx_id};
 pub use header::{block_header_hash, validate_prev_block_hash};
+
+/// Genesis block for `network`. The coinbase is not added to the UTXO set on connect.
+pub fn genesis_block(network: Network) -> Block {
+    let coinbase = header::genesis_coinbase(network);
+    Block {
+        header: header::header_for_genesis_coinbase(network, &coinbase),
+        transactions: vec![coinbase].into_boxed_slice(),
+    }
+}
 pub use script_cache::{
     calculate_base_script_flags_for_block_network, calculate_script_flags_for_block_network,
     get_block_script_flags, get_block_script_verify_flags_core, script_flag_exceptions_lookup,
@@ -1493,4 +1502,179 @@ fn test_apply_transaction_no_outputs() {
         index: 0,
     };
     assert!(new_utxo_set.contains_key(&output_outpoint));
+}
+
+#[test]
+fn genesis_coinbase_stays_out_of_the_utxo_set() {
+    let block = genesis_block(Network::Mainnet);
+    assert_eq!(
+        block_header_hash(&block.header),
+        header::genesis_header_hash(Network::Mainnet)
+    );
+    let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, utxo_set, undo_log) =
+        connect_block(&block, &witnesses, UtxoSet::default(), 0, &ctx).unwrap();
+    assert!(matches!(result, ValidationResult::Valid));
+    assert!(utxo_set.is_empty());
+    assert!(undo_log.is_empty());
+}
+
+#[test]
+fn every_network_genesis_leaves_the_utxo_set_and_delta_empty() {
+    for network in [
+        Network::Mainnet,
+        Network::Testnet,
+        Network::Regtest,
+        Network::Signet,
+        Network::Testnet4,
+    ] {
+        let block = genesis_block(network);
+        let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
+        let ctx = BlockValidationContext::for_network(network);
+        let block_arc = std::sync::Arc::new(block.clone());
+        let (result, utxo_set, tx_ids, delta, undo_log) = connect_block_ibd_with_undo(
+            &block,
+            &witnesses,
+            UtxoSet::default(),
+            0,
+            &ctx,
+            None,
+            None,
+            Some(block_arc),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(utxo_set.is_empty(), "{network:?}");
+        assert!(delta.is_none(), "{network:?}");
+        assert!(undo_log.is_empty(), "{network:?}");
+        match result {
+            ValidationResult::Valid => assert_eq!(tx_ids.len(), 1, "{network:?}"),
+            ValidationResult::Invalid(msg) if network == Network::Regtest => {
+                assert!(
+                    msg.contains("BIP90"),
+                    "regtest genesis is version 1 and BIP65 is active at height 0: {msg}"
+                );
+            }
+            other => panic!("{network:?} {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn genesis_coinbase_is_missing_when_spent_at_maturity() {
+    use crate::mining::calculate_merkle_root;
+    let genesis = genesis_block(Network::Mainnet);
+    let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, utxo_set, _) =
+        connect_block(&genesis, &witnesses, UtxoSet::default(), 0, &ctx).unwrap();
+    assert!(matches!(result, ValidationResult::Valid));
+    let genesis_txid = calculate_tx_id(&genesis.transactions[0]);
+
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x01, 0x64],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5_000_000_000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let spend = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: genesis_txid,
+                index: 0,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 0,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let merkle_root = calculate_merkle_root(&[coinbase.clone(), spend.clone()]).unwrap();
+    let child = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: block_header_hash(&genesis.header),
+            merkle_root,
+            timestamp: 1_231_006_506,
+            bits: 0x1d00ffff,
+            nonce: 1,
+        },
+        transactions: vec![coinbase, spend].into_boxed_slice(),
+    };
+    let child_witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()], vec![Vec::new()]];
+    let (result, utxo_set, undo_log) =
+        connect_block(&child, &child_witnesses, utxo_set, 100, &ctx).unwrap();
+    match result {
+        ValidationResult::Invalid(msg) => {
+            assert!(
+                msg.contains("UTXO not found"),
+                "mature spend of the genesis coinbase must miss the input: {msg}"
+            );
+        }
+        other => panic!("expected a missing genesis input, got {other:?}"),
+    }
+    assert!(utxo_set.is_empty());
+    assert!(undo_log.is_empty());
+}
+
+#[test]
+fn a_non_genesis_block_at_height_zero_still_adds_its_coinbase() {
+    use crate::mining::calculate_merkle_root;
+    let coinbase = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffffffff,
+            },
+            script_sig: vec![0x51, 0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 5_000_000_000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).unwrap();
+    let block = Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root,
+            timestamp: 1_231_006_505,
+            bits: 0x1d00ffff,
+            nonce: 1,
+        },
+        transactions: vec![coinbase].into_boxed_slice(),
+    };
+    let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (result, utxo_set, _) =
+        connect_block(&block, &witnesses, UtxoSet::default(), 0, &ctx).unwrap();
+    assert!(matches!(result, ValidationResult::Valid));
+    assert_eq!(utxo_set.len(), 1);
 }

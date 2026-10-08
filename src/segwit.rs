@@ -381,7 +381,11 @@ pub fn is_segwit_transaction(tx: &Transaction) -> bool {
 /// Calculate block weight for SegWit blocks
 #[spec_locked("11.1.1", "CalculateBlockWeight")]
 pub fn calculate_block_weight(block: &Block, witnesses: &[Witness]) -> Result<Natural> {
-    let mut total_weight = 0;
+    // Header and transaction count are non-witness bytes, so they weigh four times
+    // their length. Omitting them accepts a block whose transactions alone fit in
+    // 4_000_000 while the block does not.
+    let prefix = add_size(80, compact_size_len(block.transactions.len() as u64))?;
+    let mut total_weight = prefix.checked_mul(4).ok_or_else(weight_overflow)?;
 
     for (i, tx) in block.transactions.iter().enumerate() {
         let witness = if i < witnesses.len() {
@@ -390,7 +394,9 @@ pub fn calculate_block_weight(block: &Block, witnesses: &[Witness]) -> Result<Na
             None
         };
 
-        total_weight += calculate_transaction_weight(tx, witness)?;
+        total_weight = total_weight
+            .checked_add(calculate_transaction_weight(tx, witness)?)
+            .ok_or_else(weight_overflow)?;
     }
 
     Ok(total_weight)
@@ -654,7 +660,17 @@ mod tests {
         ];
 
         let weight = calculate_block_weight(&block, &witnesses).unwrap();
-        assert!(weight > 0);
+        let tx_weight: u64 = block
+            .transactions
+            .iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                let witness = witnesses.get(i);
+                calculate_transaction_weight(tx, witness).unwrap()
+            })
+            .sum();
+        let prefix = 4 * (80 + super::compact_size_len(block.transactions.len() as u64));
+        assert_eq!(weight, tx_weight + prefix);
     }
 
     #[test]
