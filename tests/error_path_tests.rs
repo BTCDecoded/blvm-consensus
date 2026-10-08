@@ -196,10 +196,12 @@ fn test_segwit_errors() {
     };
 
     let witnesses = vec![];
-    let result = consensus.validate_segwit_block(&block, &witnesses, 0); // Max weight 0
-    assert!(result.is_ok());
-    // With empty block and witnesses, weight is 0, which equals max_weight 0, so it should be valid
-    assert!(result.unwrap());
+    // An empty block still weighs the 80-byte header plus a one-byte tx count.
+    let prefix = 4 * (80 + 1);
+    let under = consensus.validate_segwit_block(&block, &witnesses, 0).unwrap();
+    assert!(!under);
+    let exact = consensus.validate_segwit_block(&block, &witnesses, prefix).unwrap();
+    assert!(exact);
 }
 
 #[test]
