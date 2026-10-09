@@ -217,30 +217,16 @@ fn golden_core_empty_tx() {
     ));
 }
 
-// --- BIP144 edge case (known wire-parser gap) ---
+// --- BIP144: witness flag with only empty stacks ---
 
 #[test]
-#[ignore = "wire parser accepts superfluous witness; Core rejects at decode"]
 fn golden_superfluous_witness_rejected_at_decode() {
     let bytes = hex_decode(SUPERFLUOUS_WITNESS_HEX);
     let result = deserialize_transaction_with_witness(&bytes);
     assert!(
         result.is_err(),
-        "BIP144 superfluous-witness marker/flag tx with empty stacks must not decode \
-         (Core v28 transaction.h)"
+        "BIP144 witness flag with only empty stacks must not decode"
     );
-}
-
-/// Documents current wire-parser behavior until superfluous-witness rejection lands.
-#[test]
-fn golden_superfluous_witness_currently_decodes() {
-    let bytes = hex_decode(SUPERFLUOUS_WITNESS_HEX);
-    let (tx, witnesses, consumed) =
-        deserialize_transaction_with_witness(&bytes).expect("currently decodes");
-    assert_eq!(consumed, bytes.len());
-    assert_eq!(tx.inputs.len(), 1);
-    assert_eq!(tx.outputs.len(), 1);
-    assert!(witnesses[0].is_empty());
 }
 
 // --- Blocks and headers ---

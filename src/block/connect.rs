@@ -1322,12 +1322,9 @@ fn validate_production_transactions<'a, 'b>(
                                 0
                             };
 
-                            // P2PK fast path: <pubkey> OP_CHECKSIG (35 or 67 bytes)
+                            // P2PK fast path: push opcode equals the key length, then OP_CHECKSIG.
                             // Gate: script_sig must parse as exactly <sig> (1 push).
-                            if (spk_len == 35 || spk_len == 67)
-                                && last_byte == OP_CHECKSIG
-                                && (script_pubkey[0] == PUSH_33_BYTES
-                                    || script_pubkey[0] == PUSH_65_BYTES)
+                            if crate::script::canonical_p2pk_pubkey(script_pubkey).is_some()
                                 && crate::script::parse_p2pk_script_sig(
                                     tx.inputs[c.input_idx].script_sig.as_slice(),
                                 )
@@ -1828,11 +1825,8 @@ fn validate_production_transactions<'a, 'b>(
                                 } else {
                                     0
                                 };
-                                // P2PK fast path
-                                if (spk_len == 35 || spk_len == 67)
-                                    && last_byte == OP_CHECKSIG
-                                    && (script_pubkey[0] == PUSH_33_BYTES
-                                        || script_pubkey[0] == PUSH_65_BYTES)
+                                // P2PK fast path: push opcode equals the key length, then OP_CHECKSIG.
+                                if crate::script::canonical_p2pk_pubkey(script_pubkey).is_some()
                                     && crate::script::parse_p2pk_script_sig(
                                         tx.inputs[c.input_idx].script_sig.as_slice(),
                                     )
@@ -2563,17 +2557,20 @@ fn validate_production_transactions<'a, 'b>(
                                 )));
                             }
                             Ok(partial) => {
-                                if partial.iter().any(|(_, v)| !v) {
+                                if partial.iter().any(|(idx, ok)| {
+                                    !crate::ecdsa_batch::is_multisig_trial_index(*idx) && !ok
+                                }) {
                                     return Ok(ProductionTxFlow::Stop(invalid_block_result(
                                         utxo_set,
                                         tx_ids,
                                         "Invalid ECDSA signature in block",
                                     )));
                                 }
+                                if let Some(mut soa) = block_ecdsa_collector.take_owned_soa() {
+                                    soa.known = partial;
+                                    crate::ecdsa_wave::park_pending(soa);
+                                }
                             }
-                        }
-                        if let Some(soa) = block_ecdsa_collector.take_owned_soa() {
-                            crate::ecdsa_wave::park_pending(soa);
                         }
                     }
                 } else {

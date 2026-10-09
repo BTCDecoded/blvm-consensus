@@ -1020,6 +1020,22 @@ pub fn verify_script_with_context(
     )
 }
 
+/// Bare pay-to-pubkey whose push opcode is the key length, then `OP_CHECKSIG`.
+///
+/// `PUSH_33_BYTES` is a 33-byte key. `PUSH_65_BYTES` is a 65-byte key. A push
+/// that does not match the script length is not this template.
+pub(crate) fn canonical_p2pk_pubkey(script: &[u8]) -> Option<&[u8]> {
+    let key_len = match script.first().copied()? {
+        PUSH_33_BYTES => PUSH_33_BYTES as usize,
+        PUSH_65_BYTES => PUSH_65_BYTES as usize,
+        _ => return None,
+    };
+    if script.len() != key_len + 2 || script[script.len() - 1] != OP_CHECKSIG {
+        return None;
+    }
+    Some(&script[1..1 + key_len])
+}
+
 /// P2PK fast-path. Bare pay-to-pubkey: scriptPubKey is `pubkey` + OP_CHECKSIG, scriptSig is `sig`.
 /// Common in early blocks (coinbase outputs). Returns Some(Ok(bool)) if handled; None to fall back.
 /// Uses full transaction context (height, network) for BIP66 / signature validation.
@@ -1042,23 +1058,9 @@ pub fn try_verify_p2pk_fast_path(
         &crate::transaction_hash::SighashMidstateCache,
     >,
 ) -> Option<Result<bool>> {
-    // P2PK scriptPubKey: OP_PUSHBYTES_N + pubkey + OP_CHECKSIG
-    // 35 bytes (compressed: 0x21 + 33) or 67 bytes (uncompressed: 0x41 + 65)
-    let len = script_pubkey.len();
-    if len != 35 && len != 67 {
+    let Some(pubkey_bytes) = canonical_p2pk_pubkey(script_pubkey) else {
         return None;
-    }
-    if script_pubkey[len - 1] != OP_CHECKSIG {
-        return None;
-    }
-    let pubkey_len = len - 2; // exclude push opcode and OP_CHECKSIG
-    if pubkey_len != 33 && pubkey_len != 65 {
-        return None;
-    }
-    if script_pubkey[0] != 0x21 && script_pubkey[0] != 0x41 {
-        return None; // OP_PUSHBYTES_33 or OP_PUSHBYTES_65
-    }
-    let pubkey_bytes = &script_pubkey[1..(len - 1)];
+    };
 
     let signature_bytes = parse_p2pk_script_sig(script_sig.as_ref())?;
     if signature_bytes.is_empty() {
@@ -1480,8 +1482,9 @@ pub fn verify_p2pk_inline(
         usize,
     )>,
 ) -> Result<bool> {
-    let pk_len = script_pubkey.len() - 2; // 33 or 65
-    let pubkey_bytes = &script_pubkey[1..1 + pk_len];
+    let Some(pubkey_bytes) = canonical_p2pk_pubkey(script_pubkey) else {
+        return Ok(false);
+    };
 
     let signature_bytes = match parse_p2pk_script_sig(script_sig) {
         Some(s) => s,
@@ -1502,8 +1505,8 @@ pub fn verify_p2pk_inline(
     );
 
     let der_sig = &signature_bytes[..signature_bytes.len() - 1];
-    let strict_der = flags & 0x04 != 0;
-    let enforce_low_s = flags & 0x08 != 0;
+    let strict_der = flags & flags::SCRIPT_VERIFY_DERSIG != 0;
+    let enforce_low_s = flags & flags::SCRIPT_VERIFY_LOW_S != 0;
 
     if strict_der
         && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
@@ -1558,6 +1561,17 @@ pub fn verify_p2pk_inline(
     .unwrap_or(false))
 }
 
+/// Null-fail applies after CHECKMULTISIG has failed, and then only if a signature is non-empty.
+fn failed_multisig_nullfail(flags: u32, success: bool, any_nonempty_signature: bool) -> Result<()> {
+    if !success && flags & flags::SCRIPT_VERIFY_NULLFAIL != 0 && any_nonempty_signature {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::SigNullFail,
+            message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
+        });
+    }
+    Ok(())
+}
+
 /// P2SH-multisig fast path: when redeem script matches `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`,
 /// verify inline or defer cartesian trials to [`EcdsaSignatureCollector`] when provided.
 /// Returns Some(Ok(true/false)) if we handled it, None to fall through to interpreter.
@@ -1607,7 +1621,6 @@ fn try_verify_p2sh_multisig_fast_path(
     };
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
-    const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
     let height = block_height.unwrap_or(0);
     if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
         let activation = match network {
@@ -1640,7 +1653,7 @@ fn try_verify_p2sh_multisig_fast_path(
     // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     if let Some(collector) = ecdsa_collector {
-        let nullfail = (flags & SCRIPT_VERIFY_NULLFAIL) != 0;
+        let nullfail = (flags & flags::SCRIPT_VERIFY_NULLFAIL) != 0;
         let enforce_low_s = (flags & flags::SCRIPT_VERIFY_LOW_S) != 0;
         let strict_der = (flags & flags::SCRIPT_VERIFY_DERSIG) != 0
             || (flags & flags::SCRIPT_VERIFY_STRICTENC) != 0
@@ -1782,19 +1795,13 @@ fn try_verify_p2sh_multisig_fast_path(
         }
     }
 
-    if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
-        for sig_bytes in &signatures[sig_index..] {
-            if !sig_bytes.is_empty() {
-                return Some(Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::SigNullFail,
-                    message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                        .into(),
-                }));
-            }
-        }
+    let success = signatures.len() == usize::from(m) && valid_sigs == m;
+    if let Err(e) =
+        failed_multisig_nullfail(flags, success, signatures.iter().any(|sig| !sig.is_empty()))
+    {
+        return Some(Err(e));
     }
-
-    Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m))
+    Some(Ok(success))
 }
 
 /// IBD entry: P2SH-multisig with optional SoA deferral (see [`try_verify_p2sh_multisig_fast_path`]).
@@ -1852,7 +1859,6 @@ fn try_verify_bare_multisig_fast_path(
     };
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
-    const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
     let height = block_height.unwrap_or(0);
     if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
         let activation = match network {
@@ -1947,19 +1953,13 @@ fn try_verify_bare_multisig_fast_path(
         }
     }
 
-    if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
-        for sig_bytes in &signatures[sig_index..] {
-            if !sig_bytes.is_empty() {
-                return Some(Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::SigNullFail,
-                    message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                        .into(),
-                }));
-            }
-        }
+    let success = signatures.len() == usize::from(m) && valid_sigs == m;
+    if let Err(e) =
+        failed_multisig_nullfail(flags, success, signatures.iter().any(|sig| !sig.is_empty()))
+    {
+        return Some(Err(e));
     }
-
-    Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m))
+    Some(Ok(success))
 }
 
 /// P2SH fast-path for regular P2SH (redeem script is not a witness program).
@@ -2163,15 +2163,9 @@ fn try_verify_p2sh_fast_path(
         }
     }
 
-    // P2SH-with-P2PK-redeem fast-path: redeem = OP_PUSHBYTES_N + pubkey + OP_CHECKSIG, stack = [sig]
-    if (redeem.len() == 35 || redeem.len() == 67)
-        && redeem[redeem.len() - 1] == OP_CHECKSIG
-        && (redeem[0] == PUSH_33_BYTES || redeem[0] == PUSH_65_BYTES)
-        && stack.len() == 1
-    {
-        let pubkey_len = redeem.len() - 2;
-        if pubkey_len == 33 || pubkey_len == 65 {
-            let pubkey_bytes = &redeem.as_ref()[1..(redeem.len() - 1)];
+    // P2SH-with-P2PK-redeem fast-path: redeem = push(pubkey) OP_CHECKSIG, stack = [sig]
+    if stack.len() == 1 {
+        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(redeem.as_ref()) {
             let signature_bytes = &stack[0];
             if !signature_bytes.is_empty() {
                 use crate::transaction_hash::{
@@ -2832,44 +2826,39 @@ pub(crate) fn try_verify_p2wsh_fast_path(
         }
     }
 
-    // P2WSH-with-P2PK fast-path: witness_script = OP_PUSHBYTES_N + pubkey + OP_CHECKSIG, stack = [sig]. BIP143 inline verify.
-    if witness_sigversion == SigVersion::WitnessV0
-        && (witness_script.len() == 35 || witness_script.len() == 67)
-        && witness_script[witness_script.len() - 1] == OP_CHECKSIG
-        && (witness_script[0] == 0x21 || witness_script[0] == 0x41)
-        && stack.len() == 1
-    {
-        let pubkey_len = witness_script.len() - 2;
-        if (pubkey_len == 33 || pubkey_len == 65) && !stack[0].is_empty() {
-            let pubkey_bytes = &witness_script[1..(witness_script.len() - 1)];
-            let signature_bytes = &stack[0];
-            let sighash_byte = signature_bytes[signature_bytes.len() - 1];
-            let amount = prevout_values.get(input_index).copied().unwrap_or(0);
-            match crate::transaction_hash::calculate_bip143_sighash(
-                tx,
-                input_index,
-                witness_script.as_ref(),
-                amount,
-                sighash_byte,
-                precomputed_bip143,
-            ) {
-                Ok(sighash) => {
-                    let height = block_height.unwrap_or(0);
-                    let is_valid = signature::with_secp_context(|secp| {
-                        signature::verify_signature(
-                            secp,
-                            pubkey_bytes,
-                            signature_bytes,
-                            &sighash,
-                            flags,
-                            height,
-                            network,
-                            SigVersion::WitnessV0,
-                        )
-                    });
-                    return Some(is_valid);
+    // P2WSH-with-P2PK fast-path: witness_script = push(pubkey) OP_CHECKSIG, stack = [sig]. BIP143 inline verify.
+    if witness_sigversion == SigVersion::WitnessV0 && stack.len() == 1 {
+        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(witness_script.as_ref()) {
+            if !stack[0].is_empty() {
+                let signature_bytes = &stack[0];
+                let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+                let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+                match crate::transaction_hash::calculate_bip143_sighash(
+                    tx,
+                    input_index,
+                    witness_script.as_ref(),
+                    amount,
+                    sighash_byte,
+                    precomputed_bip143,
+                ) {
+                    Ok(sighash) => {
+                        let height = block_height.unwrap_or(0);
+                        let is_valid = signature::with_secp_context(|secp| {
+                            signature::verify_signature(
+                                secp,
+                                pubkey_bytes,
+                                signature_bytes,
+                                &sighash,
+                                flags,
+                                height,
+                                network,
+                                SigVersion::WitnessV0,
+                            )
+                        });
+                        return Some(is_valid);
+                    }
+                    Err(e) => return Some(Err(e)),
                 }
-                Err(e) => return Some(Err(e)),
             }
         }
     }
@@ -2883,7 +2872,6 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             };
 
             const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
-            const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
             let height = block_height.unwrap_or(0);
             if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
                 let activation = match network {
@@ -2905,7 +2893,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
             #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
             if let Some(collector) = ecdsa_collector {
-                let nullfail = (flags & SCRIPT_VERIFY_NULLFAIL) != 0;
+                let nullfail = (flags & flags::SCRIPT_VERIFY_NULLFAIL) != 0;
                 let enforce_low_s = (flags & flags::SCRIPT_VERIFY_LOW_S) != 0;
                 let strict_der = (flags & flags::SCRIPT_VERIFY_DERSIG) != 0
                     || (flags & flags::SCRIPT_VERIFY_STRICTENC) != 0
@@ -3025,20 +3013,15 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 }
             }
 
-            if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
-                for sig_bytes in &signatures[sig_index..] {
-                    if !sig_bytes.is_empty() {
-                        return Some(Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::SigNullFail,
-                            message:
-                                "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                                    .into(),
-                        }));
-                    }
-                }
+            let success = signatures.len() == usize::from(m) && valid_sigs == m;
+            if let Err(e) = failed_multisig_nullfail(
+                flags,
+                success,
+                signatures.iter().any(|sig| !sig.is_empty()),
+            ) {
+                return Some(Err(e));
             }
-
-            return Some(Ok(signatures.len() == usize::from(m) && valid_sigs == m));
+            return Some(Ok(success));
         }
     }
 
@@ -5053,6 +5036,17 @@ pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
     result
 }
 
+/// NOP1 and NOP4–NOP10 stay successful until the upgradable-NOP flag is set.
+fn upgradable_nop(flags: u32) -> Result<bool> {
+    if flags & flags::SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS != 0 {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::DiscourageUpgradableNops,
+            message: "reserved NOP is discouraged".into(),
+        });
+    }
+    Ok(true)
+}
+
 /// Execute a single opcode (currently ignores sigversion; accepts it for future compatibility)
 #[cfg(feature = "production")]
 #[inline(always)]
@@ -5557,25 +5551,20 @@ fn execute_opcode(
         // OP_CODESEPARATOR - marks position for sighash (no-op in execute_opcode)
         OP_CODESEPARATOR => Ok(true),
 
-        // OP_NOP1 and OP_NOP5-OP_NOP10 - no-ops
-        // Note: OP_NOP4 (0xb3) is used for OP_CHECKTEMPLATEVERIFY (BIP119)
-        OP_NOP1 | OP_NOP5..=OP_NOP10 => Ok(true),
+        // OP_NOP1 and OP_NOP5-OP_NOP10. OP_NOP4 is OP_CHECKTEMPLATEVERIFY.
+        OP_NOP1 | OP_NOP5..=OP_NOP10 => upgradable_nop(flags),
 
         // OP_CHECKTEMPLATEVERIFY (NOP4 / BIP 119)
-        // Treated as NOP when the CTV flag is not in the verification flags.
-        // Full validation requires tx context and the SCRIPT_VERIFY_CHECKTEMPLATEVERIFY flag.
+        // Treated as a reserved NOP unless the CTV feature is on and its flag is set.
         OP_CHECKTEMPLATEVERIFY => {
             #[cfg(feature = "ctv")]
-            {
-                const SCRIPT_VERIFY_CHECKTEMPLATEVERIFY: u32 = 0x8000;
-                if (flags & SCRIPT_VERIFY_CHECKTEMPLATEVERIFY) != 0 {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::TxInvalid,
-                        message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
-                    });
-                }
+            if flags & flags::SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH != 0 {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::TxInvalid,
+                    message: "OP_CHECKTEMPLATEVERIFY requires transaction context".into(),
+                });
             }
-            Ok(true)
+            upgradable_nop(flags)
         }
 
         // Disabled string opcodes - must return error per consensus
@@ -5852,8 +5841,8 @@ fn parse_script_sig_push_only(script_sig: &[u8]) -> Option<Vec<StackElement>> {
                 return None;
             }
             (5 + len, script_sig[i + 5..i + 5 + len].to_vec())
-        } else if (OP_1NEGATE..=OP_16).contains(&opcode) {
-            // Single-byte push: push the numeric value as minimal bytes
+        } else if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
+            // Numeric pushes. OP_RESERVED sits between OP_1NEGATE and OP_1 and is not one of them.
             let n = script_num_from_opcode(opcode);
             (1, script_num_encode(n))
         } else {
@@ -5892,11 +5881,11 @@ fn checkmultisig_window(items: &[StackElement], m: u8, exact: bool) -> Option<(&
     Some((dummy, signatures))
 }
 
-/// Parse redeem script as `OP_m <pubkeys> OP_n OP_CHECKMULTISIG` (Bitcoin standard).
+/// Parse redeem script as `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
 ///
-/// `m` = required signatures (threshold), `n` = pubkey count. Standard mainnet
-/// form uses push opcodes before each key (`PUSH_33_BYTES` / `PUSH_65_BYTES`).
-/// Also accepts legacy raw-key form (SEC header, no push length) for tests.
+/// `m` is the required signature count. `n` is the pubkey count. Each key is a
+/// `PUSH_33_BYTES` or `PUSH_65_BYTES` push. A direct push of 2, 3, or 4 bytes
+/// is not a key.
 ///
 /// Returns `(m, n, pubkey_slices)` or `None` if the format doesn't match.
 fn parse_redeem_multisig(redeem: &[u8]) -> Option<(u8, u8, Vec<&[u8]>)> {
@@ -5927,16 +5916,10 @@ fn parse_redeem_multisig(redeem: &[u8]) -> Option<(u8, u8, Vec<&[u8]>)> {
             return None;
         }
         let first = redeem[i];
-        // Push-encoded compressed/uncompressed — standard mainnet redeem.
-        // Also accept legacy raw-key form (SEC header with no push length) for tests.
         let (pk_start, pk_len) = if first == PUSH_33_BYTES {
-            (i + 1, 33usize)
+            (i + 1, PUSH_33_BYTES as usize)
         } else if first == PUSH_65_BYTES {
-            (i + 1, 65usize)
-        } else if first == 0x02 || first == 0x03 {
-            (i, 33usize)
-        } else if first == 0x04 {
-            (i, 65usize)
+            (i + 1, PUSH_65_BYTES as usize)
         } else {
             return None;
         };
@@ -5989,17 +5972,21 @@ mod parse_redeem_multisig_tests {
     }
 
     #[test]
-    fn accepts_legacy_raw_key_form() {
-        // 1-of-1 raw key: OP_1 <33-byte-pk> OP_1 OP_CHECKMULTISIG
-        let mut redeem = vec![OP_1];
-        let mut pk = [0u8; 33];
-        pk[0] = 0x03;
-        pk[2] = 0xaa;
-        redeem.extend_from_slice(&pk);
-        redeem.push(OP_1);
-        redeem.push(OP_CHECKMULTISIG);
-        let (m, n, pks) = parse_redeem_multisig(&redeem).expect("raw-key redeem");
-        assert_eq!((m, n, pks.len()), (1, 1, 1));
+    fn rejects_raw_key_without_a_push_opcode() {
+        let mut compressed = vec![OP_1];
+        let mut pk33 = [0u8; PUSH_33_BYTES as usize];
+        pk33[0] = 3;
+        compressed.extend_from_slice(&pk33);
+        compressed.push(OP_1);
+        compressed.push(OP_CHECKMULTISIG);
+        assert!(parse_redeem_multisig(&compressed).is_none());
+
+        let mut uncompressed = vec![OP_1];
+        let pk65 = [4u8; PUSH_65_BYTES as usize];
+        uncompressed.extend_from_slice(&pk65);
+        uncompressed.push(OP_1);
+        uncompressed.push(OP_CHECKMULTISIG);
+        assert!(parse_redeem_multisig(&uncompressed).is_none());
     }
 
     #[test]
@@ -7001,28 +6988,6 @@ fn execute_opcode_with_context_full(
                     }
                 }
 
-                // NULLFAIL: any non-empty sig that didn't match any pubkey must cause failure
-                const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
-                if (flags & SCRIPT_VERIFY_NULLFAIL) != 0 {
-                    for (j, sig_bytes) in signatures.iter().enumerate() {
-                        if sig_bytes.is_empty() {
-                            continue;
-                        }
-                        let sh_idx = sig_idx_to_sighash_idx[j];
-                        if sh_idx == usize::MAX {
-                            continue;
-                        }
-                        let sig_start = sh_idx * pubkeys.len();
-                        let sig_end = (sig_start + pubkeys.len()).min(results.len());
-                        let matched = results[sig_start..sig_end].iter().any(|&r| r);
-                        if !matched {
-                            return Err(ConsensusError::ScriptErrorWithCode {
-                                code: ScriptErrorCode::SigNullFail,
-                                message: "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
-                            });
-                        }
-                    }
-                }
                 (valid_sigs, ())
             } else {
                 let mut sig_index = 0;
@@ -7098,19 +7063,6 @@ fn execute_opcode_with_context_full(
                         )?
                     };
 
-                    const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
-                    if !is_valid
-                        && (flags & SCRIPT_VERIFY_NULLFAIL) != 0
-                        && !signature_bytes.is_empty()
-                    {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::SigNullFail,
-                            message:
-                                "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                                    .into(),
-                        });
-                    }
-
                     if is_valid {
                         valid_sigs += 1;
                         sig_index += 1;
@@ -7167,18 +7119,6 @@ fn execute_opcode_with_context_full(
                         network,
                         sigversion,
                     )?;
-                    const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
-                    if !is_valid
-                        && (flags & SCRIPT_VERIFY_NULLFAIL) != 0
-                        && !signature_bytes.is_empty()
-                    {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::SigNullFail,
-                            message:
-                                "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                                    .into(),
-                        });
-                    }
                     if is_valid {
                         valid_sigs += 1;
                         sig_index += 1;
@@ -7187,8 +7127,9 @@ fn execute_opcode_with_context_full(
                 (valid_sigs, ())
             };
 
-            // Push result: 1 if valid_sigs >= m, 0 otherwise
-            stack.push(to_stack_element(script_bool_bytes(valid_sigs >= m)));
+            let success = valid_sigs >= m;
+            failed_multisig_nullfail(flags, success, signatures.iter().any(|sig| !sig.is_empty()))?;
+            stack.push(to_stack_element(script_bool_bytes(success)));
             Ok(true)
         }
 
@@ -7395,15 +7336,7 @@ fn execute_opcode_with_context_full(
         OP_CHECKTEMPLATEVERIFY => {
             #[cfg(not(feature = "ctv"))]
             {
-                // Without feature flag, treat as NOP4 (or discourage if flag set)
-                const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
-                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::BadOpcode,
-                        message: "OP_CHECKTEMPLATEVERIFY requires --features ctv".into(),
-                    });
-                }
-                Ok(true) // NOP4
+                upgradable_nop(flags)
             }
 
             #[cfg(feature = "ctv")]
@@ -7425,22 +7358,11 @@ fn execute_opcode_with_context_full(
 
                 let ctv_active = block_height.map(|h| h >= ctv_activation).unwrap_or(false);
                 if !ctv_active {
-                    // Before activation: treat as NOP4
-                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
-                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::BadOpcode,
-                            message: "OP_CHECKTEMPLATEVERIFY not yet activated".into(),
-                        });
-                    }
-                    return Ok(true); // NOP4
+                    return upgradable_nop(flags);
                 }
 
-                // Check if CTV flag is enabled
-                const SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH: u32 = 0x80000000;
-                if (flags & SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH) == 0 {
-                    // Flag not set, treat as NOP4
-                    return Ok(true);
+                if flags & flags::SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH == 0 {
+                    return upgradable_nop(flags);
                 }
 
                 use crate::bip119::calculate_template_hash;
@@ -7457,17 +7379,7 @@ fn execute_opcode_with_context_full(
 
                 // Template hash must be exactly 32 bytes
                 if template_hash_bytes.len() != 32 {
-                    // Non-32-byte argument: NOP (per BIP-119)
-                    // But discourage if flag is set
-                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
-                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::InvalidStackOperation,
-                            message: "OP_CHECKTEMPLATEVERIFY: template hash must be 32 bytes"
-                                .into(),
-                        });
-                    }
-                    return Ok(true); // NOP
+                    return upgradable_nop(flags);
                 }
 
                 // Calculate actual template hash for this transaction
@@ -7546,15 +7458,13 @@ fn execute_opcode_with_context_full(
 
                 let csfs_active = block_height.map(|h| h >= csfs_activation).unwrap_or(false);
                 if !csfs_active {
-                    // Before activation: OP_SUCCESS204 behavior (succeeds)
-                    const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS: u32 = 0x10000;
-                    if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) != 0 {
+                    if flags & flags::SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS != 0 {
                         return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::BadOpcode,
+                            code: ScriptErrorCode::DiscourageUpgradableNops,
                             message: "OP_CHECKSIGFROMSTACK not yet activated".into(),
                         });
                     }
-                    return Ok(true); // OP_SUCCESS204 succeeds
+                    return Ok(true);
                 }
 
                 use crate::bip348::verify_signature_from_stack;
@@ -8153,6 +8063,66 @@ mod tests {
         p2sh_ok.extend_from_slice(&hash_ok);
         p2sh_ok.push(OP_EQUAL);
         assert!(verify(&p2sh_ok, &serialize_push_data(&redeem_ok), 400_000).unwrap());
+    }
+
+    /// BIP341 taproot is the native `OP_1 PUSH_32_BYTES` program. The same
+    /// program inside pay-to-script-hash stays an upgradable witness program
+    /// after activation: a truthy program succeeds, and an all-zero program fails.
+    #[test]
+    fn p2sh_wrapped_v1_32_stays_upgradable_after_taproot() {
+        use crate::constants::TAPROOT_ACTIVATION_MAINNET;
+        use crate::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS};
+        use digest::Digest;
+
+        let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+        let verify = |script_pubkey: &[u8], script_sig: &[u8]| {
+            let script_sig = script_sig.to_vec();
+            let (tx, pv, psp) = minimal_tx_and_prevouts(&script_sig, script_pubkey);
+            let refs: Vec<&[u8]> = psp.iter().map(|b| b.as_ref()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &pv,
+                &refs,
+                Some(TAPROOT_ACTIVATION_MAINNET),
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                None,
+            )
+        };
+
+        let program_len = PUSH_32_BYTES as usize;
+        let mut truthy_redeem = vec![OP_1, PUSH_32_BYTES];
+        truthy_redeem.extend(std::iter::repeat(1u8).take(program_len));
+        let truthy_hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&truthy_redeem));
+        let mut truthy_p2sh = vec![OP_HASH160, PUSH_20_BYTES];
+        truthy_p2sh.extend_from_slice(&truthy_hash);
+        truthy_p2sh.push(OP_EQUAL);
+        assert!(verify(&truthy_p2sh, &serialize_push_data(&truthy_redeem)).unwrap());
+        assert!(!verify(&truthy_redeem, &[]).unwrap());
+
+        let mut zero_redeem = vec![OP_1, PUSH_32_BYTES];
+        zero_redeem.extend(std::iter::repeat(0u8).take(program_len));
+        let zero_hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&zero_redeem));
+        let mut zero_p2sh = vec![OP_HASH160, PUSH_20_BYTES];
+        zero_p2sh.extend_from_slice(&zero_hash);
+        zero_p2sh.push(OP_EQUAL);
+        assert!(!verify(&zero_p2sh, &serialize_push_data(&zero_redeem)).unwrap());
     }
 
     #[test]
@@ -8959,6 +8929,478 @@ mod tests {
     }
 
     #[test]
+    fn canonical_p2pk_requires_the_push_opcode_to_match_the_key_length() {
+        let compressed = [2u8; PUSH_33_BYTES as usize];
+        let mut matched = vec![PUSH_33_BYTES];
+        matched.extend_from_slice(&compressed);
+        matched.push(OP_CHECKSIG);
+        assert_eq!(canonical_p2pk_pubkey(&matched), Some(compressed.as_slice()));
+
+        let mut truncated = vec![PUSH_65_BYTES];
+        truncated.extend_from_slice(&compressed);
+        truncated.push(OP_CHECKSIG);
+        assert!(canonical_p2pk_pubkey(&truncated).is_none());
+
+        let uncompressed = [4u8; PUSH_65_BYTES as usize];
+        let mut matched_long = vec![PUSH_65_BYTES];
+        matched_long.extend_from_slice(&uncompressed);
+        matched_long.push(OP_CHECKSIG);
+        assert_eq!(
+            canonical_p2pk_pubkey(&matched_long),
+            Some(uncompressed.as_slice())
+        );
+
+        let mut short_push_on_long_script = vec![PUSH_33_BYTES];
+        short_push_on_long_script.extend_from_slice(&uncompressed);
+        short_push_on_long_script.push(OP_CHECKSIG);
+        assert!(canonical_p2pk_pubkey(&short_push_on_long_script).is_none());
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn p2pk_fast_path_does_not_accept_a_push_that_does_not_fit() {
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[52u8; 32]).expect("secret");
+        let pubkey = PublicKey::from_secret_key(&secp, &secret).serialize();
+
+        let spend = |script_pubkey: &[u8]| {
+            let (mut tx, prevout_values, prevout_scripts) =
+                minimal_tx_and_prevouts(&[], script_pubkey);
+            let sighash = calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                script_pubkey,
+                prevout_values[0],
+                SighashType::ALL,
+                None,
+            )
+            .expect("sighash");
+            let msg = Message::from_digest_slice(&sighash).expect("digest");
+            let mut der = secp.sign_ecdsa(&msg, &secret).serialize_der().to_vec();
+            der.push(SighashType::ALL.0);
+            let script_sig = serialize_push_data(&der);
+            tx.inputs[0].script_sig = script_sig.clone();
+            let refs: Vec<&[u8]> = prevout_scripts.iter().map(|s| s.as_slice()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                0,
+                &tx,
+                0,
+                &prevout_values,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("verify")
+        };
+
+        let mut mismatched = vec![PUSH_65_BYTES];
+        mismatched.extend_from_slice(&pubkey);
+        mismatched.push(OP_CHECKSIG);
+        assert!(!spend(&mismatched));
+
+        let mut matched = vec![PUSH_33_BYTES];
+        matched.extend_from_slice(&pubkey);
+        matched.push(OP_CHECKSIG);
+        assert!(spend(&matched));
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn raw_key_multisig_is_not_accepted_by_the_fast_path() {
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[52u8; 32]).expect("secret");
+        let pubkey = PublicKey::from_secret_key(&secp, &secret).serialize();
+
+        let spend = |script_pubkey: &[u8]| {
+            let (mut tx, prevout_values, prevout_scripts) =
+                minimal_tx_and_prevouts(&[], script_pubkey);
+            let sighash = calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                script_pubkey,
+                prevout_values[0],
+                SighashType::ALL,
+                None,
+            )
+            .expect("sighash");
+            let msg = Message::from_digest_slice(&sighash).expect("digest");
+            let mut der = secp.sign_ecdsa(&msg, &secret).serialize_der().to_vec();
+            der.push(SighashType::ALL.0);
+            let mut script_sig = vec![OP_0];
+            script_sig.extend(serialize_push_data(&der));
+            tx.inputs[0].script_sig = script_sig.clone();
+            let refs: Vec<&[u8]> = prevout_scripts.iter().map(|s| s.as_slice()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                0,
+                &tx,
+                0,
+                &prevout_values,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+
+        let mut pushed = vec![OP_1, PUSH_33_BYTES];
+        pushed.extend_from_slice(&pubkey);
+        pushed.push(OP_1);
+        pushed.push(OP_CHECKMULTISIG);
+        assert!(matches!(spend(&pushed), Ok(true)));
+
+        let mut raw = vec![OP_1];
+        raw.extend_from_slice(&pubkey);
+        raw.push(OP_1);
+        raw.push(OP_CHECKMULTISIG);
+        assert!(!matches!(spend(&raw), Ok(true)));
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn reserved_opcode_multisig_is_not_accepted_by_the_fast_path() {
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[52u8; 32]).expect("secret");
+        let pubkey = PublicKey::from_secret_key(&secp, &secret).serialize();
+
+        let mut redeem = vec![OP_1, PUSH_33_BYTES];
+        redeem.extend_from_slice(&pubkey);
+        redeem.push(OP_1);
+        redeem.push(OP_CHECKMULTISIG);
+
+        let redeem_hash = Ripemd160::digest(OptimizedSha256::new().hash(&redeem));
+        let mut p2sh = vec![OP_HASH160, PUSH_20_BYTES];
+        p2sh.extend_from_slice(&redeem_hash);
+        p2sh.push(OP_EQUAL);
+
+        let spend = |script_pubkey: &[u8], script_code: &[u8], prefix: &[u8], flags: u32| {
+            let (mut tx, prevout_values, prevout_scripts) =
+                minimal_tx_and_prevouts(&[], script_pubkey);
+            let sighash = calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                script_code,
+                prevout_values[0],
+                SighashType::ALL,
+                None,
+            )
+            .expect("sighash");
+            let msg = Message::from_digest_slice(&sighash).expect("digest");
+            let mut der = secp.sign_ecdsa(&msg, &secret).serialize_der().to_vec();
+            der.push(SighashType::ALL.0);
+            let mut script_sig = prefix.to_vec();
+            script_sig.extend(serialize_push_data(&der));
+            if script_pubkey.len() == 23 {
+                script_sig.extend(serialize_push_data(script_code));
+            }
+            tx.inputs[0].script_sig = script_sig.clone();
+            let refs: Vec<&[u8]> = prevout_scripts.iter().map(|s| s.as_slice()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &prevout_values,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+
+        assert!(matches!(spend(&redeem, &redeem, &[OP_0], 0), Ok(true)));
+        assert!(!matches!(
+            spend(&redeem, &redeem, &[OP_RESERVED], 0),
+            Ok(true)
+        ));
+        assert!(matches!(
+            spend(&p2sh, &redeem, &[OP_0], flags::SCRIPT_VERIFY_P2SH),
+            Ok(true)
+        ));
+        assert!(!matches!(
+            spend(&p2sh, &redeem, &[OP_RESERVED], flags::SCRIPT_VERIFY_P2SH),
+            Ok(true)
+        ));
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn hybrid_pubkey_is_accepted_without_strictenc() {
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        const PUBKEY_UNCOMPRESSED: u8 = 0x04;
+        const PUBKEY_HYBRID_EVEN: u8 = 0x06;
+        const PUBKEY_HYBRID_ODD: u8 = 0x07;
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[53u8; 32]).expect("secret");
+        let mut uncompressed = PublicKey::from_secret_key(&secp, &secret).serialize_uncompressed();
+        assert_eq!(uncompressed[0], PUBKEY_UNCOMPRESSED);
+        let y_odd = uncompressed[64] & 1 == 1;
+        let matching = if y_odd {
+            PUBKEY_HYBRID_ODD
+        } else {
+            PUBKEY_HYBRID_EVEN
+        };
+        let mismatched = if y_odd {
+            PUBKEY_HYBRID_EVEN
+        } else {
+            PUBKEY_HYBRID_ODD
+        };
+
+        let spend = |pubkey: &[u8], flags: u32| {
+            let mut script_pubkey = vec![PUSH_65_BYTES];
+            script_pubkey.extend_from_slice(pubkey);
+            script_pubkey.push(OP_CHECKSIG);
+            let (mut tx, prevout_values, prevout_scripts) =
+                minimal_tx_and_prevouts(&[], &script_pubkey);
+            let sighash = calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                &script_pubkey,
+                prevout_values[0],
+                SighashType::ALL,
+                None,
+            )
+            .expect("sighash");
+            let msg = Message::from_digest_slice(&sighash).expect("digest");
+            let mut der = secp.sign_ecdsa(&msg, &secret).serialize_der().to_vec();
+            der.push(SighashType::ALL.0);
+            let script_sig = serialize_push_data(&der);
+            tx.inputs[0].script_sig = script_sig.clone();
+            let refs: Vec<&[u8]> = prevout_scripts.iter().map(|s| s.as_slice()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                &script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &prevout_values,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+
+        let block_flags = flags::SCRIPT_VERIFY_P2SH
+            | flags::SCRIPT_VERIFY_WITNESS
+            | flags::SCRIPT_VERIFY_TAPROOT
+            | flags::SCRIPT_VERIFY_DERSIG;
+        uncompressed[0] = matching;
+        assert!(matches!(spend(&uncompressed, 0), Ok(true)));
+        assert!(matches!(spend(&uncompressed, block_flags), Ok(true)));
+        assert!(!matches!(
+            spend(&uncompressed, flags::SCRIPT_VERIFY_STRICTENC),
+            Ok(true)
+        ));
+        uncompressed[0] = mismatched;
+        assert!(!matches!(spend(&uncompressed, 0), Ok(true)));
+        uncompressed[0] = PUBKEY_UNCOMPRESSED;
+        assert!(matches!(spend(&uncompressed, 0), Ok(true)));
+    }
+
+    #[test]
+    fn discouraged_nop_uses_the_upgradable_nop_flag() {
+        let discourage = flags::SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS;
+        let reserved = [OP_NOP1, OP_NOP5, OP_NOP10, OP_CHECKTEMPLATEVERIFY];
+
+        let eval = |script: &[u8], flags: u32| {
+            let mut stack = Vec::new();
+            eval_script(script, &mut stack, flags, SigVersion::Base)
+        };
+        let with_context = |opcode: u8, flags: u32| {
+            let script_pubkey = vec![OP_1, opcode];
+            let script_sig = Vec::new();
+            let (tx, pv, psp) = minimal_tx_and_prevouts(&script_sig, &script_pubkey);
+            let refs: Vec<&[u8]> = psp.iter().map(|b| b.as_ref()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                &script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &pv,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                #[cfg(feature = "production")]
+                None,
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(feature = "production")]
+                None,
+                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                None,
+            )
+        };
+        let is_discouraged = |result: Result<bool>| match result {
+            Err(ConsensusError::ScriptErrorWithCode { code, .. }) => {
+                code == ScriptErrorCode::DiscourageUpgradableNops
+            }
+            _ => false,
+        };
+
+        for opcode in reserved {
+            let script = [OP_1, opcode];
+            assert!(eval(&script, 0).unwrap());
+            assert!(is_discouraged(eval(&script, discourage)));
+            assert!(eval(&script, flags::SCRIPT_VERIFY_CONST_SCRIPTCODE).unwrap());
+            assert!(eval(&script, flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE).unwrap());
+            assert!(with_context(opcode, 0).unwrap());
+            assert!(is_discouraged(with_context(opcode, discourage)));
+            assert!(with_context(opcode, flags::SCRIPT_VERIFY_CONST_SCRIPTCODE).unwrap());
+        }
+
+        assert!(eval(&[OP_1, OP_NOP], discourage).unwrap());
+        assert!(eval(&[OP_1, OP_CHECKLOCKTIMEVERIFY], discourage).unwrap());
+        assert!(eval(&[OP_0, OP_IF, OP_NOP1, OP_ENDIF, OP_1], discourage,).unwrap());
+        assert!(with_context(OP_NOP, discourage).unwrap());
+        assert!(with_context(OP_CHECKLOCKTIMEVERIFY, discourage).unwrap());
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn nullfail_waits_until_the_multisig_fails() {
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let signing = SecretKey::from_slice(&[53u8; 32]).expect("secret");
+        let other = SecretKey::from_slice(&[54u8; 32]).expect("secret");
+        let outsider = SecretKey::from_slice(&[55u8; 32]).expect("secret");
+        let signing_pk = PublicKey::from_secret_key(&secp, &signing).serialize();
+        let other_pk = PublicKey::from_secret_key(&secp, &other).serialize();
+
+        let multisig = |prefix: &[u8], first: &[u8], second: &[u8]| {
+            let mut script = prefix.to_vec();
+            script.push(OP_1);
+            script.push(PUSH_33_BYTES);
+            script.extend_from_slice(first);
+            script.push(PUSH_33_BYTES);
+            script.extend_from_slice(second);
+            script.push(OP_2);
+            script.push(OP_CHECKMULTISIG);
+            script
+        };
+        let spend = |script_pubkey: &[u8], secret: &SecretKey, flags: u32| {
+            let (mut tx, prevout_values, prevout_scripts) =
+                minimal_tx_and_prevouts(&[], script_pubkey);
+            let sighash = calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                script_pubkey,
+                prevout_values[0],
+                SighashType::ALL,
+                None,
+            )
+            .expect("sighash");
+            let msg = Message::from_digest_slice(&sighash).expect("digest");
+            let mut der = secp.sign_ecdsa(&msg, secret).serialize_der().to_vec();
+            der.push(SighashType::ALL.0);
+            let mut script_sig = vec![OP_0];
+            script_sig.extend(serialize_push_data(&der));
+            tx.inputs[0].script_sig = script_sig.clone();
+            let refs: Vec<&[u8]> = prevout_scripts.iter().map(|s| s.as_slice()).collect();
+            verify_script_with_context_full(
+                &script_sig,
+                script_pubkey,
+                None,
+                flags,
+                &tx,
+                0,
+                &prevout_values,
+                &refs,
+                None,
+                None,
+                crate::types::Network::Mainnet,
+                SigVersion::Base,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        let nullfail_error = |result: Result<bool>| {
+            matches!(
+                result,
+                Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::SigNullFail,
+                    ..
+                })
+            )
+        };
+
+        let nullfail = flags::SCRIPT_VERIFY_NULLFAIL;
+        // Leading OP_NOP skips the bare-multisig fast path. The interpreter tries the
+        // last key first, so this signature misses once and then matches.
+        let interpreter = multisig(&[OP_NOP], &signing_pk, &other_pk);
+        assert!(matches!(spend(&interpreter, &signing, nullfail), Ok(true)));
+        assert!(matches!(spend(&interpreter, &signing, 0), Ok(true)));
+        assert!(nullfail_error(spend(&interpreter, &outsider, nullfail)));
+        assert!(matches!(spend(&interpreter, &outsider, 0), Ok(false)));
+
+        // Fast path tries keys in script order. The signature misses the first key.
+        let fast_path = multisig(&[], &other_pk, &signing_pk);
+        assert!(matches!(spend(&fast_path, &signing, nullfail), Ok(true)));
+    }
+
+    #[test]
     fn test_verify_with_context_p2pkh_hash_mismatch() {
         // P2PKH pattern but pubkey hash does not match script_pubkey -> false (fast-path or interpreter).
         let pubkey = vec![0x02u8; 33]; // dummy compressed pubkey
@@ -9132,13 +9574,14 @@ mod tests {
         use crate::constants::BIP147_ACTIVATION_MAINNET;
         use crate::crypto::OptimizedSha256;
 
-        let pk1 = [0x02u8; 33];
-        let pk2 = [0x03u8; 33];
-        let mut witness_script = vec![0x52]; // OP_2
+        let pk1 = [0x02u8; PUSH_33_BYTES as usize];
+        let pk2 = [0x03u8; PUSH_33_BYTES as usize];
+        let mut witness_script = vec![OP_2, PUSH_33_BYTES];
         witness_script.extend_from_slice(&pk1);
+        witness_script.push(PUSH_33_BYTES);
         witness_script.extend_from_slice(&pk2);
-        witness_script.push(0x52); // OP_2
-        witness_script.push(0xae); // OP_CHECKMULTISIG
+        witness_script.push(OP_2);
+        witness_script.push(OP_CHECKMULTISIG);
 
         let wsh_hash = OptimizedSha256::new().hash(&witness_script);
         let mut script_pubkey = vec![OP_0, PUSH_32_BYTES];

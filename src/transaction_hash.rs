@@ -181,32 +181,24 @@ fn append_stripped_codeseparators(out: &mut Vec<u8>, code: &[u8]) {
 #[cfg(feature = "production")]
 use lru::LruCache;
 #[cfg(feature = "production")]
-use rustc_hash::{FxHashMap, FxHasher};
+use rustc_hash::FxHashMap;
 #[cfg(feature = "production")]
 use std::cell::RefCell;
-#[cfg(feature = "production")]
-use std::hash::{Hash as StdHash, Hasher};
 
 /// Legacy sighash cache key.
 ///
-/// `tx_tag` binds the entry to the transaction fields the preimage still depends on
-/// (version, locktime, prevouts, sequences, outputs). The same output spent by a
-/// different transaction must not reuse this hash.
+/// `code_id` is SHA256 of the signing script code. `tx_id` is SHA256 of the
+/// transaction fields the preimage still depends on (version, locktime, prevouts,
+/// sequences, outputs). Reuse requires those digests, not a 64-bit mixer of the
+/// same bytes. Other inputs' scriptSigs are blanked in the preimage, so they are
+/// not part of `tx_id`.
 #[cfg(feature = "production")]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SighashCacheKey {
     prevout: crate::types::OutPoint,
-    code_hash: u64,
+    code_id: [u8; 32],
     sighash_byte: u8,
-    tx_tag: u64,
-}
-
-#[cfg(feature = "production")]
-impl std::hash::Hash for SighashCacheKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_u64(self.code_hash);
-        state.write_u64(self.tx_tag);
-    }
+    tx_id: [u8; 32],
 }
 
 #[cfg(feature = "production")]
@@ -235,15 +227,14 @@ fn insert_midstate_cache(
     prevout: crate::types::OutPoint,
     code: &[u8],
     sighash_byte: u8,
-    tx_tag: u64,
+    tx_id: [u8; 32],
     hash: [u8; 32],
 ) {
-    let key_hash = sighash_cache_hash(&prevout, code, sighash_byte);
     let key = SighashCacheKey {
         prevout,
-        code_hash: key_hash,
+        code_id: script_code_id(code),
         sighash_byte,
-        tx_tag,
+        tx_id,
     };
     if let Some(c) = sighash_cache {
         let _ = c.lock().map(|mut g| g.insert(key, hash));
@@ -254,38 +245,37 @@ fn insert_midstate_cache(
     }
 }
 
-/// Hash (prevout, code, sighash_byte) with FxHasher for cache bucket lookup.
+/// SHA256 of the signing script code. The cache hits only when this digest matches.
 #[cfg(feature = "production")]
 #[inline]
-fn sighash_cache_hash(prevout: &crate::types::OutPoint, code: &[u8], sighash_byte: u8) -> u64 {
-    let mut hasher = FxHasher::default();
-    prevout.hash(&mut hasher);
-    code.hash(&mut hasher);
-    sighash_byte.hash(&mut hasher);
-    hasher.finish()
+fn script_code_id(code: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(code).into()
 }
 
-/// Fields of `tx` that the legacy preimage still depends on after the signing input's
-/// script code and the sighash byte are fixed. Other inputs' scriptSigs are blanked
-/// in the preimage, so they are not part of the tag. Counts are written so an extra
-/// input cannot line up with an output and share a tag.
+/// SHA256 of the transaction fields the legacy preimage still depends on after the
+/// signing script code and the sighash byte are fixed. Counts are written so an
+/// extra input cannot line up with an output and share an id.
 #[cfg(feature = "production")]
 #[inline]
-fn legacy_sighash_tx_tag(tx: &Transaction) -> u64 {
-    let mut hasher = FxHasher::default();
-    tx.version.hash(&mut hasher);
-    tx.lock_time.hash(&mut hasher);
-    tx.inputs.len().hash(&mut hasher);
+fn legacy_sighash_tx_id(tx: &Transaction) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(tx.version.to_le_bytes());
+    hasher.update(tx.lock_time.to_le_bytes());
+    hasher.update((tx.inputs.len() as u64).to_le_bytes());
     for input in &tx.inputs {
-        input.prevout.hash(&mut hasher);
-        input.sequence.hash(&mut hasher);
+        hasher.update(input.prevout.hash);
+        hasher.update(input.prevout.index.to_le_bytes());
+        hasher.update(input.sequence.to_le_bytes());
     }
-    tx.outputs.len().hash(&mut hasher);
+    hasher.update((tx.outputs.len() as u64).to_le_bytes());
     for output in &tx.outputs {
-        output.value.hash(&mut hasher);
-        output.script_pubkey.hash(&mut hasher);
+        hasher.update(output.value.to_le_bytes());
+        hasher.update((output.script_pubkey.len() as u64).to_le_bytes());
+        hasher.update(output.script_pubkey.as_slice());
     }
-    hasher.finish()
+    hasher.finalize().into()
 }
 
 /// Sighash cache: first_hash (SHA256 of preimage) -> final hash (double-SHA256).
@@ -876,18 +866,17 @@ pub fn calculate_transaction_sighash_with_script_code(
     // Cache is (prevout, scriptCode, sighash byte, tx tag) -> full sighash.
     // When sighash_cache is None, use thread-local (avoids Mutex contention across workers).
     #[cfg(feature = "production")]
-    let tx_tag = legacy_sighash_tx_tag(tx);
+    let tx_id = legacy_sighash_tx_id(tx);
     #[cfg(feature = "production")]
     {
         let prevout = &tx.inputs[input_index].prevout;
         let code = script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]);
         let sighash_byte_u8 = sighash_byte as u8;
-        let hash = sighash_cache_hash(prevout, code, sighash_byte_u8);
         let lookup_key = SighashCacheKey {
             prevout: *prevout,
-            code_hash: hash,
+            code_id: script_code_id(code),
             sighash_byte: sighash_byte_u8,
-            tx_tag,
+            tx_id,
         };
         let cached = if let Some(cache) = sighash_cache {
             cache
@@ -924,7 +913,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[0].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[0]),
                         sighash_byte as u8,
-                        tx_tag,
+                        tx_id,
                         h,
                     );
                     return Ok(h);
@@ -944,7 +933,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[0].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[0]),
                         sighash_byte as u8,
-                        tx_tag,
+                        tx_id,
                         h,
                     );
                     return Ok(h);
@@ -976,7 +965,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[input_index].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
                         sighash_byte as u8,
-                        tx_tag,
+                        tx_id,
                         h,
                     );
                     return Ok(h);
@@ -997,7 +986,7 @@ pub fn calculate_transaction_sighash_with_script_code(
                         tx.inputs[input_index].prevout,
                         script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
                         sighash_byte as u8,
-                        tx_tag,
+                        tx_id,
                         h,
                     );
                     return Ok(h);
@@ -1058,7 +1047,7 @@ pub fn calculate_transaction_sighash_with_script_code(
             tx.inputs[input_index].prevout,
             script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]),
             sighash_byte as u8,
-            tx_tag,
+            tx_id,
             *h,
         );
     }
@@ -1175,16 +1164,14 @@ fn build_preimage_2in1out_sighash_all(
         preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
         preimage.push(2);
         for (i, inp) in tx.inputs.iter().enumerate().take(2) {
-            let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
-                let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
-                (c.len(), c)
-            } else {
-                (0, &[][..]) // Non-signing input: empty script per consensus
-            };
             preimage.extend_from_slice(&inp.prevout.hash);
             preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
-            write_varint_to_vec(&mut preimage, script_len as u64);
-            preimage.extend_from_slice(script_slice);
+            if i == input_index {
+                let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
+                write_script_code_for_sighash(&mut preimage, c);
+            } else {
+                preimage.push(0);
+            }
             preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
         }
         preimage.push(1);
@@ -1228,16 +1215,14 @@ fn build_preimage_2in2out_sighash_all(
         preimage.extend_from_slice(&(tx.version as u32).to_le_bytes());
         preimage.push(2);
         for (i, inp) in tx.inputs.iter().enumerate().take(2) {
-            let (script_len, script_slice): (usize, &[u8]) = if i == input_index {
-                let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
-                (c.len(), c)
-            } else {
-                (0, &[][..])
-            };
             preimage.extend_from_slice(&inp.prevout.hash);
             preimage.extend_from_slice(&inp.prevout.index.to_le_bytes());
-            write_varint_to_vec(&mut preimage, script_len as u64);
-            preimage.extend_from_slice(script_slice);
+            if i == input_index {
+                let c = script_code.unwrap_or_else(|| prevout_script_pubkeys[i]);
+                write_script_code_for_sighash(&mut preimage, c);
+            } else {
+                preimage.push(0);
+            }
             preimage.extend_from_slice(&(inp.sequence as u32).to_le_bytes());
         }
         write_varint_to_vec(&mut preimage, 2);
@@ -2066,6 +2051,122 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first, script_sig_hash);
+    }
+
+    /// Two different 16-byte strings with this tail share an `FxHasher` digest.
+    /// The sighash cache must still return different digests.
+    fn fxhash_colliding_tail() -> [u8; 8] {
+        0x1319_8a2e_0370_7344u64.to_le_bytes()
+    }
+
+    fn fxhash_colliding_scripts() -> ([u8; 16], [u8; 16]) {
+        let tail = fxhash_colliding_tail();
+        let mut first = [0u8; 16];
+        let mut second = [0u8; 16];
+        let mut head_a = [0u8; 8];
+        head_a[0] = OP_1;
+        head_a[1] = OP_CHECKSIG;
+        head_a[3] = 1;
+        head_a[4] = 2;
+        head_a[5] = 3;
+        head_a[6] = 4;
+        head_a[7] = 5;
+        let mut head_b = [0u8; 8];
+        head_b[0] = OP_2;
+        head_b[1] = OP_CHECKSIG;
+        head_b[2] = 9;
+        head_b[3] = 8;
+        head_b[4] = 7;
+        head_b[5] = 6;
+        head_b[6] = 5;
+        head_b[7] = 4;
+        first[..8].copy_from_slice(&head_a);
+        second[..8].copy_from_slice(&head_b);
+        first[8..].copy_from_slice(&tail);
+        second[8..].copy_from_slice(&tail);
+        (first, second)
+    }
+
+    #[test]
+    fn legacy_sighash_cache_does_not_reuse_an_fxhash_script_collision() {
+        use crate::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let (script_a, script_b) = fxhash_colliding_scripts();
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [9u8; 32],
+                    index: 0,
+                },
+                sequence: 0xffff_ffff,
+                script_sig: vec![],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1_000,
+                script_pubkey: vec![OP_1],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash = |script: &[u8]| {
+            calculate_transaction_sighash_single_input(
+                &tx,
+                0,
+                script,
+                1_000,
+                SighashType::ALL,
+                #[cfg(feature = "production")]
+                None,
+            )
+            .unwrap()
+        };
+        let first = sighash(&script_a);
+        let other = sighash(&script_b);
+        assert_ne!(first, other);
+        assert_eq!(first, sighash(&script_a));
+    }
+
+    #[test]
+    fn legacy_sighash_cache_does_not_reuse_an_fxhash_output_collision() {
+        use crate::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let (script_a, script_b) = fxhash_colliding_scripts();
+        let signing = [OP_1, OP_CHECKSIG];
+        let tx_paying = |spk: &[u8]| Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [9u8; 32],
+                    index: 0,
+                },
+                sequence: 0xffff_ffff,
+                script_sig: vec![],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1_000,
+                script_pubkey: spk.to_vec(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash = |spk: &[u8]| {
+            calculate_transaction_sighash_single_input(
+                &tx_paying(spk),
+                0,
+                &signing,
+                1_000,
+                SighashType::ALL,
+                #[cfg(feature = "production")]
+                None,
+            )
+            .unwrap()
+        };
+        let first = sighash(&script_a);
+        assert_ne!(first, sighash(&script_b));
+        assert_eq!(first, sighash(&script_a));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 #![cfg(all(feature = "production", feature = "rayon"))]
 
-use crate::serialization::serialize_transaction_with_witness;
+use crate::serialization::{serialize_transaction, serialize_transaction_with_witness};
 use crate::types::Transaction;
 use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
 use std::sync::OnceLock;
@@ -37,7 +37,8 @@ pub fn compute_key(
     witnesses: &[crate::witness::Witness],
     flags: u32,
 ) -> [u8; 32] {
-    let bytes = serialize_transaction_with_witness(tx, witnesses);
+    let bytes = serialize_transaction_with_witness(tx, witnesses)
+        .unwrap_or_else(|_| serialize_transaction(tx));
     let witness_hash = sha256d::Hash::hash(&bytes);
     let mut hasher = bitcoin_hashes::sha256::Hash::engine();
     hasher.input(&witness_hash);

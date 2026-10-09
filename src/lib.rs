@@ -299,7 +299,37 @@ impl ConsensusProof {
         time_context: Option<types::TimeContext>,
         network: types::Network,
     ) -> error::Result<mempool::MempoolResult> {
-        mempool::accept_to_memory_pool(tx, None, utxo_set, mempool, height, time_context, network)
+        self.accept_to_memory_pool_with_witness(
+            tx,
+            None,
+            utxo_set,
+            mempool,
+            height,
+            time_context,
+            network,
+        )
+    }
+
+    /// Accept transaction to memory pool with the witness stack for each input.
+    pub fn accept_to_memory_pool_with_witness(
+        &self,
+        tx: &types::Transaction,
+        witnesses: Option<&[segwit::Witness]>,
+        utxo_set: &types::UtxoSet,
+        mempool: &mempool::Mempool,
+        height: types::Natural,
+        time_context: Option<types::TimeContext>,
+        network: types::Network,
+    ) -> error::Result<mempool::MempoolResult> {
+        mempool::accept_to_memory_pool(
+            tx,
+            witnesses,
+            utxo_set,
+            mempool,
+            height,
+            time_context,
+            network,
+        )
     }
 
     /// Check if transaction is standard

@@ -8,7 +8,6 @@ use crate::error::{ConsensusError, Result};
 use crate::types::*;
 use crate::utxo_overlay::UtxoLookup;
 use blvm_spec_lock::spec_locked;
-use std::borrow::Cow;
 
 /// CheckCoinbaseMaturity: spend of coinbase output at height h valid iff h ≥ creation_height + R.
 #[spec_locked("5.1", "CheckCoinbaseMaturity")]
@@ -41,20 +40,22 @@ fn make_fee_calculation_underflow_error() -> ConsensusError {
 /// Shared by `check_tx_inputs_with_utxos` and `check_tx_inputs_with_owned_data`
 /// to avoid duplicating the fold/checked-add/error-mapping pattern.
 #[inline]
-fn sum_output_values(outputs: &[TransactionOutput]) -> Result<i64> {
-    outputs
-        .iter()
-        .try_fold(0i64, |acc, output| {
-            assert!(
-                output.value >= 0,
-                "Output value {} must be non-negative",
+fn sum_output_values(
+    outputs: &[TransactionOutput],
+) -> Result<std::result::Result<i64, ValidationResult>> {
+    let mut total = 0i64;
+    for (i, output) in outputs.iter().enumerate() {
+        if output.value < 0 {
+            return Ok(Err(ValidationResult::Invalid(format!(
+                "Invalid output value {} at index {i}",
                 output.value
-            );
-            acc.checked_add(output.value).ok_or_else(|| {
-                ConsensusError::TransactionValidation("Output value overflow".into())
-            })
-        })
-        .map_err(|e| ConsensusError::TransactionValidation(Cow::Owned(e.to_string())))
+            ))));
+        }
+        total = total
+            .checked_add(output.value)
+            .ok_or_else(|| ConsensusError::TransactionValidation("Output value overflow".into()))?;
+    }
+    Ok(Ok(total))
 }
 
 /// Short-circuits validation for trivially invalid (empty non-coinbase) or coinbase transactions.
@@ -511,19 +512,15 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
 
         // Check if input exists in UTXO set
         if let Some(utxo) = opt_utxo {
-            // Invariant assertion: UTXO value must be non-negative and within MAX_MONEY
-            assert!(
-                utxo.value >= 0,
-                "UTXO value {} must be non-negative at input {}",
-                utxo.value,
-                i
-            );
-            assert!(
-                utxo.value <= MAX_MONEY,
-                "UTXO value {} must not exceed MAX_MONEY at input {}",
-                utxo.value,
-                i
-            );
+            if utxo.value < 0 || utxo.value > MAX_MONEY {
+                return Ok((
+                    ValidationResult::Invalid(format!(
+                        "UTXO value {} out of bounds at input {i}",
+                        utxo.value
+                    )),
+                    0,
+                ));
+            }
 
             // Check coinbase maturity: coinbase outputs cannot be spent until COINBASE_MATURITY blocks deep
             // Consensus: coinbase outputs require COINBASE_MATURITY confirmations
@@ -539,13 +536,6 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
                 ));
             }
 
-            // Use checked arithmetic to prevent overflow
-            // Invariant assertion: UTXO value must be non-negative before addition
-            assert!(
-                utxo.value >= 0,
-                "UTXO value {} must be non-negative before addition",
-                utxo.value
-            );
             total_input_value = total_input_value.checked_add(utxo.value).ok_or_else(|| {
                 ConsensusError::TransactionValidation(
                     format!("Input value overflow at input {i}").into(),
@@ -588,16 +578,10 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
         }
     }
 
-    let total_output_value = sum_output_values(&tx.outputs)?;
-
-    assert!(
-        total_output_value >= 0,
-        "Total output value {total_output_value} must be non-negative"
-    );
-    assert!(
-        total_output_value <= MAX_MONEY,
-        "Total output value {total_output_value} must not exceed MAX_MONEY"
-    );
+    let total_output_value = match sum_output_values(&tx.outputs)? {
+        Ok(total) => total,
+        Err(invalid) => return Ok((invalid, 0)),
+    };
     if total_output_value > MAX_MONEY {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -689,7 +673,10 @@ pub fn check_tx_inputs_with_owned_data(
             ));
         }
     }
-    let total_output_value = sum_output_values(&tx.outputs)?;
+    let total_output_value = match sum_output_values(&tx.outputs)? {
+        Ok(total) => total,
+        Err(invalid) => return Ok((invalid, 0)),
+    };
     if total_output_value > MAX_MONEY {
         return Ok((
             ValidationResult::Invalid(format!(
@@ -1161,6 +1148,86 @@ mod tests {
             check_transaction(&tx).unwrap(),
             ValidationResult::Invalid(_)
         ));
+    }
+
+    #[test]
+    fn negative_money_is_invalid_without_aborting() {
+        let prevout = OutPoint {
+            hash: [1u8; 32],
+            index: 0,
+        };
+        let tx_with = |output_value: i64| Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout,
+                script_sig: vec![],
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: output_value,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let utxo = |value: i64| {
+            let mut set = UtxoSet::default();
+            set.insert(
+                prevout,
+                std::sync::Arc::new(UTXO {
+                    value,
+                    script_pubkey: vec![].into(),
+                    height: 0,
+                    is_coinbase: false,
+                }),
+            );
+            set
+        };
+
+        let negative_output = tx_with(-1);
+        let (owned, _) =
+            check_tx_inputs_with_owned_data(&negative_output, 0, &[Some((1_000, false, 0))])
+                .unwrap();
+        assert!(matches!(owned, ValidationResult::Invalid(_)));
+        let (overlay, _) = check_tx_inputs(&negative_output, &utxo(1_000), 0).unwrap();
+        assert!(matches!(overlay, ValidationResult::Invalid(_)));
+
+        let spend = tx_with(0);
+        let (negative_utxo, _) = check_tx_inputs(&spend, &utxo(-1), 0).unwrap();
+        assert!(matches!(negative_utxo, ValidationResult::Invalid(_)));
+        let (owned_utxo, _) =
+            check_tx_inputs_with_owned_data(&spend, 0, &[Some((-1, false, 0))]).unwrap();
+        assert!(matches!(owned_utxo, ValidationResult::Invalid(_)));
+        let (huge_utxo, _) = check_tx_inputs(&spend, &utxo(MAX_MONEY + 1), 0).unwrap();
+        assert!(matches!(huge_utxo, ValidationResult::Invalid(_)));
+
+        let (ok, fee) =
+            check_tx_inputs_with_owned_data(&tx_with(400), 0, &[Some((1_000, false, 0))]).unwrap();
+        assert_eq!(ok, ValidationResult::Valid);
+        assert_eq!(fee, 600);
+
+        let over = Transaction {
+            version: 1,
+            inputs: spend.inputs.clone(),
+            outputs: vec![
+                TransactionOutput {
+                    value: MAX_MONEY,
+                    script_pubkey: vec![],
+                },
+                TransactionOutput {
+                    value: MAX_MONEY,
+                    script_pubkey: vec![],
+                },
+            ]
+            .into(),
+            lock_time: 0,
+        };
+        let (sum, _) = check_tx_inputs(&over, &utxo(MAX_MONEY), 0).unwrap();
+        assert!(matches!(sum, ValidationResult::Invalid(_)));
+        let (sum_owned, _) =
+            check_tx_inputs_with_owned_data(&over, 0, &[Some((MAX_MONEY, false, 0))]).unwrap();
+        assert!(matches!(sum_owned, ValidationResult::Invalid(_)));
     }
 
     #[test]

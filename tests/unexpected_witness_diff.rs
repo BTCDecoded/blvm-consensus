@@ -95,7 +95,8 @@ fn unexpected_witness_matches_script_library() {
     assert!(library_accepts(&bare, &script_pubkey));
 
     for witness in [vec![vec![]], vec![vec![], vec![]]] {
-        let raw = serialize_transaction_with_witness(&tx, std::slice::from_ref(&witness));
+        let raw = serialize_transaction_with_witness(&tx, std::slice::from_ref(&witness))
+            .expect("witness count");
         let ours = blvm_accepts(&tx, &script_pubkey, Some(&witness));
         let theirs = library_accepts(&raw, &script_pubkey);
         assert_eq!(

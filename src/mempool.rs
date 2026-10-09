@@ -133,7 +133,7 @@ pub fn accept_to_memory_pool(
     }
 
     // 5. Check mempool-specific rules
-    if !check_mempool_rules(tx, fee, mempool)? {
+    if !check_mempool_rules(tx, witnesses, fee, mempool)? {
         return Ok(MempoolResult::Rejected("Failed mempool rules".to_string()));
     }
 
@@ -308,6 +308,20 @@ pub fn replacement_checks(
     utxo_set: &UtxoSet,
     mempool: &Mempool,
 ) -> Result<bool> {
+    replacement_checks_with_witness(new_tx, existing_tx, utxo_set, mempool, None, None)
+}
+
+/// BIP125 replacement using witness stacks for virtual size.
+///
+/// `None` uses a virtual size already recorded for that transaction, then the stripped size.
+pub fn replacement_checks_with_witness(
+    new_tx: &Transaction,
+    existing_tx: &Transaction,
+    utxo_set: &UtxoSet,
+    mempool: &Mempool,
+    new_witnesses: Option<&[Witness]>,
+    existing_witnesses: Option<&[Witness]>,
+) -> Result<bool> {
     // Precondition checks: Validate function inputs
     // Note: We check these conditions and return an error rather than asserting,
     // to allow tests to verify the validation logic properly
@@ -365,8 +379,8 @@ pub fn replacement_checks(
         return Ok(false);
     }
 
-    let new_tx_size = calculate_transaction_size_vbytes(new_tx);
-    let existing_tx_size = calculate_transaction_size_vbytes(existing_tx);
+    let new_tx_size = witnessed_vsize(new_tx, new_witnesses, mempool);
+    let existing_tx_size = witnessed_vsize(existing_tx, existing_witnesses, mempool);
     if new_tx_size == 0
         || existing_tx_size == 0
         || new_tx_size > MAX_TX_SIZE * 2
@@ -448,11 +462,22 @@ impl Mempool {
 
     /// Register a transaction and index its spent inputs for conflict detection.
     pub fn insert_transaction(&mut self, tx: &Transaction) -> bool {
+        self.insert_transaction_with_witness(tx, None)
+    }
+
+    /// Register a transaction and its witness stacks.
+    ///
+    /// Virtual size includes a non-empty witness. Empty stacks stay on the stripped size.
+    pub fn insert_transaction_with_witness(
+        &mut self,
+        tx: &Transaction,
+        witnesses: Option<&[Witness]>,
+    ) -> bool {
         let txid = crate::block::calculate_tx_id(tx);
         if !self.txids.insert(txid) {
             return false;
         }
-        let vsize = calculate_transaction_size_vbytes(tx);
+        let vsize = calculate_transaction_size_vbytes(tx, witnesses);
         self.total_vbytes = self.total_vbytes.saturating_add(vsize);
         self.tx_vsizes.insert(txid, vsize);
         let mut outpoints = Vec::with_capacity(tx.inputs.len());
@@ -714,11 +739,12 @@ where
 /// Check mempool-specific rules (relay policy).
 pub(crate) fn check_mempool_rules(
     tx: &Transaction,
+    witnesses: Option<&[Witness]>,
     fee: Integer,
     mempool: &Mempool,
 ) -> Result<bool> {
     // Check minimum fee rate and pool size using integer sat/vB math (no f64 compare).
-    let vsize = calculate_transaction_size_vbytes(tx);
+    let vsize = calculate_transaction_size_vbytes(tx, witnesses);
     if vsize == 0 {
         return Ok(false);
     }
@@ -919,13 +945,24 @@ pub fn signals_rbf(tx: &Transaction) -> bool {
 /// Calculate transaction size in virtual bytes (vbytes)
 ///
 /// Uses BIP141 weight/4 when weight can be computed; otherwise falls back to stripped size.
-fn calculate_transaction_size_vbytes(tx: &Transaction) -> usize {
-    use crate::segwit::calculate_transaction_weight;
+fn calculate_transaction_size_vbytes(tx: &Transaction, stacks: Option<&[Witness]>) -> usize {
+    use crate::segwit::transaction_weight_from_stacks;
     use crate::witness::weight_to_vsize;
-    match calculate_transaction_weight(tx, None) {
+    match transaction_weight_from_stacks(tx, stacks) {
         Ok(weight) => weight_to_vsize(weight) as usize,
         Err(_) => calculate_transaction_size(tx),
     }
+}
+
+/// Witness stacks win. A recorded virtual size is the next choice. Otherwise the stripped size.
+fn witnessed_vsize(tx: &Transaction, stacks: Option<&[Witness]>, mempool: &Mempool) -> usize {
+    if stacks.is_none() {
+        let txid = crate::block::calculate_tx_id(tx);
+        if let Some(&stored) = mempool.tx_vsizes.get(&txid) {
+            return stored;
+        }
+    }
+    calculate_transaction_size_vbytes(tx, stacks)
 }
 
 /// Check if new transaction conflicts with existing transaction
@@ -1459,7 +1496,7 @@ mod tests {
         let fee = 1; // Very low fee
         let mempool = Mempool::new();
 
-        let result = check_mempool_rules(&tx, fee, &mempool).unwrap();
+        let result = check_mempool_rules(&tx, None, fee, &mempool).unwrap();
         assert!(!result);
     }
 
@@ -1469,7 +1506,7 @@ mod tests {
         let fee = 10000; // High fee
         let mempool = Mempool::new();
 
-        let result = check_mempool_rules(&tx, fee, &mempool).unwrap();
+        let result = check_mempool_rules(&tx, None, fee, &mempool).unwrap();
         assert!(result);
     }
 
@@ -1477,7 +1514,7 @@ mod tests {
     fn test_mempool_total_vbytes_tracking() {
         let mut mempool = Mempool::new();
         let tx = create_valid_transaction();
-        let vsize = calculate_transaction_size_vbytes(&tx);
+        let vsize = calculate_transaction_size_vbytes(&tx, None);
         let txid = crate::block::calculate_tx_id(&tx);
 
         mempool.insert_transaction(&tx);
@@ -1488,10 +1525,35 @@ mod tests {
     }
 
     #[test]
+    fn mempool_vsize_includes_witness_stacks() {
+        let tx = create_valid_transaction();
+        let bare = calculate_transaction_size_vbytes(&tx, None);
+        let empty_stacks: Vec<Witness> = vec![vec![]];
+        assert_eq!(
+            calculate_transaction_size_vbytes(&tx, Some(&empty_stacks)),
+            bare
+        );
+
+        let heavy_stacks: Vec<Witness> = vec![vec![vec![0u8; 4_000]]];
+        let heavy = calculate_transaction_size_vbytes(&tx, Some(&heavy_stacks));
+        assert!(heavy > bare);
+
+        let fee = (heavy as i64) - 1;
+        assert!(fee >= 1_000);
+        let mempool = Mempool::new();
+        assert!(check_mempool_rules(&tx, None, fee, &mempool).unwrap());
+        assert!(!check_mempool_rules(&tx, Some(&heavy_stacks), fee, &mempool).unwrap());
+
+        let mut pool = Mempool::new();
+        assert!(pool.insert_transaction_with_witness(&tx, Some(&heavy_stacks)));
+        assert_eq!(pool.total_vbytes(), heavy);
+    }
+
+    #[test]
     fn test_mempool_byte_limit_exceeded() {
         let mut mempool = Mempool::new();
         let tx = create_valid_transaction();
-        let vsize = calculate_transaction_size_vbytes(&tx);
+        let vsize = calculate_transaction_size_vbytes(&tx, None);
         mempool.insert_transaction(&tx);
 
         let at_limit = mempool.total_vbytes();
@@ -1527,7 +1589,7 @@ mod tests {
 
         assert_eq!(mempool.len(), 100_000);
 
-        let result = check_mempool_rules(&tx, fee, &mempool).unwrap();
+        let result = check_mempool_rules(&tx, None, fee, &mempool).unwrap();
         assert!(!result);
     }
 

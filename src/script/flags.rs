@@ -72,6 +72,11 @@ pub const SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS: u32 = 1 << 19; // 0x80000
 /// Reject unknown pubkey types in Tapscript (allows future soft-forks).
 pub const SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE: u32 = 1 << 20; // 0x100000
 
+/// Enable OP_CHECKTEMPLATEVERIFY when the `ctv` feature is compiled in.
+///
+/// Bit 31. Bit 15 is `SCRIPT_VERIFY_WITNESS_PUBKEYTYPE`.
+pub const SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH: u32 = 1 << 31;
+
 /// Standard mandatory flags for segwit-v0 transactions (pre-Taproot).
 pub const SEGWIT_STANDARD_FLAGS: u32 =
     SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE;

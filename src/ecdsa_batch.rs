@@ -23,6 +23,10 @@ pub struct OwnedEcdsaSoA {
     pub msgs: Vec<[u8; 32]>,
     pub pubkeys: Vec<[u8; 33]>,
     pub sigs: Vec<[u8; 64]>,
+    /// CHECKMULTISIG groups whose trial rows sit in `indices` or `known`.
+    pub multisig_pending: Vec<MultisigPending>,
+    /// Rows already verified before the SoA was parked (mid-block flush).
+    pub known: Vec<(usize, bool)>,
 }
 
 /// Deferred CHECKMULTISIG oracle: cartesian trial rows in SoA, resolved after batch.
@@ -167,7 +171,7 @@ impl EcdsaSignatureCollector {
         }
     }
 
-    /// After batch verify: Core match + NULLFAIL for each deferred CHECKMULTISIG.
+    /// After batch verify: subset match + NULLFAIL for each deferred CHECKMULTISIG.
     pub fn resolve_multisig_pending(
         &self,
         results: &std::collections::HashMap<usize, bool>,
@@ -176,57 +180,7 @@ impl EcdsaSignatureCollector {
             .multisig_pending
             .lock()
             .map_err(|_| ConsensusError::BlockValidation("ECDSA multisig pending lock".into()))?;
-        for p in pending.iter() {
-            let n_pubs = p.n_pubs;
-            if n_pubs == 0 {
-                return Err(ConsensusError::BlockValidation(
-                    "CHECKMULTISIG deferred: n_pubs=0".into(),
-                ));
-            }
-            let n_nonempty = p.sig_empty.iter().filter(|e| !**e).count();
-            if p.trial_indices.len() != n_nonempty.saturating_mul(n_pubs) {
-                return Err(ConsensusError::BlockValidation(
-                    "CHECKMULTISIG deferred: trial_indices length mismatch".into(),
-                ));
-            }
-            // Every one of the m signatures has to match. An empty signature
-            // stays current and fails against each following key.
-            let mut sig_cursor = 0usize;
-            let mut valid_sigs = 0u8;
-            for i in 0..n_pubs {
-                if sig_cursor >= p.sig_empty.len() {
-                    break;
-                }
-                if p.sig_empty[sig_cursor] {
-                    continue;
-                }
-                let sh_ord = p.sig_empty[..sig_cursor].iter().filter(|e| !**e).count();
-                let gidx = p.trial_indices[sh_ord * n_pubs + i];
-                if results.get(&gidx).copied().unwrap_or(false) {
-                    valid_sigs = valid_sigs.saturating_add(1);
-                    sig_cursor += 1;
-                }
-            }
-            // NULLFAIL applies only when the multisig fails: every signature
-            // in the window must then be empty.
-            let success = p.sig_empty.len() == p.m as usize && valid_sigs == p.m;
-            if p.nullfail && !success {
-                for &empty in &p.sig_empty {
-                    if !empty {
-                        return Err(ConsensusError::BlockValidation(
-                            "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL"
-                                .into(),
-                        ));
-                    }
-                }
-            }
-            if !success {
-                return Err(ConsensusError::BlockValidation(
-                    "Invalid CHECKMULTISIG (deferred batch) in block".into(),
-                ));
-            }
-        }
-        Ok(())
+        resolve_multisig_list(&pending, results)
     }
 
     /// Collect compact ECDSA triple at a deterministic global index.
@@ -392,7 +346,13 @@ impl EcdsaSignatureCollector {
             }
         }
 
-        if msgs.is_empty() {
+        let multisig_pending = self
+            .multisig_pending
+            .lock()
+            .map(|mut g| std::mem::take(&mut *g))
+            .unwrap_or_default();
+
+        if msgs.is_empty() && multisig_pending.is_empty() {
             None
         } else {
             Some(OwnedEcdsaSoA {
@@ -400,6 +360,8 @@ impl EcdsaSignatureCollector {
                 msgs,
                 pubkeys,
                 sigs,
+                multisig_pending,
+                known: Vec::new(),
             })
         }
     }
@@ -482,17 +444,109 @@ impl EcdsaSignatureCollector {
     /// Verify SoA + resolve deferred CHECKMULTISIG; P2PKH rows must all succeed.
     pub fn verify_batch(&self) -> Result<Vec<bool>> {
         let merged = self.verify_batch_indexed()?;
-        let map: std::collections::HashMap<usize, bool> = merged.iter().copied().collect();
-        self.resolve_multisig_pending(&map)?;
-        for &(idx, ok) in &merged {
-            if !is_multisig_trial_index(idx) && !ok {
-                return Err(ConsensusError::BlockValidation(
-                    "Invalid ECDSA signature in block".into(),
-                ));
-            }
-        }
+        let pending = self
+            .multisig_pending
+            .lock()
+            .map(|mut g| std::mem::take(&mut *g))
+            .unwrap_or_default();
+        accept_collected_ecdsa(&merged, &pending)?;
         Ok(merged.into_iter().map(|(_, v)| v).collect())
     }
+}
+
+/// CHECKMULTISIG subset match. A missing trial row counts as a miss.
+#[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+pub(crate) fn resolve_multisig_list(
+    pending: &[MultisigPending],
+    results: &std::collections::HashMap<usize, bool>,
+) -> Result<()> {
+    for p in pending {
+        let n_pubs = p.n_pubs;
+        if n_pubs == 0 {
+            return Err(ConsensusError::BlockValidation(
+                "CHECKMULTISIG deferred: n_pubs=0".into(),
+            ));
+        }
+        let n_nonempty = p.sig_empty.iter().filter(|e| !**e).count();
+        if p.trial_indices.len() != n_nonempty.saturating_mul(n_pubs) {
+            return Err(ConsensusError::BlockValidation(
+                "CHECKMULTISIG deferred: trial_indices length mismatch".into(),
+            ));
+        }
+        // Every one of the m signatures has to match. An empty signature
+        // stays current and fails against each following key.
+        let mut sig_cursor = 0usize;
+        let mut valid_sigs = 0u8;
+        for i in 0..n_pubs {
+            if sig_cursor >= p.sig_empty.len() {
+                break;
+            }
+            if p.sig_empty[sig_cursor] {
+                continue;
+            }
+            let sh_ord = p.sig_empty[..sig_cursor].iter().filter(|e| !**e).count();
+            let gidx = p.trial_indices[sh_ord * n_pubs + i];
+            if results.get(&gidx).copied().unwrap_or(false) {
+                valid_sigs = valid_sigs.saturating_add(1);
+                sig_cursor += 1;
+            }
+        }
+        // NULLFAIL applies only when the multisig fails: every signature
+        // in the window must then be empty.
+        let success = p.sig_empty.len() == p.m as usize && valid_sigs == p.m;
+        if p.nullfail && !success {
+            for &empty in &p.sig_empty {
+                if !empty {
+                    return Err(ConsensusError::BlockValidation(
+                        "OP_CHECKMULTISIG: non-null signature must not fail under NULLFAIL".into(),
+                    ));
+                }
+            }
+        }
+        if !success {
+            return Err(ConsensusError::BlockValidation(
+                "Invalid CHECKMULTISIG (deferred batch) in block".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Non-trial rows must succeed. CHECKMULTISIG trials are resolved as a subset.
+#[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+pub(crate) fn accept_collected_ecdsa(
+    rows: &[(usize, bool)],
+    pending: &[MultisigPending],
+) -> Result<()> {
+    let map: std::collections::HashMap<usize, bool> = rows.iter().copied().collect();
+    resolve_multisig_list(pending, &map)?;
+    for &(idx, ok) in rows {
+        if !is_multisig_trial_index(idx) && !ok {
+            return Err(ConsensusError::BlockValidation(
+                "Invalid ECDSA signature in block".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Wave verdict: verify `fresh` against `soa.sigs`, then apply [`accept_collected_ecdsa`].
+/// `soa.known` rows were verified earlier and are not in `fresh`.
+#[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+pub(crate) fn accept_owned_ecdsa(soa: &OwnedEcdsaSoA, fresh: &[bool]) -> Result<()> {
+    if fresh.len() != soa.sigs.len()
+        || soa.indices.len() != soa.sigs.len()
+        || soa.msgs.len() != soa.sigs.len()
+        || soa.pubkeys.len() != soa.sigs.len()
+    {
+        return Err(ConsensusError::BlockValidation(
+            "ECDSA wave result length mismatch".into(),
+        ));
+    }
+    let mut rows = Vec::with_capacity(fresh.len() + soa.known.len());
+    rows.extend(soa.indices.iter().copied().zip(fresh.iter().copied()));
+    rows.extend(soa.known.iter().copied());
+    accept_collected_ecdsa(&rows, &soa.multisig_pending)
 }
 
 #[cfg(all(test, feature = "production", feature = "blvm-secp256k1"))]
@@ -574,5 +628,28 @@ mod multisig_resolve_tests {
         map.insert(tag(2), false);
         map.insert(tag(3), false);
         assert!(c.resolve_multisig_pending(&map).is_err());
+    }
+
+    #[test]
+    fn owned_batch_allows_a_failed_multisig_trial() {
+        let pkh = 7usize;
+        let miss = tag(1);
+        let hit = tag(2);
+        let soa = OwnedEcdsaSoA {
+            indices: vec![pkh, miss],
+            msgs: vec![[0u8; 32]; 2],
+            pubkeys: vec![[0u8; 33]; 2],
+            sigs: vec![[0u8; 64]; 2],
+            multisig_pending: vec![MultisigPending {
+                m: 1,
+                n_pubs: 2,
+                trial_indices: vec![miss, hit],
+                sig_empty: vec![false],
+                nullfail: false,
+            }],
+            known: vec![(hit, true)],
+        };
+        accept_owned_ecdsa(&soa, &[true, false]).expect("miss trial is not a block failure");
+        assert!(accept_owned_ecdsa(&soa, &[false, false]).is_err());
     }
 }

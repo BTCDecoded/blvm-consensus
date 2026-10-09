@@ -3,7 +3,7 @@
 //! sort-merge failures from block 481824 onward.
 
 use blvm_consensus::crypto::OptimizedSha256;
-use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG};
+use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, PUSH_32_BYTES, PUSH_33_BYTES};
 use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
 use blvm_consensus::script::verify_script_with_context;
 use blvm_consensus::transaction_hash::{
@@ -27,15 +27,16 @@ fn build_p2wsh_1of2_multisig_spend() -> (
     let pk1 = PublicKey::from_secret_key(&secp, &sk1).serialize();
     let pk2 = PublicKey::from_secret_key(&secp, &sk2).serialize();
 
-    // 1-of-2: OP_1 <pk1> <pk2> OP_2 OP_CHECKMULTISIG (raw-key form accepted by parse_redeem_multisig)
-    let mut witness_script = vec![OP_1];
+    // 1-of-2: OP_1 PUSH_33_BYTES <pk1> PUSH_33_BYTES <pk2> OP_2 OP_CHECKMULTISIG
+    let mut witness_script = vec![OP_1, PUSH_33_BYTES];
     witness_script.extend_from_slice(&pk1);
+    witness_script.push(PUSH_33_BYTES);
     witness_script.extend_from_slice(&pk2);
     witness_script.push(OP_2);
     witness_script.push(OP_CHECKMULTISIG);
 
     let wsh_hash = OptimizedSha256::new().hash(&witness_script);
-    let mut script_pubkey = vec![OP_0, 0x20];
+    let mut script_pubkey = vec![OP_0, PUSH_32_BYTES];
     script_pubkey.extend_from_slice(&wsh_hash);
 
     let tx = Transaction {

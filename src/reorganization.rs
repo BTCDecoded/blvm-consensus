@@ -534,7 +534,7 @@ where
                 readd.network,
             )? {
                 MempoolResult::Accepted => {
-                    if mempool.insert_transaction(tx) {
+                    if mempool.insert_transaction_with_witness(tx, witnesses) {
                         readded.push(tx_id);
                     }
                 }

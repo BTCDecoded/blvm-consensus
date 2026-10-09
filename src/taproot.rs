@@ -321,74 +321,74 @@ impl Bip341PrecomputedHashes {
         prevout_values: &[i64],
         prevout_script_pubkeys: &[&[u8]],
     ) -> Self {
+        commitment_bytes(tx, prevout_values, prevout_script_pubkeys).hashes()
+    }
+}
+
+/// Serialized BIP341 commitment inputs. Reuse is allowed only when these bytes match.
+#[derive(Clone, PartialEq, Eq)]
+struct Bip341Commitment {
+    prevouts: Vec<u8>,
+    amounts: Vec<u8>,
+    scriptpubkeys: Vec<u8>,
+    sequences: Vec<u8>,
+    outputs: Vec<u8>,
+}
+
+impl Bip341Commitment {
+    fn hashes(&self) -> Bip341PrecomputedHashes {
         use sha2::{Digest, Sha256};
-
-        let mut prevouts_data = Vec::new();
-        let mut amounts_data = Vec::new();
-        let mut scriptpubkeys_data = Vec::new();
-        let mut sequences_data = Vec::new();
-        for (i, input) in tx.inputs.iter().enumerate() {
-            prevouts_data.extend_from_slice(&input.prevout.hash);
-            prevouts_data.extend_from_slice(&input.prevout.index.to_le_bytes());
-            // Both callers validate that prevout slices are at least as long as tx.inputs before
-            // calling this function.  Direct indexing here makes the invariant explicit; a panic
-            // would signal a programming error, not a consensus-invalid input.
-            amounts_data.extend_from_slice(&(prevout_values[i] as u64).to_le_bytes());
-            let spk = prevout_script_pubkeys[i];
-            scriptpubkeys_data.extend_from_slice(&encode_varint(spk.len() as u64));
-            scriptpubkeys_data.extend_from_slice(spk);
-            sequences_data.extend_from_slice(&(input.sequence as u32).to_le_bytes());
-        }
-        let mut outputs_data = Vec::new();
-        for output in &tx.outputs {
-            outputs_data.extend_from_slice(&(output.value as u64).to_le_bytes());
-            outputs_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
-            outputs_data.extend_from_slice(&output.script_pubkey);
-        }
-
-        Self {
-            sha_prevouts: Sha256::digest(&prevouts_data).into(),
-            sha_amounts: Sha256::digest(&amounts_data).into(),
-            sha_scriptpubkeys: Sha256::digest(&scriptpubkeys_data).into(),
-            sha_sequences: Sha256::digest(&sequences_data).into(),
-            sha_outputs: Sha256::digest(&outputs_data).into(),
+        Bip341PrecomputedHashes {
+            sha_prevouts: Sha256::digest(&self.prevouts).into(),
+            sha_amounts: Sha256::digest(&self.amounts).into(),
+            sha_scriptpubkeys: Sha256::digest(&self.scriptpubkeys).into(),
+            sha_sequences: Sha256::digest(&self.sequences).into(),
+            sha_outputs: Sha256::digest(&self.outputs).into(),
         }
     }
 }
 
-/// One thread-local BIP341 commitment set. The key is the data those hashes cover,
-/// not the transaction's address: a later spend can be allocated in the same slot.
-thread_local! {
-    static BIP341_TLS: std::cell::RefCell<Option<(u64, Bip341PrecomputedHashes)>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-fn bip341_cache_tag(
+fn commitment_bytes(
     tx: &Transaction,
     prevout_values: &[i64],
     prevout_script_pubkeys: &[&[u8]],
-) -> u64 {
-    use std::hash::{Hash, Hasher};
-    #[cfg(feature = "production")]
-    let mut hasher = rustc_hash::FxHasher::default();
-    #[cfg(not(feature = "production"))]
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-
-    tx.inputs.len().hash(&mut hasher);
-    prevout_values.len().hash(&mut hasher);
-    prevout_script_pubkeys.len().hash(&mut hasher);
+) -> Bip341Commitment {
+    let mut prevouts = Vec::new();
+    let mut amounts = Vec::new();
+    let mut scriptpubkeys = Vec::new();
+    let mut sequences = Vec::new();
     for (i, input) in tx.inputs.iter().enumerate() {
-        input.prevout.hash(&mut hasher);
-        input.sequence.hash(&mut hasher);
-        prevout_values[i].hash(&mut hasher);
-        prevout_script_pubkeys[i].hash(&mut hasher);
+        prevouts.extend_from_slice(&input.prevout.hash);
+        prevouts.extend_from_slice(&input.prevout.index.to_le_bytes());
+        // Both callers validate that prevout slices are at least as long as tx.inputs before
+        // calling this function. Direct indexing here makes the invariant explicit; a panic
+        // would signal a programming error, not a consensus-invalid input.
+        amounts.extend_from_slice(&(prevout_values[i] as u64).to_le_bytes());
+        let spk = prevout_script_pubkeys[i];
+        scriptpubkeys.extend_from_slice(&encode_varint(spk.len() as u64));
+        scriptpubkeys.extend_from_slice(spk);
+        sequences.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     }
-    tx.outputs.len().hash(&mut hasher);
+    let mut outputs = Vec::new();
     for output in &tx.outputs {
-        output.value.hash(&mut hasher);
-        output.script_pubkey.hash(&mut hasher);
+        outputs.extend_from_slice(&(output.value as u64).to_le_bytes());
+        outputs.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        outputs.extend_from_slice(&output.script_pubkey);
     }
-    hasher.finish()
+    Bip341Commitment {
+        prevouts,
+        amounts,
+        scriptpubkeys,
+        sequences,
+        outputs,
+    }
+}
+
+/// One thread-local BIP341 commitment set. A later spend may occupy the same slot.
+/// Reuse requires the serialized commitment inputs to be equal.
+thread_local! {
+    static BIP341_TLS: std::cell::RefCell<Option<(Bip341Commitment, Bip341PrecomputedHashes)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 fn bip341_precompute(
@@ -396,16 +396,16 @@ fn bip341_precompute(
     prevout_values: &[i64],
     prevout_script_pubkeys: &[&[u8]],
 ) -> Bip341PrecomputedHashes {
-    let key = bip341_cache_tag(tx, prevout_values, prevout_script_pubkeys);
+    let material = commitment_bytes(tx, prevout_values, prevout_script_pubkeys);
     BIP341_TLS.with(|cell| {
         let mut slot = cell.borrow_mut();
-        if let Some((k, ref hashes)) = *slot {
-            if k == key {
+        if let Some((ref stored, ref hashes)) = *slot {
+            if stored == &material {
                 return hashes.clone();
             }
         }
-        let hashes = Bip341PrecomputedHashes::compute(tx, prevout_values, prevout_script_pubkeys);
-        *slot = Some((key, hashes.clone()));
+        let hashes = material.hashes();
+        *slot = Some((material, hashes.clone()));
         hashes
     })
 }
@@ -919,6 +919,13 @@ mod tests {
         tx.outputs[0].value = 2_000;
         let other_output = compute_taproot_signature_hash(&tx, 0, &pv, &psp, 0x01, None).unwrap();
         assert_ne!(first, other_output);
+        let fresh = Bip341PrecomputedHashes::compute(&tx, &pv, &psp);
+        let reused = bip341_precompute(&tx, &pv, &psp);
+        assert_eq!(fresh.sha_prevouts, reused.sha_prevouts);
+        assert_eq!(fresh.sha_amounts, reused.sha_amounts);
+        assert_eq!(fresh.sha_scriptpubkeys, reused.sha_scriptpubkeys);
+        assert_eq!(fresh.sha_sequences, reused.sha_sequences);
+        assert_eq!(fresh.sha_outputs, reused.sha_outputs);
 
         tx.outputs[0].value = 1_000;
         let other_amount = vec![9_000i64];

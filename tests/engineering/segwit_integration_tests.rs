@@ -431,12 +431,13 @@ fn test_p2wsh_multisig_fast_path() {
     use blvm_consensus::crypto::OptimizedSha256;
 
     // 2-of-2 multisig witness script: OP_2 <pk1> <pk2> OP_2 OP_CHECKMULTISIG
-    let pk1 = [0x02u8; 33];
-    let pk2 = [0x03u8; 33];
-    let mut witness_script = vec![OP_2]; // OP_2
+    let pk1 = [2u8; PUSH_33_BYTES as usize];
+    let pk2 = [3u8; PUSH_33_BYTES as usize];
+    let mut witness_script = vec![OP_2, PUSH_33_BYTES];
     witness_script.extend_from_slice(&pk1);
+    witness_script.push(PUSH_33_BYTES);
     witness_script.extend_from_slice(&pk2);
-    witness_script.push(OP_2); // OP_2
+    witness_script.push(OP_2);
     witness_script.push(OP_CHECKMULTISIG);
 
     let wsh_hash = OptimizedSha256::new().hash(&witness_script);

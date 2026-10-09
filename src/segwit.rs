@@ -216,7 +216,7 @@ pub fn compute_witness_merkle_root_from_nested(
                     crate::serialization::transaction::serialize_transaction_with_witness(
                         tx,
                         tx_witnesses,
-                    );
+                    )?;
                 sha256d_bytes(&serialized)
             } else if let Some(ids) = tx_ids {
                 // Non-SegWit tx: wtxid = txid — reuse precomputed block tx_ids (connect hot path).
@@ -436,7 +436,10 @@ fn weight_overflow() -> crate::error::ConsensusError {
 ///
 /// A non-empty witness is serialized with the marker, flag, and one stack per input. Empty stacks
 /// leave the transaction in its stripped encoding.
-fn transaction_weight_from_stacks(tx: &Transaction, stacks: Option<&[Witness]>) -> Result<Natural> {
+pub fn transaction_weight_from_stacks(
+    tx: &Transaction,
+    stacks: Option<&[Witness]>,
+) -> Result<Natural> {
     let base_size = stripped_transaction_size(tx)?;
     let total_size = match stacks {
         Some(stacks)
@@ -587,8 +590,9 @@ mod tests {
         };
         let weight = calculate_block_weight_from_nested(&block, &stacks).unwrap();
         let base = crate::serialization::serialize_transaction(&tx).len() as u64;
-        let total =
-            crate::serialization::serialize_transaction_with_witness(&tx, &stacks[0]).len() as u64;
+        let total = crate::serialization::serialize_transaction_with_witness(&tx, &stacks[0])
+            .unwrap()
+            .len() as u64;
         let prefix = (crate::serialization::serialize_block_header(&block.header).len()
             + crate::serialization::encode_varint(1).len()) as u64;
         assert_eq!(weight, prefix * 4 + 3 * base + total);

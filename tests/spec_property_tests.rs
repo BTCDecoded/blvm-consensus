@@ -19,7 +19,8 @@ fn prop_transaction_serialization_round_trip() {
 #[test]
 fn prop_segwit_transaction_serialization_round_trip() {
     proptest!(|((tx, w) in blvm_consensus::test_utils::transaction_with_witness_strategy())| {
-        let bytes = blvm_consensus::serialization::serialize_transaction_with_witness(&tx, &w);
+        let bytes = blvm_consensus::serialization::serialize_transaction_with_witness(&tx, &w)
+            .expect("witness count");
         let (tx2, w2, _) = blvm_consensus::serialization::deserialize_transaction_with_witness(&bytes).unwrap();
         prop_assert_eq!(tx, tx2);
         prop_assert_eq!(w, w2);

@@ -172,7 +172,8 @@ fn multisig_window_matches_script_library() {
 
     let exact_witness = vec![vec![], witness_sig.clone(), script.clone()];
     let exact_witness_raw =
-        serialize_transaction_with_witness(&witness_tx, std::slice::from_ref(&exact_witness));
+        serialize_transaction_with_witness(&witness_tx, std::slice::from_ref(&exact_witness))
+            .expect("witness count");
     assert_eq!(
         blvm_accepts(&witness_tx, &program_script, Some(&exact_witness)),
         library_accepts(&exact_witness_raw, &program_script),
@@ -182,7 +183,8 @@ fn multisig_window_matches_script_library() {
 
     let extra_witness = vec![vec![], vec![], witness_sig, script];
     let extra_witness_raw =
-        serialize_transaction_with_witness(&witness_tx, std::slice::from_ref(&extra_witness));
+        serialize_transaction_with_witness(&witness_tx, std::slice::from_ref(&extra_witness))
+            .expect("witness count");
     assert_eq!(
         blvm_accepts(&witness_tx, &program_script, Some(&extra_witness)),
         library_accepts(&extra_witness_raw, &program_script),

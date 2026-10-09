@@ -41,7 +41,7 @@ pub fn calculate_wtxid(tx: &Transaction, witnesses: &[Witness]) -> Hash {
     if !has_witness {
         return calculate_tx_id(tx);
     }
-    let bytes = serialize_transaction_with_witness(tx, witnesses);
+    let bytes = serialize_transaction_with_witness(tx, witnesses).expect("witness count");
     OptimizedSha256::new().hash256(&bytes)
 }
 
@@ -51,7 +51,7 @@ fn tx_uses_segwit_framing(bytes: &[u8]) -> bool {
 
 pub fn tx_roundtrip_bytes(original: &[u8], tx: &Transaction, witnesses: &[Witness]) -> Vec<u8> {
     if tx_uses_segwit_framing(original) {
-        serialize_transaction_with_witness(tx, witnesses)
+        serialize_transaction_with_witness(tx, witnesses).expect("witness count")
     } else {
         serialize_transaction(tx)
     }

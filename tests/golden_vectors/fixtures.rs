@@ -40,7 +40,7 @@ d70c545cfcfed8148179971876c54a022076d771d6e91bed212783c9b06e0de6\
 00fab2d518fad6f15a2b191d7fbd262a3e0121039d25ab79f41f75ceaf882411\
 fd41fa670a4c672c23ffaf0e361a969cde0692e800000000";
 
-// Core degenerate decode + BIP144 superfluous-witness regression (synthetic).
+// BIP144: witness marker and flag, then an empty stack. Decode must fail.
 pub const SUPERFLUOUS_WITNESS_HEX: &str = "\
 0100000000010100000000000000000000000000000000000000000000000000\
 00000000000000ffffffff00ffffffff010000000000000000000000000000";

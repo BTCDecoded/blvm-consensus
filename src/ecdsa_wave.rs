@@ -167,18 +167,18 @@ fn flush_batch(batch: &mut Vec<WaveJob>, batch_sigs: &mut usize, deadline: &mut 
 
     let mega = crate::secp256k1_backend::verify_ecdsa_batch(&all_sigs, &all_msgs, &all_pks);
     match mega {
-        Ok(results) => {
+        Ok(results) if results.len() == all_sigs.len() => {
             for (job, (start, n)) in jobs.into_iter().zip(spans) {
-                let slice = &results[start..start + n];
-                let ok = slice.iter().all(|&v| v);
-                let reply = if ok {
-                    Ok(())
-                } else {
-                    Err(ConsensusError::BlockValidation(
-                        format!("Invalid ECDSA signature in wave height={}", job.height).into(),
-                    ))
-                };
+                let reply =
+                    crate::ecdsa_batch::accept_owned_ecdsa(&job.soa, &results[start..start + n]);
                 let _ = job.reply.send(reply);
+            }
+        }
+        Ok(_) => {
+            for job in jobs {
+                let _ = job.reply.send(Err(ConsensusError::BlockValidation(
+                    format!("ECDSA wave result length mismatch height={}", job.height).into(),
+                )));
             }
         }
         Err(e) => {
@@ -194,19 +194,14 @@ fn flush_batch(batch: &mut Vec<WaveJob>, batch_sigs: &mut usize, deadline: &mut 
 /// Submit owned SoA for wave verify. Returns a receiver completed when sigs are checked.
 pub fn submit(height: u64, soa: OwnedEcdsaSoA) -> mpsc::Receiver<Result<()>> {
     let (rtx, rrx) = mpsc::sync_channel(1);
-    if soa.sigs.is_empty() {
-        let _ = rtx.send(Ok(()));
-        return rrx;
-    }
-    if !wave_enabled() {
-        let n = soa.sigs.len();
-        let out = crate::secp256k1_backend::verify_ecdsa_batch(&soa.sigs, &soa.msgs, &soa.pubkeys);
-        let reply = match out {
-            Ok(v) if v.len() == n && v.iter().all(|&x| x) => Ok(()),
-            Ok(_) => Err(ConsensusError::BlockValidation(
-                "Invalid ECDSA signature in block".into(),
-            )),
-            Err(e) => Err(e),
+    if soa.sigs.is_empty() || !wave_enabled() {
+        let reply = if soa.sigs.is_empty() {
+            crate::ecdsa_batch::accept_owned_ecdsa(&soa, &[])
+        } else {
+            match crate::secp256k1_backend::verify_ecdsa_batch(&soa.sigs, &soa.msgs, &soa.pubkeys) {
+                Ok(v) => crate::ecdsa_batch::accept_owned_ecdsa(&soa, &v),
+                Err(e) => Err(e),
+            }
         };
         let _ = rtx.send(reply);
         return rrx;
