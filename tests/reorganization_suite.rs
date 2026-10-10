@@ -931,7 +931,11 @@ fn one_block_reorg_at_the_parent_timestamp_connects_on_the_eleven_header_median(
     replacement.header.nonce = replacement.header.nonce.wrapping_add(1);
     let new_chain = vec![parent, replacement];
     let witnesses = witnesses_for_chain(&new_chain);
-    let parents: Vec<BlockHeader> = current.iter().take(11).map(|block| block.header.clone()).collect();
+    let parents: Vec<BlockHeader> = current
+        .iter()
+        .take(11)
+        .map(|block| block.header.clone())
+        .collect();
     let get_headers = move |height: u64| -> Option<Vec<BlockHeader>> {
         if height == 12 {
             Some(parents.clone())

@@ -1058,9 +1058,7 @@ pub fn try_verify_p2pk_fast_path(
         &crate::transaction_hash::SighashMidstateCache,
     >,
 ) -> Option<Result<bool>> {
-    let Some(pubkey_bytes) = canonical_p2pk_pubkey(script_pubkey) else {
-        return None;
-    };
+    let pubkey_bytes = canonical_p2pk_pubkey(script_pubkey)?;
 
     let signature_bytes = parse_p2pk_script_sig(script_sig.as_ref())?;
     if signature_bytes.is_empty() {
