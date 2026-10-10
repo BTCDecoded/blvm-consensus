@@ -120,7 +120,7 @@ pub fn reorganize_chain_with_witnesses(
     current_utxo_set: UtxoSet,
     current_height: Natural,
     _get_witnesses_for_block: Option<impl Fn(&Block) -> Option<Vec<Witness>>>,
-    _get_headers_for_height: Option<impl Fn(Natural) -> Option<Vec<BlockHeader>>>,
+    get_headers_for_height: Option<impl Fn(Natural) -> Option<Vec<BlockHeader>>>,
     get_undo_log_for_block: Option<impl Fn(&Hash) -> Option<BlockUndoLog>>,
     store_undo_log_for_block: Option<impl Fn(&Hash, &BlockUndoLog) -> Result<()>>,
     network_time: u64,
@@ -274,14 +274,35 @@ pub fn reorganize_chain_with_witnesses(
         // Witness stacks are required; length is validated at entry (must match new_chain).
         let witnesses = new_chain_witnesses[i].clone();
 
-        // Median time-past: prefer caller headers; else use preceding blocks on the new chain.
+        // Median time-past ends at height-1. A supplied parent window is the
+        // previous 11 headers. The in-fork slice is only a fallback for callers
+        // that have no header store; a one-block fork does not contain those parents.
         mtp_header_buf.clear();
-        let recent_headers: Option<&[BlockHeader]> = if let Some(headers) = new_chain_headers {
+        let expected = if new_height == 0 {
+            0
+        } else {
+            (new_height as usize).min(crate::bip113::MEDIAN_TIME_BLOCKS)
+        };
+        let stored_headers = get_headers_for_height
+            .as_ref()
+            .and_then(|get| get(new_height));
+        let recent_headers: Option<&[BlockHeader]> = if let Some(headers) = stored_headers.as_ref()
+        {
+            if headers.len() < expected {
+                return Err(crate::error::ConsensusError::BlockValidation(
+                    format!("missing parent headers for median time at height {new_height}").into(),
+                ));
+            }
+            mtp_header_buf.extend(headers.iter().cloned());
+            Some(mtp_header_buf.as_slice())
+        } else if let Some(headers) = new_chain_headers {
             Some(headers)
         } else if i > 0 {
             let start = i.saturating_sub(crate::bip113::MEDIAN_TIME_BLOCKS - 1);
             mtp_header_buf.extend(new_chain[start..i].iter().map(|b| b.header.clone()));
             Some(mtp_header_buf.as_slice())
+        } else if new_height == 0 {
+            Some(&[])
         } else {
             None
         };

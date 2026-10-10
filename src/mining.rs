@@ -298,7 +298,7 @@ pub enum MiningResult {
 
 /// Create coinbase transaction
 /// Orange Paper 12.2: Coinbase transaction structure.
-/// BIP54: When BIP54 is active, coinbase must have nLockTime = height - 13 and nSequence != 0xffff_ffff.
+/// BIP54: When BIP54 is active, coinbase must have nLockTime = height - 1 and nSequence != 0xffff_ffff.
 /// This implementation sets those so that blocks are valid under BIP54 when activated.
 fn create_coinbase_transaction(
     height: Natural,
@@ -321,7 +321,7 @@ pub fn create_coinbase_with_outputs(
             "coinbase requires at least one output".into(),
         ));
     }
-    let lock_time = height.saturating_sub(13);
+    let lock_time = height.saturating_sub(1);
     let coinbase_input = TransactionInput {
         prevout: OutPoint {
             hash: [0u8; 32],

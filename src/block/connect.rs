@@ -3464,7 +3464,7 @@ pub(crate) fn connect_block_inner<'a>(
             return invalid_block_result(
                 utxo_set,
                 &[],
-                "BIP54: Coinbase must have nLockTime = height - 13 and nSequence != 0xffffffff",
+                "BIP54: Coinbase must have nLockTime = height - 1 and nSequence != 0xffffffff",
             );
         }
         for tx in block.transactions.iter().skip(1) {

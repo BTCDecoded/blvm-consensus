@@ -131,9 +131,29 @@ fn test_check_bip90_rejects_version_one_at_bip34() {
 fn test_check_bip54_coinbase_compliant() {
     let height = 500u64;
     let mut coinbase = coinbase_at_height(height);
-    coinbase.lock_time = height.saturating_sub(13);
+    coinbase.lock_time = height.saturating_sub(1);
     coinbase.inputs[0].sequence = 0xfffffffe;
     assert!(check_bip54_coinbase(&coinbase, height));
+}
+
+#[test]
+fn bip54_coinbase_locktime_matches_height_minus_one() {
+    // BIP-54 coinbases.json, height 4: locktime 3 with a non-final sequence is valid.
+    // Locktime 4, locktime 2, and a final sequence are not.
+    let height = 4u64;
+    let mut coinbase = coinbase_at_height(height);
+    coinbase.lock_time = 3;
+    coinbase.inputs[0].sequence = 0xffff_fffe;
+    assert!(check_bip54_coinbase(&coinbase, height));
+    coinbase.lock_time = 4;
+    assert!(!check_bip54_coinbase(&coinbase, height));
+    coinbase.lock_time = 2;
+    assert!(!check_bip54_coinbase(&coinbase, height));
+    coinbase.lock_time = 0;
+    assert!(!check_bip54_coinbase(&coinbase, height));
+    coinbase.lock_time = 3;
+    coinbase.inputs[0].sequence = 0xffff_ffff;
+    assert!(!check_bip54_coinbase(&coinbase, height));
 }
 
 #[test]
@@ -302,7 +322,7 @@ fn test_check_bip147_skips_non_multisig_at_activation() {
 fn test_check_bip54_coinbase_rejects_final_sequence() {
     let height = 500u64;
     let mut coinbase = coinbase_at_height(height);
-    coinbase.lock_time = height.saturating_sub(13);
+    coinbase.lock_time = height.saturating_sub(1);
     coinbase.inputs[0].sequence = 0xffffffff;
     assert!(!check_bip54_coinbase(&coinbase, height));
 }

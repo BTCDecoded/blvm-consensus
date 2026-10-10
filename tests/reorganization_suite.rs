@@ -921,3 +921,41 @@ fn test_reorganize_chain_rejects_segwit_without_witnesses() {
             .contains("reorganize_chain_with_witnesses")
     );
 }
+
+#[test]
+fn one_block_reorg_at_the_parent_timestamp_connects_on_the_eleven_header_median() {
+    let (current, utxo, undo) = connect_regtest_chain_with_undo(12);
+    let parent = current[10].clone();
+    let mut replacement = current[11].clone();
+    replacement.header.timestamp = parent.header.timestamp;
+    replacement.header.nonce = replacement.header.nonce.wrapping_add(1);
+    let new_chain = vec![parent, replacement];
+    let witnesses = witnesses_for_chain(&new_chain);
+    let parents: Vec<BlockHeader> = current.iter().take(11).map(|block| block.header.clone()).collect();
+    let get_headers = move |height: u64| -> Option<Vec<BlockHeader>> {
+        if height == 12 {
+            Some(parents.clone())
+        } else {
+            None
+        }
+    };
+    let result = reorganize_chain_with_witnesses(
+        &new_chain,
+        &witnesses,
+        None,
+        &current,
+        utxo,
+        12,
+        None::<fn(&Block) -> Option<Vec<blvm_consensus::segwit::Witness>>>,
+        Some(get_headers),
+        Some(move |hash: &Hash| undo.get(hash).cloned()),
+        Some(noop_put_undo),
+        TEST_NETWORK_TIME,
+        Network::Regtest,
+        None,
+    );
+    assert!(
+        result.is_ok(),
+        "parent-timestamp reorg must connect against the 11-header median: {result:?}"
+    );
+}

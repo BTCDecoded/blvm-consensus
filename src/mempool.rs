@@ -101,6 +101,11 @@ pub fn accept_to_memory_pool(
             "Transaction not final (locktime not satisfied)".to_string(),
         ));
     }
+    if relative_lock_unsatisfied(tx, utxo_set, height, block_time, None, network)? {
+        return Ok(MempoolResult::Rejected(
+            "Transaction not final (relative locktime not satisfied)".to_string(),
+        ));
+    }
 
     // 3. Check inputs against UTXO set
     let (input_valid, fee) = check_tx_inputs(tx, utxo_set, height)?;
@@ -930,6 +935,66 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
     true
 }
 
+/// True when a BIP68 relative lock is not satisfied at `height`.
+///
+/// A missing prevout is treated as confirming in this block. A time-based lock
+/// whose prior median time is unknown is not decided here; height locks still are.
+pub fn relative_lock_unsatisfied(
+    tx: &Transaction,
+    utxo_set: &UtxoSet,
+    height: Natural,
+    block_time: Natural,
+    prev_mtps: Option<&[i64]>,
+    network: Network,
+) -> Result<bool> {
+    use crate::activation::{ForkActivationTable, IsForkActive};
+    use crate::locktime::{extract_sequence_type_flag, is_sequence_disabled};
+    use crate::sequence_locks::{
+        LOCKTIME_VERIFY_SEQUENCE, height_relative_lock_unsatisfied, sequence_locks,
+    };
+    use crate::types::ForkId;
+
+    if tx.version < 2
+        || !ForkActivationTable::from_network(network).is_fork_active(ForkId::Bip112, height)
+    {
+        return Ok(false);
+    }
+
+    let mut prev_heights = Vec::with_capacity(tx.inputs.len());
+    let mut mtps = Vec::with_capacity(tx.inputs.len());
+    let mut unknown_time = false;
+    for (i, input) in tx.inputs.iter().enumerate() {
+        let seq = input.sequence as u32;
+        let coin_height = utxo_set
+            .get(&input.prevout)
+            .map(|utxo| utxo.height)
+            .unwrap_or(height);
+        prev_heights.push(coin_height);
+        let supplied = prev_mtps.and_then(|all| all.get(i).copied()).unwrap_or(-1);
+        if is_sequence_disabled(seq) || !extract_sequence_type_flag(seq) {
+            mtps.push(-1);
+        } else if supplied < 0 {
+            unknown_time = true;
+            mtps.push(-1);
+        } else {
+            mtps.push(supplied);
+        }
+    }
+
+    if unknown_time {
+        return height_relative_lock_unsatisfied(tx, &prev_heights, height);
+    }
+    let satisfied = sequence_locks(
+        tx,
+        LOCKTIME_VERIFY_SEQUENCE,
+        &prev_heights,
+        height,
+        block_time,
+        Some(&mtps),
+    )?;
+    Ok(!satisfied)
+}
+
 /// Check if transaction signals RBF
 ///
 /// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
@@ -1220,6 +1285,57 @@ mod tests {
             &utxo_set,
             &mempool,
             100,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
+        assert!(matches!(result, MempoolResult::Accepted));
+    }
+
+    #[test]
+    fn relative_height_lock_is_not_accepted_until_it_is_old_enough() {
+        let mut tx = create_valid_transaction();
+        tx.version = 2;
+        tx.inputs[0].sequence = 10;
+        let prevout = tx.inputs[0].prevout;
+        let time_context = Some(TimeContext {
+            network_time: 1_700_000_000,
+            median_time_past: 1_700_000_000,
+        });
+        let mempool = Mempool::new();
+        let young = utxo_confirmed_at(prevout, 499_995);
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &young,
+            &mempool,
+            500_000,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
+        assert!(matches!(result, MempoolResult::Rejected(_)));
+
+        let old = utxo_confirmed_at(prevout, 499_000);
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &old,
+            &mempool,
+            500_000,
+            time_context,
+            Network::Mainnet,
+        )
+        .unwrap();
+        assert!(matches!(result, MempoolResult::Accepted));
+
+        tx.version = 1;
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &young,
+            &mempool,
+            500_000,
             time_context,
             Network::Mainnet,
         )
@@ -1779,6 +1895,20 @@ mod tests {
             value: 1000,
             script_pubkey: vec![OP_1], // OP_1 for valid script
         }
+    }
+
+    fn utxo_confirmed_at(prevout: OutPoint, height: u64) -> UtxoSet {
+        let mut utxo_set = UtxoSet::default();
+        utxo_set.insert(
+            prevout,
+            std::sync::Arc::new(UTXO {
+                value: 10000,
+                script_pubkey: vec![OP_1].into(),
+                height,
+                is_coinbase: false,
+            }),
+        );
+        utxo_set
     }
 
     fn create_test_utxo_set() -> UtxoSet {

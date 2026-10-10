@@ -243,6 +243,50 @@ pub fn sequence_locks(
     Ok(evaluate_sequence_locks(block_height, block_time, lock_pair))
 }
 
+/// Height-based relative locks only. Time-based inputs are left to the caller.
+pub(crate) fn height_relative_lock_unsatisfied(
+    tx: &Transaction,
+    prev_heights: &[u64],
+    block_height: u64,
+) -> Result<bool> {
+    if prev_heights.len() != tx.inputs.len() {
+        return Err(crate::error::ConsensusError::ConsensusRuleViolation(
+            format!(
+                "prev_heights length {} does not match input count {}",
+                prev_heights.len(),
+                tx.inputs.len()
+            )
+            .into(),
+        ));
+    }
+    if tx.version < 2 {
+        return Ok(false);
+    }
+    let mut min_height: i64 = -1;
+    for (i, input) in tx.inputs.iter().enumerate() {
+        let seq = input.sequence as u32;
+        if is_sequence_disabled(seq) || extract_sequence_type_flag(seq) {
+            continue;
+        }
+        let coin_height = i64::try_from(prev_heights[i]).map_err(|_| {
+            crate::error::ConsensusError::ConsensusRuleViolation(
+                "prev_height does not fit in i64 for sequence lock calculation".into(),
+            )
+        })?;
+        let locktime_value = extract_sequence_locktime_value(seq) as i64;
+        let required_height = coin_height
+            .checked_add(locktime_value)
+            .and_then(|sum| sum.checked_sub(1))
+            .ok_or_else(|| {
+                crate::error::ConsensusError::ConsensusRuleViolation(
+                    "Sequence lock height calculation overflow".into(),
+                )
+            })?;
+        min_height = min_height.max(required_height);
+    }
+    Ok(!evaluate_sequence_locks(block_height, 0, (min_height, -1)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

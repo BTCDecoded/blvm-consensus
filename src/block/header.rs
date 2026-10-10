@@ -283,6 +283,27 @@ mod tests {
     }
 
     #[test]
+    fn timestamp_past_the_two_hour_window_is_rejected() {
+        use crate::constants::MAX_FUTURE_BLOCK_TIME;
+        use crate::types::TimeContext;
+
+        let network_time = 1_600_000_000;
+        let header = BlockHeader {
+            version: 1,
+            prev_block_hash: [0u8; 32],
+            merkle_root: [1u8; 32],
+            timestamp: network_time + MAX_FUTURE_BLOCK_TIME + 1,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+        let ctx = TimeContext {
+            network_time,
+            median_time_past: 0,
+        };
+        assert!(!validate_block_header(&header, Some(&ctx)).unwrap());
+    }
+
+    #[test]
     fn genesis_header_hashes_match_the_chain() {
         let cases = [
             (

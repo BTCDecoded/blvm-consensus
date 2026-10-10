@@ -369,10 +369,11 @@ pub fn check_bip54_sigop_limit<U: crate::utxo_overlay::UtxoLookup>(
 
 /// BIP54: Coinbase nLockTime and nSequence (Consensus Cleanup).
 ///
-/// Orange Paper §5.4.9. After BIP54 activation, coinbase must have lock_time == height - 13 and sequence != 0xffff_ffff.
+/// BIP54: coinbase nLockTime is the block height minus 1 (the last height at which
+/// the coinbase is invalid). nSequence must not be 0xffff_ffff.
 #[spec_locked("5.4.9", "CheckBip54Coinbase")]
 pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
-    let required_lock_time = height.saturating_sub(13);
+    let required_lock_time = height.saturating_sub(1);
     if coinbase.lock_time != required_lock_time {
         return false;
     }

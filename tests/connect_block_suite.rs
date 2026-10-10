@@ -58,7 +58,7 @@ fn ctx_bip54_with_boundary(
 
 fn coinbase_bip54_compliant(height: u64, value: i64) -> Transaction {
     let mut coinbase = coinbase_at_height(height, value);
-    coinbase.lock_time = height.saturating_sub(13);
+    coinbase.lock_time = height.saturating_sub(1);
     coinbase.inputs[0].sequence = 0xfffffffe;
     coinbase
 }
