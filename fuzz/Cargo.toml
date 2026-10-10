@@ -10,7 +10,9 @@ cargo-fuzz = true
 
 [dependencies]
 blvm-consensus = { path = "..", features = ["utxo-commitments", "ctv"] }
-blvm-protocol = { version = ">=0.1, <1", features = ["utxo-commitments"] }
+# blvm-protocol stays off this package until crates.io has a protocol that
+# builds against this consensus. The published pair does not compile together,
+# and this package's build is what gates `cargo publish`.
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 

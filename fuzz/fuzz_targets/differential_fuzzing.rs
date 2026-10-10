@@ -1,5 +1,4 @@
 #![no_main]
-use std::io::Cursor;
 
 use blvm_consensus::segwit::calculate_transaction_weight;
 use blvm_consensus::serialization::block::{deserialize_block_header, serialize_block_header};
@@ -127,18 +126,26 @@ fuzz_target!(|data: &[u8]| {
                 assert_eq!(encoded, encoded2, "VarInt encoding must be deterministic");
             }
 
-            // Consensus (primitives) vs protocol `read_varint` must agree on accepted encodings.
-            let mut cur = Cursor::new(data);
-            match blvm_protocol::varint::read_varint(&mut cur) {
-                Ok(value_p) => {
-                    assert_eq!(value1, value_p, "consensus vs protocol varint value");
-                    assert_eq!(
-                        consumed1,
-                        cur.position() as usize,
-                        "consensus vs protocol varint consumed length"
-                    );
+            // Protocol `read_varint` is compared when the protocol-fuzz feature is on.
+            #[cfg(feature = "protocol-fuzz")]
+            {
+                use std::io::Cursor;
+                let mut cur = Cursor::new(data);
+                match blvm_protocol::varint::read_varint(&mut cur) {
+                    Ok(value_p) => {
+                        assert_eq!(value1, value_p, "consensus vs protocol varint value");
+                        assert_eq!(
+                            consumed1,
+                            cur.position() as usize,
+                            "consensus vs protocol varint consumed length"
+                        );
+                    }
+                    Err(_) => panic!("protocol varint rejected input consensus accepted"),
                 }
-                Err(_) => panic!("protocol varint rejected input consensus accepted"),
+            }
+            #[cfg(not(feature = "protocol-fuzz"))]
+            {
+                let _ = consumed1;
             }
         }
     }
