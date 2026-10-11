@@ -6,8 +6,9 @@ mod test_helpers;
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::constants::{LOCKTIME_THRESHOLD, MIN_RELAY_FEE};
 use blvm_consensus::mempool::{
-    accept_to_memory_pool, has_conflict_with_tx, is_final_tx, replacement_checks, signals_rbf,
-    update_mempool_after_block, update_mempool_after_block_with_lookup, Mempool, MempoolResult,
+    Mempool, MempoolResult, accept_to_memory_pool, has_conflict_with_tx, is_final_tx,
+    replacement_checks, signals_rbf, update_mempool_after_block,
+    update_mempool_after_block_with_lookup,
 };
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::opcodes::{OP_0, OP_VERIFY};
@@ -91,9 +92,11 @@ fn test_is_final_tx_all_inputs_final_sequence() {
 
 #[test]
 fn test_signals_rbf_and_conflict() {
-    let rbf = create_rbf_tx(0xfffffffe);
+    let rbf = create_rbf_tx(0xfffffffd);
+    let locktime_only = create_rbf_tx(0xfffffffe);
     let non_rbf = create_test_tx(1_000, Some(0xffffffff), None, None);
     assert!(signals_rbf(&rbf));
+    assert!(!signals_rbf(&locktime_only));
     assert!(!signals_rbf(&non_rbf));
 
     let mut conflict = create_test_tx(900, Some(0xfffffffe), None, None);
@@ -133,7 +136,7 @@ fn test_accept_to_memory_pool_rejects_missing_utxo() {
 #[test]
 fn test_replacement_checks_success() {
     let (set, _) = create_test_utxo(10_000);
-    let mut existing = create_rbf_tx(0xfffffffe);
+    let mut existing = create_rbf_tx(0xfffffffd);
     existing.outputs[0].value = 9_000; // fee = 1000
 
     let mut replacement = existing.clone();
@@ -302,7 +305,7 @@ fn test_accept_allows_unrelated_mempool_txid_matching_funding_hash() {
 #[test]
 fn test_replacement_checks_rejects_insufficient_fee_increment() {
     let (set, _) = create_test_utxo(10_000);
-    let mut existing = create_rbf_tx(0xfffffffe);
+    let mut existing = create_rbf_tx(0xfffffffd);
     existing.outputs[0].value = 9_000;
 
     let mut replacement = existing.clone();
@@ -547,7 +550,7 @@ fn test_accept_rejects_true_mempool_double_spend() {
 #[test]
 fn test_replacement_checks_rejects_no_conflict() {
     let (set, _) = create_test_utxo(10_000);
-    let mut existing = create_rbf_tx(0xfffffffe);
+    let mut existing = create_rbf_tx(0xfffffffd);
     existing.outputs[0].value = 9_000;
     let mut replacement = existing.clone();
     replacement.inputs[0].prevout.hash = [0x55; 32];
@@ -563,7 +566,7 @@ fn test_replacement_checks_rejects_no_conflict() {
 #[test]
 fn test_replacement_checks_rejects_new_unconfirmed_dependency() {
     let (set, _) = create_test_utxo(10_000);
-    let mut existing = create_rbf_tx(0xfffffffe);
+    let mut existing = create_rbf_tx(0xfffffffd);
     existing.outputs[0].value = 9_000;
 
     let mut replacement = existing.clone();

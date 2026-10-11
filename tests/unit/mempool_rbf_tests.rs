@@ -11,8 +11,8 @@ fn test_rbf_sequence_checks() {
     let pool = mempool::Mempool::new();
     let (utxo, _) = create_test_utxo(10_000);
 
-    // RBF transaction (sequence < 0xffffffff)
-    let rbf_tx = create_rbf_tx(0xfffffffeu64);
+    // RBF transaction (sequence < 0xfffffffe)
+    let rbf_tx = create_rbf_tx(0xfffffffd);
     let non_rbf_tx = create_rbf_tx(0xffffffffu64);
 
     // Test RBF replacement logic (live 4-arg API includes UtxoSet)
@@ -31,7 +31,8 @@ fn test_mempool_duplicate_detection() {
     let tx_id = mempool::calculate_tx_id(&tx);
     pool.insert(tx_id);
 
-    let result = mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet, None);
+    let result =
+        mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet, None);
     assert!(
         matches!(result, Ok(mempool::MempoolResult::Rejected(ref r)) if r.contains("already")),
         "duplicate mempool entry should be rejected: {result:?}"

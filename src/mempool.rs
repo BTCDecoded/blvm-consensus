@@ -305,7 +305,7 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 /// Check if new transaction can replace existing one (BIP125 RBF rules).
 ///
 /// According to BIP125 and Orange Paper Section 9.3, replacement is allowed if:
-/// 1. Existing transaction signals RBF (nSequence < SEQUENCE_FINAL)
+/// 1. Existing transaction signals RBF (nSequence < 0xfffffffe)
 /// 2. New transaction has higher fee rate: FeeRate(tx_2) > FeeRate(tx_1)
 /// 3. New transaction pays absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
 /// 4. New transaction conflicts with existing: tx_2 spends at least one input from tx_1
@@ -952,7 +952,7 @@ pub fn relative_lock_unsatisfied(
 ) -> Result<bool> {
     use crate::activation::{ForkActivationTable, IsForkActive};
     use crate::locktime::{extract_sequence_type_flag, is_sequence_disabled};
-    use crate::sequence_locks::{sequence_locks, LOCKTIME_VERIFY_SEQUENCE};
+    use crate::sequence_locks::{LOCKTIME_VERIFY_SEQUENCE, sequence_locks};
     use crate::types::ForkId;
 
     if tx.version < 2
@@ -996,12 +996,13 @@ pub fn relative_lock_unsatisfied(
     Ok(!satisfied)
 }
 
-/// Check if transaction signals RBF
+/// Check if transaction signals RBF.
 ///
-/// Returns true if any input has nSequence < SEQUENCE_FINAL (0xffffffff)
+/// BIP125 opts in when any input sequence is below `0xfffffffe`.
+/// Sequence `0xfffffffe` enables locktime and does not opt in.
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
-        if (input.sequence as u32) < SEQUENCE_FINAL {
+        if (input.sequence as u32) < SEQUENCE_RBF {
             return true;
         }
     }
@@ -1452,7 +1453,7 @@ mod tests {
         // 3. Has higher fee rate and absolute fee
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 8000; // Fee = 10000 - 8000 = 2000 sats
-                                        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
+        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
         new_tx.outputs[0].value = 7999; // Fee = 10000 - 7999 = 2001 sats
 
         // Should pass all BIP125 checks
@@ -1542,8 +1543,8 @@ mod tests {
 
         // Now with sufficient fee
         new_tx.outputs[0].value = 7999; // Fee = 2001 sats (sufficient)
-                                        // Should still fail on other checks (conflict, etc.), but fee check passes
-                                        // For full test, need to ensure conflict exists
+        // Should still fail on other checks (conflict, etc.), but fee check passes
+        // For full test, need to ensure conflict exists
     }
 
     // ============================================================================
@@ -1787,9 +1788,17 @@ mod tests {
     #[test]
     fn test_signals_rbf_true() {
         let mut tx = create_valid_transaction();
-        tx.inputs[0].sequence = 0xfffffffe; // RBF signal
+        tx.inputs[0].sequence = 0xfffffffd; // below 0xfffffffe
 
         assert!(signals_rbf(&tx));
+    }
+
+    #[test]
+    fn test_signals_rbf_locktime_sequence_does_not_opt_in() {
+        let mut tx = create_valid_transaction();
+        tx.inputs[0].sequence = 0xfffffffe;
+
+        assert!(!signals_rbf(&tx));
     }
 
     #[test]

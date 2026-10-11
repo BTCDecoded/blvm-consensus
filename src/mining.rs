@@ -57,6 +57,23 @@ fn template_bits(
     })
 }
 
+/// Minimum header version `check_bip90` accepts at `height`.
+///
+/// Height 1 on mainnet is still version 1. After BIP65 the minimum is 4.
+pub fn template_block_version(network: Network, height: Natural) -> i64 {
+    use crate::activation::{ForkActivationTable, IsForkActive};
+    let table = ForkActivationTable::from_network(network);
+    if table.is_fork_active(ForkId::Bip65, height) {
+        4
+    } else if table.is_fork_active(ForkId::Bip66, height) {
+        3
+    } else if table.is_fork_active(ForkId::Bip34, height) {
+        2
+    } else {
+        1
+    }
+}
+
 /// CreateNewBlock: 𝒰𝒮 × 𝒯𝒳* → ℬ
 ///
 /// For UTXO set us and mempool transactions txs:
@@ -109,7 +126,10 @@ pub fn create_new_block_with_time(
     mempool_witnesses: Option<&[Option<Vec<crate::segwit::Witness>>]>,
 ) -> Result<Block> {
     use crate::bip113::get_median_time_past;
-    use crate::mempool::{accept_to_memory_pool, Mempool, MempoolResult};
+    use crate::mempool::{Mempool, MempoolResult, accept_to_memory_pool};
+
+    let median_time_past = get_median_time_past(prev_headers);
+    let block_time = block_time.max(median_time_past.saturating_add(1));
 
     // 1. Create coinbase transaction
     let coinbase_tx = create_coinbase_transaction(
@@ -118,6 +138,25 @@ pub fn create_new_block_with_time(
         coinbase_script,
         coinbase_address,
     )?;
+
+    // Header (80 bytes plus a 3-byte transaction count) and the coinbase are in the
+    // block before any mempool transaction. The witness commitment is appended later.
+    const WITNESS_COMMITMENT_RESERVE: u64 = 4_000;
+    let header_weight = 83u64.saturating_mul(4);
+    let coinbase_weight =
+        crate::segwit::transaction_weight_from_stacks(&coinbase_tx, None).unwrap_or(0);
+    let mut running_weight = header_weight
+        .saturating_add(coinbase_weight)
+        .saturating_add(WITNESS_COMMITMENT_RESERVE);
+    let mut running_sigops = crate::sigop::get_transaction_sigop_cost_with_witness_slices(
+        &coinbase_tx,
+        utxo_set,
+        None,
+        0x01,
+    )
+    .unwrap_or(0);
+    let max_weight = crate::constants::MAX_BLOCK_WEIGHT as u64;
+    let max_sigops = crate::constants::MAX_BLOCK_SIGOPS_COST;
 
     // 2. Select transactions from mempool with proper validation
     // Use mempool validation to ensure transactions are valid and properly formatted
@@ -130,7 +169,6 @@ pub fn create_new_block_with_time(
             continue;
         }
 
-        let median_time_past = get_median_time_past(prev_headers);
         let time_context = Some(TimeContext {
             network_time: block_time,
             median_time_past,
@@ -149,6 +187,27 @@ pub fn create_new_block_with_time(
             None,
         )? {
             MempoolResult::Accepted => {
+                let tx_weight =
+                    match crate::segwit::transaction_weight_from_stacks(tx, tx_witnesses) {
+                        Ok(weight) => weight,
+                        Err(_) => continue,
+                    };
+                let tx_sigops = match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
+                    tx,
+                    utxo_set,
+                    tx_witnesses,
+                    0x01,
+                ) {
+                    Ok(cost) => cost,
+                    Err(_) => continue,
+                };
+                if running_weight.saturating_add(tx_weight) > max_weight
+                    || running_sigops.saturating_add(tx_sigops) > max_sigops
+                {
+                    continue;
+                }
+                running_weight = running_weight.saturating_add(tx_weight);
+                running_sigops = running_sigops.saturating_add(tx_sigops);
                 selected_txs.push(tx.clone());
             }
             MempoolResult::Rejected(_reason) => {
@@ -175,7 +234,7 @@ pub fn create_new_block_with_time(
 
     // 6. Create block header
     let header = BlockHeader {
-        version: 1,
+        version: template_block_version(network, height),
         prev_block_hash: calculate_block_hash(prev_header),
         merkle_root,
         timestamp: block_time,
@@ -1604,7 +1663,7 @@ mod tests {
                 // This ensures transaction hash is unique without affecting script execution
                 script_sig: {
                     let mut sig = vec![OP_1]; // OP_1 pushes 1
-                                              // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
+                    // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
                     if counter > 0 {
                         sig.push(PUSH_1_BYTE); // Push 1 byte
                         sig.push((counter & 0xff) as u8); // Push counter byte
@@ -2164,5 +2223,55 @@ mod tests {
             "got {}",
             err
         );
+    }
+
+    #[test]
+    fn template_version_follows_bip90() {
+        assert_eq!(template_block_version(Network::Mainnet, 1), 1);
+        assert!(template_block_version(Network::Mainnet, 388_381) >= 4);
+    }
+
+    #[test]
+    fn template_time_is_at_least_the_median_plus_one() {
+        let prev = BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [0; 32],
+            timestamp: 999,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        };
+        let prev_headers = vec![prev.clone(); 11];
+        let utxo = UtxoSet::default();
+        let script = vec![OP_1];
+        let early = create_new_block_with_time(
+            &utxo,
+            &[],
+            1,
+            &prev,
+            &prev_headers,
+            &script,
+            &script,
+            900,
+            Network::Mainnet,
+            None,
+        )
+        .unwrap();
+        assert_eq!(early.header.timestamp, 1_000);
+        assert_eq!(early.header.version, 1);
+        let late = create_new_block_with_time(
+            &utxo,
+            &[],
+            1,
+            &prev,
+            &prev_headers,
+            &script,
+            &script,
+            1_100,
+            Network::Mainnet,
+            None,
+        )
+        .unwrap();
+        assert_eq!(late.header.timestamp, 1_100);
     }
 }
