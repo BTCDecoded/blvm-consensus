@@ -571,6 +571,32 @@ fn tapscript_opcode_end(script: &[u8], pc: usize) -> Option<usize> {
     (end <= script.len()).then_some(end)
 }
 
+/// A push has one shortest encoding. `SCRIPT_VERIFY_MINIMALDATA` rejects the longer ones.
+fn push_encoding_is_minimal(opcode: u8, data: &[u8]) -> bool {
+    if data.is_empty() {
+        return opcode == OP_0;
+    }
+    if data.len() == 1 {
+        let byte = data[0];
+        if (1..=16).contains(&byte) {
+            return opcode == OP_1 + (byte - 1);
+        }
+        if byte == 0x81 {
+            return opcode == OP_1NEGATE;
+        }
+    }
+    if data.len() <= 75 {
+        return opcode == data.len() as u8;
+    }
+    if data.len() <= 255 {
+        return opcode == OP_PUSHDATA1;
+    }
+    if data.len() <= 65535 {
+        return opcode == OP_PUSHDATA2;
+    }
+    true
+}
+
 fn eval_script_inner(
     script: &[u8],
     stack: &mut Vec<StackElement>,
@@ -672,6 +698,12 @@ fn eval_script_inner(
                     )
                     .into(),
                 });
+            }
+            if !in_false_branch
+                && (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !push_encoding_is_minimal(opcode, data)
+            {
+                return Ok(false);
             }
             if !in_false_branch {
                 stack.push(to_stack_element(data));
@@ -3697,11 +3729,6 @@ pub fn verify_script_with_context_full(
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0 {
             return Ok(false);
         }
-        // The program is the stack top once this script runs. A false top
-        // (all zeros, or negative zero) fails before the witness shortcut.
-        if !cast_to_bool(&script_pubkey[2..]) {
-            return Ok(false);
-        }
         return Ok(true);
     }
 
@@ -3727,9 +3754,6 @@ pub fn verify_script_with_context_full(
     if is_direct_witness_program {
         // Non-empty scriptSig is WITNESS_MALLEATED.
         if !script_sig.is_empty() {
-            return Ok(false);
-        }
-        if !cast_to_bool(&script_pubkey[2..]) {
             return Ok(false);
         }
         let Some(witness_stack) = witness else {
@@ -3974,9 +3998,6 @@ pub fn verify_script_with_context_full(
         }
 
         if witness_flag && is_witness_program {
-            if !cast_to_bool(&redeem[2..]) {
-                return Ok(false);
-            }
             // For P2WSH-in-P2SH or P2WPKH-in-P2SH:
             // - We've already verified the redeem script hash matches (scriptPubkey check passed)
             // - We should NOT execute the redeem script as a normal script
@@ -4125,9 +4146,6 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
             if flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM != 0 {
-                return Ok(false);
-            }
-            if !cast_to_bool(&redeem[2..]) {
                 return Ok(false);
             }
             return Ok(true);
@@ -4454,6 +4472,12 @@ fn eval_script_with_context_full_inner(
                     )
                     .into(),
                 });
+            }
+            if !in_false_branch
+                && (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !push_encoding_is_minimal(opcode, data)
+            {
+                return Ok(false);
             }
             // Only push data if not in a non-executing branch
             if !in_false_branch {

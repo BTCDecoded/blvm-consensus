@@ -5,7 +5,8 @@ mod helpers;
 
 use bitcoin_hashes::{Hash as BitcoinHash, sha256};
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_1NEGATE, OP_2, OP_ENDIF, OP_IF, OP_RESERVED, PUSH_20_BYTES, PUSH_32_BYTES,
+    OP_0, OP_1, OP_1NEGATE, OP_2, OP_DROP, OP_ENDIF, OP_IF, OP_RESERVED, PUSH_20_BYTES,
+    PUSH_32_BYTES,
 };
 use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
 use blvm_consensus::script::{SigVersion, verify_script_with_context};
@@ -311,6 +312,103 @@ fn test_reserved_and_negate_are_not_witness_programs() {
         &[OP_2, 0x02, 0x11, 0x22],
         Some(&witness),
     ));
+    // An all-zero program is still a future witness program. The bytes are not evaluated.
+    assert!(verify_pubkey(
+        &[],
+        &[OP_2, 0x02, 0x00, 0x00],
+        Some(&witness),
+    ));
+    assert!(verify_pubkey(
+        &[],
+        &[OP_2, 0x02, 0x00, 0x01],
+        Some(&witness),
+    ));
+    assert!(!verify_pubkey(
+        &[0x01],
+        &[OP_2, 0x02, 0x00, 0x00],
+        Some(&witness),
+    ));
+}
+
+#[test]
+fn minimal_push_rejects_pushdata_of_one_byte() {
+    use blvm_consensus::script::flags::SCRIPT_VERIFY_MINIMALDATA;
+
+    let tx_for = |script_sig: &[u8]| Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x11; 32],
+                index: 0,
+            },
+            script_sig: script_sig.to_vec().into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let prevouts = vec![TransactionOutput {
+        value: 10_000,
+        script_pubkey: vec![OP_DROP, OP_1].into(),
+    }];
+    let flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_MINIMALDATA;
+    let nonminimal = tx_for(&[0x4c, 0x01, 0x51]);
+    assert!(
+        !verify_script_with_context(
+            &nonminimal.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            None,
+            flags,
+            &nonminimal,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap_or(false)
+    );
+    let block_flags = blvm_consensus::block::calculate_script_flags_for_block_network(
+        &nonminimal,
+        false,
+        SEGWIT_ACTIVATION_MAINNET,
+        Network::Mainnet,
+    );
+    assert_eq!(block_flags & SCRIPT_VERIFY_MINIMALDATA, 0);
+    assert!(
+        verify_script_with_context(
+            &nonminimal.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            None,
+            block_flags,
+            &nonminimal,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap_or(false),
+        "block-connect flags accept the longer push"
+    );
+    let direct = tx_for(&[0x01, 0x51]);
+    assert!(
+        verify_script_with_context(
+            &direct.inputs[0].script_sig,
+            &prevouts[0].script_pubkey,
+            None,
+            flags,
+            &direct,
+            0,
+            &prevouts,
+            Some(SEGWIT_ACTIVATION_MAINNET),
+            Network::Mainnet,
+        )
+        .unwrap_or(false)
+    );
 }
 
 #[test]
