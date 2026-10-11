@@ -4,7 +4,7 @@
 
 use crate::error::{ConsensusError, Result, ScriptErrorCode};
 
-use super::stack::{to_stack_element, StackElement};
+use super::stack::{StackElement, to_stack_element};
 
 pub(crate) fn op_add(stack: &mut Vec<StackElement>) -> Result<bool> {
     if stack.len() < 2 {

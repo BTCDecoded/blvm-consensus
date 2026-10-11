@@ -533,11 +533,7 @@ impl U256 {
             *word = sum as u64;
             carry = sum >> 64;
         }
-        if carry != 0 {
-            None
-        } else {
-            Some(U256(result))
-        }
+        if carry != 0 { None } else { Some(U256(result)) }
     }
 
     pub fn saturating_add(self, other: Self) -> Self {
@@ -2019,8 +2015,10 @@ mod tests {
 
     #[test]
     fn genesis_has_no_required_bits() {
-        assert!(next_required_bits(Network::Mainnet, 0, 1, &|_| None)
-            .unwrap()
-            .is_none());
+        assert!(
+            next_required_bits(Network::Mainnet, 0, 1, &|_| None)
+                .unwrap()
+                .is_none()
+        );
     }
 }

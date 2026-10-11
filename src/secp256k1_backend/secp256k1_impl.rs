@@ -2,7 +2,7 @@
 
 use crate::error::{ConsensusError, Result};
 use crate::types::Hash;
-use secp256k1::{ecdsa, schnorr, Message, PublicKey, Secp256k1, XOnlyPublicKey};
+use secp256k1::{Message, PublicKey, Secp256k1, XOnlyPublicKey, ecdsa, schnorr};
 
 pub fn verify_ecdsa(
     msg_hash: &[u8; 32],

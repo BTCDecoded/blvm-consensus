@@ -9,8 +9,8 @@
 
 use crate::ecdsa_batch::OwnedEcdsaSoA;
 use crate::error::{ConsensusError, Result};
-use std::sync::mpsc;
 use std::sync::OnceLock;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 fn wave_enabled() -> bool {

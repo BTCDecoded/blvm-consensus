@@ -7,7 +7,7 @@ use crate::opcodes::{OP_0, OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4, OP_RETURN};
 use crate::script::flags::{
     SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_NULLDUMMY, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS,
 };
-use crate::script::{verify_script_with_context_full, SigVersion};
+use crate::script::{SigVersion, verify_script_with_context_full};
 use crate::segwit::Witness;
 use crate::types::{
     Block, ByteString, Hash, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,

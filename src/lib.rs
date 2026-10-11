@@ -509,7 +509,7 @@ impl ConsensusProof {
         current_height: types::Natural,
         network: types::Network,
     ) -> error::Result<reorganization::ReorganizationResult> {
-        use crate::segwit::{is_segwit_transaction, Witness};
+        use crate::segwit::{Witness, is_segwit_transaction};
         use crate::transaction::is_coinbase;
 
         for block in new_chain {

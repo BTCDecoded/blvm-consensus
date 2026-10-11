@@ -146,11 +146,7 @@ pub(crate) fn _verify_f_stack_combined_fail(stack: i64, alt: i64) -> i64 {
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_expand_target_zero_mantissa(bits: u64) -> i64 {
     let mantissa = bits & 0x007fffff;
-    if mantissa == 0 {
-        0
-    } else {
-        1
-    } // else branch is unreachable under requires
+    if mantissa == 0 { 0 } else { 1 } // else branch is unreachable under requires
 }
 
 /// Witness for **F_ExpandTargetExponent** (PROTOCOL.md §7.1).
@@ -182,11 +178,7 @@ pub(crate) fn _verify_f_expand_target_exponent(bits: i64) -> i64 {
 #[blvm_spec_lock::ensures(result != 0)]
 pub(crate) fn _verify_f_expand_target_non_zero_mantissa(bits: u64) -> i64 {
     let mantissa = bits & 0x007fffff;
-    if mantissa == 0 {
-        0
-    } else {
-        1
-    }
+    if mantissa == 0 { 0 } else { 1 }
 }
 
 /// Witness for **F_RetargetIntervalCount** (PROTOCOL.md §7.1).
@@ -210,11 +202,7 @@ pub(crate) fn _verify_f_retarget_interval_count() -> i64 {
 #[spec_locked("7.1", "F_NextWorkClamped")]
 #[blvm_spec_lock::requires(bits > 0)]
 pub(crate) fn _verify_f_next_work_clamped(bits: i64) -> i64 {
-    if bits > 486604799 {
-        486604799
-    } else {
-        bits
-    }
+    if bits > 486604799 { 486604799 } else { bits }
 }
 
 // ─── §6.1 GetBlockSubsidy ────────────────────────────────────────────────────
@@ -658,11 +646,7 @@ pub(crate) fn _verify_f_mtp_index_n11(
     t10: i64,
 ) -> i64 {
     let mid_index = 11 / 2;
-    if mid_index == 5 {
-        t5
-    } else {
-        t0
-    }
+    if mid_index == 5 { t5 } else { t0 }
 }
 
 // ─── §13.3.5 Integration Proofs ──────────────────────────────────────────────
@@ -1043,11 +1027,7 @@ pub(crate) fn _verify_f_eval_seq_locks_both_met(
 #[blvm_spec_lock::requires(block_version == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_header_version_floor(block_version: i64) -> i64 {
-    if block_version >= 1 {
-        1
-    } else {
-        0
-    }
+    if block_version >= 1 { 1 } else { 0 }
 }
 
 /// Witness for **F_HeaderBitsFloor** (PROTOCOL.md §5.3.1).
@@ -1064,11 +1044,7 @@ pub(crate) fn _verify_f_header_version_floor(block_version: i64) -> i64 {
 #[blvm_spec_lock::requires(bits == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_header_bits_floor(bits: i64) -> i64 {
-    if bits != 0 {
-        1
-    } else {
-        0
-    }
+    if bits != 0 { 1 } else { 0 }
 }
 
 /// Witness for **F_HeaderTimestampAfterMtp** (PROTOCOL.md §5.3.1).
@@ -1118,11 +1094,7 @@ pub(crate) fn _verify_f_bip30_duplicate_rejected(duplicate: i64, exception: i64)
 #[blvm_spec_lock::requires(bip34_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip34_pre_activation_pass(bip34_active: i64) -> i64 {
-    if bip34_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip34_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.8 BIP348: CSFS Degenerate Case Algebra ────────────────────────────
@@ -1195,11 +1167,7 @@ pub(crate) fn _verify_f_csfs_empty_sig_valid(sig_len: u64, pk_len: u64) -> bool 
 #[blvm_spec_lock::requires(bip66_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
-    if bip66_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip66_active == 0 { 1 } else { 0 }
 }
 
 /// Witness for **F_BIP66ActivationAt** (PROTOCOL.md §5.4.3).
@@ -1209,11 +1177,7 @@ pub(crate) fn _verify_f_bip66_pre_activation_pass(bip66_active: i64) -> i64 {
 #[blvm_spec_lock::requires(height >= 363725)]
 #[blvm_spec_lock::ensures(result == strict_der)]
 pub(crate) fn _verify_f_bip66_activation_at(height: i64, strict_der: i64) -> i64 {
-    if height < 363725 {
-        1
-    } else {
-        strict_der
-    }
+    if height < 363725 { 1 } else { strict_der }
 }
 
 /// Witness for **F_StrictDERSoundness** (PROTOCOL.md §5.4.3).
@@ -1242,11 +1206,7 @@ pub(crate) fn _verify_f_strict_der_soundness(
 #[blvm_spec_lock::requires(same_prevout != 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_no_duplicate_inputs(same_prevout: i64) -> i64 {
-    if same_prevout != 0 {
-        0
-    } else {
-        1
-    }
+    if same_prevout != 0 { 0 } else { 1 }
 }
 
 /// Witness for **F_OutputSumBounded** (PROTOCOL.md §13.3.1).
@@ -1270,11 +1230,7 @@ pub(crate) fn _verify_f_output_sum_bounded(value: i64, overflow: i64) -> i64 {
 #[blvm_spec_lock::requires(unpadded_equal != 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_merkle_mutation_rejected(unpadded_equal: i64) -> i64 {
-    if unpadded_equal != 0 {
-        0
-    } else {
-        1
-    }
+    if unpadded_equal != 0 { 0 } else { 1 }
 }
 
 // ─── §5.4.4 BIP90: Block Version Enforcement ─────────────────────────────────
@@ -1290,11 +1246,7 @@ pub(crate) fn _verify_f_merkle_mutation_rejected(unpadded_equal: i64) -> i64 {
 #[blvm_spec_lock::requires(bip90_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
-    if bip90_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip90_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.5 BIP147: NULLDUMMY Enforcement ────────────────────────────────────
@@ -1311,11 +1263,7 @@ pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
 #[blvm_spec_lock::requires(bip147_active == 0)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip147_pre_activation_pass(bip147_active: i64) -> i64 {
-    if bip147_active == 0 {
-        1
-    } else {
-        0
-    }
+    if bip147_active == 0 { 1 } else { 0 }
 }
 
 // ─── §5.4.9 BIP54: Consensus Cleanup ─────────────────────────────────────────
@@ -1686,11 +1634,7 @@ pub(crate) fn _verify_f_taproot_activation_regtest(network: u64) -> u64 {
 #[blvm_spec_lock::requires(byte == 128)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_decode_locktime_negative_zero(byte: i64) -> i64 {
-    if byte >= 128 {
-        -(byte - 128)
-    } else {
-        byte
-    }
+    if byte >= 128 { -(byte - 128) } else { byte }
 }
 
 /// Witness for **F_DecodeLocktimeNegativeOne** (PROTOCOL.md §5.4.7).
@@ -1700,11 +1644,7 @@ pub(crate) fn _verify_f_decode_locktime_negative_zero(byte: i64) -> i64 {
 #[blvm_spec_lock::requires(byte == 129)]
 #[blvm_spec_lock::ensures(result == -1)]
 pub(crate) fn _verify_f_decode_locktime_negative_one(byte: i64) -> i64 {
-    if byte >= 128 {
-        -(byte - 128)
-    } else {
-        byte
-    }
+    if byte >= 128 { -(byte - 128) } else { byte }
 }
 
 /// Witness for **F_CltvRejectsNegative** (PROTOCOL.md §5.4.7).
@@ -1802,11 +1742,7 @@ pub(crate) fn _verify_f_tapscript_sighash_single_missing_output(
 #[blvm_spec_lock::requires(sum > 2_100_000_000_000_000)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_input_sum_within_max_money(sum: i64) -> i64 {
-    if sum > 2_100_000_000_000_000 {
-        0
-    } else {
-        1
-    }
+    if sum > 2_100_000_000_000_000 { 0 } else { 1 }
 }
 
 /// Witness for **F_TapscriptTruncatedPushNotSuccess** (PROTOCOL.md §11.2.8).
@@ -1844,11 +1780,7 @@ pub(crate) fn _verify_f_checkmultisig_counts_pubkeys(op_count: i64, n_keys: i64)
 #[blvm_spec_lock::requires(is_true == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_false_result_empty(is_true: i64) -> i64 {
-    if is_true == 0 {
-        0
-    } else {
-        1
-    }
+    if is_true == 0 { 0 } else { 1 }
 }
 
 /// Witness for **F_Bip30RepeatRetiresPriorOutputs** (PROTOCOL.md §5.4.1).
@@ -1858,11 +1790,7 @@ pub(crate) fn _verify_f_false_result_empty(is_true: i64) -> i64 {
 #[blvm_spec_lock::requires(exception == 1)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_bip30_repeat_retires_prior_outputs(exception: i64) -> i64 {
-    if exception == 1 {
-        0
-    } else {
-        1
-    }
+    if exception == 1 { 0 } else { 1 }
 }
 
 /// Witness for **F_NonDerAbortsScript** (PROTOCOL.md §5.4.3).
@@ -1873,11 +1801,7 @@ pub(crate) fn _verify_f_bip30_repeat_retires_prior_outputs(exception: i64) -> i6
 #[blvm_spec_lock::requires(strict_der == 0)]
 #[blvm_spec_lock::ensures(result == 0)]
 pub(crate) fn _verify_f_non_der_aborts_script(sig_len: i64, strict_der: i64) -> i64 {
-    if sig_len > 0 && strict_der == 0 {
-        0
-    } else {
-        1
-    }
+    if sig_len > 0 && strict_der == 0 { 0 } else { 1 }
 }
 
 /// Witness for **F_NestedRedeemPushCanonical** (PROTOCOL.md §11.1.8).

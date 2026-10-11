@@ -722,13 +722,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(validate_taproot_key_aggregation(
-            &internal_pubkey,
-            &merkle_root,
-            &output_key,
-            parity
-        )
-        .unwrap());
+        assert!(
+            validate_taproot_key_aggregation(&internal_pubkey, &merkle_root, &output_key, parity)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -1030,13 +1027,15 @@ mod tests {
         let merkle_root = [2u8; 32];
         let wrong_output_key = [3u8; 32]; // Wrong output key
 
-        assert!(!validate_taproot_key_aggregation(
-            &internal_pubkey,
-            &merkle_root,
-            &wrong_output_key,
-            0, // parity — irrelevant since key mismatch will fail first
-        )
-        .unwrap());
+        assert!(
+            !validate_taproot_key_aggregation(
+                &internal_pubkey,
+                &merkle_root,
+                &wrong_output_key,
+                0, // parity — irrelevant since key mismatch will fail first
+            )
+            .unwrap()
+        );
     }
 
     #[test]

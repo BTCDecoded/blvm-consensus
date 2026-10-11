@@ -84,7 +84,7 @@ pub mod prefetch {
     #[cfg(target_arch = "x86_64")]
     #[inline(always)]
     pub unsafe fn prefetch_read(ptr: *const i8) {
-        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+        use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
         unsafe {
             _mm_prefetch(ptr, _MM_HINT_T0);
         }

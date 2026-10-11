@@ -9,8 +9,8 @@ use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::error::{ConsensusError, Result};
 use crate::script::verify_script_with_context_full;
 use crate::types::{Block, ForkId, Natural, Network};
-use crate::witness::witness_stack_is_null;
 use crate::witness::Witness;
+use crate::witness::witness_stack_is_null;
 use crossbeam_queue::SegQueue;
 
 use std::cell::RefCell;

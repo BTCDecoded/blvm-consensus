@@ -11,13 +11,13 @@ use crate::opcodes::*;
 use crate::profile_log;
 #[cfg(not(feature = "production"))]
 use crate::script::verify_script_with_context_full;
-use crate::segwit::{validate_witness_commitment, Witness};
+use crate::segwit::{Witness, validate_witness_commitment};
 #[cfg(not(feature = "production"))]
 use crate::transaction::check_tx_inputs;
 use crate::transaction::{check_transaction, is_coinbase};
 use crate::types::*;
 use crate::utxo_overlay::{
-    apply_transaction_to_overlay_no_undo_cached, build_block_output_utxo_cache, UtxoOverlay,
+    UtxoOverlay, apply_transaction_to_overlay_no_undo_cached, build_block_output_utxo_cache,
 };
 use crate::witness::is_witness_empty;
 #[cfg(all(not(feature = "production"), not(feature = "rayon")))]
@@ -27,8 +27,8 @@ use std::borrow::Cow;
 #[cfg(feature = "production")]
 use super::script_cache;
 use super::{
-    apply, header, script_cache::get_block_script_verify_flags_core, BlockValidationContext,
-    UtxoDelta,
+    BlockValidationContext, UtxoDelta, apply, header,
+    script_cache::get_block_script_verify_flags_core,
 };
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).

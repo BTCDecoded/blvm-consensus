@@ -6,8 +6,8 @@
 //! `collect_ms` is the entire `process_check` / script-check loop (not merely
 //! SoA append). `batch_ms` is deferred ECDSA/Schnorr `verify_batch`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
