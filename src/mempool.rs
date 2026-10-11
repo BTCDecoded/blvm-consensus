@@ -1444,7 +1444,8 @@ mod tests {
 
         // Create existing transaction with RBF signaling and lower fee
         let mut existing_tx = create_valid_transaction();
-        existing_tx.inputs[0].sequence = SEQUENCE_RBF as u64;
+        // BIP125 opts in strictly below SEQUENCE_RBF (0xfffffffe).
+        existing_tx.inputs[0].sequence = (SEQUENCE_RBF as u64) - 1;
         existing_tx.outputs[0].value = 9000; // Fee = 10000 - 9000 = 1000 sats
 
         // Create new transaction that:
