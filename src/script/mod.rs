@@ -3729,6 +3729,11 @@ pub fn verify_script_with_context_full(
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0 {
             return Ok(false);
         }
+        // The program is the stack top after scriptPubKey execution. A false
+        // top fails before the future-version success path.
+        if !cast_to_bool(&script_pubkey[2..]) {
+            return Ok(false);
+        }
         return Ok(true);
     }
 
@@ -3752,6 +3757,11 @@ pub fn verify_script_with_context_full(
             || (script_pubkey[1] == PUSH_32_BYTES && script_pubkey.len() == 34));
 
     if is_direct_witness_program {
+        // scriptPubKey execution leaves the program on top. A false program
+        // fails before witness verification.
+        if !cast_to_bool(&script_pubkey[2..]) {
+            return Ok(false);
+        }
         // Non-empty scriptSig is WITNESS_MALLEATED.
         if !script_sig.is_empty() {
             return Ok(false);
@@ -3998,6 +4008,9 @@ pub fn verify_script_with_context_full(
         }
 
         if witness_flag && is_witness_program {
+            if !cast_to_bool(&redeem[2..]) {
+                return Ok(false);
+            }
             // For P2WSH-in-P2SH or P2WPKH-in-P2SH:
             // - We've already verified the redeem script hash matches (scriptPubkey check passed)
             // - We should NOT execute the redeem script as a normal script
@@ -4146,6 +4159,9 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
             if flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM != 0 {
+                return Ok(false);
+            }
+            if !cast_to_bool(&redeem[2..]) {
                 return Ok(false);
             }
             return Ok(true);
@@ -8002,11 +8018,11 @@ mod tests {
         assert!(!result.unwrap());
     }
 
-    /// A future witness program is not executed. An all-zero payload succeeds
-    /// the same way a nonzero payload does. Native v1-32 after activation is
-    /// Taproot and fails without a witness.
+    /// scriptPubKey is executed before the witness-program shortcut. An
+    /// all-zero or negative-zero program leaves a false stack and fails. A
+    /// nonzero program of a future version succeeds.
     #[test]
-    fn future_witness_program_ignores_a_false_payload() {
+    fn witness_program_false_payload_is_rejected() {
         use crate::constants::TAPROOT_ACTIVATION_MAINNET;
         use digest::Digest;
 
@@ -8041,15 +8057,19 @@ mod tests {
             )
         };
 
-        let payloads: &[&[u8]] = &[&[0x00, 0x00], &[0x00, 0x80], &[0x01, 0x00]];
+        let payloads: &[(&[u8], bool)] = &[
+            (&[0x00, 0x00], false),
+            (&[0x00, 0x80], false),
+            (&[0x01, 0x00], true),
+        ];
         for version in 0x51u8..=0x60 {
-            for payload in payloads {
+            for &(payload, truthy) in payloads {
                 let mut script = vec![version, payload.len() as u8];
                 script.extend_from_slice(payload);
-                assert!(
-                    verify(&script, &[], 400_000).unwrap(),
-                    "native {script:02x?}"
-                );
+                let got = verify(&script, &[], 400_000).unwrap();
+                let taproot_v1 = version == 0x51 && payload.len() == 32;
+                let expect = truthy && !taproot_v1;
+                assert_eq!(got, expect, "native {script:02x?}");
             }
         }
 
@@ -8058,34 +8078,33 @@ mod tests {
         neg[31] = 0x80;
         let mut nonzero = vec![0u8; 32];
         nonzero[0] = 1;
-        for payload in [&zeros[..], &neg[..], &nonzero[..]] {
+        for (payload, truthy) in [(&zeros[..], false), (&neg[..], false), (&nonzero[..], true)] {
             let mut script = vec![0x51, 0x20];
             script.extend_from_slice(payload);
-            assert!(
-                !verify(&script, &[], TAPROOT_ACTIVATION_MAINNET).unwrap(),
-                "v1-32 at taproot {payload:02x?}"
-            );
-            assert!(
-                verify(&script, &[], 400_000).unwrap(),
-                "v1-32 before taproot {payload:02x?}"
-            );
+            assert!(!verify(&script, &[], TAPROOT_ACTIVATION_MAINNET).unwrap());
+            let before = verify(&script, &[], 400_000).unwrap();
+            assert_eq!(before, truthy, "v1-32 before taproot {payload:02x?}");
         }
 
-        for redeem in [vec![0x52, 0x02, 0x00, 0x00], vec![0x52, 0x02, 0x01, 0x00]] {
-            let hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem));
-            let mut p2sh = vec![OP_HASH160, 0x14];
-            p2sh.extend_from_slice(&hash);
-            p2sh.push(OP_EQUAL);
-            assert!(
-                verify(&p2sh, &serialize_push_data(&redeem), 400_000).unwrap(),
-                "p2sh {redeem:02x?}"
-            );
-        }
+        let redeem = vec![0x52, 0x02, 0x00, 0x00];
+        let hash = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem));
+        let mut p2sh = vec![OP_HASH160, 0x14];
+        p2sh.extend_from_slice(&hash);
+        p2sh.push(OP_EQUAL);
+        let push = serialize_push_data(&redeem);
+        assert!(!verify(&p2sh, &push, 400_000).unwrap());
+
+        let redeem_ok = vec![0x52, 0x02, 0x01, 0x00];
+        let hash_ok = ripemd::Ripemd160::digest(sha2::Sha256::digest(&redeem_ok));
+        let mut p2sh_ok = vec![OP_HASH160, 0x14];
+        p2sh_ok.extend_from_slice(&hash_ok);
+        p2sh_ok.push(OP_EQUAL);
+        assert!(verify(&p2sh_ok, &serialize_push_data(&redeem_ok), 400_000).unwrap());
     }
 
     /// BIP341 taproot is the native `OP_1 PUSH_32_BYTES` program. The same
     /// program inside pay-to-script-hash stays an upgradable witness program
-    /// after activation, including an all-zero program.
+    /// after activation: a truthy program succeeds, and an all-zero program fails.
     #[test]
     fn p2sh_wrapped_v1_32_stays_upgradable_after_taproot() {
         use crate::constants::TAPROOT_ACTIVATION_MAINNET;
@@ -8140,8 +8159,7 @@ mod tests {
         let mut zero_p2sh = vec![OP_HASH160, PUSH_20_BYTES];
         zero_p2sh.extend_from_slice(&zero_hash);
         zero_p2sh.push(OP_EQUAL);
-        assert!(verify(&zero_p2sh, &serialize_push_data(&zero_redeem)).unwrap());
-        assert!(!verify(&zero_redeem, &[]).unwrap());
+        assert!(!verify(&zero_p2sh, &serialize_push_data(&zero_redeem)).unwrap());
     }
 
     #[test]

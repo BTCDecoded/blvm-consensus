@@ -312,8 +312,8 @@ fn test_reserved_and_negate_are_not_witness_programs() {
         &[OP_2, 0x02, 0x11, 0x22],
         Some(&witness),
     ));
-    // An all-zero program is still a future witness program. The bytes are not evaluated.
-    assert!(verify_pubkey(
+    // scriptPubKey runs first. An all-zero program leaves a false stack.
+    assert!(!verify_pubkey(
         &[],
         &[OP_2, 0x02, 0x00, 0x00],
         Some(&witness),
