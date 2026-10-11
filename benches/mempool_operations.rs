@@ -1,8 +1,8 @@
-use blvm_consensus::mempool::{Mempool, accept_to_memory_pool, is_standard_tx, replacement_checks};
+use blvm_consensus::mempool::{accept_to_memory_pool, is_standard_tx, replacement_checks, Mempool};
 use blvm_consensus::{
     Network, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet,
 };
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::collections::HashSet;
 
 fn create_test_transaction() -> Transaction {
@@ -68,6 +68,7 @@ fn benchmark_mempool_acceptance(c: &mut Criterion) {
                 black_box(0),
                 black_box(None), // time_context
                 black_box(Network::Mainnet),
+                None,
             ))
         })
     });
@@ -88,6 +89,7 @@ fn benchmark_mempool_acceptance_complex(c: &mut Criterion) {
                 black_box(0),
                 black_box(None), // time_context
                 black_box(Network::Mainnet),
+                None,
             ))
         })
     });

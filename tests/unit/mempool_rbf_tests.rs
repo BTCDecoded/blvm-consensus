@@ -31,7 +31,7 @@ fn test_mempool_duplicate_detection() {
     let tx_id = mempool::calculate_tx_id(&tx);
     pool.insert(tx_id);
 
-    let result = mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet);
+    let result = mempool::accept_to_memory_pool(&tx, None, &utxo, &pool, 1, None, Network::Mainnet, None);
     assert!(
         matches!(result, Ok(mempool::MempoolResult::Rejected(ref r)) if r.contains("already")),
         "duplicate mempool entry should be rejected: {result:?}"

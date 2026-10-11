@@ -496,7 +496,7 @@ mod tests {
     }
 
     fn connect_coinbase(network: Network, height: u64, value: i64) -> ValidationResult {
-        use crate::block::{BlockValidationContext, connect_block};
+        use crate::block::{connect_block, BlockValidationContext};
         use crate::segwit::Witness;
 
         let block = coinbase_only_block(height, value);

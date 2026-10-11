@@ -530,7 +530,7 @@ where
     G: Fn(&Hash) -> Option<Vec<Witness>>,
 {
     use crate::block::calculate_tx_id;
-    use crate::mempool::{MempoolResult, accept_to_memory_pool};
+    use crate::mempool::{accept_to_memory_pool, MempoolResult};
     use crate::transaction::is_coinbase;
 
     let mut readded = Vec::new();
@@ -553,6 +553,7 @@ where
                 readd.height,
                 readd.time_context,
                 readd.network,
+                None,
             )? {
                 MempoolResult::Accepted => {
                     if mempool.insert_transaction_with_witness(tx, witnesses) {
@@ -1200,7 +1201,7 @@ mod tests {
         let ancestor = create_test_block_at_height(0);
         let mut new_block = create_test_block_at_height(1);
         new_block.header.nonce = 42; // Different block than ancestor
-        // Recalculate merkle root (nonce doesn't affect it, but prev_block_hash irrelevant for connect_block)
+                                     // Recalculate merkle root (nonce doesn't affect it, but prev_block_hash irrelevant for connect_block)
 
         let new_chain = vec![ancestor.clone(), new_block];
         let current_chain = vec![ancestor];

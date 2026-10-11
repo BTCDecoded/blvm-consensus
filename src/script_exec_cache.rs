@@ -8,7 +8,7 @@
 
 use crate::serialization::{serialize_transaction, serialize_transaction_with_witness};
 use crate::types::Transaction;
-use bitcoin_hashes::{Hash as BitcoinHash, HashEngine, sha256d};
+use bitcoin_hashes::{sha256d, Hash as BitcoinHash, HashEngine};
 use std::sync::OnceLock;
 
 /// Cache capacity (entries). Bounded LRU to limit memory (~64k entries).

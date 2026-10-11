@@ -109,7 +109,7 @@ pub fn create_new_block_with_time(
     mempool_witnesses: Option<&[Option<Vec<crate::segwit::Witness>>]>,
 ) -> Result<Block> {
     use crate::bip113::get_median_time_past;
-    use crate::mempool::{Mempool, MempoolResult, accept_to_memory_pool};
+    use crate::mempool::{accept_to_memory_pool, Mempool, MempoolResult};
 
     // 1. Create coinbase transaction
     let coinbase_tx = create_coinbase_transaction(
@@ -146,6 +146,7 @@ pub fn create_new_block_with_time(
             height,
             time_context,
             network,
+            None,
         )? {
             MempoolResult::Accepted => {
                 selected_txs.push(tx.clone());
@@ -1603,7 +1604,7 @@ mod tests {
                 // This ensures transaction hash is unique without affecting script execution
                 script_sig: {
                     let mut sig = vec![OP_1]; // OP_1 pushes 1
-                    // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
+                                              // Add counter as extra push data (will be on stack but script_pubkey is empty, so it doesn't matter)
                     if counter > 0 {
                         sig.push(PUSH_1_BYTE); // Push 1 byte
                         sig.push((counter & 0xff) as u8); // Push counter byte

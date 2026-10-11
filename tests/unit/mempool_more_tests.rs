@@ -27,7 +27,7 @@ fn test_negative_fee_rejected() {
         lock_time: 0,
     };
     let pool = mempool::Mempool::new();
-    let res = mempool::accept_to_memory_pool(&tx, None, &set, &pool, 1, None, Network::Mainnet);
+    let res = mempool::accept_to_memory_pool(&tx, None, &set, &pool, 1, None, Network::Mainnet, None);
     assert!(
         matches!(res, Ok(mempool::MempoolResult::Rejected(_))) || res.is_err(),
         "Outputs exceed inputs should be rejected"

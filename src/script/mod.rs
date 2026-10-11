@@ -29,7 +29,7 @@ mod stack;
 pub mod templates;
 
 pub use signature::{batch_verify_signatures, verify_pre_extracted_ecdsa};
-pub use stack::{StackElement, cast_to_bool, to_stack_element};
+pub use stack::{cast_to_bool, to_stack_element, StackElement};
 
 use crate::constants::*;
 use crate::crypto::OptimizedSha256;
@@ -79,7 +79,11 @@ fn charge_checkmultisig_pubkeys(stack: &[StackElement], op_count: usize) -> Resu
 
 #[inline]
 fn script_bool_bytes(value: bool) -> &'static [u8] {
-    if value { &[1] } else { &[] }
+    if value {
+        &[1]
+    } else {
+        &[]
+    }
 }
 
 #[cold]
@@ -101,8 +105,8 @@ fn bip143_p2wpkh_script_code(pubkey_hash: &[u8]) -> [u8; 25] {
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
 use std::sync::{
-    OnceLock, RwLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
+    OnceLock, RwLock,
 };
 #[cfg(feature = "production")]
 use std::thread_local;
@@ -1066,7 +1070,7 @@ pub fn try_verify_p2pk_fast_path(
     }
 
     // Fast-path: P2PK script_pubkey is 35 or 67 bytes; signature push ≥71. Skip serialize+find_and_delete.
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
     let deleted_storage;
@@ -1646,7 +1650,7 @@ fn try_verify_p2sh_multisig_fast_path(
         cleaned = find_and_delete(&cleaned, &pattern).into_owned();
     }
 
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
     // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
@@ -1883,7 +1887,7 @@ fn try_verify_bare_multisig_fast_path(
         cleaned = find_and_delete(&cleaned, &pattern).into_owned();
     }
 
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
     let mut sig_index = 0;
     let mut valid_sigs = 0u8;
@@ -2042,7 +2046,7 @@ fn try_verify_p2sh_fast_path(
                     precomp
                 } else {
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                     let sighash_type = SighashType::from_byte(sighash_byte);
@@ -2069,7 +2073,7 @@ fn try_verify_p2sh_fast_path(
                 #[cfg(not(feature = "production"))]
                 let sighash = {
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                     let sighash_type = SighashType::from_byte(sighash_byte);
@@ -2167,7 +2171,7 @@ fn try_verify_p2sh_fast_path(
             let signature_bytes = &stack[0];
             if !signature_bytes.is_empty() {
                 use crate::transaction_hash::{
-                    SighashType, calculate_transaction_sighash_single_input,
+                    calculate_transaction_sighash_single_input, SighashType,
                 };
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                 let sighash_type = SighashType::from_byte(sighash_byte);
@@ -5405,9 +5409,9 @@ fn execute_opcode(
             if stack.len() >= 6 {
                 // Remove from bottom-most of the pair first (index 0 = 6th from top).
                 let sixth = stack.remove(stack.len() - 6); // a
-                // After first remove the stack shrank; 5th from original top is now at index 0.
+                                                           // After first remove the stack shrank; 5th from original top is now at index 0.
                 let fifth = stack.remove(stack.len() - 5); // b
-                // Push in original order: sixth (a) below, fifth (b) on top.
+                                                           // Push in original order: sixth (a) below, fifth (b) on top.
                 stack.push(sixth);
                 stack.push(fifth);
                 Ok(true)
@@ -6529,7 +6533,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -6654,7 +6658,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -6716,7 +6720,11 @@ fn execute_opcode_with_context_full(
                     )?
                 };
 
-                if is_valid { Ok(true) } else { Ok(false) }
+                if is_valid {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
             } else {
                 Ok(false)
             }
@@ -6885,7 +6893,7 @@ fn execute_opcode_with_context_full(
             };
 
             use crate::transaction_hash::{
-                SighashType, calculate_transaction_sighash_single_input,
+                calculate_transaction_sighash_single_input, SighashType,
             };
 
             // Batch path: when n*m >= 4, precompute sighashes once per sig and batch-verify all (pubkey, sig) pairs.
@@ -7663,7 +7671,7 @@ pub fn reset_benchmarking_state() {
     clear_all_caches();
     clear_stack_pool();
     disable_caching(false); // Re-enable caching by default
-    // Also clear sighash templates (currently no-op as templates aren't populated yet)
+                            // Also clear sighash templates (currently no-op as templates aren't populated yet)
     #[cfg(feature = "benchmarking")]
     crate::transaction_hash::clear_sighash_templates();
 }
@@ -7777,27 +7785,23 @@ mod tests {
         assert_eq!(stack[0].as_ref(), &[1]);
 
         let mut stack = Vec::new();
-        assert!(
-            eval_script(
-                &[0x00, 0x01, 0x02, 0xac, 0x82],
-                &mut stack,
-                0,
-                SigVersion::Base
-            )
-            .unwrap()
-        );
+        assert!(eval_script(
+            &[0x00, 0x01, 0x02, 0xac, 0x82],
+            &mut stack,
+            0,
+            SigVersion::Base
+        )
+        .unwrap());
         assert!(stack.last().unwrap().is_empty());
 
         let mut stack = Vec::new();
-        assert!(
-            eval_script(
-                &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
-                &mut stack,
-                0,
-                SigVersion::Base
-            )
-            .unwrap()
-        );
+        assert!(eval_script(
+            &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
+            &mut stack,
+            0,
+            SigVersion::Base
+        )
+        .unwrap());
         assert!(stack.last().unwrap().is_empty());
     }
 
@@ -8957,7 +8961,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn p2pk_fast_path_does_not_accept_a_push_that_does_not_fit() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9019,7 +9023,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn raw_key_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9083,7 +9087,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn reserved_opcode_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9162,7 +9166,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn hybrid_pubkey_is_accepted_without_strictenc() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         const PUBKEY_UNCOMPRESSED: u8 = 0x04;
@@ -9313,7 +9317,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn nullfail_waits_until_the_multisig_fails() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();

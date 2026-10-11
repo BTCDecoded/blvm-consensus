@@ -175,7 +175,7 @@ fuzz_target!(|data: &[u8]| {
     let mempool = Mempool::new();
 
     // Test accept_to_memory_pool
-    let _accept_result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 0, None, Network::Mainnet);
+    let _accept_result = accept_to_memory_pool(&tx, None, &utxo_set, &mempool, 0, None, Network::Mainnet, None);
 
     // Test is_standard_tx
     let _standard_result = is_standard_tx(&tx);

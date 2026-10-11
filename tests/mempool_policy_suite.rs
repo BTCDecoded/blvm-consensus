@@ -6,9 +6,8 @@ mod test_helpers;
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::constants::{LOCKTIME_THRESHOLD, MIN_RELAY_FEE};
 use blvm_consensus::mempool::{
-    Mempool, MempoolResult, accept_to_memory_pool, has_conflict_with_tx, is_final_tx,
-    replacement_checks, signals_rbf, update_mempool_after_block,
-    update_mempool_after_block_with_lookup,
+    accept_to_memory_pool, has_conflict_with_tx, is_final_tx, replacement_checks, signals_rbf,
+    update_mempool_after_block, update_mempool_after_block_with_lookup, Mempool, MempoolResult,
 };
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::opcodes::{OP_0, OP_VERIFY};
@@ -123,6 +122,7 @@ fn test_accept_to_memory_pool_rejects_missing_utxo() {
         1,
         None,
         Network::Mainnet,
+        None,
     );
     assert!(
         matches!(res, Ok(MempoolResult::Rejected(_)) | Err(_)),
@@ -151,7 +151,8 @@ fn test_accept_to_memory_pool_accepts_valid_tx() {
     let (set, _) = create_test_utxo(10_000);
     let tx = create_test_tx(8_500, None, None, None); // fee = 1500
     let pool = Mempool::new();
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert_eq!(res, MempoolResult::Accepted);
 }
 
@@ -161,7 +162,8 @@ fn test_accept_rejects_non_final_tx() {
     let mut tx = create_test_tx(8_500, Some(0xfffffffe), None, None);
     tx.lock_time = 200;
     let pool = Mempool::new();
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("not final")),
         "non-final tx should be rejected: {res:?}"
@@ -212,7 +214,8 @@ fn test_accept_rejects_duplicate_in_mempool() {
     let tx_id = calculate_tx_id(&tx);
     let mut pool = Mempool::new();
     pool.insert(tx_id);
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("already")),
         "duplicate mempool entry should be rejected: {res:?}"
@@ -273,7 +276,8 @@ fn test_accept_rejects_insufficient_fee() {
     let (set, _) = create_test_utxo(10_000);
     let tx = create_test_tx(9_999, None, None, None);
     let pool = Mempool::new();
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("mempool") || r.contains("fee")),
         "underpaid tx should be rejected: {res:?}"
@@ -287,7 +291,8 @@ fn test_accept_allows_unrelated_mempool_txid_matching_funding_hash() {
     let mut pool = Mempool::new();
     // Same bytes as funding txid, but not indexed as spending the outpoint (REV-C-25 fix).
     pool.insert([1; 32]);
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Accepted),
         "mempool txid alone must not imply double-spend: {res:?}"
@@ -336,6 +341,7 @@ fn test_accept_rejects_empty_transaction() {
         1,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(matches!(res, MempoolResult::Rejected(_)));
@@ -352,6 +358,7 @@ fn test_accept_rejects_coinbase() {
         1,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(matches!(res, MempoolResult::Rejected(ref r) if r.contains("Coinbase")));
@@ -364,7 +371,8 @@ fn test_accept_rejects_duplicate_mempool_entry() {
     let tx_id = calculate_tx_id(&tx);
     let mut pool = Mempool::new();
     pool.insert(tx_id);
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(matches!(res, MempoolResult::Rejected(ref r) if r.contains("already")));
 }
 
@@ -393,6 +401,7 @@ fn test_accept_rejects_invalid_transaction_structure() {
         100,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(
@@ -413,6 +422,7 @@ fn test_accept_rejects_invalid_transaction_inputs() {
         100,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(
@@ -456,7 +466,8 @@ fn test_accept_rejects_invalid_script() {
         lock_time: 0,
     };
     let pool = Mempool::new();
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("Invalid script")),
         "script verification failure should reject: {res:?}"
@@ -468,7 +479,8 @@ fn test_accept_rejects_zero_fee_below_mempool_minimum() {
     let (set, _) = create_test_utxo(10_000);
     let tx = create_test_tx(10_000, None, None, None);
     let pool = Mempool::new();
-    let res = accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet).unwrap();
+    let res =
+        accept_to_memory_pool(&tx, None, &set, &pool, 100, None, Network::Mainnet, None).unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("Failed mempool rules")),
         "zero-fee tx should fail mempool policy: {res:?}"
@@ -515,8 +527,17 @@ fn test_accept_rejects_true_mempool_double_spend() {
 
     let mut conflicting = create_test_tx(8_500, None, None, None);
     conflicting.version = 2;
-    let res = accept_to_memory_pool(&conflicting, None, &set, &pool, 100, None, Network::Mainnet)
-        .unwrap();
+    let res = accept_to_memory_pool(
+        &conflicting,
+        None,
+        &set,
+        &pool,
+        100,
+        None,
+        Network::Mainnet,
+        None,
+    )
+    .unwrap();
     assert!(
         matches!(res, MempoolResult::Rejected(ref r) if r.contains("conflicts with mempool")),
         "expected explicit mempool conflict rejection: {res:?}"
@@ -580,6 +601,7 @@ fn test_accept_rejects_empty_inputs_and_outputs() {
         1,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(
@@ -622,6 +644,7 @@ fn test_accept_rejects_witness_count_mismatch() {
         1_000_000,
         None,
         Network::Mainnet,
+        None,
     )
     .unwrap();
     assert!(

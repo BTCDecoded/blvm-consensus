@@ -244,6 +244,7 @@ pub fn sequence_locks(
 }
 
 /// Height-based relative locks only. Time-based inputs are left to the caller.
+#[allow(dead_code)]
 pub(crate) fn height_relative_lock_unsatisfied(
     tx: &Transaction,
     prev_heights: &[u64],

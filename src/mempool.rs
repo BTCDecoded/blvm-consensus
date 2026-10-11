@@ -30,6 +30,8 @@ use std::collections::{HashMap, HashSet};
 /// * `height` - Current block height
 /// * `time_context` - Time context with median time-past of chain tip (BIP113) for transaction finality check
 /// * `network` - Chain network for script verification flags (activation heights)
+/// * `prev_mtps` - Prior median time of each input, same order as the inputs.
+///   A time-typed relative lock with no median is rejected.
 pub fn accept_to_memory_pool(
     tx: &Transaction,
     witnesses: Option<&[Witness]>,
@@ -38,6 +40,7 @@ pub fn accept_to_memory_pool(
     height: Natural,
     time_context: Option<TimeContext>,
     network: Network,
+    prev_mtps: Option<&[i64]>,
 ) -> Result<MempoolResult> {
     // Precondition assertions: Validate function inputs
     // Note: We check coinbase and empty transactions and return Rejected rather than asserting,
@@ -101,7 +104,7 @@ pub fn accept_to_memory_pool(
             "Transaction not final (locktime not satisfied)".to_string(),
         ));
     }
-    if relative_lock_unsatisfied(tx, utxo_set, height, block_time, None, network)? {
+    if relative_lock_unsatisfied(tx, utxo_set, height, block_time, prev_mtps, network)? {
         return Ok(MempoolResult::Rejected(
             "Transaction not final (relative locktime not satisfied)".to_string(),
         ));
@@ -938,7 +941,7 @@ pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bo
 /// True when a BIP68 relative lock is not satisfied at `height`.
 ///
 /// A missing prevout is treated as confirming in this block. A time-based lock
-/// whose prior median time is unknown is not decided here; height locks still are.
+/// whose prior median time is unknown is unsatisfied. Height locks are still checked.
 pub fn relative_lock_unsatisfied(
     tx: &Transaction,
     utxo_set: &UtxoSet,
@@ -949,9 +952,7 @@ pub fn relative_lock_unsatisfied(
 ) -> Result<bool> {
     use crate::activation::{ForkActivationTable, IsForkActive};
     use crate::locktime::{extract_sequence_type_flag, is_sequence_disabled};
-    use crate::sequence_locks::{
-        LOCKTIME_VERIFY_SEQUENCE, height_relative_lock_unsatisfied, sequence_locks,
-    };
+    use crate::sequence_locks::{sequence_locks, LOCKTIME_VERIFY_SEQUENCE};
     use crate::types::ForkId;
 
     if tx.version < 2
@@ -982,7 +983,7 @@ pub fn relative_lock_unsatisfied(
     }
 
     if unknown_time {
-        return height_relative_lock_unsatisfied(tx, &prev_heights, height);
+        return Ok(true);
     }
     let satisfied = sequence_locks(
         tx,
@@ -1287,6 +1288,7 @@ mod tests {
             100,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Accepted));
@@ -1312,6 +1314,7 @@ mod tests {
             500_000,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
@@ -1325,6 +1328,7 @@ mod tests {
             500_000,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Accepted));
@@ -1338,9 +1342,55 @@ mod tests {
             500_000,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Accepted));
+    }
+
+    #[test]
+    fn time_relative_lock_uses_prior_median() {
+        const SEQUENCE_LOCKTIME_TYPE_FLAG: u64 = 0x0040_0000;
+        let mut tx = create_valid_transaction();
+        tx.version = 2;
+        tx.inputs[0].sequence = SEQUENCE_LOCKTIME_TYPE_FLAG | 2;
+        let prevout = tx.inputs[0].prevout;
+        let utxo = utxo_confirmed_at(prevout, 499_000);
+        let mempool = Mempool::new();
+        let prior = [1_000_000i64];
+        let inside = Some(TimeContext {
+            network_time: 1_001_023,
+            median_time_past: 1_001_023,
+        });
+        let rejected = accept_to_memory_pool(
+            &tx,
+            None,
+            &utxo,
+            &mempool,
+            500_000,
+            inside,
+            Network::Mainnet,
+            Some(&prior),
+        )
+        .unwrap();
+        assert!(matches!(rejected, MempoolResult::Rejected(_)));
+
+        let old_enough = Some(TimeContext {
+            network_time: 1_001_024,
+            median_time_past: 1_001_024,
+        });
+        let accepted = accept_to_memory_pool(
+            &tx,
+            None,
+            &utxo,
+            &mempool,
+            500_000,
+            old_enough,
+            Network::Mainnet,
+            Some(&prior),
+        )
+        .unwrap();
+        assert!(matches!(accepted, MempoolResult::Accepted));
     }
 
     #[test]
@@ -1362,6 +1412,7 @@ mod tests {
             100,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));
@@ -1401,7 +1452,7 @@ mod tests {
         // 3. Has higher fee rate and absolute fee
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 8000; // Fee = 10000 - 8000 = 2000 sats
-        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
+                                        // Higher fee rate and absolute fee bump (2000 > 1000 + 1000 = 2000, needs >)
         new_tx.outputs[0].value = 7999; // Fee = 10000 - 7999 = 2001 sats
 
         // Should pass all BIP125 checks
@@ -1491,8 +1542,8 @@ mod tests {
 
         // Now with sufficient fee
         new_tx.outputs[0].value = 7999; // Fee = 2001 sats (sufficient)
-        // Should still fail on other checks (conflict, etc.), but fee check passes
-        // For full test, need to ensure conflict exists
+                                        // Should still fail on other checks (conflict, etc.), but fee check passes
+                                        // For full test, need to ensure conflict exists
     }
 
     // ============================================================================
@@ -1517,6 +1568,7 @@ mod tests {
             100,
             time_context,
             Network::Mainnet,
+            None,
         )
         .unwrap();
         assert!(matches!(result, MempoolResult::Rejected(_)));

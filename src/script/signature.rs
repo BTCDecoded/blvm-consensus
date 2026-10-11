@@ -137,7 +137,7 @@ pub(crate) fn verify_signature(
 
     #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     {
-        use secp256k1::{PublicKey, ecdsa::Signature};
+        use secp256k1::{ecdsa::Signature, PublicKey};
 
         let signature = if strict_der {
             match Signature::from_der(der_sig) {

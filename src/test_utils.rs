@@ -9,7 +9,7 @@ use proptest::prelude::*;
 #[cfg(any(test, feature = "property-tests"))]
 use crate::segwit::Witness;
 use crate::types::{
-    BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet,
+    BlockHeader, OutPoint, Transaction, TransactionInput, TransactionOutput, UtxoSet, UTXO,
 };
 
 #[cfg(any(test, feature = "property-tests"))]
