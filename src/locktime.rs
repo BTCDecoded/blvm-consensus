@@ -62,6 +62,17 @@ pub fn check_bip65(tx_locktime: u32, stack_locktime: u32) -> bool {
     locktime_types_match(tx_locktime, stack_locktime) && tx_locktime >= stack_locktime
 }
 
+/// BIP112 comparison once the operand's disable bit is clear, the transaction
+/// version is at least 2, and the input's disable bit is clear.
+///
+/// Valid when bit 22 matches and the input's low 16 bits are at least the operand's.
+#[inline]
+pub fn check_bip112(stack_sequence: u32, input_sequence: u32) -> bool {
+    extract_sequence_type_flag(stack_sequence) == extract_sequence_type_flag(input_sequence)
+        && extract_sequence_locktime_value(input_sequence)
+            >= extract_sequence_locktime_value(stack_sequence)
+}
+
 /// Check if two locktime values have matching types
 ///
 /// Used by both BIP65 (CLTV) and BIP112 (CSV) to ensure type consistency.

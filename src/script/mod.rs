@@ -7292,10 +7292,7 @@ fn execute_opcode_with_context_full(
         // - If the *input* nSequence disable flag is set (and stack is not disabled), fail
         // - Does NOT remove the top stack item on success (non-consuming)
         OP_CHECKSEQUENCEVERIFY => {
-            use crate::locktime::{
-                decode_locktime_value, extract_sequence_locktime_value, extract_sequence_type_flag,
-                is_sequence_disabled,
-            };
+            use crate::locktime::{check_bip112, decode_locktime_value, is_sequence_disabled};
 
             // If CSV flag is not enabled, behave as NOP (treat as NOP3)
             const SCRIPT_VERIFY_CHECKSEQUENCEVERIFY: u32 = 0x400;
@@ -7341,21 +7338,8 @@ fn execute_opcode_with_context_full(
                 return Ok(false);
             }
 
-            // BIP68: Extract relative locktime type and value using shared logic
-            let type_flag = extract_sequence_type_flag(sequence_value);
-            let locktime_mask = extract_sequence_locktime_value(sequence_value) as u32;
-
-            // Extract input sequence flags and value
-            let input_type_flag = extract_sequence_type_flag(input_sequence);
-            let input_locktime = extract_sequence_locktime_value(input_sequence) as u32;
-
-            // BIP112: CSV fails if type_flag doesn't match input type
-            if type_flag != input_type_flag {
-                return Ok(false);
-            }
-
-            // BIP112: CSV fails if input locktime < required locktime
-            if input_locktime < locktime_mask {
+            // Type bit matches and the input's low 16 bits are at least the operand's.
+            if !check_bip112(sequence_value, input_sequence) {
                 return Ok(false);
             }
 
