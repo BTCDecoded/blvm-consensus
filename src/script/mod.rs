@@ -2663,6 +2663,67 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     ))
 }
 
+/// One CHECKSIG in a witness script joins the block batch at `global_idx`.
+/// `None` means the caller should verify inline (`BLVM_P2WPKH_SOA=0`).
+#[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+fn try_collect_witness_ecdsa(
+    collector: &crate::ecdsa_batch::EcdsaSignatureCollector,
+    global_idx: usize,
+    signature_bytes: &[u8],
+    pubkey_bytes: &[u8],
+    sighash: &[u8; 32],
+    flags: u32,
+    height: u64,
+    network: crate::types::Network,
+) -> Option<Result<bool>> {
+    if std::env::var_os("BLVM_P2WPKH_SOA").is_some_and(|v| v == "0") {
+        return None;
+    }
+    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+    let strict_der = flags & 0x04 != 0;
+    let enforce_low_s = flags & 0x08 != 0;
+    if strict_der
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
+            .unwrap_or(false)
+    {
+        return Some(Ok(false));
+    }
+    if flags & 0x02 != 0 {
+        let sighash_base = signature_bytes[signature_bytes.len() - 1] & !0x80;
+        if !(0x01..=0x03).contains(&sighash_base) {
+            return Some(Ok(false));
+        }
+        match pubkey_bytes.len() {
+            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Some(Ok(false)),
+            65 if pubkey_bytes[0] != 0x04 => return Some(Ok(false)),
+            33 | 65 => {}
+            _ => return Some(Ok(false)),
+        }
+    }
+    let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
+        der_sig,
+        strict_der,
+        enforce_low_s,
+    ) {
+        Some(c) => c,
+        None => return Some(Ok(false)),
+    };
+    let pk33 = match pubkey_bytes.len() {
+        33 => {
+            let mut a = [0u8; 33];
+            a.copy_from_slice(pubkey_bytes);
+            a
+        }
+        65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
+            Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
+            None => return Some(Ok(false)),
+        },
+        _ => return Some(Ok(false)),
+    };
+    collector.collect_with_index(global_idx, sighash, &pk33, &compact);
+    Some(Ok(true))
+}
+
 /// P2WSH-in-P2SH (nested). scriptSig = \[redeem\], redeem = OP_0 + 32-byte program; then same as native P2WSH.
 /// Must run after nested-P2WPKH gate so 22-byte redeems are not claimed here.
 #[cfg(feature = "production")]
@@ -2684,9 +2745,10 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     #[cfg(feature = "production")] sighash_cache: Option<
         &crate::transaction_hash::SighashMidstateCache,
     >,
-    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collector: Option<
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collect: Option<(
         &crate::ecdsa_batch::EcdsaSignatureCollector,
-    >,
+        usize,
+    )>,
 ) -> Option<Result<bool>> {
     if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS == 0 {
         return None;
@@ -2719,10 +2781,9 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     if &redeem_hash[..] != expected_hash {
         return Some(Ok(false));
     }
-    // Native P2WSH path with empty scriptSig and redeem as the v0 program.
-    let empty_sig: ByteString = Vec::new();
+    // Native P2WSH path with an empty scriptSig and the redeem script as the v0 program.
     try_verify_p2wsh_fast_path(
-        &empty_sig,
+        &[],
         redeem.as_ref(),
         witness,
         flags,
@@ -2738,7 +2799,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
         #[cfg(feature = "production")]
         sighash_cache,
         #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-        ecdsa_collector,
+        ecdsa_collect,
     )
 }
 
@@ -2747,7 +2808,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn try_verify_p2wsh_fast_path(
-    script_sig: &ByteString,
+    script_sig: &[u8],
     script_pubkey: &[u8],
     witness: &crate::witness::Witness,
     flags: u32,
@@ -2763,9 +2824,10 @@ pub(crate) fn try_verify_p2wsh_fast_path(
     #[cfg(feature = "production")] sighash_cache: Option<
         &crate::transaction_hash::SighashMidstateCache,
     >,
-    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collector: Option<
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collect: Option<(
         &crate::ecdsa_batch::EcdsaSignatureCollector,
-    >,
+        usize,
+    )>,
 ) -> Option<Result<bool>> {
     if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS == 0 {
         return None;
@@ -2786,18 +2848,10 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             return Some(Ok(false));
         }
     }
-    let witness_script = witness.last().expect("witness not empty").clone();
-    let mut stack: Vec<StackElement> = witness
-        .iter()
-        .take(witness.len() - 1)
-        .map(|w| to_stack_element(w))
-        .collect();
-
+    // Borrow the witness script. A hash mismatch rejects before any stack copy.
+    let witness_script: &[u8] = witness.last().expect("witness not empty").as_ref();
     let program_hash = &script_pubkey[2..34];
-    if program_hash.len() != 32 {
-        return None;
-    }
-    let witness_script_hash = OptimizedSha256::new().hash(witness_script.as_ref());
+    let witness_script_hash = OptimizedSha256::new().hash(witness_script);
     if &witness_script_hash[..] != program_hash {
         return Some(Ok(false));
     }
@@ -2815,10 +2869,10 @@ pub(crate) fn try_verify_p2wsh_fast_path(
         && witness_script[2] == PUSH_20_BYTES
         && witness_script[23] == OP_EQUALVERIFY
         && witness_script[24] == OP_CHECKSIG
-        && stack.len() == 2
+        && witness.len() == 3
     {
-        let signature_bytes = &stack[0];
-        let pubkey_bytes = &stack[1];
+        let signature_bytes: &[u8] = witness[0].as_ref();
+        let pubkey_bytes: &[u8] = witness[1].as_ref();
         if (pubkey_bytes.len() == 33 || pubkey_bytes.len() == 65) && !signature_bytes.is_empty() {
             let expected_pubkey_hash = &witness_script[3..23];
             let pubkey_sha256 = OptimizedSha256::new().hash(pubkey_bytes);
@@ -2836,6 +2890,21 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 ) {
                     Ok(sighash) => {
                         let height = block_height.unwrap_or(0);
+                        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                        if let Some((collector, global_idx)) = ecdsa_collect {
+                            if let Some(verdict) = try_collect_witness_ecdsa(
+                                collector,
+                                global_idx,
+                                signature_bytes,
+                                pubkey_bytes,
+                                &sighash,
+                                flags,
+                                height,
+                                network,
+                            ) {
+                                return Some(verdict);
+                            }
+                        }
                         let is_valid = signature::with_secp_context(|secp| {
                             signature::verify_signature(
                                 secp,
@@ -2857,10 +2926,10 @@ pub(crate) fn try_verify_p2wsh_fast_path(
     }
 
     // P2WSH-with-P2PK fast-path: witness_script = push(pubkey) OP_CHECKSIG, stack = [sig]. BIP143 inline verify.
-    if witness_sigversion == SigVersion::WitnessV0 && stack.len() == 1 {
-        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(witness_script.as_ref()) {
-            if !stack[0].is_empty() {
-                let signature_bytes = &stack[0];
+    if witness_sigversion == SigVersion::WitnessV0 && witness.len() == 2 {
+        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(witness_script) {
+            let signature_bytes: &[u8] = witness[0].as_ref();
+            if !signature_bytes.is_empty() {
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                 let amount = prevout_values.get(input_index).copied().unwrap_or(0);
                 match crate::transaction_hash::calculate_bip143_sighash(
@@ -2873,6 +2942,21 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 ) {
                     Ok(sighash) => {
                         let height = block_height.unwrap_or(0);
+                        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                        if let Some((collector, global_idx)) = ecdsa_collect {
+                            if let Some(verdict) = try_collect_witness_ecdsa(
+                                collector,
+                                global_idx,
+                                signature_bytes,
+                                pubkey_bytes,
+                                &sighash,
+                                flags,
+                                height,
+                                network,
+                            ) {
+                                return Some(verdict);
+                            }
+                        }
                         let is_valid = signature::with_secp_context(|secp| {
                             signature::verify_signature(
                                 secp,
@@ -2892,6 +2976,13 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             }
         }
     }
+
+    // Multisig and the interpreter are the only callers that need owned stack items.
+    let mut stack: Vec<StackElement> = witness
+        .iter()
+        .take(witness.len() - 1)
+        .map(|w| to_stack_element(w))
+        .collect();
 
     // P2WSH multisig: witness script is `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
     // The stack under the script must be exactly the dummy plus `m` signatures.
@@ -2922,7 +3013,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
 
             // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
             #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-            if let Some(collector) = ecdsa_collector {
+            if let Some((collector, _)) = ecdsa_collect {
                 let nullfail = (flags & flags::SCRIPT_VERIFY_NULLFAIL) != 0;
                 let enforce_low_s = (flags & flags::SCRIPT_VERIFY_LOW_S) != 0;
                 let strict_der = (flags & flags::SCRIPT_VERIFY_DERSIG) != 0
@@ -3058,7 +3149,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
     // Witness script uses interpreter path (no batch collection).
     // CHECKMULTISIG in witness script can produce invalid sig/pubkey pairings for batch.
     let result = eval_script_with_context_full_inner(
-        &witness_script,
+        witness_script,
         &mut stack,
         flags,
         tx,
@@ -3440,7 +3531,7 @@ pub fn verify_script_with_context_full(
                 #[cfg(feature = "production")]
                 sighash_cache,
                 #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-                ecdsa_collect.map(|(c, _)| c),
+                ecdsa_collect,
             ) {
                 FAST_PATH_P2WSH.fetch_add(1, Ordering::Relaxed);
                 return result;
@@ -3481,7 +3572,7 @@ pub fn verify_script_with_context_full(
                 #[cfg(feature = "production")]
                 sighash_cache,
                 #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-                ecdsa_collect.map(|(c, _)| c),
+                ecdsa_collect,
             ) {
                 FAST_PATH_P2WSH.fetch_add(1, Ordering::Relaxed);
                 return result;

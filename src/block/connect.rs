@@ -1637,7 +1637,12 @@ fn validate_production_transactions<'a, 'b>(
                                                     feature = "production",
                                                     feature = "blvm-secp256k1"
                                                 ))]
-                                                session.ecdsa_collector.as_deref(),
+                                                session.ecdsa_collector.as_ref().map(|col| {
+                                                    (
+                                                        col.as_ref(),
+                                                        ctx.ecdsa_index_base + c.input_idx,
+                                                    )
+                                                }),
                                             )
                                         {
                                             #[cfg(all(
@@ -2170,7 +2175,12 @@ fn validate_production_transactions<'a, 'b>(
                                                         feature = "production",
                                                         feature = "blvm-secp256k1"
                                                     ))]
-                                                    session.ecdsa_collector.as_deref(),
+                                                    session.ecdsa_collector.as_ref().map(|col| {
+                                                        (
+                                                            col.as_ref(),
+                                                            ctx.ecdsa_index_base + c.input_idx,
+                                                        )
+                                                    }),
                                                 )
                                             {
                                                 #[cfg(all(
