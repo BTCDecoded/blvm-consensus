@@ -1,7 +1,7 @@
 //! A pay-to-public-key inside pay-to-witness-script-hash joins the block batch.
 //! A bad signature is rejected when the batch runs, not only by the inline check.
 
-use bitcoin_hashes::{sha256, Hash as _};
+use bitcoin_hashes::{Hash as _, sha256};
 use blvm_consensus::constants::SEGWIT_ACTIVATION_MAINNET;
 use blvm_consensus::ecdsa_batch::EcdsaSignatureCollector;
 use blvm_consensus::script::flags::{

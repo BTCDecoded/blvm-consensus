@@ -2700,14 +2700,11 @@ fn try_collect_witness_ecdsa(
             _ => return Some(Ok(false)),
         }
     }
-    let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
-        der_sig,
-        strict_der,
-        enforce_low_s,
-    ) {
-        Some(c) => c,
-        None => return Some(Ok(false)),
-    };
+    let compact =
+        match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(der_sig, strict_der, enforce_low_s) {
+            Some(c) => c,
+            None => return Some(Ok(false)),
+        };
     let pk33 = match pubkey_bytes.len() {
         33 => {
             let mut a = [0u8; 33];
@@ -2883,7 +2880,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 match crate::transaction_hash::calculate_bip143_sighash(
                     tx,
                     input_index,
-                    witness_script.as_ref(),
+                    witness_script,
                     amount,
                     sighash_byte,
                     precomputed_bip143,
@@ -2935,7 +2932,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 match crate::transaction_hash::calculate_bip143_sighash(
                     tx,
                     input_index,
-                    witness_script.as_ref(),
+                    witness_script,
                     amount,
                     sighash_byte,
                     precomputed_bip143,
@@ -2987,7 +2984,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
     // P2WSH multisig: witness script is `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
     // The stack under the script must be exactly the dummy plus `m` signatures.
     if witness_sigversion == SigVersion::WitnessV0 {
-        if let Some((m, _n, pubkeys)) = parse_redeem_multisig(witness_script.as_ref()) {
+        if let Some((m, _n, pubkeys)) = parse_redeem_multisig(witness_script) {
             let Some((dummy, signatures)) = checkmultisig_window(&stack, m, true) else {
                 return Some(Ok(false));
             };
@@ -3008,7 +3005,7 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             }
 
             // WitnessV0 (BIP143): scriptCode is the witness script; no FindAndDelete.
-            let script_code = witness_script.as_ref();
+            let script_code = witness_script;
             let amount = prevout_values.get(input_index).copied().unwrap_or(0);
 
             // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
@@ -3160,10 +3157,10 @@ pub(crate) fn try_verify_p2wsh_fast_path(
         median_time_past,
         network,
         witness_sigversion,
-        Some(witness_script.as_ref()), // BIP143 scriptCode for CHECKSIG inside P2WSH
-        None,                          // script_sig_for_sighash (witness script context)
-        None,                          // taproot_annex_hash
-        None,                          // tapscript_validation_weight
+        Some(witness_script), // BIP143 scriptCode for CHECKSIG inside P2WSH
+        None,                 // script_sig_for_sighash (witness script context)
+        None,                 // taproot_annex_hash
+        None,                 // tapscript_validation_weight
         schnorr_collector,
         precomputed_bip143,
         #[cfg(feature = "production")]
