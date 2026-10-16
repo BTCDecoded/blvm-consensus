@@ -1712,3 +1712,46 @@ fn test_connect_accepts_bip54_period_end_with_valid_boundary() {
         "valid period-end boundary should connect: {result:?}"
     );
 }
+
+/// `2c807dc`: header bits must equal `next_required_bits` for the ancestor window.
+#[test]
+fn test_connect_rejects_bits_that_miss_the_ancestor_window() {
+    let height = 100u64;
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
+    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut ctx = ctx();
+    ctx.difficulty_ancestor = Some(Arc::new(|h| {
+        if h == 99 {
+            Some((0x1b012dcd, 1_000))
+        } else {
+            None
+        }
+    }));
+    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("do not match required work")),
+        "header bits must match the ancestor window: {result:?}"
+    );
+}
+
+/// BIP94: a testnet4 difficulty-period block cannot be more than 600s before its parent.
+#[test]
+fn test_connect_rejects_testnet4_retarget_more_than_ten_minutes_early() {
+    let height = 2016u64;
+    let first_time = 1_700_000_000u64;
+    let parent_time = first_time + 2016 * 600;
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
+    let mut block = block_with_txs(vec![coinbase], parent_time - 601);
+    block.header.bits = 0x1d00ffff;
+    let mut ctx = BlockValidationContext::for_network(Network::Testnet4);
+    ctx.difficulty_ancestor = Some(Arc::new(move |h| match h {
+        0 => Some((0x1d00ffff, first_time)),
+        2015 => Some((0x1d00ffff, parent_time)),
+        _ => None,
+    }));
+    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP94")),
+        "testnet4 retarget more than 600s early must fail: {result:?}"
+    );
+}

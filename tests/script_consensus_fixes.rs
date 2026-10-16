@@ -900,3 +900,58 @@ fn checksigfromstack_fails_outside_tapscript() {
         SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT,
     ));
 }
+
+#[cfg(feature = "ctv")]
+fn script_ok(script_pubkey: &[u8], flags: u32, height: u64, network: Network) -> bool {
+    disable_fast_paths(true);
+    let tx = one_input_tx(vec![]);
+    let values = [10_000i64];
+    let scripts = [script_pubkey];
+    let result = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        script_pubkey,
+        None,
+        flags,
+        &tx,
+        0,
+        &values,
+        &scripts,
+        Some(height),
+        None,
+        network,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    disable_fast_paths(false);
+    matches!(result, Ok(true))
+}
+
+/// `6e52996`: testnet4 stays at the never-active sentinel. Regtest activates at height 0.
+#[cfg(feature = "ctv")]
+#[test]
+fn testnet4_keeps_checktemplateverify_inactive() {
+    use blvm_consensus::opcodes::OP_CHECKTEMPLATEVERIFY;
+    use blvm_consensus::script::flags::SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH;
+    let mut script = vec![PUSH_32_BYTES];
+    script.extend_from_slice(&[0x11; 32]);
+    script.push(OP_CHECKTEMPLATEVERIFY);
+    let height = 1_000_000;
+    assert!(script_ok(
+        &script,
+        SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH,
+        height,
+        Network::Testnet4,
+    ));
+    assert!(!script_ok(
+        &script,
+        SCRIPT_VERIFY_DEFAULT_CHECK_TEMPLATE_VERIFY_HASH,
+        height,
+        Network::Regtest,
+    ));
+}
