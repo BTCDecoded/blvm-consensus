@@ -1850,3 +1850,238 @@ pub(crate) fn _verify_f_proof_equal_hash_accepted(
 ) -> bool {
     hash_above == 0 && negative == 0 && target_zero == 0
 }
+
+/// Witness for **F_BIP34SmallHeightOpcode** (PROTOCOL.md §5.4.2).
+///
+/// Heights 1 through 16 are the single opcode `0x50 + height`.
+#[spec_locked("5.4.2", "F_BIP34SmallHeightOpcode")]
+#[blvm_spec_lock::requires(height >= 1)]
+#[blvm_spec_lock::requires(height <= 16)]
+#[blvm_spec_lock::ensures(result == (80 + height))]
+pub(crate) fn _verify_f_bip34_small_height_opcode(height: i64) -> i64 {
+    80 + height
+}
+
+/// Witness for **F_BIP34HeightZero** (PROTOCOL.md §5.4.2).
+///
+/// Height 0 is `OP_0`, not `0x50`.
+#[spec_locked("5.4.2", "F_BIP34HeightZero")]
+#[blvm_spec_lock::requires(height == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_bip34_height_zero(height: i64) -> i64 {
+    if height == 0 { 0 } else { 80 + height }
+}
+
+/// Witness for **F_BIP34HeightSeventeen** (PROTOCOL.md §5.4.2).
+///
+/// Height 17 is outside the opcode range, so the prefix is a one-byte push length.
+#[spec_locked("5.4.2", "F_BIP34HeightSeventeen")]
+#[blvm_spec_lock::requires(height == 17)]
+#[blvm_spec_lock::ensures(result == 1)]
+pub(crate) fn _verify_f_bip34_height_seventeen(height: i64) -> i64 {
+    if height >= 1 && height <= 16 {
+        80 + height
+    } else {
+        1
+    }
+}
+
+/// Witness for **F_CtvTestnet4Inactive** (PROTOCOL.md §5.4.6).
+///
+/// `result` is true exactly on the non-negative heights, where testnet4 leaves CTV inactive.
+#[spec_locked("5.4.6", "F_CtvTestnet4Inactive")]
+#[blvm_spec_lock::ensures((height >= 0) == result)]
+pub(crate) fn _verify_f_ctv_testnet4_inactive(height: i64) -> bool {
+    height >= 0
+}
+
+/// Witness for **F_CsfsTestnet4Inactive** (PROTOCOL.md §5.4.8).
+///
+/// `result` is true exactly on the non-negative heights, where testnet4 leaves CSFS inactive.
+#[spec_locked("5.4.8", "F_CsfsTestnet4Inactive")]
+#[blvm_spec_lock::ensures((height >= 0) == result)]
+pub(crate) fn _verify_f_csfs_testnet4_inactive(height: i64) -> bool {
+    height >= 0
+}
+
+/// Witness for **F_Bip54CoinbaseLocktime** (PROTOCOL.md §5.4.9).
+#[spec_locked("5.4.9", "F_Bip54CoinbaseLocktime")]
+#[blvm_spec_lock::requires(height >= 1)]
+#[blvm_spec_lock::ensures(result == (height - 1))]
+pub(crate) fn _verify_f_bip54_coinbase_locktime(height: i64) -> i64 {
+    height - 1
+}
+
+/// Witness for **F_Bip54CoinbaseSequence** (PROTOCOL.md §5.4.9).
+#[spec_locked("5.4.9", "F_Bip54CoinbaseSequence")]
+#[blvm_spec_lock::ensures((sequence != 4294967295) == result)]
+pub(crate) fn _verify_f_bip54_coinbase_sequence(sequence: i64) -> bool {
+    sequence != 4294967295
+}
+
+/// Witness for **F_Bip94BitsFromFirst** (PROTOCOL.md §7.1).
+#[spec_locked("7.1", "F_Bip94BitsFromFirst")]
+#[blvm_spec_lock::requires(enforce != 0)]
+#[blvm_spec_lock::ensures(result == first_bits)]
+pub(crate) fn _verify_f_bip94_bits_from_first(
+    enforce: i64,
+    first_bits: i64,
+    last_bits: i64,
+) -> i64 {
+    if enforce != 0 { first_bits } else { last_bits }
+}
+
+/// Witness for **F_Bip94BitsFromLast** (PROTOCOL.md §7.1).
+#[spec_locked("7.1", "F_Bip94BitsFromLast")]
+#[blvm_spec_lock::requires(enforce == 0)]
+#[blvm_spec_lock::ensures(result == last_bits)]
+pub(crate) fn _verify_f_bip94_bits_from_last(enforce: i64, first_bits: i64, last_bits: i64) -> i64 {
+    if enforce != 0 { first_bits } else { last_bits }
+}
+
+/// Witness for **F_Bip94Timewarp** (PROTOCOL.md §7.1).
+///
+/// Parent times of at least 600 seconds make `timestamp + 600 >= parent`
+/// the same bound as `timestamp >= parent - 600`.
+#[spec_locked("7.1", "F_Bip94Timewarp")]
+#[blvm_spec_lock::requires(parent_time >= 600)]
+#[blvm_spec_lock::requires(timestamp >= 0)]
+#[blvm_spec_lock::ensures((timestamp + 600 >= parent_time) == result)]
+pub(crate) fn _verify_f_bip94_timewarp(timestamp: i64, parent_time: i64) -> bool {
+    timestamp + 600 >= parent_time
+}
+
+/// Witness for **F_Bip94TimewarpOffBoundary** (PROTOCOL.md §7.1).
+///
+/// Off a 2016-block boundary the time check accepts. The boundary arm is the 600-second comparison.
+#[spec_locked("7.1", "F_Bip94TimewarpOffBoundary")]
+#[blvm_spec_lock::requires(height >= 0)]
+#[blvm_spec_lock::requires(height % 2016 != 0)]
+#[blvm_spec_lock::requires(parent_time >= 600)]
+#[blvm_spec_lock::requires(timestamp >= 0)]
+#[blvm_spec_lock::ensures(result == true)]
+pub(crate) fn _verify_f_bip94_timewarp_off_boundary(
+    height: i64,
+    timestamp: i64,
+    parent_time: i64,
+) -> bool {
+    if height % 2016 == 0 {
+        timestamp + 600 >= parent_time
+    } else {
+        true
+    }
+}
+
+/// Witness for **F_OffBoundaryParentBits** (PROTOCOL.md §7.1).
+///
+/// The proof is the `not_boundary != 0` arm. The other arm is outside that precondition.
+#[spec_locked("7.1", "F_OffBoundaryParentBits")]
+#[blvm_spec_lock::requires(not_boundary != 0)]
+#[blvm_spec_lock::ensures(result == parent_bits)]
+pub(crate) fn _verify_f_off_boundary_parent_bits(not_boundary: i64, parent_bits: i64) -> i64 {
+    if not_boundary != 0 { parent_bits } else { 0 }
+}
+
+/// Witness for **F_HeaderBitsMatchRequired** (PROTOCOL.md §7.1).
+#[spec_locked("7.1", "F_HeaderBitsMatchRequired")]
+#[blvm_spec_lock::ensures((header_bits == required_bits) == result)]
+pub(crate) fn _verify_f_header_bits_match_required(header_bits: i64, required_bits: i64) -> bool {
+    header_bits == required_bits
+}
+
+/// Witness for **F_WitnessStackNullByLength** (PROTOCOL.md §11.1.2).
+#[spec_locked("11.1.2", "F_WitnessStackNullByLength")]
+#[blvm_spec_lock::requires(len >= 0)]
+#[blvm_spec_lock::ensures((len == 0) == result)]
+pub(crate) fn _verify_f_witness_stack_null_by_length(len: i64) -> bool {
+    len == 0
+}
+
+/// Witness for **F_WitnessPayloadByte** (PROTOCOL.md §11.1.3).
+///
+/// Every integer, not three sample bytes. The product is zero exactly at 0 and 128.
+#[spec_locked("11.1.3", "F_WitnessPayloadByte")]
+#[blvm_spec_lock::ensures(result == (byte * (byte - 128) != 0))]
+pub(crate) fn _verify_f_witness_payload_byte(byte: i64) -> bool {
+    byte != 0 && byte != 128
+}
+
+/// Witness for **F_WitnessPayloadEmpty** (PROTOCOL.md §11.1.3).
+#[spec_locked("11.1.3", "F_WitnessPayloadEmpty")]
+#[blvm_spec_lock::requires(len == 0)]
+#[blvm_spec_lock::ensures(result == 0)]
+pub(crate) fn _verify_f_witness_payload_empty(len: i64) -> i64 {
+    if len == 0 { 0 } else { 1 }
+}
+
+/// Digest of the pair (witness root, reserved nonce). The translator replaces the call.
+/// This body is not the compression function.
+pub(crate) fn implied_hash(root: i64, nonce: i64) -> i64 {
+    let _ = (root, nonce);
+    0
+}
+
+/// Witness for **F_CastToBoolSummary** (PROTOCOL.md §11.1.3).
+///
+/// `prefix_nonzero` stands for “some byte before the last is nonzero.”
+/// Empty, a zero payload of any length, and negative zero of any length are false.
+#[spec_locked("11.1.3", "F_CastToBoolSummary")]
+#[blvm_spec_lock::ensures(
+    result == (len >= 1 && (prefix_nonzero != 0 || (last != 0 && last != 128)))
+)]
+pub(crate) fn _verify_f_cast_to_bool_summary(len: i64, prefix_nonzero: i64, last: i64) -> bool {
+    len >= 1 && (prefix_nonzero != 0 || (last != 0 && last != 128))
+}
+
+/// Witness for **F_UpgradableProgramShape** (PROTOCOL.md §11.1.3).
+#[spec_locked("11.1.3", "F_UpgradableProgramShape")]
+#[blvm_spec_lock::ensures(
+    result
+        == (script_sig_len == 0
+            && witness_flag != 0
+            && discourage == 0
+            && len >= 1
+            && (prefix_nonzero != 0 || (last != 0 && last != 128)))
+)]
+pub(crate) fn _verify_f_upgradable_program_shape(
+    script_sig_len: i64,
+    witness_flag: i64,
+    discourage: i64,
+    len: i64,
+    prefix_nonzero: i64,
+    last: i64,
+) -> bool {
+    script_sig_len == 0
+        && witness_flag != 0
+        && discourage == 0
+        && len >= 1
+        && (prefix_nonzero != 0 || (last != 0 && last != 128))
+}
+
+/// Witness for **F_WitnessCommitmentShape** (PROTOCOL.md §11.1.5).
+///
+/// No commitment output is valid only with no witness data. A commitment output
+/// is valid only when the reserved item is 32 bytes and the stored word equals
+/// the implied digest of the root and the nonce.
+#[spec_locked("11.1.5", "F_WitnessCommitmentShape")]
+#[blvm_spec_lock::ensures(
+    result
+        == ((has_commitment == 0 && any_witness == 0)
+            || (has_commitment != 0
+                && reserved_len == 32
+                && stored == implied_hash(root, nonce)))
+)]
+pub(crate) fn _verify_f_witness_commitment_shape(
+    has_commitment: i64,
+    any_witness: i64,
+    reserved_len: i64,
+    stored: i64,
+    root: i64,
+    nonce: i64,
+) -> bool {
+    if has_commitment == 0 {
+        any_witness == 0
+    } else {
+        reserved_len == 32 && stored == implied_hash(root, nonce)
+    }
+}
