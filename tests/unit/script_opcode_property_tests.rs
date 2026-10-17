@@ -1,369 +1,341 @@
-//! Property tests for script opcode combinations and edge cases
+//! Property tests for script opcode combinations and edge cases.
 //!
-//! Comprehensive property-based tests covering script opcode combinations,
-//! stack operations, and edge cases to ensure 99% coverage of possible scenarios.
+//! Each test calls `eval_script` and compares the stack to the opcode rule.
 
 use blvm_consensus::constants::MAX_STACK_SIZE;
-use blvm_consensus::script;
+use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
+use blvm_consensus::script::{self, SigVersion};
 use proptest::prelude::*;
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256};
 
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_1_RANGE_END, OP_1_RANGE_START, OP_2DROP, OP_CHECKSIG, OP_DUP, OP_EQUAL,
-    OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_N_BASE, OP_RETURN, OP_RIPEMD160, OP_SHA256, OP_SWAP,
-    OP_VERIFY,
+    OP_0, OP_1, OP_1_RANGE_END, OP_1_RANGE_START, OP_2DROP, OP_ADD, OP_CHECKSIG, OP_DUP, OP_ELSE,
+    OP_ENDIF, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_MUL, OP_N_BASE, OP_RETURN,
+    OP_RIPEMD160, OP_SHA256, OP_SUB, OP_SWAP, OP_VERIFY,
 };
-// Note: execute_opcode is private, so we'll use eval_script instead
-// which is the public API for script execution
+
+fn eval(script: &[u8], stack: &mut Vec<script::StackElement>) -> Result<bool, ConsensusError> {
+    script::eval_script(script, stack, 0, SigVersion::Base)
+}
+
+fn script_code(result: Result<bool, ConsensusError>) -> Option<ScriptErrorCode> {
+    match result {
+        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => Some(code),
+        _ => None,
+    }
+}
+
+fn numeric_opcode(n: u8) -> u8 {
+    if n == 0 { OP_0 } else { OP_N_BASE + n }
+}
+
+/// Minimal script number for `|n| < 128`. Zero is the empty element. Negatives set the high bit.
+fn script_num(n: i64) -> Vec<u8> {
+    if n == 0 {
+        return Vec::new();
+    }
+    let magnitude = n.unsigned_abs() as u8;
+    if n < 0 {
+        vec![magnitude | 0x80]
+    } else {
+        vec![magnitude]
+    }
+}
+
+fn push_data(data: &[u8]) -> Vec<u8> {
+    let mut script = Vec::with_capacity(1 + data.len());
+    script.push(data.len() as u8);
+    script.extend_from_slice(data);
+    script
+}
 
 /// Property test: OP_DUP duplicates stack top correctly
-///
-/// Uses eval_script to test OP_DUP by executing [item, OP_DUP] script
 proptest! {
     #[test]
     fn prop_op_dup_duplicates(
         item in prop::collection::vec(any::<u8>(), 0..50)
     ) {
-        // Build script: push item, then OP_DUP
-        let mut script = vec![item.len() as u8]; // Push opcode
-        script.extend_from_slice(&item);
-        script.push(OP_DUP); // OP_DUP
-
+        let mut script = push_data(&item);
+        script.push(OP_DUP);
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        // After OP_DUP, stack should have item duplicated
-        if result.unwrap() && stack.len() >= 2 {
-            prop_assert_eq!(stack[stack.len() - 2].as_slice(), item.as_slice());
-            prop_assert_eq!(stack[stack.len() - 1].as_slice(), item.as_slice());
-        }
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), 2);
+        prop_assert_eq!(stack[0].as_slice(), item.as_slice());
+        prop_assert_eq!(stack[1].as_slice(), item.as_slice());
     }
 }
 
-/// Property test: Script execution with OP_EQUALVERIFY
+/// OP_EQUALVERIFY succeeds exactly when the two pushes are equal, and pops both.
 proptest! {
     #[test]
     fn prop_script_with_op_equalverify(
         item1 in prop::collection::vec(any::<u8>(), 0..10),
         item2 in prop::collection::vec(any::<u8>(), 0..10)
     ) {
-        // Build script with two pushes and OP_EQUALVERIFY
-        let mut script = Vec::new();
-        script.push(item1.len() as u8);
-        script.extend_from_slice(&item1);
-        script.push(item2.len() as u8);
-        script.extend_from_slice(&item2);
-        script.push(OP_EQUALVERIFY); // OP_EQUALVERIFY
-
+        let mut script = push_data(&item1);
+        script.extend(push_data(&item2));
+        script.push(OP_EQUALVERIFY);
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok() || result.is_err());
-        // OP_EQUALVERIFY succeeds if items are equal
-        if result.is_ok() && result.unwrap() {
-            prop_assert!(item1 == item2, "OP_EQUALVERIFY should succeed only if equal");
+        let result = eval(&script, &mut stack);
+        if item1 == item2 {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert!(stack.is_empty());
+        } else {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::EqualVerify));
         }
     }
 }
 
-/// Property test: OP_HASH160 produces fixed-length output
+/// OP_HASH160 pushes RIPEMD160(SHA256(input)).
 proptest! {
     #[test]
     fn prop_op_hash160_fixed_length(
-        input in prop::collection::vec(any::<u8>(), 1..75) // Max pushdata size
+        input in prop::collection::vec(any::<u8>(), 1..=75)
     ) {
-        // Build script: push data, then OP_HASH160
-        let mut script = Vec::new();
-        script.push(input.len() as u8);
-        script.extend_from_slice(&input);
+        let mut script = push_data(&input);
         script.push(OP_HASH160);
-
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        if result.unwrap() && !stack.is_empty() {
-            // HASH160 should produce 20-byte output
-            prop_assert_eq!(stack[0].len(), 20,
-                "OP_HASH160 should produce 20-byte hash");
-        }
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        let expected = Ripemd160::digest(Sha256::digest(&input));
+        prop_assert_eq!(stack.len(), 1);
+        prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
     }
 }
 
-/// Property test: OP_CHECKSIG stack requirements
+/// An empty signature makes OP_CHECKSIG push false. A bare OP_CHECKSIG is a stack error.
 proptest! {
     #[test]
     fn prop_op_checksig_stack_requirements(
-        sig in prop::collection::vec(any::<u8>(), 0..75),
-        pubkey in prop::collection::vec(any::<u8>(), 0..75)
+        pubkey in prop::collection::vec(any::<u8>(), 0..75),
+        bare in any::<bool>()
     ) {
-        // Build script: push sig, push pubkey, then OP_CHECKSIG
-        let mut script = Vec::new();
-        script.push(sig.len() as u8);
-        script.extend_from_slice(&sig);
-        script.push(pubkey.len() as u8);
-        script.extend_from_slice(&pubkey);
-        script.push(OP_CHECKSIG);
-
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        // OP_CHECKSIG may succeed or fail, but shouldn't panic
-    }
-}
-
-/// Property test: OP_1 through OP_16 push correct values
-proptest! {
-    #[test]
-    fn prop_op_1_to_16_values(
-        opcode in OP_1_RANGE_START..=OP_1_RANGE_END // OP_1 to OP_16
-    ) {
-        let script = vec![opcode];
-        let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        if result.unwrap() && !stack.is_empty() {
-            let expected_value = (opcode - 0x50);
-            // OP_1 pushes [1], OP_2 pushes [2], etc.
-            prop_assert!(!stack[0].is_empty());
-            // Value should be between 1 and 16
-            prop_assert!((1..=16).contains(&expected_value));
+        if bare {
+            let result = eval(&[OP_CHECKSIG], &mut stack);
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::InvalidStackOperation));
+        } else {
+            let mut script = vec![OP_0];
+            script.extend(push_data(&pubkey));
+            script.push(OP_CHECKSIG);
+            let result = eval(&script, &mut stack);
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 1);
+            prop_assert!(stack[0].is_empty());
         }
     }
 }
 
-/// OP_0 pushes empty array
-#[test]
-fn prop_op_0_pushes_empty() {
-    let script = vec![OP_0]; // OP_0
-    let mut stack = Vec::new();
-    let result = script::eval_script(
-        &script,
-        &mut stack,
-        0,
-        blvm_consensus::script::SigVersion::Base,
-    );
-    assert!(result.is_ok());
-    if result.unwrap() && !stack.is_empty() {
-        assert!(stack[0].is_empty(), "OP_0 should push empty array");
+/// OP_1 through OP_16 push the byte `opcode - 0x50`.
+proptest! {
+    #[test]
+    fn prop_op_1_to_16_values(
+        opcode in OP_1_RANGE_START..=OP_1_RANGE_END
+    ) {
+        let mut stack = Vec::new();
+        let result = eval(&[opcode], &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), 1);
+        prop_assert_eq!(stack[0].as_slice(), &[opcode - 0x50]);
     }
 }
 
-/// Property test: Script with OP_IF doesn't panic
+/// OP_0 pushes an empty array.
+#[test]
+fn prop_op_0_pushes_empty() {
+    let mut stack = Vec::new();
+    let result = eval(&[OP_0], &mut stack);
+    assert_eq!(result.unwrap(), true);
+    assert_eq!(stack.len(), 1);
+    assert!(stack[0].is_empty());
+}
+
+/// OP_IF / OP_ELSE selects the branch with CastToBool, then OP_ENDIF closes it.
 proptest! {
     #[test]
     fn prop_script_with_op_if(
         condition in prop::collection::vec(any::<u8>(), 0..10)
     ) {
-        // Build script: push condition, then OP_IF
-        let mut script = Vec::new();
-        script.push(condition.len() as u8);
-        script.extend_from_slice(&condition);
-        script.push(OP_IF); // OP_IF
-
+        let mut script = push_data(&condition);
+        script.extend_from_slice(&[OP_IF, OP_1, OP_ELSE, OP_1 + 1, OP_ENDIF]);
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        // Should not panic (may succeed or fail)
-        prop_assert!(result.is_ok() || result.is_err());
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), 1);
+        let taken = if script::cast_to_bool(&condition) { 1 } else { 2 };
+        prop_assert_eq!(stack[0].as_slice(), &[taken]);
     }
 }
 
-/// Property test: PUSHDATA operations preserve data
+/// A direct push of 1..=75 bytes leaves those bytes on the stack.
 proptest! {
     #[test]
     fn prop_pushdata_preserves_data(
-        data in prop::collection::vec(any::<u8>(), 1..75) // Direct push max
+        data in prop::collection::vec(any::<u8>(), 1..=75)
     ) {
-        // Build script: push opcode (len), then data
-        let mut script = Vec::new();
-        let len = data.len();
-        if len <= 75 {
-            script.push(len as u8);
-            script.extend_from_slice(&data);
+        let script = push_data(&data);
+        let mut stack = Vec::new();
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), 1);
+        prop_assert_eq!(stack[0].as_slice(), data.as_slice());
+    }
+}
 
-            let mut stack = Vec::new();
-            let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-            prop_assert!(result.is_ok() || result.is_err());
-            // Data should be preserved if script succeeds
-            if result.is_ok() && result.unwrap() && !stack.is_empty() {
-                prop_assert_eq!(stack[0].as_slice(), data.as_slice());
-            }
+/// OP_ADD and OP_SUB push the minimal script number. OP_MUL is disabled.
+proptest! {
+    #[test]
+    fn prop_script_arithmetic_opcodes(
+        opcode in OP_ADD..=OP_MUL,
+        a in 0u8..=16u8,
+        b in 0u8..=16u8
+    ) {
+        let script = vec![numeric_opcode(a), numeric_opcode(b), opcode];
+        let mut stack = Vec::new();
+        let result = eval(&script, &mut stack);
+        if opcode == OP_MUL {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::DisabledOpcode));
+        } else {
+            let value = if opcode == OP_ADD {
+                i64::from(a) + i64::from(b)
+            } else {
+                i64::from(a) - i64::from(b)
+            };
+            let expected = script_num(value);
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 1);
+            prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
         }
     }
 }
 
-/// Property test: Script execution with arithmetic opcodes doesn't panic
-proptest! {
-    #[test]
-    fn prop_script_arithmetic_opcodes(
-        opcode in 0x93u8..=0x95u8, // OP_ADD, OP_SUB, OP_MUL
-        a in 0u8..=10u8,
-        b in 0u8..=10u8
-    ) {
-        // Build script: OP_a, OP_b, arithmetic opcode
-        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), opcode];
-        let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        // Should not panic
-        prop_assert!(result.is_ok() || result.is_err());
-    }
-}
-
-/// Property test: Script with OP_EQUAL produces boolean result
+/// OP_EQUAL pushes `[1]` when the numbers match and an empty element when they do not.
 proptest! {
     #[test]
     fn prop_script_op_equal(
         a in 0u8..=16u8,
         b in 0u8..=16u8
     ) {
-        // Build script: OP_a, OP_b, OP_EQUAL
-        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_EQUAL];
+        let script = vec![numeric_opcode(a), numeric_opcode(b), OP_EQUAL];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok() || result.is_err());
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        let expect: &[u8] = if a == b { &[1] } else { &[] };
+        prop_assert_eq!(stack[0].as_slice(), expect);
     }
 }
 
-/// Property test: Script with OP_VERIFY doesn't panic
+/// OP_VERIFY succeeds exactly when the pushed number is nonzero, and then the stack is empty.
 proptest! {
     #[test]
     fn prop_script_op_verify(
-        value in 1u8..=16u8
+        value in 0u8..=16u8
     ) {
-        // Build script: OP_value, OP_VERIFY
-        let script = vec![OP_N_BASE + value.min(16), OP_VERIFY];
+        let script = vec![numeric_opcode(value), OP_VERIFY];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok() || result.is_err());
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), value != 0);
+        prop_assert!(stack.is_empty());
     }
 }
 
-/// Property test: Script with OP_RETURN always fails
-/// OP_RETURN always fails
+/// OP_RETURN fails the script.
 #[test]
 fn prop_script_op_return_always_fails() {
-    let script = vec![OP_1, OP_RETURN];
     let mut stack = Vec::new();
-    let result = script::eval_script(
-        &script,
-        &mut stack,
-        0,
-        blvm_consensus::script::SigVersion::Base,
-    );
-    assert!(result.is_ok());
-    if let Ok(success) = result {
-        assert!(!success, "OP_RETURN should always fail");
-    }
+    let result = eval(&[OP_1, OP_RETURN], &mut stack);
+    assert_eq!(result.unwrap(), false);
 }
 
-/// Property test: OP_SHA256 produces 32-byte output
+/// OP_SHA256 pushes the 32-byte SHA-256 digest.
 proptest! {
     #[test]
     fn prop_op_sha256_fixed_length(
-        input in prop::collection::vec(any::<u8>(), 1..75)
+        input in prop::collection::vec(any::<u8>(), 1..=75)
     ) {
-        // Build script: push input, OP_SHA256
-        let mut script = Vec::new();
-        script.push(input.len() as u8);
-        script.extend_from_slice(&input);
-        script.push(OP_SHA256); // OP_SHA256
-
+        let mut script = push_data(&input);
+        script.push(OP_SHA256);
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        if result.unwrap() && !stack.is_empty() {
-            // SHA256 should produce 32-byte output
-            prop_assert_eq!(stack[0].len(), 32,
-                "OP_SHA256 should produce 32-byte hash");
-        }
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        let expected = Sha256::digest(&input);
+        prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
     }
 }
 
-/// Property test: OP_RIPEMD160 produces 20-byte output
+/// OP_RIPEMD160 pushes the 20-byte RIPEMD-160 digest.
 proptest! {
     #[test]
     fn prop_op_ripemd160_fixed_length(
-        input in prop::collection::vec(any::<u8>(), 1..75)
+        input in prop::collection::vec(any::<u8>(), 1..=75)
     ) {
-        // Build script: push input, OP_RIPEMD160
-        let mut script = Vec::new();
-        script.push(input.len() as u8);
-        script.extend_from_slice(&input);
-        script.push(OP_RIPEMD160); // OP_RIPEMD160
-
+        let mut script = push_data(&input);
+        script.push(OP_RIPEMD160);
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok());
-        if result.unwrap() && !stack.is_empty() {
-            // RIPEMD160 should produce 20-byte output
-            prop_assert_eq!(stack[0].len(), 20,
-                "OP_RIPEMD160 should produce 20-byte hash");
-        }
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        let expected = Ripemd160::digest(&input);
+        prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
     }
 }
 
-/// Property test: Stack size limits are enforced
+/// Pushing past `MAX_STACK_SIZE` is a stack-size error. The boundary itself is accepted.
 proptest! {
     #[test]
     fn prop_stack_size_limit_enforced(
-        push_count in 0usize..(MAX_STACK_SIZE.min(100))
+        push_count in (MAX_STACK_SIZE - 2)..=(MAX_STACK_SIZE + 2)
     ) {
-        // Build script with many pushes
-        let mut script = Vec::new();
-        for _ in 0..push_count {
-            script.push(OP_1);
-        }
-
+        let script = vec![OP_1; push_count];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        // Stack should never exceed MAX_STACK_SIZE
-        prop_assert!(stack.len() <= MAX_STACK_SIZE);
-
+        let result = eval(&script, &mut stack);
         if push_count > MAX_STACK_SIZE {
-            // Should fail if exceeding limit
-            prop_assert!(result.is_err() || !result.unwrap());
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::StackSize));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), push_count);
         }
     }
 }
 
-/// Property test: Script with OP_2DROP removes two items
+/// OP_2DROP removes two items. One item makes the opcode return false.
 proptest! {
     #[test]
     fn prop_script_op_2drop(
         a in 1u8..=16u8,
-        b in 1u8..=16u8
+        b in 1u8..=16u8,
+        both in any::<bool>()
     ) {
-        // Build script: OP_a, OP_b, OP_2DROP
-        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_2DROP];
+        let script = if both {
+            vec![numeric_opcode(a), numeric_opcode(b), OP_2DROP]
+        } else {
+            vec![numeric_opcode(a), OP_2DROP]
+        };
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok() || result.is_err());
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), both);
+        if both {
+            prop_assert!(stack.is_empty());
+        } else {
+            prop_assert_eq!(stack.len(), 1);
+            prop_assert_eq!(stack[0].as_slice(), &[a]);
+        }
     }
 }
 
-/// Property test: Script with OP_SWAP exchanges top two items
+/// OP_SWAP exchanges the two numeric pushes.
 proptest! {
     #[test]
     fn prop_script_op_swap(
         a in 1u8..=16u8,
         b in 1u8..=16u8
     ) {
-        // Build script: OP_a, OP_b, OP_SWAP
-        let script = vec![OP_N_BASE + a.min(16), OP_N_BASE + b.min(16), OP_SWAP];
+        let script = vec![numeric_opcode(a), numeric_opcode(b), OP_SWAP];
         let mut stack = Vec::new();
-        let result = script::eval_script(&script, &mut stack, 0, blvm_consensus::script::SigVersion::Base);
-
-        prop_assert!(result.is_ok() || result.is_err());
+        let result = eval(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack[0].as_slice(), &[b]);
+        prop_assert_eq!(stack[1].as_slice(), &[a]);
     }
 }

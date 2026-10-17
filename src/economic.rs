@@ -399,15 +399,57 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_calculate_fee_coinbase(
-            tx in proptest::collection::vec(crate::transaction::transaction_proptest::arb_transaction(), 1..=1)
+            value in 0i64..=20_000,
+            spend in 0i64..=20_000
         ) {
-            if let Some(tx) = tx.first() {
-                let utxo_set = UtxoSet::default();
+            let coinbase = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint { hash: [0; 32], index: 0xffff_ffff },
+                    script_sig: vec![0x51, 0x51],
+                    sequence: 0xffff_ffff,
+                }]
+                .into(),
+                outputs: vec![TransactionOutput {
+                    value,
+                    script_pubkey: vec![0x51],
+                }]
+                .into(),
+                lock_time: 0,
+            };
+            prop_assert_eq!(calculate_fee(&coinbase, &UtxoSet::default()).unwrap(), 0);
 
-                if is_coinbase(tx) {
-                    let fee = calculate_fee(tx, &utxo_set).unwrap_or(-1);
-                    prop_assert_eq!(fee, 0, "Coinbase transactions must have zero fee");
-                }
+            let prevout = OutPoint { hash: [1; 32], index: 0 };
+            let mut utxo_set = UtxoSet::default();
+            utxo_set.insert(
+                prevout,
+                std::sync::Arc::new(UTXO {
+                    value,
+                    script_pubkey: vec![].into(),
+                    height: 0,
+                    is_coinbase: false,
+                }),
+            );
+            let spend_tx = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout,
+                    script_sig: vec![0x51],
+                    sequence: 0xffff_ffff,
+                }]
+                .into(),
+                outputs: vec![TransactionOutput {
+                    value: spend,
+                    script_pubkey: vec![0x51],
+                }]
+                .into(),
+                lock_time: 0,
+            };
+            let fee = calculate_fee(&spend_tx, &utxo_set);
+            if spend <= value {
+                prop_assert_eq!(fee.unwrap(), value - spend);
+            } else {
+                prop_assert!(fee.is_err());
             }
         }
     }

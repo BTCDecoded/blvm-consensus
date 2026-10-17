@@ -1134,6 +1134,21 @@ mod property_tests {
     use super::*;
     use proptest::prelude::*;
 
+    fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        if mantissa == 0 || !(3..=32).contains(&exponent) {
+            return out;
+        }
+        let shift = (exponent as usize).saturating_sub(3);
+        for (i, byte) in mantissa.to_le_bytes().iter().enumerate() {
+            let pos = shift + i;
+            if pos < 32 {
+                out[pos] = *byte;
+            }
+        }
+        out
+    }
+
     fn arb_block_header() -> impl Strategy<Value = BlockHeader> {
         (
             any::<i64>(),
@@ -1159,29 +1174,18 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_expand_target_valid_range(
-            bits in 0x03000000u32..0x1d00ffffu32
+            exponent in 0u8..=40,
+            mantissa in 0u32..=0x007f_ffff
         ) {
-            let result = expand_target(bits as u64);
-            let mantissa = bits & 0x00ffffff;
-
-            match result {
-                Ok(target) => {
-                    // Non-negative property
-                    prop_assert!(target >= U256::zero(), "Target must be non-negative");
-
-                    // Bounded property: expanded target should be valid U256
-                    // The maximum expanded target from MAX_TARGET (0x1d00ffff) is much larger
-                    // than 0x00ffffff, so we just check it's a valid target
-                    // If mantissa is zero, target should be zero; otherwise non-zero
-                    if mantissa == 0 {
-                        prop_assert!(target.is_zero(), "Zero mantissa should produce zero target");
-                    } else {
-                        prop_assert!(!target.is_zero(), "Non-zero mantissa should produce non-zero target");
-                    }
-                },
-                Err(_) => {
-                    // Some invalid targets may fail, which is acceptable
-                }
+            let bits = ((exponent as u64) << 24) | (mantissa as u64);
+            let result = expand_target(bits);
+            if !(3..=32).contains(&exponent) {
+                prop_assert!(result.is_err());
+            } else {
+                let expected = compact_target_bytes(exponent, mantissa);
+                prop_assert_eq!(result.unwrap().to_le_bytes(), expected);
+                let signed = bits | 0x0080_0000;
+                prop_assert_eq!(expand_target(signed).unwrap().to_le_bytes(), expected);
             }
         }
     }
@@ -1209,27 +1213,42 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_get_next_work_required_bounds(
-            current_header in arb_block_header(),
-            prev_headers in proptest::collection::vec(arb_block_header(), 2..6)
+            n in 0usize..6,
+            span in 0u64..5_000_000,
+            ordered in any::<bool>()
         ) {
-            // Ensure reasonable timestamps
-            let mut valid_headers = prev_headers;
-            if let Some(first_header) = valid_headers.first_mut() {
-                first_header.timestamp = current_header.timestamp - 86400 * 14; // 2 weeks ago
+            let start = 1_700_000_000u64;
+            let mut headers: Vec<BlockHeader> = (0..n)
+                .map(|i| BlockHeader {
+                    version: 1,
+                    prev_block_hash: [0; 32],
+                    merkle_root: [1; 32],
+                    timestamp: start + (i as u64) * span,
+                    bits: 0x1d00ffff,
+                    nonce: 0,
+                })
+                .collect();
+            if n >= 2 && !ordered {
+                headers[n - 1].timestamp = start.saturating_sub(1);
             }
-
-            let result = get_next_work_required(&current_header, &valid_headers);
-
-            match result {
-                Ok(work) => {
-                    // Bounded property
-                    prop_assert!(work <= MAX_TARGET as Natural,
-                        "Next work required must not exceed maximum target");
-                    prop_assert!(work > 0, "Next work required must be positive");
-                },
-                Err(_) => {
-                    // Some invalid inputs may fail, which is acceptable
-                }
+            let current = headers.first().cloned().unwrap_or(BlockHeader {
+                version: 1,
+                prev_block_hash: [0; 32],
+                merkle_root: [1; 32],
+                timestamp: start,
+                bits: 0x1d00ffff,
+                nonce: 0,
+            });
+            let result = get_next_work_required(&current, &headers);
+            if n < 2 || !ordered {
+                prop_assert!(result.is_err());
+            } else {
+                let bits = result.unwrap();
+                prop_assert!(bits > 0);
+                prop_assert!(bits <= MAX_TARGET as Natural);
+                let next = expand_target(bits).unwrap();
+                let previous = expand_target(0x1d00ffff).unwrap();
+                prop_assert!(next <= previous);
             }
         }
     }

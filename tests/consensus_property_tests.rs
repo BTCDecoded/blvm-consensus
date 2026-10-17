@@ -3,17 +3,120 @@
 //! Uses PropTest to generate thousands of random test cases that verify
 //! mathematical properties and invariants of Bitcoin consensus rules.
 
+use blvm_consensus::activation::ForkActivationTable;
+use blvm_consensus::bip_validation::{
+    check_bip34, check_bip54_coinbase, encode_bip34_coinbase_script,
+};
 use blvm_consensus::constants::*;
 use blvm_consensus::crypto::OptimizedSha256;
 use blvm_consensus::economic;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::orange_paper_constants::H;
 use blvm_consensus::pow;
-use blvm_consensus::segwit::Witness;
+use blvm_consensus::script::cast_to_bool;
+use blvm_consensus::segwit::{self, Witness};
 use blvm_consensus::transaction;
 use blvm_consensus::types::*;
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
+
+fn padded_tx(script_len: usize) -> Transaction {
+    Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
+            script_sig: vec![0x51; script_len],
+            sequence: 0xffff_ffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    }
+}
+
+/// Non-coinbase transaction whose stripped serialization is `target` bytes.
+fn tx_of_stripped_size(target: usize) -> Transaction {
+    let mut script_len = target.saturating_sub(65);
+    for _ in 0..6 {
+        let tx = padded_tx(script_len);
+        let size = transaction::calculate_transaction_size(&tx);
+        if size == target {
+            return tx;
+        }
+        if size > target {
+            script_len = script_len.saturating_sub(size - target);
+        } else {
+            script_len += target - size;
+        }
+    }
+    padded_tx(script_len)
+}
+
+fn one_tx_block(tx: Transaction) -> Block {
+    Block {
+        header: BlockHeader {
+            version: 1,
+            prev_block_hash: [0; 32],
+            merkle_root: [1; 32],
+            timestamp: 1_700_000_000,
+            bits: 0x1d00ffff,
+            nonce: 0,
+        },
+        transactions: vec![tx].into_boxed_slice(),
+    }
+}
+
+fn coinbase_tx(script_sig: Vec<u8>, lock_time: u64, sequence: u64) -> Transaction {
+    Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0; 32],
+                index: 0xffff_ffff,
+            },
+            script_sig,
+            sequence,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time,
+    }
+}
+
+/// Minimal BIP34 height prefix: `OP_0`, `OP_1`..=`OP_16`, or a length byte plus
+/// the little-endian magnitude with a trailing `0x00` when the high bit is set.
+fn bip34_prefix(height: u64) -> Vec<u8> {
+    if height == 0 {
+        return vec![0x00];
+    }
+    if (1..=16).contains(&height) {
+        return vec![0x50 + height as u8];
+    }
+    let mut raw = Vec::new();
+    let mut n = height;
+    while n > 0 {
+        raw.push((n & 0xff) as u8);
+        n >>= 8;
+    }
+    if raw.last().is_some_and(|b| b & 0x80 != 0) {
+        raw.push(0x00);
+    }
+    let mut prefix = Vec::with_capacity(1 + raw.len());
+    prefix.push(raw.len() as u8);
+    prefix.extend(raw);
+    prefix
+}
 
 // Generate arbitrary Transaction and BlockHeader for property tests
 // We'll use manual generation instead of Arbitrary trait to avoid orphan rule issues
@@ -343,22 +446,17 @@ proptest! {
     /// Mathematical specification:
     /// ∀ script: |script| ≤ MAX_SCRIPT_SIZE ⟹ eval_script terminates
     #[test]
-    fn prop_script_size_bounded(
-        script_size in 0usize..(MAX_SCRIPT_SIZE + 1)
-    ) {
+    fn prop_script_size_bounded(extra in 1usize..=32usize) {
+        use blvm_consensus::opcodes::OP_NOP;
         use blvm_consensus::script;
 
-        let script = vec![OP_1; script_size]; // OP_1 repeated
+        let script = vec![OP_NOP; MAX_SCRIPT_SIZE + extra];
         let mut stack = Vec::new();
-        let flags = 0u32;
-
-        // Script execution should complete (may succeed or fail, but not hang)
-        let result = script::eval_script(&script, &mut stack, flags, script::SigVersion::Base);
-
-        // Result should be Ok or Err, but execution should terminate
-        // (This is verified by the fact that we get a result)
-        prop_assert!(result.is_ok() || result.is_err(),
-            "Script execution must terminate");
+        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
+        prop_assert!(
+            result.is_err(),
+            "a script longer than {MAX_SCRIPT_SIZE} bytes is rejected"
+        );
     }
 }
 
@@ -574,39 +672,41 @@ proptest! {
     /// Mathematical specification:
     /// ∀ tx ∈ 𝒯𝒳: If sum(output_values) > i64::MAX, then validation returns error
     #[test]
-    fn prop_output_value_overflow_safety(
-        output_values in prop::collection::vec(0i64..i64::MAX, 1..10)
-    ) {
-        // Check if sum would overflow
-        let sum: Option<i64> = output_values.iter().try_fold(0i64, |acc, &val| {
-            acc.checked_add(val)
-        });
-
-        if sum.is_none() {
-            // Overflow would occur - create transaction that triggers it
-            let tx = Transaction {
-                version: 1,
-                inputs: vec![TransactionInput {
-                    prevout: OutPoint {
-                        hash: [0; 32],
-                        index: 0,
-                    },
-                    script_sig: vec![0; 10],
-                    sequence: 0xffffffff,
-                }].into(),
-                outputs: output_values.iter().map(|&value| TransactionOutput {
-                    value,
-                    script_pubkey: vec![0; 20],
-                }).collect(),
-                lock_time: 0,
-            };
-
-            // Transaction validation should detect overflow
-            let result = transaction::check_transaction(&tx);
-            // May be invalid for other reasons, but should not panic or silently overflow
-            prop_assert!(result.is_err() || result.is_ok(),
-                "Transaction validation must handle output overflow without panic");
-        }
+    fn prop_output_value_overflow_safety(first in 0i64..=MAX_MONEY, second in 0i64..=MAX_MONEY) {
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32],
+                    index: 0,
+                },
+                script_sig: vec![0x51],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![
+                TransactionOutput {
+                    value: first,
+                    script_pubkey: vec![0x51],
+                },
+                TransactionOutput {
+                    value: second,
+                    script_pubkey: vec![0x51],
+                },
+            ]
+            .into(),
+            lock_time: 0,
+        };
+        let result = transaction::check_transaction(&tx).unwrap();
+        let sum = first.checked_add(second);
+        let in_range = sum.is_some_and(|total| total <= MAX_MONEY);
+        prop_assert_eq!(
+            matches!(result, ValidationResult::Valid),
+            in_range,
+            "output sum is accepted only inside MoneyRange: {} + {}",
+            first,
+            second
+        );
     }
 
     /// Invariant: Total supply calculation handles overflow correctly
@@ -1093,10 +1193,9 @@ proptest! {
 
             // After reorganizing to the same chain, state should be preserved
             // (This is a simplified test - full idempotency would require direct disconnect_block access)
-            if reorg_result.is_ok() {
-                // Reorganization succeeded, which means disconnect+connect worked
-                prop_assert!(true, "Disconnect+connect via reorganization preserves state");
-            }
+            let reorg = reorg_result.expect("reorganizing onto the connected chain");
+            prop_assert_eq!(reorg.new_height, height as u64 + 1);
+            prop_assert_eq!(reorg.new_utxo_set, utxo_set_after_connect);
         }
     }
 }
@@ -1114,26 +1213,40 @@ proptest! {
     ///   - fee_rate >= 0 (non-negative)
     ///   - fee_rate <= MAX_MONEY (bounded)
     #[test]
-    fn prop_fee_rate_calculation_bounded(
-        fee in 0i64..MAX_MONEY,
-        size in 1usize..MAX_BLOCK_SIZE
-    ) {
-
-        // Calculate fee rate using integer-based comparison
-        // Avoid floating-point precision issues
-        let fee_rate_scaled = (fee as u128)
-            .checked_mul(1_000_000u128) // Scale for precision
-            .and_then(|scaled| scaled.checked_div(size as u128));
-
-        if let Some(rate) = fee_rate_scaled {
-            // rate is u64, so it's always >= 0 - no assertion needed
-            let _ = rate;
-
-            // Fee rate should be bounded (fee <= MAX_MONEY, size >= 1)
-            prop_assert!(rate <= (MAX_MONEY as u128) * 1_000_000,
-                "Fee rate must be bounded: fee={}, size={}, rate={}",
-                fee, size, rate);
-        }
+    fn prop_fee_rate_calculation_bounded(output_value in 0i64..=50_000i64) {
+        let input_value = 50_000i64;
+        let prevout = OutPoint {
+            hash: [4; 32],
+            index: 0,
+        };
+        let mut utxo_set = UtxoSet::default();
+        utxo_set.insert(
+            prevout,
+            std::sync::Arc::new(UTXO {
+                value: input_value,
+                script_pubkey: vec![0x51].into(),
+                height: 0,
+                is_coinbase: false,
+            }),
+        );
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout,
+                script_sig: vec![0x51],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: output_value,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let fee = economic::calculate_fee(&tx, &utxo_set).unwrap();
+        prop_assert_eq!(fee, input_value - output_value);
+        prop_assert!(fee <= MAX_MONEY);
     }
 
     /// Invariant: Fee rate comparison is consistent
@@ -1144,31 +1257,49 @@ proptest! {
     ///   (Integer-based comparison to avoid floating-point precision issues)
     #[test]
     fn prop_fee_rate_comparison_consistent(
-        fee1 in 0i64..MAX_MONEY,
-        size1 in 1usize..MAX_BLOCK_SIZE,
-        fee2 in 0i64..MAX_MONEY,
-        size2 in 1usize..MAX_BLOCK_SIZE
+        existing_fee in 0i64..20_000i64,
+        new_fee in 0i64..40_000i64,
     ) {
-        // Use integer-based comparison (as used in mempool RBF logic)
-        let fee1_scaled = (fee1 as u128)
-            .checked_mul(size2 as u128);
-        let fee2_scaled = (fee2 as u128)
-            .checked_mul(size1 as u128);
-
-        if let (Some(f1), Some(f2)) = (fee1_scaled, fee2_scaled) {
-            // If f1 > f2, then fee_rate1 > fee_rate2
-            if f1 > f2 {
-                // Verify: fee1 / size1 > fee2 / size2
-                // This is equivalent to f1 > f2 (which we already checked)
-                prop_assert!(true, "Fee rate comparison consistent: fee1={}, size1={}, fee2={}, size2={}",
-                    fee1, size1, fee2, size2);
-            } else if f1 < f2 {
-                // Verify: fee1 / size1 < fee2 / size2
-                prop_assert!(true, "Fee rate comparison consistent: fee1={}, size1={}, fee2={}, size2={}",
-                    fee1, size1, fee2, size2);
-            }
-            // If f1 == f2, rates are equal (within integer precision)
-        }
+        let input_value = 100_000i64;
+        let prevout = OutPoint {
+            hash: [9; 32],
+            index: 1,
+        };
+        let mut utxo_set = UtxoSet::default();
+        utxo_set.insert(
+            prevout,
+            std::sync::Arc::new(UTXO {
+                value: input_value,
+                script_pubkey: vec![0x51].into(),
+                height: 0,
+                is_coinbase: false,
+            }),
+        );
+        let sequence = (SEQUENCE_RBF as u64) - 1;
+        let tx = |fee: i64| Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout,
+                script_sig: vec![0x51],
+                sequence,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: input_value - fee,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let accepted = blvm_consensus::mempool::replacement_checks(
+            &tx(new_fee),
+            &tx(existing_fee),
+            &utxo_set,
+            &blvm_consensus::mempool::Mempool::new(),
+        )
+        .unwrap();
+        // Equal virtual size, so the higher fee is the higher fee rate.
+        prop_assert_eq!(accepted, new_fee > existing_fee + MIN_RELAY_FEE);
     }
 
     /// Invariant: Mempool size is bounded
@@ -1291,21 +1422,47 @@ proptest! {
     ///     - |commitment| == 37 (1 byte OP_RETURN + 36 bytes commitment)
     #[test]
     fn prop_witness_commitment_format(
-        commitment_len in 0usize..100usize
+        root in prop::array::uniform32(any::<u8>()),
+        nonce in prop::array::uniform32(any::<u8>())
     ) {
-        use blvm_consensus::constants::WITNESS_COMMITMENT_SCRIPT_LENGTH;
+        use blvm_consensus::opcodes::OP_RETURN;
+        use blvm_consensus::segwit::{validate_witness_commitment, witness_commitment_script};
 
-        // Valid witness commitment: OP_RETURN (0x6a) + push opcode (0x24) + 32-byte commitment hash
-        let valid_length = WITNESS_COMMITMENT_SCRIPT_LENGTH;
+        let script = witness_commitment_script(&root, &nonce);
+        prop_assert_eq!(script.len(), 38);
+        prop_assert_eq!(script[0], OP_RETURN);
+        prop_assert_eq!(script[1], 0x24);
+        prop_assert_eq!(&script[2..6], &[0xaa, 0x21, 0xa9, 0xed]);
+        let mut preimage = [0u8; 64];
+        preimage[..32].copy_from_slice(&root);
+        preimage[32..].copy_from_slice(&nonce);
+        let digest = Sha256::digest(Sha256::digest(preimage));
+        prop_assert_eq!(&script[6..38], &digest[..]);
 
-        if commitment_len == valid_length {
-            // Valid format
-            prop_assert!(true, "Valid witness commitment length: {}", commitment_len);
-        } else {
-            // Invalid format (but not necessarily an error - just not a witness commitment)
-            prop_assert!(commitment_len != valid_length,
-                "Non-witness-commitment length: {}", commitment_len);
-        }
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0xffffffff,
+                },
+                script_sig: vec![0x51, 0xff],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: script,
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let matched = validate_witness_commitment(&tx, &root, &[vec![nonce.to_vec()]]).unwrap();
+        prop_assert!(matched);
+        let mut other = nonce;
+        other[0] ^= 0xff;
+        let mismatched = validate_witness_commitment(&tx, &root, &[vec![other.to_vec()]]).unwrap();
+        prop_assert!(!mismatched);
     }
 }
 
@@ -1321,22 +1478,31 @@ proptest! {
     ///   - value <= MAX_MONEY ⟹ valid
     ///   - value > MAX_MONEY ⟹ invalid
     #[test]
-    fn prop_max_money_boundary(
-        offset in -1i64..2i64
-    ) {
+    fn prop_max_money_boundary(offset in -1i64..2i64) {
         let value = MAX_MONEY.saturating_add(offset);
-
-        if (0..=MAX_MONEY).contains(&value) {
-            // Valid value
-            prop_assert!((0..=MAX_MONEY).contains(&value),
-                "Value within bounds: value={}, MAX_MONEY={}",
-                value, MAX_MONEY);
-        } else {
-            // Invalid value (outside bounds)
-            prop_assert!(!(0..=MAX_MONEY).contains(&value),
-                "Value outside bounds: value={}, MAX_MONEY={}",
-                value, MAX_MONEY);
-        }
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [1; 32],
+                    index: 0,
+                },
+                script_sig: vec![0x51],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let result = transaction::check_transaction(&tx).unwrap();
+        prop_assert_eq!(
+            matches!(result, ValidationResult::Valid),
+            (0..=MAX_MONEY).contains(&value)
+        );
     }
 
     /// Invariant: Halving interval boundary conditions
@@ -1383,70 +1549,60 @@ proptest! {
         use blvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
 
         let height = ((DIFFICULTY_ADJUSTMENT_INTERVAL as i64).saturating_add(offset)) as u64;
-
-        // Difficulty adjustment occurs at multiples of DIFFICULTY_ADJUSTMENT_INTERVAL
-        let is_adjustment_height = height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0 && height > 0;
-
-        if is_adjustment_height {
-            // At adjustment height
-            prop_assert!(height > 0 && height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0,
-                "Adjustment height: height={}, interval={}",
-                height, DIFFICULTY_ADJUSTMENT_INTERVAL);
+        prop_assume!(height > 0);
+        let parent_bits = MAX_TARGET as u64;
+        let parent_time = 1_700_000_000u64;
+        let ancestor = |h: u64| {
+            if h == height - 1 || h == 0 {
+                Some((parent_bits, parent_time))
+            } else {
+                None
+            }
+        };
+        let bits =
+            pow::next_required_bits(Network::Mainnet, height, parent_time, &ancestor).unwrap();
+        if height % DIFFICULTY_ADJUSTMENT_INTERVAL != 0 {
+            prop_assert_eq!(bits, Some(parent_bits));
         } else {
-            // Not at adjustment height
-            prop_assert!(height == 0 || height % DIFFICULTY_ADJUSTMENT_INTERVAL != 0,
-                "Non-adjustment height: height={}, interval={}",
-                height, DIFFICULTY_ADJUSTMENT_INTERVAL);
+            let next = pow::expand_target(bits.unwrap()).unwrap();
+            let previous = pow::expand_target(parent_bits).unwrap();
+            prop_assert!(next < previous);
         }
     }
 
-    /// Invariant: Block size boundary conditions
+    /// Block weight crosses 4_000_000 at one byte of transaction size.
     ///
-    /// Mathematical specification:
-    /// ∀ size ∈ {MAX_BLOCK_SIZE - 1, MAX_BLOCK_SIZE, MAX_BLOCK_SIZE + 1}:
-    ///   - size <= MAX_BLOCK_SIZE ⟹ valid
-    ///   - size > MAX_BLOCK_SIZE ⟹ invalid
+    /// One transaction and no witness: weight is four times the 80-byte header,
+    /// the one-byte transaction count, and the stripped transaction.
     #[test]
-    fn prop_block_size_boundary(
-        offset in -1i64..2i64
-    ) {
-        let size = ((MAX_BLOCK_SIZE as i64).saturating_add(offset)) as usize;
-
-        if size <= MAX_BLOCK_SIZE && size > 0 {
-            // Valid size
-            prop_assert!(size > 0 && size <= MAX_BLOCK_SIZE,
-                "Block size within bounds: size={}, MAX_BLOCK_SIZE={}",
-                size, MAX_BLOCK_SIZE);
-        } else {
-            // Invalid size
-            prop_assert!(size == 0 || size > MAX_BLOCK_SIZE,
-                "Block size outside bounds: size={}, MAX_BLOCK_SIZE={}",
-                size, MAX_BLOCK_SIZE);
-        }
+    fn prop_block_size_boundary(offset in -1i64..2i64) {
+        let tx_size = (999_919i64 + offset) as usize;
+        let tx = tx_of_stripped_size(tx_size);
+        prop_assert_eq!(transaction::calculate_transaction_size(&tx), tx_size);
+        let block = one_tx_block(tx);
+        let weight = segwit::calculate_block_weight(&block, &[] as &[Witness]).unwrap();
+        let expected = 4 * (80 + 1 + tx_size) as u64;
+        prop_assert_eq!(weight, expected);
+        prop_assert_eq!(weight > MAX_BLOCK_WEIGHT as u64, offset > 0);
     }
 
-    /// Invariant: Transaction size boundary conditions
-    ///
-    /// Mathematical specification:
-    /// ∀ size ∈ {MAX_TX_SIZE - 1, MAX_TX_SIZE, MAX_TX_SIZE + 1}:
-    ///   - size <= MAX_TX_SIZE ⟹ valid
-    ///   - size > MAX_TX_SIZE ⟹ invalid
+    /// Stripped size times four may equal `MAX_BLOCK_WEIGHT` and must not exceed it.
     #[test]
-    fn prop_transaction_size_boundary(
-        offset in -1i64..2i64
-    ) {
-        let size = ((MAX_TX_SIZE as i64).saturating_add(offset)) as usize;
-
-        if size <= MAX_TX_SIZE && size > 0 {
-            // Valid size
-            prop_assert!(size > 0 && size <= MAX_TX_SIZE,
-                "Transaction size within bounds: size={}, MAX_TX_SIZE={}",
-                size, MAX_TX_SIZE);
-        } else {
-            // Invalid size
-            prop_assert!(size == 0 || size > MAX_TX_SIZE,
-                "Transaction size outside bounds: size={}, MAX_TX_SIZE={}",
-                size, MAX_TX_SIZE);
+    fn prop_transaction_size_boundary(offset in -1i64..2i64) {
+        let target = (1_000_000i64 + offset) as usize;
+        let tx = tx_of_stripped_size(target);
+        let size = transaction::calculate_transaction_size(&tx);
+        prop_assert_eq!(size, target);
+        let too_big = size * 4 > MAX_BLOCK_WEIGHT;
+        match transaction::check_transaction(&tx).unwrap() {
+            ValidationResult::Valid => prop_assert!(!too_big),
+            ValidationResult::Invalid(message) => {
+                prop_assert!(too_big);
+                prop_assert!(
+                    message.contains("too large"),
+                    "size failure should name the limit, got {message}"
+                );
+            }
         }
     }
 }
@@ -1470,17 +1626,15 @@ proptest! {
         bits in 0x01000000u32..=0x1d00ffffu32
     ) {
         // Expand target (bits is u32, but expand_target expects Natural which is u64)
+        let exponent = (bits >> 24) as u8;
+        let mantissa = bits & 0x007f_ffff;
         let expanded = pow::expand_target(bits as u64);
-
-        if let Ok(_expanded_target) = expanded {
-            // Expansion succeeded - verify it's valid
-            // The round-trip property is verified by spec-lock (target expand/compress)
-            // For property tests, we just verify expansion succeeds for valid bits
-            prop_assert!(true, "Target expansion succeeded for bits={:x}", bits);
+        if !(3..=32).contains(&exponent) {
+            prop_assert!(expanded.is_err(), "exponent {exponent} is outside 3..=32");
+        } else if mantissa == 0 {
+            prop_assert_eq!(expanded.unwrap(), pow::U256::zero());
         } else {
-            // Expansion failed - this is expected for some invalid bits
-            // But we're testing valid range, so this shouldn't happen often
-            prop_assume!(false, "Target expansion failed for bits={:x}", bits);
+            prop_assert!(expanded.unwrap() != pow::U256::zero());
         }
     }
 
@@ -1495,20 +1649,18 @@ proptest! {
     ) {
         use blvm_consensus::constants::DIFFICULTY_ADJUSTMENT_INTERVAL;
 
-        // Difficulty adjustment occurs at multiples of DIFFICULTY_ADJUSTMENT_INTERVAL
-        let is_adjustment_height = height > 0 && height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0;
-
-        if is_adjustment_height {
-            // Verify it's a multiple of the interval
-            prop_assert!(height % DIFFICULTY_ADJUSTMENT_INTERVAL == 0 && height > 0,
-                "Adjustment height must be multiple of interval: height={}, interval={}",
-                height, DIFFICULTY_ADJUSTMENT_INTERVAL);
-        } else {
-            // Verify it's not a multiple (or is zero)
-            prop_assert!(height == 0 || height % DIFFICULTY_ADJUSTMENT_INTERVAL != 0,
-                "Non-adjustment height: height={}, interval={}",
-                height, DIFFICULTY_ADJUSTMENT_INTERVAL);
-        }
+        prop_assume!(height > 0 && height % DIFFICULTY_ADJUSTMENT_INTERVAL != 0);
+        let parent_bits = MAX_TARGET as u64;
+        let parent_time = 1_700_000_000u64;
+        let ancestor = |h: u64| {
+            if h == height - 1 {
+                Some((parent_bits, parent_time))
+            } else {
+                None
+            }
+        };
+        let bits = pow::next_required_bits(Network::Mainnet, height, parent_time, &ancestor).unwrap();
+        prop_assert_eq!(bits, Some(parent_bits));
     }
 
     /// Invariant: Difficulty adjustment timespan clamping
@@ -1521,22 +1673,41 @@ proptest! {
     fn prop_difficulty_adjustment_clamping(
         timespan in 0u64..(TARGET_TIME_PER_BLOCK * 4 * DIFFICULTY_ADJUSTMENT_INTERVAL)
     ) {
-        use blvm_consensus::constants::{TARGET_TIME_PER_BLOCK, DIFFICULTY_ADJUSTMENT_INTERVAL};
+        use blvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, TARGET_TIME_PER_BLOCK};
 
-        let expected_time = TARGET_TIME_PER_BLOCK * DIFFICULTY_ADJUSTMENT_INTERVAL;
-        let min_timespan = expected_time / 4;
-        let max_timespan = expected_time * 4;
-
-        // Clamp timespan
-        let clamped_timespan = timespan.max(min_timespan).min(max_timespan);
-
-        // Verify clamping bounds
-        prop_assert!(clamped_timespan >= min_timespan,
-            "Clamped timespan must be >= min: clamped={}, min={}",
-            clamped_timespan, min_timespan);
-        prop_assert!(clamped_timespan <= max_timespan,
-            "Clamped timespan must be <= max: clamped={}, max={}",
-            clamped_timespan, max_timespan);
+        let expected = TARGET_TIME_PER_BLOCK * DIFFICULTY_ADJUSTMENT_INTERVAL;
+        let min_span = expected / 4;
+        let max_span = expected.saturating_mul(4);
+        let start = 1_700_000_000u64;
+        let parent_bits = MAX_TARGET as u64;
+        let height = DIFFICULTY_ADJUSTMENT_INTERVAL;
+        let ancestor = |h: u64| {
+            if h == 0 {
+                Some((parent_bits, start))
+            } else if h == height - 1 {
+                Some((parent_bits, start.saturating_add(timespan)))
+            } else {
+                None
+            }
+        };
+        let bits = pow::next_required_bits(
+            Network::Mainnet,
+            height,
+            start.saturating_add(timespan),
+            &ancestor,
+        )
+        .unwrap()
+        .unwrap();
+        let clamped = timespan.clamp(min_span, max_span);
+        if clamped == expected || clamped > expected {
+            // Mainnet's previous target is already the proof-of-work limit, so a longer
+            // span cannot make the next target easier.
+            prop_assert_eq!(bits, parent_bits);
+        } else {
+            let next = pow::expand_target(bits).unwrap();
+            let previous = pow::expand_target(parent_bits).unwrap();
+            prop_assert!(next < previous);
+        }
     }
 }
 
@@ -1843,5 +2014,51 @@ proptest! {
             prop_assert!(fee <= MAX_MONEY, "Fee must not exceed MAX_MONEY: fee={}, MAX_MONEY={}", fee, MAX_MONEY);
         }
         // Overflow errors are acceptable and handled correctly
+    }
+}
+
+proptest! {
+    /// BIP34: the encoder's script is the minimal height prefix, and `check_bip34`
+    /// accepts that script only while the fork is active.
+    #[test]
+    fn prop_bip34_height_prefix(height in 0u64..300_000u64) {
+        let script = encode_bip34_coinbase_script(height);
+        prop_assert!(
+            script.starts_with(&bip34_prefix(height)),
+            "height {height} script {script:?} does not start with the minimal prefix"
+        );
+        let regtest = ForkActivationTable::from_network(Network::Regtest);
+        let block = one_tx_block(coinbase_tx(script.clone(), 0, 0xffff_ffff));
+        prop_assert!(check_bip34(&block, height, &regtest).unwrap());
+        let mut flipped = script;
+        flipped[0] ^= 0xff;
+        let bad = one_tx_block(coinbase_tx(flipped, 0, 0xffff_ffff));
+        prop_assert!(!check_bip34(&bad, height, &regtest).unwrap());
+        let mainnet = ForkActivationTable::from_network(Network::Mainnet);
+        prop_assert!(check_bip34(&bad, BIP34_ACTIVATION_MAINNET - 1, &mainnet).unwrap());
+    }
+
+    /// BIP54: coinbase lock time is `height - 1` and the sequence is not final.
+    #[test]
+    fn prop_bip54_coinbase_lock(
+        height in 1u64..500_000u64,
+        lock_delta in -1i64..2i64,
+        final_sequence in any::<bool>()
+    ) {
+        let lock_time = (height as i64 + lock_delta) as u64;
+        let sequence = if final_sequence { 0xffff_ffff } else { 0xffff_fffe };
+        let tx = coinbase_tx(vec![0x03, 0x00, 0xff], lock_time, sequence);
+        let accepted = check_bip54_coinbase(&tx, height);
+        prop_assert_eq!(accepted, lock_delta == -1 && !final_sequence);
+    }
+
+    /// CastToBool is true when any byte is nonzero, except a lone trailing `0x80`.
+    #[test]
+    fn prop_cast_to_bool(bytes in prop::collection::vec(any::<u8>(), 0..9)) {
+        let nonzero = bytes.iter().any(|b| *b != 0);
+        let negative_zero = !bytes.is_empty()
+            && bytes[bytes.len() - 1] == 0x80
+            && bytes[..bytes.len() - 1].iter().all(|b| *b == 0);
+        prop_assert_eq!(cast_to_bool(&bytes), nonzero && !negative_zero);
     }
 }

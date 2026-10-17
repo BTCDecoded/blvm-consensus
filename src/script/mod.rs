@@ -9748,26 +9748,18 @@ mod property_tests {
     /// ∀ script ∈ ByteString: |script| > MAX_SCRIPT_OPS ⟹ eval_script fails
     proptest! {
         #[test]
-        fn prop_eval_script_operation_limit(script in prop::collection::vec(any::<u8>(), 0..300)) {
+        fn prop_eval_script_operation_limit(extra in 0usize..=8usize) {
             let mut stack = Vec::new();
-            let flags = 0u32;
+            let over = vec![OP_NOP; MAX_SCRIPT_OPS as usize + 1 + extra];
+            let rejected = eval_script(&over, &mut stack, 0, SigVersion::Base);
+            prop_assert!(
+                rejected.is_err(),
+                "more than {MAX_SCRIPT_OPS} non-push opcodes is rejected"
+            );
 
-            let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-
-            // Note: Production code tracks op_count precisely (number of non-push opcodes executed).
-            // Script length can be larger than op_count if there are data pushes.
-            // For a script with only opcodes (no data pushes), length = op_count.
-            // So scripts with length > MAX_SCRIPT_OPS that are all opcodes will fail.
-            // But scripts with data pushes might have length > MAX_SCRIPT_OPS but op_count <= MAX_SCRIPT_OPS.
-            // This property test verifies that very long scripts (> MAX_SCRIPT_OPS * 2) eventually fail
-            // or that the operation limit is respected.
-            if script.len() > MAX_SCRIPT_OPS * 2 {
-                // Very long scripts should fail (either op limit or other reasons)
-                // This is a weak check but acceptable for property testing
-                prop_assert!(result.is_err() || !result.unwrap(),
-                    "Very long scripts should fail or return false");
-            }
-            // Otherwise, scripts may succeed or fail - both are acceptable
+            let mut stack = Vec::new();
+            let under = vec![OP_NOP; MAX_SCRIPT_OPS as usize];
+            prop_assert!(eval_script(&under, &mut stack, 0, SigVersion::Base).is_ok());
         }
     }
 
@@ -9960,13 +9952,7 @@ mod property_tests {
             let mut stack = Vec::new();
             let flags = 0u32;
 
-            // This should complete without hanging
-            let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-
-            // Should return a result (success or failure)
-            assert!(result.is_ok() || result.is_err());
-
-            // Stack should be in valid state
+            let _ = eval_script(&script, &mut stack, flags, SigVersion::Base);
             assert!(stack.len() <= MAX_STACK_SIZE);
         }
     }

@@ -868,9 +868,104 @@ pub(crate) mod transaction_proptest {
 #[cfg(test)]
 #[allow(unused_doc_comments)]
 mod property_tests {
-    use super::transaction_proptest::{arb_outpoint, arb_transaction, arb_utxo};
+    use super::transaction_proptest::arb_transaction;
     use super::*;
     use proptest::prelude::*;
+
+    fn compact_size_len(n: u64) -> usize {
+        if n < 0xfd {
+            1
+        } else if n <= 0xffff {
+            3
+        } else if n <= 0xffff_ffff {
+            5
+        } else {
+            9
+        }
+    }
+
+    fn expected_stripped_size(tx: &Transaction) -> usize {
+        let mut n = 8usize;
+        if tx.inputs.is_empty() && !tx.outputs.is_empty() {
+            n += compact_size_len(0) + 1 + compact_size_len(0);
+        } else {
+            n += compact_size_len(tx.inputs.len() as u64);
+        }
+        for input in tx.inputs.iter() {
+            n += 40;
+            n += compact_size_len(input.script_sig.len() as u64);
+            n += input.script_sig.len();
+        }
+        n += compact_size_len(tx.outputs.len() as u64);
+        for output in tx.outputs.iter() {
+            n += 8;
+            n += compact_size_len(output.script_pubkey.len() as u64);
+            n += output.script_pubkey.len();
+        }
+        n
+    }
+
+    fn structure_class(tx: &Transaction) -> &'static str {
+        if tx.inputs.len() > MAX_INPUTS || tx.outputs.len() > MAX_OUTPUTS {
+            return "invalid";
+        }
+        if tx.inputs.is_empty() || tx.outputs.is_empty() {
+            return "invalid";
+        }
+        let mut total = 0i64;
+        for output in tx.outputs.iter() {
+            if output.value < 0 || output.value > MAX_MONEY {
+                return "invalid";
+            }
+            match total.checked_add(output.value) {
+                Some(sum) => total = sum,
+                None => return "err",
+            }
+        }
+        if total > MAX_MONEY {
+            return "invalid";
+        }
+        let size = expected_stripped_size(tx);
+        if size.saturating_mul(4) > MAX_BLOCK_WEIGHT {
+            return "invalid";
+        }
+        let mut seen = std::collections::HashSet::new();
+        for input in tx.inputs.iter() {
+            if !seen.insert((input.prevout.hash, input.prevout.index)) {
+                return "invalid";
+            }
+        }
+        if is_coinbase(tx) && !(2..=100).contains(&tx.inputs[0].script_sig.len()) {
+            return "invalid";
+        }
+        "valid"
+    }
+
+    fn actual_class(tx: &Transaction) -> &'static str {
+        match check_transaction(tx) {
+            Ok(ValidationResult::Valid) => "valid",
+            Ok(ValidationResult::Invalid(_)) => "invalid",
+            Err(_) => "err",
+        }
+    }
+
+    fn tx_with_input(hash: [u8; 32], index: u32, script_len: usize) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash, index },
+                script_sig: vec![0x51; script_len],
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1000,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        }
+    }
 
     /// Property test: check_transaction validates structure correctly
     proptest! {
@@ -878,39 +973,7 @@ mod property_tests {
         fn prop_check_transaction_structure(
             tx in arb_transaction()
         ) {
-            // Bound for tractability
-            let mut bounded_tx = tx;
-            if bounded_tx.inputs.len() > 10 {
-                bounded_tx.inputs.truncate(10);
-            }
-            if bounded_tx.outputs.len() > 10 {
-                bounded_tx.outputs.truncate(10);
-            }
-
-            let result = check_transaction(&bounded_tx).unwrap_or_else(|_| ValidationResult::Invalid("Error".to_string()));
-
-            // Structure properties
-            match result {
-                ValidationResult::Valid => {
-                    // Valid transactions must have non-empty inputs and outputs
-                    prop_assert!(!bounded_tx.inputs.is_empty(), "Valid transaction must have inputs");
-                    prop_assert!(!bounded_tx.outputs.is_empty(), "Valid transaction must have outputs");
-
-                    // Valid transactions must respect limits
-                    prop_assert!(bounded_tx.inputs.len() <= MAX_INPUTS, "Valid transaction must respect input limit");
-                    prop_assert!(bounded_tx.outputs.len() <= MAX_OUTPUTS, "Valid transaction must respect output limit");
-
-                    // Valid transactions must have valid output values
-                    for output in &bounded_tx.outputs {
-                        prop_assert!(output.value >= 0, "Valid transaction outputs must be non-negative");
-                        prop_assert!(output.value <= MAX_MONEY, "Valid transaction outputs must not exceed max money");
-                    }
-                },
-                ValidationResult::Invalid(_) => {
-                    // Invalid transactions may violate any rule
-                    // This is acceptable - we're testing the validation logic
-                }
-            }
+            prop_assert_eq!(actual_class(&tx), structure_class(&tx));
         }
     }
 
@@ -918,26 +981,18 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_check_tx_inputs_coinbase(
-            tx in arb_transaction(),
-            utxo_set in prop::collection::vec((arb_outpoint(), arb_utxo()), 0..50).prop_map(|v| v.into_iter().map(|(op, u)| (op, std::sync::Arc::new(u))).collect::<UtxoSet>()),
+            script_len in 0usize..8,
             height in 0u64..1000u64
         ) {
-            // Bound for tractability
-            let mut bounded_tx = tx;
-            if bounded_tx.inputs.len() > 5 {
-                bounded_tx.inputs.truncate(5);
-            }
-            if bounded_tx.outputs.len() > 5 {
-                bounded_tx.outputs.truncate(5);
-            }
+            let coinbase = tx_with_input([0; 32], 0xffff_ffff, script_len);
+            let (result, fee) = check_tx_inputs(&coinbase, &UtxoSet::default(), height).unwrap();
+            prop_assert!(matches!(result, ValidationResult::Valid));
+            prop_assert_eq!(fee, 0);
 
-            let result = check_tx_inputs(&bounded_tx, &utxo_set, height).unwrap_or((ValidationResult::Invalid("Error".to_string()), 0));
-
-            // Coinbase property
-            if is_coinbase(&bounded_tx) {
-                prop_assert!(matches!(result.0, ValidationResult::Valid), "Coinbase transactions must be valid");
-                prop_assert_eq!(result.1, 0, "Coinbase transactions must have zero fee");
-            }
+            let spend = tx_with_input([1; 32], 0, script_len);
+            let (result, fee) = check_tx_inputs(&spend, &UtxoSet::default(), height).unwrap();
+            prop_assert!(matches!(result, ValidationResult::Invalid(_)));
+            prop_assert_eq!(fee, 0);
         }
     }
 
@@ -945,16 +1000,39 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_is_coinbase_correct(
-            tx in arb_transaction()
+            n in 0usize..4,
+            index in prop::sample::select(vec![0u32, 1, 0xffff_ffff]),
+            zero_hash in any::<bool>(),
+            script_len in 0usize..4
         ) {
-            let is_cb = is_coinbase(&tx);
-
-            // Coinbase identification property
-            if is_cb {
-                prop_assert_eq!(tx.inputs.len(), 1, "Coinbase must have exactly one input");
-                prop_assert_eq!(tx.inputs[0].prevout.hash, [0u8; 32], "Coinbase input must have zero hash");
-                prop_assert_eq!(tx.inputs[0].prevout.index, 0xffffffffu32, "Coinbase input must have max index");
+            let hash = if zero_hash { [0u8; 32] } else { [1u8; 32] };
+            let mut inputs = Vec::new();
+            if n > 0 {
+                inputs.push(TransactionInput {
+                    prevout: OutPoint { hash, index },
+                    script_sig: vec![0x51; script_len],
+                    sequence: 0xffff_ffff,
+                });
             }
+            for i in 1..n {
+                inputs.push(TransactionInput {
+                    prevout: OutPoint { hash: [2; 32], index: i as u32 },
+                    script_sig: vec![0x51],
+                    sequence: 0xffff_ffff,
+                });
+            }
+            let tx = Transaction {
+                version: 1,
+                inputs: inputs.into(),
+                outputs: vec![TransactionOutput {
+                    value: 1000,
+                    script_pubkey: vec![0x51],
+                }]
+                .into(),
+                lock_time: 0,
+            };
+            let expected = n == 1 && zero_hash && index == 0xffff_ffff;
+            prop_assert_eq!(is_coinbase(&tx), expected);
         }
     }
 
@@ -964,30 +1042,7 @@ mod property_tests {
         fn prop_calculate_transaction_size_consistent(
             tx in arb_transaction()
         ) {
-            // Bound for tractability
-            let mut bounded_tx = tx;
-            if bounded_tx.inputs.len() > 10 {
-                bounded_tx.inputs.truncate(10);
-            }
-            if bounded_tx.outputs.len() > 10 {
-                bounded_tx.outputs.truncate(10);
-            }
-
-            let size = calculate_transaction_size(&bounded_tx);
-
-            // Size calculation properties
-            // Minimum: version(4) + input_count_varint(1) + output_count_varint(1) + lock_time(4) = 10 bytes
-            // (Even with 0 inputs/outputs, we need varints for counts)
-            prop_assert!(size >= 10, "Transaction size must be at least 10 bytes (version + varints + lock_time)");
-
-            // Maximum: Use MAX_TX_SIZE as the upper bound (actual serialization can be larger than simplified calculation)
-            // The simplified calculation was: 4 + 10*41 + 10*9 + 4 = 508
-            // But actual serialization with varints and real script sizes can be larger
-            prop_assert!(size <= MAX_TX_SIZE, "Transaction size must not exceed MAX_TX_SIZE ({})", MAX_TX_SIZE);
-
-            // Size should be deterministic
-            let size2 = calculate_transaction_size(&bounded_tx);
-            prop_assert_eq!(size, size2, "Transaction size calculation must be deterministic");
+            prop_assert_eq!(calculate_transaction_size(&tx), expected_stripped_size(&tx));
         }
     }
 

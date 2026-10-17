@@ -882,15 +882,30 @@ mod property_tests {
         }
     }
 
-    /// Random compact-encoded header bits (same domain as `expand_target` tests).
+    fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        if mantissa == 0 || !(3..=32).contains(&exponent) {
+            return out;
+        }
+        let shift = (exponent as usize).saturating_sub(3);
+        for (i, byte) in mantissa.to_le_bytes().iter().enumerate() {
+            let pos = shift + i;
+            if pos < 32 {
+                out[pos] = *byte;
+            }
+        }
+        out
+    }
+
+    /// Header bits whose compact exponent is 3..=32, so `expand_target` succeeds.
     fn arb_block() -> impl Strategy<Value = Block> {
-        (0x00000000u64..0x1d00ffffu64).prop_map(|bits| Block {
+        (3u8..=32, 0u32..=0x007f_ffff).prop_map(|(exponent, mantissa)| Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash: [0u8; 32],
                 merkle_root: [0u8; 32],
                 timestamp: 0,
-                bits,
+                bits: ((exponent as u64) << 24) | (mantissa as u64),
                 nonce: 0,
             },
             transactions: Box::new([]),
@@ -904,23 +919,10 @@ mod property_tests {
             new_chain in proptest::collection::vec(arb_block(), chain_len_range()),
             current_chain in proptest::collection::vec(arb_block(), chain_len_range())
         ) {
-            // Calculate work for both chains - handle errors from invalid blocks
-            let new_work = calculate_chain_work(&new_chain);
-            let current_work = calculate_chain_work(&current_chain);
-
-            // Only test if both chains have valid work calculations
-            if let (Ok(new_w), Ok(current_w)) = (new_work, current_work) {
-                // Call should_reorganize
-                let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap_or(false);
-
-                // should_reorganize: reorganize iff new chain has more cumulative work
-                if new_w > current_w {
-                    prop_assert!(should_reorg, "Must reorganize when new chain has more work");
-                } else {
-                    prop_assert!(!should_reorg, "Must not reorganize when new chain has less or equal work");
-                }
-            }
-            // If either chain has invalid blocks, skip the test (acceptable)
+            let new_w = calculate_chain_work(&new_chain).unwrap();
+            let current_w = calculate_chain_work(&current_chain).unwrap();
+            let should_reorg = should_reorganize(&new_chain, &current_chain).unwrap();
+            prop_assert_eq!(should_reorg, new_w > current_w);
         }
     }
 
@@ -930,22 +932,9 @@ mod property_tests {
         fn prop_calculate_chain_work_deterministic(
             chain in proptest::collection::vec(arb_block(), chain_len_range_det())
         ) {
-            // Calculate work twice - handle errors from invalid blocks
             let work1 = calculate_chain_work(&chain);
             let work2 = calculate_chain_work(&chain);
-
-            // Deterministic property: both should succeed or both should fail
-            match (work1, work2) {
-                (Ok(w1), Ok(w2)) => {
-                    prop_assert_eq!(w1, w2, "Chain work calculation must be deterministic");
-                },
-                (Err(_), Err(_)) => {
-                    // Both failed - this is acceptable for invalid blocks
-                },
-                _ => {
-                    prop_assert!(false, "Chain work calculation must be deterministic (both succeed or both fail)");
-                }
-            }
+            prop_assert_eq!(work1, work2);
         }
     }
 
@@ -953,17 +942,21 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_expand_target_valid_range(
-            bits in 0x00000000u64..0x1d00ffffu64
+            exponent in 0u8..=40,
+            mantissa in 0u32..=0x007f_ffff
         ) {
+            let bits = ((exponent as u64) << 24) | (mantissa as u64);
             let result = crate::pow::expand_target(bits);
-
-            match result {
-                Ok(target) => {
-                    let _ = target;
-                },
-                Err(_) => {
-                    // Some invalid targets may fail, which is acceptable
-                }
+            if !(3..=32).contains(&exponent) {
+                prop_assert!(result.is_err());
+            } else {
+                let expected = compact_target_bytes(exponent, mantissa);
+                prop_assert_eq!(result.unwrap().to_le_bytes(), expected);
+                let signed = bits | 0x0080_0000;
+                prop_assert_eq!(
+                    crate::pow::expand_target(signed).unwrap().to_le_bytes(),
+                    expected
+                );
             }
         }
     }
@@ -980,21 +973,10 @@ mod property_tests {
             let chain1 = &chain1[..len];
             let chain2 = &chain2[..len];
 
-            let work1 = calculate_chain_work(chain1);
-            let work2 = calculate_chain_work(chain2);
-
-            // Only test if both chains have valid work calculations
-            if let (Ok(w1), Ok(w2)) = (work1, work2) {
-                let should_reorg = should_reorganize(chain1, chain2).unwrap_or(false);
-
-                // For equal length chains, reorganize iff chain1 has more work
-                if w1 > w2 {
-                    prop_assert!(should_reorg, "Must reorganize when first chain has more work");
-                } else {
-                    prop_assert!(!should_reorg, "Must not reorganize when first chain has less or equal work");
-                }
-            }
-            // If either chain has invalid blocks, skip the test (acceptable)
+            let w1 = calculate_chain_work(chain1).unwrap();
+            let w2 = calculate_chain_work(chain2).unwrap();
+            let should_reorg = should_reorganize(chain1, chain2).unwrap();
+            prop_assert_eq!(should_reorg, w1 > w2);
         }
     }
 }

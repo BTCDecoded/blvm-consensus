@@ -4,14 +4,57 @@
 //! ensuring mathematical correctness and serving as regression tests for formula changes.
 
 use blvm_consensus::economic;
+use blvm_consensus::error::ScriptErrorCode;
 use blvm_consensus::opcodes::{
-    OP_1, OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES,
+    OP_1, OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, OP_NOP, PUSH_20_BYTES,
 };
 use blvm_consensus::orange_paper_constants::*;
 use blvm_consensus::orange_paper_property_helpers::*;
 use blvm_consensus::types::*;
 use blvm_consensus::*;
 use proptest::prelude::*;
+
+fn eval_base(script: &[u8], stack: &mut Vec<script::StackElement>) -> Result<bool, ConsensusError> {
+    script::eval_script(script, stack, 0, script::SigVersion::Base)
+}
+
+fn script_code(result: Result<bool, ConsensusError>) -> Option<ScriptErrorCode> {
+    match result {
+        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => Some(code),
+        _ => None,
+    }
+}
+
+fn push_element(size: usize) -> Vec<u8> {
+    if size <= 75 {
+        let mut script = Vec::with_capacity(1 + size);
+        script.push(size as u8);
+        script.extend(std::iter::repeat(0x11).take(size));
+        script
+    } else {
+        let mut script = Vec::with_capacity(5 + size);
+        script.push(0x4e);
+        script.extend_from_slice(&(size as u32).to_le_bytes());
+        script.extend(std::iter::repeat(0x11).take(size));
+        script
+    }
+}
+
+/// Compact target as 32 little-endian bytes: the 23-bit mantissa shifted by `8 * (exponent - 3)`.
+fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    if mantissa == 0 || !(3..=32).contains(&exponent) {
+        return out;
+    }
+    let shift = (exponent - 3) as usize;
+    for (i, byte) in mantissa.to_le_bytes().iter().enumerate() {
+        let pos = shift + i;
+        if pos < 32 {
+            out[pos] = *byte;
+        }
+    }
+    out
+}
 
 proptest! {
     /// Invariant: Block subsidy matches Orange Paper formula exactly
@@ -317,13 +360,18 @@ proptest! {
     /// Source: Orange Paper Section 4.3, L_SCRIPT = 10,000
     #[test]
     fn prop_script_length_bounded_by_l_script(
-        script_len in 0usize..(L_SCRIPT as usize * 2)  // Test up to 2x max
+        script_len in 0usize..(L_SCRIPT as usize * 2)
     ) {
-        // Using Orange Paper constant L_SCRIPT
-        if script_len <= L_SCRIPT as usize {
-            prop_assert!(script_len <= L_SCRIPT as usize,
-                "Valid script length {} must be ≤ L_SCRIPT = {}",
-                script_len, L_SCRIPT);
+        let script = vec![OP_NOP; script_len];
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        if script_len > L_SCRIPT as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::ScriptSize));
+        } else if script_len > L_OPS as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::OpCount));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert!(stack.is_empty());
         }
     }
 
@@ -335,13 +383,17 @@ proptest! {
     /// Source: Orange Paper Section 4.3, L_STACK = 1,000
     #[test]
     fn prop_stack_size_bounded_by_l_stack(
-        stack_size in 0usize..(L_STACK as usize * 2)  // Test up to 2x max
+        stack_size in 0usize..(L_STACK as usize * 2)
     ) {
-        // Using Orange Paper constant L_STACK
-        if stack_size <= L_STACK as usize {
-            prop_assert!(stack_size <= L_STACK as usize,
-                "Valid stack size {} must be ≤ L_STACK = {}",
-                stack_size, L_STACK);
+        let mut stack: Vec<script::StackElement> = (0..stack_size)
+            .map(|_| script::to_stack_element(&[1]))
+            .collect();
+        let result = eval_base(&[OP_1], &mut stack);
+        if stack_size + 1 > L_STACK as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::StackSize));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), stack_size + 1);
         }
     }
 
@@ -353,13 +405,16 @@ proptest! {
     /// Source: Orange Paper Section 4.3, L_OPS = 201
     #[test]
     fn prop_script_ops_bounded_by_l_ops(
-        ops_count in 0usize..(L_OPS as usize * 2)  // Test up to 2x max
+        ops_count in 0usize..(L_OPS as usize * 2)
     ) {
-        // Using Orange Paper constant L_OPS
-        if ops_count <= L_OPS as usize {
-            prop_assert!(ops_count <= L_OPS as usize,
-                "Valid script ops count {} must be ≤ L_OPS = {}",
-                ops_count, L_OPS);
+        let script = vec![OP_NOP; ops_count];
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        if ops_count > L_OPS as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::OpCount));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert!(stack.is_empty());
         }
     }
 
@@ -371,13 +426,18 @@ proptest! {
     /// Source: Orange Paper Section 4.3, L_ELEMENT = 520
     #[test]
     fn prop_script_element_size_bounded_by_l_element(
-        element_size in 0usize..(L_ELEMENT as usize * 2)  // Test up to 2x max
+        element_size in 0usize..(L_ELEMENT as usize * 2)
     ) {
-        // Using Orange Paper constant L_ELEMENT
-        if element_size <= L_ELEMENT as usize {
-            prop_assert!(element_size <= L_ELEMENT as usize,
-                "Valid script element size {} must be ≤ L_ELEMENT = {}",
-                element_size, L_ELEMENT);
+        let script = push_element(element_size);
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        if element_size > L_ELEMENT as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::PushSize));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 1);
+            let expected = vec![0x11u8; element_size];
+            prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
         }
     }
 }
@@ -1314,33 +1374,24 @@ proptest! {
     /// Target expansion maintains precision for valid bits
     #[test]
     fn prop_target_precision(
-        bits in 0x1d00ffffu64..=0x1d00ffffu64
+        exponent in 0u8..=40u8,
+        mantissa in 0u32..=0x007f_ffffu32
     ) {
         use blvm_consensus::pow;
 
-        // For valid bits, expansion should produce consistent results
-        let result1 = pow::expand_target(bits);
-        let result2 = pow::expand_target(bits);
-
-        // Format results before match (to avoid move issues)
-        let r1_str = format!("{:?}", &result1);
-        let r2_str = format!("{:?}", &result2);
-
-        // Same bits should produce same result (both Ok or both Err)
-        match (result1, result2) {
-            (Ok(_), Ok(_)) => {
-                // Both succeeded - expansion is deterministic
-                prop_assert!(true, "Target expansion is deterministic");
-            }
-            (Err(_), Err(_)) => {
-                // Both failed - also deterministic
-                prop_assert!(true, "Target expansion errors are deterministic");
-            }
-            _ => {
-                prop_assert!(false,
-                    "Target expansion must be deterministic: result1 = {}, result2 = {}",
-                    r1_str, r2_str);
-            }
+        let bits = ((exponent as u64) << 24) | (mantissa as u64);
+        let expanded = pow::expand_target(bits);
+        if !(3..=32).contains(&exponent) {
+            prop_assert!(expanded.is_err(), "exponent {exponent} is outside 3..=32");
+        } else {
+            let bytes = expanded.unwrap().to_le_bytes();
+            prop_assert_eq!(bytes, compact_target_bytes(exponent, mantissa));
+            let with_sign = bits | 0x0080_0000;
+            prop_assert_eq!(
+                pow::expand_target(with_sign).unwrap().to_le_bytes(),
+                bytes,
+                "the compact sign bit is not part of the 23-bit mantissa"
+            );
         }
     }
 }
@@ -1907,25 +1958,8 @@ proptest! {
         let result1 = script::eval_script(&script, &mut stack1_copy, 0, script::SigVersion::Base);
         let result2 = script::eval_script(&script, &mut stack2_copy, 0, script::SigVersion::Base);
 
-        // Results should be the same (both Ok or both Err)
-        match (&result1, &result2) {
-            (Ok(b1), Ok(b2)) => {
-                prop_assert_eq!(*b1, *b2,
-                    "Script execution must be deterministic: result1 = {}, result2 = {}",
-                    b1, b2);
-            }
-            (Err(_), Err(_)) => {
-                // Both failed - execution is deterministic (both fail)
-                prop_assert!(true, "Script execution errors are deterministic");
-            }
-            _ => {
-                let r1_debug = format!("{result1:?}");
-                let r2_debug = format!("{result2:?}");
-                prop_assert!(false,
-                    "Script execution must be deterministic: result1 = {}, result2 = {}",
-                    r1_debug, r2_debug);
-            }
-        }
+        prop_assert_eq!(&result1, &result2);
+        prop_assert_eq!(&stack1_copy, &stack2_copy);
     }
 
     /// Invariant: SigOps Bounds
@@ -2241,21 +2275,14 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        let empty_script = vec![];
+        let started = stack_size;
         let mut stack: Vec<script::StackElement> = (0..stack_size)
             .map(|i| script::to_stack_element(&[i as u8; 20]))
             .collect();
 
-        // Empty script should either succeed or fail gracefully
-        let result = script::eval_script(&empty_script, &mut stack, 0, script::SigVersion::Base);
-
-        // Result should be consistent (either always Ok or always Err for same inputs)
-        match result {
-            Ok(_) | Err(_) => {
-                // Both outcomes are valid for empty scripts
-                prop_assert!(true, "Empty script execution handled gracefully");
-            }
-        }
+        let result = eval_base(&[], &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), started);
     }
 
     /// Edge Case: Maximum Script Length
@@ -2268,21 +2295,13 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        // Create script at boundary
-        let script = vec![OP_1; script_len.min(L_SCRIPT as usize)]; // OP_1 repeated
-
-        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
-
-        // Script should execute or fail gracefully if too long
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // If script is within bounds, execution should be attempted
-        if script_len <= L_SCRIPT as usize {
-            match result {
-                Ok(_) | Err(_) => {
-                    prop_assert!(true, "Script execution attempted for valid length");
-                }
-            }
+        let script = vec![OP_NOP; script_len];
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        if script_len > L_SCRIPT as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::ScriptSize));
+        } else {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::OpCount));
         }
     }
 
@@ -2296,24 +2315,15 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        // Create stack at boundary
-        let mut stack: Vec<script::StackElement> = (0..stack_size.min(L_STACK as usize))
-            .map(|i| script::to_stack_element(&[i as u8; 20]))
+        let mut stack: Vec<script::StackElement> = (0..stack_size)
+            .map(|i| script::to_stack_element(&[i as u8]))
             .collect();
-
-        // Simple script that doesn't modify stack much
-        let script = vec![OP_1]; // OP_1
-
-        // Script should execute or fail gracefully if stack too large
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // If stack is within bounds, execution should be attempted
-        if stack_size <= L_STACK as usize {
-            match result {
-                Ok(_) | Err(_) => {
-                    prop_assert!(true, "Script execution attempted for valid stack size");
-                }
-            }
+        let result = eval_base(&[OP_1], &mut stack);
+        if stack_size + 1 > L_STACK as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::StackSize));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), stack_size + 1);
         }
     }
 
@@ -2327,24 +2337,16 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        // Create script with many operations (OP_DUP is a non-push opcode)
-        let mut script = Vec::new();
-        for _ in 0..num_ops.min(L_OPS as usize) {
-            script.push(OP_DUP); // OP_DUP
-        }
-
-        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
-
-        // Script should execute or fail gracefully if op count too high
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // If op count is within bounds, execution should be attempted
-        if num_ops <= L_OPS as usize {
-            match result {
-                Ok(_) | Err(_) => {
-                    prop_assert!(true, "Script execution attempted for valid op count");
-                }
-            }
+        let script = vec![OP_DUP; num_ops];
+        let item = script::to_stack_element(&[1u8; 20]);
+        let mut stack = vec![item.clone()];
+        let result = eval_base(&script, &mut stack);
+        if num_ops > L_OPS as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::OpCount));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 1 + num_ops);
+            prop_assert!(stack.iter().all(|element| element.as_slice() == item.as_slice()));
         }
     }
 
@@ -2358,33 +2360,15 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        // Create script with large element
-        let mut script = Vec::new();
-        let actual_size = element_size.min(L_ELEMENT as usize);
-
-        // Push large element: OP_PUSHDATA4 + size + data
-        if actual_size <= 0x4b {
-            // Direct push
-            script.push(actual_size as u8);
+        let script = push_element(element_size);
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        if element_size > L_ELEMENT as usize {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::PushSize));
         } else {
-            // OP_PUSHDATA4
-            script.push(0x4eu8);
-            script.extend_from_slice(&(actual_size as u32).to_le_bytes());
-        }
-        script.extend(vec![0u8; actual_size]);
-
-        let mut stack: Vec<script::StackElement> = Vec::new();
-
-        // Script should execute or fail gracefully if element too large
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // If element is within bounds, execution should be attempted
-        if element_size <= L_ELEMENT as usize {
-            match result {
-                Ok(_) | Err(_) => {
-                    prop_assert!(true, "Script execution attempted for valid element size");
-                }
-            }
+            prop_assert_eq!(result.unwrap(), true);
+            let expected = vec![0x11u8; element_size];
+            prop_assert_eq!(stack[0].as_slice(), expected.as_slice());
         }
     }
 
@@ -2398,23 +2382,12 @@ proptest! {
     ) {
         use blvm_consensus::script;
 
-        // Create script with bounded operations
-        let mut script = Vec::new();
-        for _ in 0..num_ops {
-            script.push(OP_1); // OP_1 (push operation, doesn't count toward op limit)
-        }
-
-        let mut stack: Vec<script::StackElement> = Vec::new();
-
-        // Script should terminate (either succeed or fail, but not hang)
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // Result should be determined (not infinite loop)
-        match result {
-            Ok(_) | Err(_) => {
-                prop_assert!(true, "Script execution terminated");
-            }
-        }
+        let script = vec![OP_1; num_ops];
+        let mut stack = Vec::new();
+        let result = eval_base(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), num_ops);
+        prop_assert!(stack.iter().all(|element| element.as_slice() == [1]));
     }
 
     /// Edge Case: Opcode Validity
@@ -2423,22 +2396,21 @@ proptest! {
     /// ∀ opcode: Opcode is valid (not disabled)
     #[test]
     fn prop_script_opcode_validity(
-        opcode in 0u8..=0xffu8
+        disabled in any::<bool>(),
+        index in 0usize..15usize
     ) {
-        use blvm_consensus::script;
-
-        // Create script with single opcode
-        let script = vec![opcode];
-        let mut stack = vec![script::to_stack_element(&[1u8; 20][..])];
-
-        // Script should either execute or fail with appropriate error
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // Result should be determined (valid opcode executes, invalid fails)
-        match result {
-            Ok(_) | Err(_) => {
-                prop_assert!(true, "Opcode validity checked");
-            }
+        const DISABLED: [u8; 15] = [
+            0x7e, 0x7f, 0x80, 0x81, 0x83, 0x84, 0x85, 0x86, 0x8d, 0x8e, 0x95, 0x96, 0x97, 0x98,
+            0x99,
+        ];
+        let opcode = if disabled { DISABLED[index] } else { OP_NOP };
+        let mut stack = vec![script::to_stack_element(&[1])];
+        let result = eval_base(&[opcode], &mut stack);
+        if disabled {
+            prop_assert_eq!(script_code(result), Some(ScriptErrorCode::DisabledOpcode));
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 1);
         }
     }
 
@@ -2460,20 +2432,9 @@ proptest! {
         }
 
         let initial_len = stack.len();
-
-        // Execute script
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        // Stack operations should maintain type consistency
-        // (Stack size may change, but operations should be valid)
-        match result {
-            Ok(_) | Err(_) => {
-                // Stack should still be valid (not corrupted)
-                prop_assert!(stack.len() <= L_STACK as usize,
-                    "Stack size should remain within bounds: size = {}",
-                    stack.len());
-            }
-        }
+        let result = eval_base(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), initial_len + 2);
     }
 
     /// Edge Case: Script with Boundary Conditions
@@ -2493,14 +2454,11 @@ proptest! {
             stack.push(script::to_stack_element(&[i as u8; 20]));
         }
 
-        // Script should handle boundary conditions gracefully
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        match result {
-            Ok(_) | Err(_) => {
-                prop_assert!(true, "Script handles boundary conditions");
-            }
-        }
+        let started = stack.len();
+        let result = eval_base(&script, &mut stack);
+        prop_assert_eq!(result.unwrap(), true);
+        prop_assert_eq!(stack.len(), started + 1);
+        prop_assert_eq!(stack.last().unwrap().as_slice(), &[1]);
     }
 
     /// Edge Case: Script with Edge Case Inputs
@@ -2509,26 +2467,24 @@ proptest! {
     /// ∀ script, inputs: Script execution handles edge case inputs
     #[test]
     fn prop_script_edge_case_inputs(
-        input_size in 0usize..520usize
+        input_size in 0usize..=(L_ELEMENT as usize + 8)
     ) {
         use blvm_consensus::script;
 
-        // Create script that processes input
-        let script = vec![OP_DUP]; // OP_DUP
+        let script = vec![OP_DUP];
         let mut stack: Vec<script::StackElement> = Vec::new();
-
-        // Add input of varying sizes
         if input_size > 0 {
-            stack.push(script::to_stack_element(&vec![0u8; input_size.min(L_ELEMENT as usize)]));
+            stack.push(script::to_stack_element(&vec![0u8; input_size]));
         }
-
-        // Script should handle edge case inputs
-        let result = script::eval_script(&script, &mut stack, 0, script::SigVersion::Base);
-
-        match result {
-            Ok(_) | Err(_) => {
-                prop_assert!(true, "Script handles edge case inputs");
-            }
+        let result = eval_base(&script, &mut stack);
+        if input_size == 0 {
+            prop_assert_eq!(result.unwrap(), false);
+            prop_assert!(stack.is_empty());
+        } else {
+            prop_assert_eq!(result.unwrap(), true);
+            prop_assert_eq!(stack.len(), 2);
+            prop_assert_eq!(stack[0].as_slice(), stack[1].as_slice());
+            prop_assert_eq!(stack[0].len(), input_size);
         }
     }
 }
@@ -2978,7 +2934,10 @@ proptest! {
     fn prop_chain_continuity(
         num_blocks in 1usize..10usize
     ) {
-        // Create a chain of blocks with proper linkage
+        use blvm_consensus::serialization::block::serialize_block_header;
+        use sha2::{Digest, Sha256};
+
+        let mut headers = Vec::with_capacity(num_blocks);
         let mut prev_hash = [0u8; 32];
         for i in 0..num_blocks {
             let header = BlockHeader {
@@ -2989,22 +2948,19 @@ proptest! {
                 bits: 0x1d00ffff,
                 nonce: i as u64,
             };
-
-            // Calculate block hash
-            use blvm_consensus::serialization::block::serialize_block_header;
-            use sha2::{Digest, Sha256};
             let serialized = serialize_block_header(&header);
-            let first_hash = Sha256::digest(&serialized);
-            let second_hash = Sha256::digest(first_hash);
+            let second_hash = Sha256::digest(Sha256::digest(serialized));
             let mut block_hash = [0u8; 32];
             block_hash.copy_from_slice(&second_hash);
-
-            // Next block should reference this block's hash
+            headers.push(header);
             prev_hash = block_hash;
         }
 
-        // Chain continuity is maintained if we can build the chain
-        prop_assert!(true, "Chain continuity maintained");
+        for pair in headers.windows(2) {
+            let parent = serialize_block_header(&pair[0]);
+            let parent_hash = Sha256::digest(Sha256::digest(parent));
+            prop_assert_eq!(&pair[1].prev_block_hash[..], &parent_hash[..]);
+        }
     }
 
     /// Invariant: Chain Uniqueness

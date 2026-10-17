@@ -157,18 +157,11 @@ proptest! {
         base_size in 100usize..1000usize,
         witness_size in 0usize..500usize
     ) {
-        // Base size is part of weight calculation
-        // Weight = base_size * 3 + witness_size
-        let weight = (base_size * 3) + witness_size;
-
-        prop_assert!(weight >= base_size);
-
-        // Weight should be at least base_size
-        if witness_size == 0 {
-            prop_assert!(weight >= base_size * 3);
-        } else {
-            prop_assert!(weight > base_size * 3);
-        }
+        let weight = blvm_consensus::witness::calculate_transaction_weight_segwit(
+            base_size as u64,
+            (base_size + witness_size) as u64,
+        );
+        prop_assert_eq!(weight, (base_size * 3 + base_size + witness_size) as u64);
     }
 }
 
@@ -176,25 +169,36 @@ proptest! {
 proptest! {
     #[test]
     fn prop_witness_commitment_valid(
-        witness_root in prop::array::uniform32(0u8..=255u8)
+        witness_root in prop::array::uniform32(0u8..=255u8),
+        nonce in prop::array::uniform32(0u8..=255u8)
     ) {
-        // Witness commitment should be 32 bytes (SHA256 output)
-        prop_assert_eq!(witness_root.len(), 32);
+        let script = segwit::witness_commitment_script(&witness_root, &nonce);
+        prop_assert_eq!(script.len(), 38);
+        let mut preimage = [0u8; 64];
+        preimage[..32].copy_from_slice(&witness_root);
+        preimage[32..].copy_from_slice(&nonce);
+        let digest = {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(Sha256::digest(preimage))
+        };
+        prop_assert_eq!(&script[6..38], &digest[..]);
     }
 }
 
 /// Property test: SegWit version validation
 proptest! {
     #[test]
-    fn prop_segwit_version_valid(
-        version in 0u8..17u8
-    ) {
-        // SegWit versions 0-16 are valid
-        prop_assert!(version <= 16);
+    fn prop_segwit_version_valid(version in any::<u8>(), program_len in 1usize..=41usize) {
+        use blvm_consensus::opcodes::{OP_0, OP_1};
+        use blvm_consensus::witness::{WitnessVersion, extract_witness_version};
 
-        // Version 0 is standard (P2WPKH, P2WSH)
-        if version == 0 {
-            prop_assert!(true, "Version 0 is standard SegWit");
+        let mut script = vec![version, program_len as u8];
+        script.extend(std::iter::repeat_n(0x11u8, program_len));
+        let accepted = (version == OP_0 || version == OP_1) && (2..=40).contains(&program_len);
+        match extract_witness_version(&script) {
+            Some(WitnessVersion::SegWitV0) => prop_assert!(version == OP_0 && accepted),
+            Some(WitnessVersion::TaprootV1) => prop_assert!(version == OP_1 && accepted),
+            None => prop_assert!(!accepted),
         }
     }
 }
@@ -202,12 +206,18 @@ proptest! {
 /// Property test: Taproot key path vs script path
 proptest! {
     #[test]
-    fn prop_taproot_path_validation(
-        is_key_path in any::<bool>()
-    ) {
-        // Taproot can use either key path or script path
-        // Both should be valid
-        prop_assert!(is_key_path || !is_key_path); // Always true, structural test
+    fn prop_taproot_path_validation(sig_len in 63usize..=66usize) {
+        use blvm_consensus::taproot::TAPROOT_CONTROL_BASE_SIZE;
+        use blvm_consensus::witness::validate_taproot_witness_structure;
+
+        let key_path = vec![vec![0x11u8; sig_len]];
+        let key_ok = validate_taproot_witness_structure(&key_path, false).unwrap();
+        prop_assert_eq!(key_ok, sig_len == 64 || sig_len == 65);
+
+        let script_only = vec![vec![0x11u8; 8]];
+        prop_assert!(!validate_taproot_witness_structure(&script_only, true).unwrap());
+        let script_path = vec![vec![0x11u8; 8], vec![0u8; TAPROOT_CONTROL_BASE_SIZE]];
+        prop_assert!(validate_taproot_witness_structure(&script_path, true).unwrap());
     }
 }
 
@@ -279,12 +289,13 @@ proptest! {
             (witness2_size, witness1_size)
         };
 
-        let weight1 = (base_size * 3) + w1;
-        let weight2 = (base_size * 3) + w2;
-
-        // Larger witness should produce larger weight
-        prop_assert!(weight2 >= weight1,
-            "Transaction weight should increase with witness size");
+        let weight_of = |witness: usize| {
+            blvm_consensus::witness::calculate_transaction_weight_segwit(
+                base_size as u64,
+                (base_size + witness) as u64,
+            )
+        };
+        prop_assert!(weight_of(w2) >= weight_of(w1));
     }
 }
 

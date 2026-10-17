@@ -921,8 +921,13 @@ mod property_tests {
             tx in create_transaction_strategy(),
             witness in prop::option::of(create_witness_strategy())
         ) {
-            let _weight = calculate_transaction_weight(&tx, witness.as_ref()).unwrap();
-            // Weight is always non-negative (Natural type) - verified by type system
+            let base = calculate_base_size(&tx);
+            let extra: Natural = witness
+                .as_ref()
+                .map(|stack| stack.iter().map(|element| element.len() as Natural).sum())
+                .unwrap_or(0);
+            let weight = calculate_transaction_weight(&tx, witness.as_ref()).unwrap();
+            prop_assert_eq!(weight, base.saturating_mul(4).saturating_add(extra));
         }
     }
 
@@ -954,21 +959,41 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_block_weight_validation_limit(
-            (block, witnesses) in create_block_with_witnesses_strategy(),
-            max_weight in 1..10_000_000u64
+            tx_count in 1usize..5,
+            max_weight in 1u64..20_000u64
         ) {
-            // Handle errors from invalid blocks/witnesses
-            match (calculate_block_weight(&block, &witnesses), validate_segwit_block(&block, &witnesses, max_weight as Natural)) {
-                (Ok(actual_weight), Ok(is_valid)) => {
-                    // If weight exceeds limit, block should be invalid
-                    if actual_weight > max_weight as Natural {
-                        prop_assert!(!is_valid, "Block exceeding weight limit must be invalid");
-                    }
+            let transactions: Vec<Transaction> = (0..tx_count)
+                .map(|i| Transaction {
+                    version: 1,
+                    inputs: vec![TransactionInput {
+                        prevout: OutPoint { hash: [i as u8; 32], index: 0 },
+                        script_sig: vec![OP_1],
+                        sequence: 0xffff_ffff,
+                    }]
+                    .into(),
+                    outputs: vec![TransactionOutput {
+                        value: 1000,
+                        script_pubkey: vec![OP_1],
+                    }]
+                    .into(),
+                    lock_time: 0,
+                })
+                .collect();
+            let block = Block {
+                header: BlockHeader {
+                    version: 1,
+                    prev_block_hash: [0; 32],
+                    merkle_root: [1; 32],
+                    timestamp: 1_700_000_000,
+                    bits: 0x1d00ffff,
+                    nonce: 0,
                 },
-                (Err(_), _) | (_, Err(_)) => {
-                    // Invalid blocks/witnesses may cause errors - this is acceptable
-                }
-            }
+                transactions: transactions.into_boxed_slice(),
+            };
+            let witnesses: &[Witness] = &[];
+            let weight = calculate_block_weight(&block, witnesses).unwrap();
+            let valid = validate_segwit_block(&block, witnesses, max_weight).unwrap();
+            prop_assert_eq!(valid, weight <= max_weight);
         }
     }
 
@@ -1019,11 +1044,35 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_segwit_transaction_detection(
-            tx in create_transaction_strategy()
+            version in 0u8..=16u8,
+            program_len in 1usize..=41,
+            trailing in any::<bool>()
         ) {
-            let is_segwit = is_segwit_transaction(&tx);
-            // Just test it returns a boolean (is_segwit is either true or false)
-            let _ = is_segwit;
+            let mut script = vec![if version == 0 { OP_0 } else { OP_1.saturating_add(version.saturating_sub(1)) }];
+            script.push(program_len as u8);
+            script.extend(std::iter::repeat(0x11).take(program_len));
+            if trailing {
+                script.push(0x00);
+            }
+            let tx = Transaction {
+                version: 1,
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint { hash: [1; 32], index: 0 },
+                    script_sig: vec![OP_1],
+                    sequence: 0xffff_ffff,
+                }]
+                .into(),
+                outputs: vec![TransactionOutput {
+                    value: 1000,
+                    script_pubkey: script,
+                }]
+                .into(),
+                lock_time: 0,
+            };
+            let accepted = !trailing
+                && (version == 0 || version == 1)
+                && (2..=40).contains(&program_len);
+            prop_assert_eq!(is_segwit_transaction(&tx), accepted);
         }
     }
 
@@ -1101,12 +1150,10 @@ mod property_tests {
             tx1 in create_transaction_strategy(),
             tx2 in create_transaction_strategy()
         ) {
-            let base_size1 = calculate_base_size(&tx1);
-            let base_size2 = calculate_base_size(&tx2);
-
-            // Base size should be positive
-            assert!(base_size1 > 0);
-            assert!(base_size2 > 0);
+            let serial1 = crate::serialization::serialize_transaction(&tx1).len() as Natural;
+            let serial2 = crate::serialization::serialize_transaction(&tx2).len() as Natural;
+            prop_assert_eq!(calculate_base_size(&tx1), serial1);
+            prop_assert_eq!(calculate_base_size(&tx2), serial2);
         }
     }
 
