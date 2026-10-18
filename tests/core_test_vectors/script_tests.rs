@@ -167,6 +167,12 @@ pub fn run_core_script_tests(
 
 /// Run vectors and return `(passed, failed)` without failing early.
 pub fn score_core_script_tests(vectors: &[ScriptTestVector]) -> (usize, usize) {
+    // The cache switch is process-global. Two scorers in one binary otherwise
+    // turn it back on in the middle of the other scorer's loop.
+    static SCORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SCORE_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     blvm_consensus::script::disable_caching(true);
     let mut passed = 0usize;
     let mut failed = 0usize;
