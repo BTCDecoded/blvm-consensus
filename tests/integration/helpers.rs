@@ -81,27 +81,29 @@ pub fn encode_script_int(value: u64) -> Vec<u8> {
     result
 }
 
-pub fn verify_input_script(
+#[allow(clippy::too_many_arguments)]
+fn verify_script_full(
+    script_sig: &Vec<u8>,
+    script_pubkey: &[u8],
+    witness: Option<&Witness>,
+    flags: u32,
     tx: &Transaction,
     input_index: usize,
-    flags: u32,
+    prevout_values: &[i64],
+    prevout_scripts: &[&[u8]],
     block_height: Option<u64>,
     median_time_past: Option<u64>,
     sigversion: SigVersion,
 ) -> blvm_consensus::error::Result<bool> {
-    let input = &tx.inputs[input_index];
-    let sp = input.script_sig.as_ref();
-    let pv = vec![0i64; tx.inputs.len()];
-    let psp: Vec<&[u8]> = vec![&[]; tx.inputs.len()];
     verify_script_with_context_full(
-        sp,
-        sp,
-        None,
+        script_sig,
+        script_pubkey,
+        witness,
         flags,
         tx,
         input_index,
-        &pv,
-        &psp,
+        prevout_values,
+        prevout_scripts,
         block_height,
         median_time_past,
         Network::Mainnet,
@@ -120,6 +122,35 @@ pub fn verify_input_script(
     )
 }
 
+pub fn verify_input_script(
+    tx: &Transaction,
+    input_index: usize,
+    script_pubkey: &[u8],
+    witness: Option<&Witness>,
+    flags: u32,
+    block_height: Option<u64>,
+    median_time_past: Option<u64>,
+    sigversion: SigVersion,
+) -> blvm_consensus::error::Result<bool> {
+    let input = &tx.inputs[input_index];
+    let pv = vec![0i64; tx.inputs.len()];
+    let mut scripts: Vec<&[u8]> = vec![&[]; tx.inputs.len()];
+    scripts[input_index] = script_pubkey;
+    verify_script_full(
+        &input.script_sig,
+        script_pubkey,
+        witness,
+        flags,
+        tx,
+        input_index,
+        &pv,
+        &scripts,
+        block_height,
+        median_time_past,
+        sigversion,
+    )
+}
+
 pub fn verify_against_utxo(
     tx: &Transaction,
     script_sig: &ByteString,
@@ -132,7 +163,7 @@ pub fn verify_against_utxo(
 ) -> blvm_consensus::error::Result<bool> {
     let pv = vec![prevout_value];
     let psp: Vec<&[u8]> = vec![script_pubkey];
-    verify_script_with_context_full(
+    verify_script_full(
         script_sig,
         script_pubkey,
         None,
@@ -143,18 +174,6 @@ pub fn verify_against_utxo(
         &psp,
         block_height,
         median_time_past,
-        Network::Mainnet,
         sigversion,
-        #[cfg(feature = "production")]
-        None,
-        None,
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-        None,
     )
 }

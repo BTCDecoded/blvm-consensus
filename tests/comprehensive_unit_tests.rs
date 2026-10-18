@@ -311,10 +311,8 @@ fn test_verify_script_large_scripts() {
 // ============================================================================
 
 // Note: Detailed economic tests (block subsidy, total supply, etc.) are in:
-// - tests/unit/economic_tests.rs (basic tests)
-// - tests/unit/economic_edge_tests.rs (edge cases)
-// - tests/consensus_property_tests.rs (property-based tests)
-// This file focuses on integration and cross-module tests.
+// - tests/unit/economic_tests.rs
+// - tests/consensus_property_tests.rs
 
 #[test]
 fn test_calculate_fee() {
@@ -389,7 +387,13 @@ fn test_calculate_fee_negative() {
     utxo_set.insert(outpoint, std::sync::Arc::new(utxo));
 
     let result = calculate_fee(&tx, &utxo_set);
-    assert!(result.is_err());
+    assert!(
+        matches!(
+            result,
+            Err(ConsensusError::EconomicValidation(ref msg)) if msg.contains("Negative fee")
+        ),
+        "an output above its input must be a negative fee, got {result:?}"
+    );
 }
 
 #[test]

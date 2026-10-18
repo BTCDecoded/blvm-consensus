@@ -34,10 +34,10 @@ fn test_cltv_block_height_validation_passes() {
     // Validate at block height >= required locktime
     let result = validate_with_context(&tx, &utxo_set, block_height as u64, 0, 0x200);
 
-    // Should pass: tx.lock_time (500000) >= required_locktime (400000) and types match
-    assert!(result.is_ok());
-    // Note: Current implementation checks tx.lock_time >= required, but doesn't validate
-    // against actual block height. This is expected behavior per implementation notes.
+    assert!(
+        result.expect("cltv"),
+        "tx locktime 500000 satisfies the 400000 push"
+    );
 }
 
 #[test]
@@ -179,9 +179,7 @@ fn test_cltv_exact_locktime_passes() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should pass: tx.lock_time (400000) >= required_locktime (400000)
-    assert!(result.is_ok());
-    // Note: This will pass the basic check, but full validation would need block height
+    assert!(result.expect("cltv"), "equal locktimes satisfy CLTV");
 }
 
 #[test]
@@ -210,8 +208,10 @@ fn test_cltv_timestamp_validation() {
     // Current implementation checks tx.lock_time >= required, which should pass
     let result = validate_with_context(&tx, &utxo_set, 0, tx_locktime as u64, 0x200);
 
-    // Should pass: tx.lock_time (1609459200) >= required_locktime (1577836800)
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv"),
+        "a later timestamp satisfies the earlier push"
+    );
 }
 
 #[test]
@@ -238,8 +238,10 @@ fn test_cltv_boundary_block_height() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should pass: both are block heights, tx >= required
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv"),
+        "the last block-height locktime satisfies the push below it"
+    );
 }
 
 #[test]
@@ -266,8 +268,10 @@ fn test_cltv_boundary_timestamp() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should pass: both are timestamps, tx >= required
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv"),
+        "equal timestamp locktimes satisfy CLTV"
+    );
 }
 
 #[test]
@@ -281,7 +285,7 @@ fn test_cltv_empty_stack_fails() {
                 index: 0,
             },
             script_sig: vec![OP_CHECKLOCKTIMEVERIFY], // Just CLTV opcode, no value on stack
-            sequence: 0xffffffff,
+            sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -308,8 +312,11 @@ fn test_cltv_empty_stack_fails() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should fail: empty stack (either error or false)
-    assert!(matches!(result, Ok(false) | Err(_)));
+    match result {
+        Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode { code, .. })
+            if code == blvm_consensus::error::ScriptErrorCode::InvalidStackOperation => {}
+        other => panic!("CLTV on an empty stack must be InvalidStackOperation, got {other:?}"),
+    }
 }
 
 #[test]
@@ -323,15 +330,16 @@ fn test_cltv_invalid_encoding_fails() {
                 index: 0,
             },
             script_sig: vec![
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,
-                OP_1,                   // 6 bytes (too many)
-                OP_CHECKLOCKTIMEVERIFY, // CLTV
+                0x06,
+                0x01,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00, // six-byte number
+                OP_CHECKLOCKTIMEVERIFY,
             ],
-            sequence: 0xffffffff,
+            sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
@@ -358,9 +366,11 @@ fn test_cltv_invalid_encoding_fails() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should fail: invalid encoding (script integer must be <= 4 bytes)
-    assert!(result.is_ok());
-    assert!(!result.unwrap());
+    match result {
+        Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode { code, .. })
+            if code == blvm_consensus::error::ScriptErrorCode::MinimalData => {}
+        other => panic!("a six-byte CLTV operand must be MinimalData, got {other:?}"),
+    }
 }
 
 #[test]
@@ -387,9 +397,10 @@ fn test_cltv_max_u32_value() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
 
-    // Should pass: tx.lock_time (u32::MAX) >= required_locktime (u32::MAX)
-    // Both are timestamps (>= LOCKTIME_THRESHOLD)
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv"),
+        "equal u32::MAX timestamp locktimes satisfy CLTV"
+    );
 }
 
 #[test]
@@ -409,7 +420,7 @@ fn test_cltv_multiple_inputs_context() {
                     script.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
                     script
                 },
-                sequence: 0xffffffff,
+                sequence: 0,
             },
             TransactionInput {
                 prevout: OutPoint {
@@ -481,17 +492,30 @@ fn test_cltv_multiple_inputs_context() {
         Network::Regtest,
     );
 
-    // Should pass: CLTV validation for first input
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv input 0"),
+        "input 0 locktime 500000 satisfies the 400000 push"
+    );
+    let second = verify_script_with_context(
+        &tx.inputs[1].script_sig,
+        &utxo2.script_pubkey,
+        None,
+        0x200,
+        &tx,
+        1,
+        &prevouts,
+        Some(500_000u64),
+        Network::Regtest,
+    );
+    assert!(second.expect("input 1"), "input 1 is OP_1 spending OP_1");
 }
 
 #[test]
 fn test_cltv_in_script_pubkey() {
-    // CLTV can be in scriptPubkey (output locking script)
     let required_locktime: u32 = 400000;
-    let mut script_pubkey = vec![OP_1]; // OP_1
-    script_pubkey.extend_from_slice(&encode_script_int(required_locktime));
-    script_pubkey.push(OP_CHECKLOCKTIMEVERIFY); // CLTV
+    let mut script_pubkey = encode_script_int(required_locktime);
+    script_pubkey.push(OP_CHECKLOCKTIMEVERIFY);
+    script_pubkey.push(OP_1);
 
     let tx = Transaction {
         version: 1,
@@ -500,16 +524,16 @@ fn test_cltv_in_script_pubkey() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![OP_1], // OP_1 (unlocks scriptPubkey)
-            sequence: 0xffffffff,
+            script_sig: vec![],
+            sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey,
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
-        lock_time: 500000, // >= required_locktime
+        lock_time: 500000,
     };
 
     let mut utxo_set = UtxoSet::default();
@@ -520,14 +544,15 @@ fn test_cltv_in_script_pubkey() {
         },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![OP_1].into(), // Previous output script
+            script_pubkey: script_pubkey.into(),
             is_coinbase: false,
             height: 0,
         }),
     );
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x200);
-
-    // Should pass: CLTV in scriptPubkey validates correctly
-    assert!(result.is_ok());
+    assert!(
+        result.expect("cltv scriptPubKey"),
+        "the spent scriptPubKey accepts locktime 500000"
+    );
 }

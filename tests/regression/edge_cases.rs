@@ -260,13 +260,8 @@ fn test_block_size_boundaries() {
         network,
     );
     match result {
-        Ok((validation_result, _)) => {
-            assert!(
-                matches!(validation_result, ValidationResult::Invalid(_)),
-                "block without coinbase must not validate as accepted"
-            );
-        }
-        Err(_) => {}
+        Ok((ValidationResult::Invalid(_), _)) => {}
+        other => panic!("block of non-coinbase transactions must be Invalid, got {other:?}"),
     }
 }
 

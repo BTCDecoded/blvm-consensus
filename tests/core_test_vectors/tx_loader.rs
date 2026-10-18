@@ -2,6 +2,8 @@
 
 use blvm_consensus::Transaction;
 use blvm_consensus::serialization::transaction::deserialize_transaction;
+use blvm_consensus::transaction::{check_transaction, check_tx_inputs};
+use blvm_consensus::{UtxoSet, ValidationResult};
 use hex;
 use serde_json::Value;
 use std::fs;
@@ -12,6 +14,9 @@ use std::path::PathBuf;
 pub struct TransactionTestVector {
     pub transaction: Transaction,
     pub expected_result: bool,
+    /// `BADTX` in the flag string: `check_transaction` must reject the structure.
+    /// Any other flag is a script check. The transaction structure must pass.
+    pub structural_failure: bool,
     pub flags: u32,
     pub description: String,
 }
@@ -22,6 +27,10 @@ fn is_comment_row(item: &Value) -> bool {
         Value::Array(arr) if arr.len() == 1 => matches!(arr.first(), Some(Value::String(_))),
         _ => false,
     }
+}
+
+fn flag_string(test_case: &[Value]) -> &str {
+    test_case.get(2).and_then(|v| v.as_str()).unwrap_or("")
 }
 
 fn parse_flags_from_case(test_case: &[Value]) -> u32 {
@@ -73,10 +82,18 @@ fn try_parse_vector_case(
     let tx_bytes = hex::decode(tx_hex).ok()?;
     let transaction = deserialize_transaction(&tx_bytes).ok()?;
     let flags = parse_flags_from_case(test_case);
-    let description = format!("tx {} (flags={})", &tx_hex[..16.min(tx_hex.len())], flags);
+    let structural_failure = flag_string(test_case)
+        .split(',')
+        .any(|name| name.trim() == "BADTX");
+    let description = format!(
+        "tx {} (flags={}, badtx={structural_failure})",
+        &tx_hex[..16.min(tx_hex.len())],
+        flags
+    );
     Some(TransactionTestVector {
         transaction,
         expected_result: expected_valid,
+        structural_failure,
         flags,
         description,
     })
@@ -104,6 +121,23 @@ fn load_vectors_from_file(
         }
     }
     Ok(vectors)
+}
+
+/// `check_transaction`, plus the null-prevout rule that lives in `check_tx_inputs`.
+/// A missing UTXO is not a structural failure.
+pub fn structural_validation(tx: &Transaction) -> blvm_consensus::error::Result<ValidationResult> {
+    match check_transaction(tx)? {
+        ValidationResult::Invalid(reason) => Ok(ValidationResult::Invalid(reason)),
+        ValidationResult::Valid => {
+            let empty = UtxoSet::default();
+            match check_tx_inputs(tx, &empty, 0)? {
+                (ValidationResult::Invalid(reason), _) if reason.contains("null prevout") => {
+                    Ok(ValidationResult::Invalid(reason))
+                }
+                _ => Ok(ValidationResult::Valid),
+            }
+        }
+    }
 }
 
 /// Load transaction test vectors from `dir/tx_valid.json` and `dir/tx_invalid.json`.

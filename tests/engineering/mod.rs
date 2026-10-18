@@ -8,6 +8,8 @@
 
 pub mod bip112_csv_integration_tests;
 pub mod bip113_integration_tests;
+#[cfg(feature = "ctv")]
+pub mod bip119_ctv_integration_tests;
 pub mod bip65_cltv_integration_tests;
 pub mod bip_interaction_tests;
 pub mod bip_test_helpers;

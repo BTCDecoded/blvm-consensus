@@ -26,13 +26,26 @@ fn test_negative_fee_rejected() {
         .into(),
         lock_time: 0,
     };
+    let (validation, _) =
+        blvm_consensus::transaction::check_tx_inputs(&tx, &set, 1).expect("input check");
+    match validation {
+        blvm_consensus::ValidationResult::Invalid(msg) => {
+            assert!(
+                msg.contains("Insufficient input value"),
+                "outputs above the UTXO must name the shortfall, got {msg}"
+            );
+        }
+        other => panic!("outputs above the UTXO must be Invalid, got {other:?}"),
+    }
     let pool = mempool::Mempool::new();
     let res =
         mempool::accept_to_memory_pool(&tx, None, &set, &pool, 1, None, Network::Mainnet, None);
-    assert!(
-        matches!(res, Ok(mempool::MempoolResult::Rejected(_))) || res.is_err(),
-        "Outputs exceed inputs should be rejected"
-    );
+    match res {
+        Ok(mempool::MempoolResult::Rejected(reason)) => {
+            assert_eq!(reason, "Invalid transaction inputs");
+        }
+        other => panic!("outputs above inputs must be rejected, got {other:?}"),
+    }
 }
 
 #[test]
@@ -47,8 +60,11 @@ fn test_non_standard_script_flagged() {
         .into(), // OP_RETURN only
         lock_time: 0,
     };
-    // Whether standard depends on policy; just exercise the path
-    let _ = mempool::is_standard_tx(&tx);
+    assert_eq!(
+        mempool::is_standard_tx(&tx).expect("standardness"),
+        true,
+        "one OP_RETURN byte is inside the 83-byte standard limit"
+    );
 }
 
 // OP_RETURN Size Limit Tests

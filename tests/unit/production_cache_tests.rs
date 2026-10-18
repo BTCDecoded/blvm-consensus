@@ -37,15 +37,14 @@ mod tests {
         let script_pubkey2 = vec![OP_2, OP_2];
 
         let result1 = verify_script(&script_sig1, &script_pubkey1, None, 0).unwrap();
-        let _result2 = verify_script(&script_sig2, &script_pubkey2, None, 0).unwrap();
+        let result2 = verify_script(&script_sig2, &script_pubkey2, None, 0).unwrap();
+        assert!(result1);
+        assert!(result2);
 
-        // Results may be the same or different, but cache shouldn't interfere
-        // Verify both execute correctly
         let result1_repeat = verify_script(&script_sig1, &script_pubkey1, None, 0).unwrap();
-        assert_eq!(
-            result1, result1_repeat,
-            "Cache must preserve script-specific results"
-        );
+        let result2_repeat = verify_script(&script_sig2, &script_pubkey2, None, 0).unwrap();
+        assert_eq!(result1, result1_repeat);
+        assert_eq!(result2, result2_repeat);
     }
 
     #[test]
@@ -67,10 +66,10 @@ mod tests {
         let result2 = eval_script(&script, &mut stack2, 0, SigVersion::Base).unwrap();
 
         // Results should be identical
-        assert_eq!(
-            result1, result2,
-            "Hash cache must produce identical results"
-        );
+        assert!(result1);
+        assert!(result2);
+        assert_eq!(stack1.last().expect("hash160").len(), 20);
+        assert_eq!(stack1.last(), stack2.last());
     }
 
     #[test]
@@ -92,10 +91,10 @@ mod tests {
         let result2 = eval_script(&script, &mut stack2, 0, SigVersion::Base).unwrap();
 
         // Results should be identical
-        assert_eq!(
-            result1, result2,
-            "Hash cache must produce identical results"
-        );
+        assert!(result1);
+        assert!(result2);
+        assert_eq!(stack1.last().expect("hash256").len(), 32);
+        assert_eq!(stack1.last(), stack2.last());
     }
 
     #[test]
@@ -116,10 +115,10 @@ mod tests {
         let result_hash256 =
             eval_script(&script_hash256, &mut stack2, 0, SigVersion::Base).unwrap();
 
-        // Results should be different (HASH160 produces 20 bytes, HASH256 produces 32 bytes)
-        // But both should work correctly
-        assert!(result_hash160 == true || result_hash160 == false);
-        assert!(result_hash256 == true || result_hash256 == false);
+        assert!(result_hash160);
+        assert!(result_hash256);
+        assert_eq!(stack1.last().expect("hash160").len(), 20);
+        assert_eq!(stack2.last().expect("hash256").len(), 32);
     }
 
     #[test]
@@ -134,11 +133,9 @@ mod tests {
         let result3 = verify_script(&script1, &vec![OP_1], None, 0).unwrap();
 
         // Results should be correct (may be cached, but should be deterministic)
-        assert_eq!(result1, result3, "Stack pooling must not affect results");
-
-        // All should execute successfully
-        assert!(result1 == true || result1 == false);
-        assert!(result2 == true || result2 == false);
+        assert!(result1);
+        assert!(result2);
+        assert_eq!(result1, result3);
     }
 
     #[test]
@@ -151,12 +148,14 @@ mod tests {
 
         // First call (cache miss - slower)
         let start1 = Instant::now();
-        let _result1 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
+        let result1 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
         let duration1 = start1.elapsed();
 
         // Second call (cache hit - should be faster)
         let start2 = Instant::now();
-        let _result2 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
+        let result2 = verify_script(&script_sig, &script_pubkey, None, 0).unwrap();
+        assert!(result1);
+        assert_eq!(result1, result2);
         let duration2 = start2.elapsed();
 
         // Cache hit should be at least as fast (often faster)

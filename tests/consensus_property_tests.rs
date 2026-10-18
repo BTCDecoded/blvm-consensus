@@ -2025,12 +2025,20 @@ proptest! {
             lock_time: 0,
         };
 
+        let output_total = 1000 * (output_count as i64) * (output_count as i64 + 1) / 2;
         let result = economic::calculate_fee(&tx, &utxo_set);
-
-        // If calculation succeeds, fee must be bounded
-        if let Ok(fee) = result {
-            prop_assert!(fee >= 0, "Fee must be non-negative: fee={}", fee);
-            prop_assert!(fee <= MAX_MONEY, "Fee must not exceed MAX_MONEY: fee={}, MAX_MONEY={}", fee, MAX_MONEY);
+        if input_count == 0 {
+            if output_count == 0 {
+                prop_assert_eq!(result.expect("empty fee"), 0);
+            } else {
+                let message = result.expect_err("outputs without inputs").to_string();
+                prop_assert!(message.contains("Negative fee"));
+            }
+        } else {
+            let input_value = (MAX_MONEY / (input_count as i64)).min(MAX_MONEY);
+            let fee = result.expect("fee");
+            prop_assert_eq!(fee, input_value * (input_count as i64) - output_total);
+            prop_assert!(fee <= MAX_MONEY);
         }
         // Overflow errors are acceptable and handled correctly
     }

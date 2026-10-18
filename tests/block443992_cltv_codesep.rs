@@ -168,8 +168,8 @@ ad74926404162c5658b15167762103db22e387923ad0552e1c4a4355324313af85926d4266c0eaa8
     eprintln!("Direct redeem execution result (bypass P2SH): {:?}", r2);
 
     assert!(
-        result.unwrap_or(false),
-        "block 443992 P2SH+CLTV+CODESEPARATOR tx must verify (mined by Bitcoin Core)"
+        result.expect("block 443992 script"),
+        "block 443992 P2SH+CLTV+CODESEPARATOR tx must verify"
     );
 
     let raw = serialize_transaction(&tx);
@@ -237,11 +237,11 @@ fn test_block443992_sig_verification_direct() {
     eprintln!("cond5 CHECKSIG (sig1 vs pubkey2): {:?}", r5);
 
     assert!(
-        r1.unwrap_or(false),
+        r1.expect("CHECKSIGVERIFY"),
         "CHECKSIGVERIFY (sig2 vs pubkey1) must pass"
     );
     assert!(
-        r5.unwrap_or(false),
+        r5.expect("cond5 CHECKSIG"),
         "cond5 CHECKSIG (sig1 vs pubkey2) must pass"
     );
 }
@@ -350,7 +350,7 @@ fn test_block443992_via_context_full() {
         None,
     );
     assert!(
-        result.unwrap_or(false),
+        result.expect("block 443992 CODESEP"),
         "verify_script_with_context_full must accept block 443992 CODESEP P2SH tx"
     );
 }

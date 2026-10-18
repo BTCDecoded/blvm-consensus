@@ -5,8 +5,21 @@
 //!
 //! Consensus-critical: Merkle root differences = chain split
 
+use bitcoin_hashes::{Hash as BitcoinHash, sha256};
+use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::mining::calculate_merkle_root;
 use blvm_consensus::types::{Transaction, TransactionInput, TransactionOutput};
+
+fn hash_pair(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+    let mut buf = [0u8; 64];
+    buf[..32].copy_from_slice(left);
+    buf[32..].copy_from_slice(right);
+    let once = sha256::Hash::hash(&buf);
+    sha256::Hash::hash(once.as_ref())
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
 
 /// Test that duplicate transaction hashes are detected as mutations
 ///
@@ -97,15 +110,11 @@ fn test_merkle_root_normal_transactions() {
         lock_time: 0,
     };
 
-    // Normal transactions should produce valid merkle root
-    let result = calculate_merkle_root(&[tx1, tx2]);
-    assert!(
-        result.is_ok(),
-        "Normal transactions should produce valid merkle root"
+    let expected = hash_pair(&calculate_tx_id(&tx1), &calculate_tx_id(&tx2));
+    assert_eq!(
+        calculate_merkle_root(&[tx1, tx2]).expect("two-leaf merkle"),
+        expected
     );
-
-    let merkle_root = result.unwrap();
-    assert_eq!(merkle_root.len(), 32, "Merkle root must be 32 bytes");
 }
 
 /// Test that single transaction produces valid merkle root
@@ -130,15 +139,11 @@ fn test_merkle_root_single_transaction() {
         lock_time: 0,
     };
 
-    // Single transaction should produce valid merkle root (duplicated and hashed)
-    let result = calculate_merkle_root(&[tx]);
-    assert!(
-        result.is_ok(),
-        "Single transaction should produce valid merkle root"
+    let txid = calculate_tx_id(&tx);
+    assert_eq!(
+        calculate_merkle_root(std::slice::from_ref(&tx)).expect("one-leaf merkle"),
+        txid
     );
-
-    let merkle_root = result.unwrap();
-    assert_eq!(merkle_root.len(), 32, "Merkle root must be 32 bytes");
 }
 
 /// Test that empty transaction list is rejected
@@ -212,13 +217,10 @@ fn test_merkle_root_odd_number() {
         lock_time: 0,
     };
 
-    // Three transactions (odd number) should work correctly
-    let result = calculate_merkle_root(&[tx1, tx2, tx3]);
-    assert!(
-        result.is_ok(),
-        "Odd number of transactions should produce valid merkle root"
+    let left = hash_pair(&calculate_tx_id(&tx1), &calculate_tx_id(&tx2));
+    let right = hash_pair(&calculate_tx_id(&tx3), &calculate_tx_id(&tx3));
+    assert_eq!(
+        calculate_merkle_root(&[tx1, tx2, tx3]).expect("three-leaf merkle"),
+        hash_pair(&left, &right)
     );
-
-    let merkle_root = result.unwrap();
-    assert_eq!(merkle_root.len(), 32, "Merkle root must be 32 bytes");
 }

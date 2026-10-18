@@ -3,6 +3,7 @@
 //! These tests directly compare implementation results against Orange Paper formulas,
 //! ensuring mathematical correctness and serving as regression tests for formula changes.
 
+use bitcoin_hashes::Hash as BitcoinHash;
 use blvm_consensus::economic;
 use blvm_consensus::error::ScriptErrorCode;
 use blvm_consensus::opcodes::{
@@ -16,6 +17,49 @@ use proptest::prelude::*;
 
 fn eval_base(script: &[u8], stack: &mut Vec<script::StackElement>) -> Result<bool, ConsensusError> {
     script::eval_script(script, stack, 0, script::SigVersion::Base)
+}
+
+/// Little-endian compact target: 23-bit mantissa shifted by `exponent - 3` bytes.
+fn compact_target_le(bits: u64) -> [u8; 32] {
+    let exponent = (bits >> 24) as usize;
+    let mantissa = (bits & 0x007f_ffff) as u32;
+    let mut out = [0u8; 32];
+    let shift = exponent - 3;
+    let mant = mantissa.to_le_bytes();
+    for i in 0..3 {
+        let dest = shift + i;
+        if dest < 32 {
+            out[dest] = mant[i];
+        }
+    }
+    out
+}
+
+fn hash_pair(left: [u8; 32], right: [u8; 32]) -> [u8; 32] {
+    let mut cat = [0u8; 64];
+    cat[..32].copy_from_slice(&left);
+    cat[32..].copy_from_slice(&right);
+    let once = <bitcoin_hashes::sha256::Hash as BitcoinHash>::hash(&cat);
+    <bitcoin_hashes::sha256::Hash as BitcoinHash>::hash(once.as_ref())
+        .as_ref()
+        .try_into()
+        .expect("sha256 is 32 bytes")
+}
+
+fn independent_merkle(ids: &[[u8; 32]]) -> [u8; 32] {
+    let mut level = ids.to_vec();
+    while level.len() > 1 {
+        if level.len() % 2 == 1 {
+            let last = *level.last().expect("odd level has a last id");
+            level.push(last);
+        }
+        let mut next = Vec::with_capacity(level.len() / 2);
+        for pair in level.chunks(2) {
+            next.push(hash_pair(pair[0], pair[1]));
+        }
+        level = next;
+    }
+    level[0]
 }
 
 fn script_code(result: Result<bool, ConsensusError>) -> Option<ScriptErrorCode> {
@@ -739,17 +783,14 @@ proptest! {
     /// ∀ bits ∈ ℕ: ExpandTarget(bits) produces valid U256 target
     #[test]
     fn prop_target_expansion_valid(
-        bits in 0x1d00ffffu64..=0x1d00ffffu64  // Valid bits range (inclusive)
+        exponent in 3u8..=32u8,
+        mantissa in 1u32..=0x007f_ffffu32
     ) {
         use blvm_consensus::pow;
 
-        // For valid bits, expansion should succeed
-        if let Ok(_expanded) = pow::expand_target(bits) {
-            // Expansion succeeded, which means target is valid
-            prop_assert!(bits > 0,
-                "Bits must be positive: bits={}",
-                bits);
-        }
+        let bits = ((exponent as u64) << 24) | (mantissa as u64);
+        let expanded = pow::expand_target(bits).expect("compact target");
+        prop_assert_eq!(expanded.to_le_bytes(), compact_target_le(bits));
     }
 
     /// Invariant: Difficulty increases as target decreases
@@ -916,12 +957,16 @@ proptest! {
             lock_time: 0,
         };
 
-        // Calculate fee
-        if let Ok(fee) = economic::calculate_fee(&tx, &utxo_set) {
-            let expected_fee = total_input_value - total_output_value;
-            prop_assert_eq!(fee, expected_fee,
-                "Transaction fee must match Orange Paper formula: actual={}, expected={}",
-                fee, expected_fee);
+        match economic::calculate_fee(&tx, &utxo_set) {
+            Ok(fee) => {
+                prop_assert!(total_output_value <= total_input_value);
+                prop_assert_eq!(fee, total_input_value - total_output_value);
+            }
+            Err(err) => {
+                prop_assert!(total_output_value > total_input_value);
+                let message = err.to_string();
+                prop_assert!(message.contains("Negative fee"));
+            }
         }
     }
 
@@ -1008,14 +1053,10 @@ proptest! {
         }
 
         // Calculate weight (without witness for simplicity)
-        if let Ok(weight) = segwit::calculate_transaction_weight(&tx, None) {
-            prop_assert!(weight > 0,
-                "Transaction weight must be positive: weight={}",
-                weight);
-            prop_assert!(weight <= W_MAX,
-                "Transaction weight must be <= W_MAX: weight={}, W_MAX={}",
-                weight, W_MAX);
-        }
+        let weight = segwit::calculate_transaction_weight(&tx, None).expect("weight");
+        prop_assert_eq!(weight % 4, 0);
+        prop_assert!(weight > 0);
+        prop_assert!(weight <= W_MAX);
     }
 }
 
@@ -1246,18 +1287,15 @@ proptest! {
     /// Mathematical specification:
     /// ∀ bits ∈ ℕ: 0 < ExpandTarget(bits) <= TARGET_MAX
     #[test]
-    fn prop_target_validity(
-        bits in 0x1d00ffffu64..=0x1d00ffffu64  // Valid bits range (inclusive)
-    ) {
+    fn prop_target_validity(exponent in 0u8..=255u8) {
         use blvm_consensus::pow;
-        use blvm_consensus::constants::MAX_TARGET;
 
-        if let Ok(_target) = pow::expand_target(bits) {
-            // Target expansion succeeded, which means it's valid
-            // Bits should be <= MAX_TARGET
-            prop_assert!(bits <= MAX_TARGET as u64,
-                "Bits must be <= MAX_TARGET: bits = {} > MAX_TARGET = {}",
-                bits, MAX_TARGET);
+        let bits = ((exponent as u64) << 24) | 0xffff;
+        let result = pow::expand_target(bits);
+        if (3..=32).contains(&exponent) {
+            prop_assert!(result.is_ok());
+        } else {
+            prop_assert!(result.is_err());
         }
     }
 
@@ -1300,7 +1338,7 @@ proptest! {
     #[test]
     fn prop_target_adjustment_bounds(
         prev_bits in 0x1d00ffffu64..=0x1d00ffffu64,
-        time_span in 3600u64..(2 * 7 * 24 * 3600)  // 1 hour to 2 weeks
+        time_span in 3600u64..=(4 * 7 * 24 * 3600)
     ) {
         use blvm_consensus::pow;
         use blvm_consensus::types::BlockHeader;
@@ -1329,19 +1367,14 @@ proptest! {
         let prev_headers = vec![header1.clone(), header2.clone()];
         let current_header = header2.clone();
 
-        if let Ok(next_bits) = pow::get_next_work_required(&current_header, &prev_headers) {
-            // Clamp timespan to [expected_time/4, expected_time*4]
-            let clamped_timespan = time_span.max(expected_time / 4).min(expected_time * 4);
-
-            // Next target should be within reasonable bounds
-            // If timespan is 4x expected, target should be 4x (bits decrease)
-            // If timespan is 1/4x expected, target should be 1/4x (bits increase)
-            prop_assert!(next_bits > 0,
-                "Next bits must be positive: NextTarget = {}",
-                next_bits);
-            prop_assert!(next_bits <= prev_bits * 4 || next_bits >= prev_bits / 4,
-                "Next bits should be within 4x adjustment: prev={}, next={}",
-                prev_bits, next_bits);
+        let next_bits = pow::get_next_work_required(&current_header, &prev_headers)
+            .expect("two headers adjust");
+        let old_target = pow::expand_target(prev_bits).expect("old target").to_be_bytes();
+        let new_target = pow::expand_target(next_bits).expect("new target").to_be_bytes();
+        if time_span >= expected_time {
+            prop_assert!(new_target >= old_target);
+        } else {
+            prop_assert!(new_target <= old_target);
         }
     }
 
@@ -1473,11 +1506,12 @@ proptest! {
             });
         }
 
-        if let Ok(merkle_root) = mining::calculate_merkle_root(&transactions) {
-            prop_assert_eq!(merkle_root.len(), 32,
-                "Merkle root must be 32 bytes: length = {}",
-                merkle_root.len());
-        }
+        let merkle_root = mining::calculate_merkle_root(&transactions).expect("merkle");
+        let ids: Vec<[u8; 32]> = transactions
+            .iter()
+            .map(blvm_consensus::block::calculate_tx_id)
+            .collect();
+        prop_assert_eq!(merkle_root, independent_merkle(&ids));
     }
 
     /// Invariant: Block Hash Validity
@@ -1638,12 +1672,8 @@ proptest! {
             "Input value must be >= output value: inputs = {}, outputs = {}",
             total_input_value, total_output_value);
 
-        // Fee should be non-negative for valid transactions
-        if let Ok(fee) = economic::calculate_fee(&tx, &utxo_set) {
-            prop_assert!(fee >= 0,
-                "Fee must be non-negative: fee = {}",
-                fee);
-        }
+        let fee = economic::calculate_fee(&tx, &utxo_set).expect("fee");
+        prop_assert_eq!(fee, total_input_value - total_output_value);
     }
 
     /// Invariant: Fee Non-Negativity
@@ -1702,11 +1732,18 @@ proptest! {
             lock_time: 0,
         };
 
-        // Fee should be non-negative
-        if let Ok(fee) = economic::calculate_fee(&tx, &utxo_set) {
-            prop_assert!(fee >= 0,
-                "Transaction fee must be non-negative: fee = {}",
-                fee);
+        let total_in = 1_000_000 * (num_inputs as i64) * (num_inputs as i64 + 1) / 2;
+        let total_out = 500_000 * (num_outputs as i64) * (num_outputs as i64 + 1) / 2;
+        match economic::calculate_fee(&tx, &utxo_set) {
+            Ok(fee) => {
+                prop_assert!(total_out <= total_in);
+                prop_assert_eq!(fee, total_in - total_out);
+            }
+            Err(err) => {
+                prop_assert!(total_out > total_in);
+                let message = err.to_string();
+                prop_assert!(message.contains("Negative fee"));
+            }
         }
     }
 
@@ -1865,14 +1902,10 @@ proptest! {
         }
 
         // Calculate weight (without witness for simplicity)
-        if let Ok(weight) = segwit::calculate_transaction_weight(&tx, None) {
-            prop_assert!(weight > 0,
-                "Transaction weight must be positive: weight = {}",
-                weight);
-            prop_assert!(weight <= W_MAX,
-                "Transaction weight must be <= W_MAX: weight = {} > W_MAX = {}",
-                weight, W_MAX);
-        }
+        let weight = segwit::calculate_transaction_weight(&tx, None).expect("weight");
+        prop_assert_eq!(weight % 4, 0);
+        prop_assert!(weight > 0);
+        prop_assert!(weight <= W_MAX);
     }
 
     /// Invariant: LockTime Validity
@@ -2518,16 +2551,13 @@ proptest! {
 
         // Serialize and deserialize
         let serialized = serialize_block_header(&header);
-        if let Ok(deserialized) = deserialize_block_header(&serialized) {
-            prop_assert_eq!(deserialized.version, header.version,
-                "Header version round-trip failed");
-            prop_assert_eq!(deserialized.timestamp, header.timestamp,
-                "Header timestamp round-trip failed");
-            prop_assert_eq!(deserialized.bits, header.bits,
-                "Header bits round-trip failed");
-            prop_assert_eq!(deserialized.nonce, header.nonce,
-                "Header nonce round-trip failed");
-        }
+        let deserialized = deserialize_block_header(&serialized).expect("header");
+        prop_assert_eq!(deserialized.version, header.version);
+        prop_assert_eq!(deserialized.timestamp, header.timestamp);
+        prop_assert_eq!(deserialized.bits, header.bits);
+        prop_assert_eq!(deserialized.nonce, header.nonce);
+        prop_assert_eq!(deserialized.prev_block_hash, header.prev_block_hash);
+        prop_assert_eq!(deserialized.merkle_root, header.merkle_root);
     }
 
     /// Invariant: Transaction Round-Trip
@@ -2570,16 +2600,11 @@ proptest! {
 
         // Serialize and deserialize
         let serialized = serialize_transaction(&tx);
-        if let Ok(deserialized) = deserialize_transaction(&serialized) {
-            prop_assert_eq!(deserialized.version, tx.version,
-                "Transaction version round-trip failed");
-            prop_assert_eq!(deserialized.inputs.len(), tx.inputs.len(),
-                "Transaction input count round-trip failed");
-            prop_assert_eq!(deserialized.outputs.len(), tx.outputs.len(),
-                "Transaction output count round-trip failed");
-            prop_assert_eq!(deserialized.lock_time, tx.lock_time,
-                "Transaction lock_time round-trip failed");
-        }
+        let deserialized = deserialize_transaction(&serialized).expect("transaction");
+        prop_assert_eq!(deserialized.version, tx.version);
+        prop_assert_eq!(deserialized.inputs.len(), tx.inputs.len());
+        prop_assert_eq!(deserialized.outputs.len(), tx.outputs.len());
+        prop_assert_eq!(deserialized.lock_time, tx.lock_time);
     }
 
     /// Invariant: VarInt Round-Trip
@@ -2594,11 +2619,9 @@ proptest! {
 
         // Encode and decode
         let encoded = encode_varint(value);
-        if let Ok((decoded, _)) = decode_varint(&encoded) {
-            prop_assert_eq!(decoded, value,
-                "VarInt round-trip failed: encoded = {:?}, decoded = {}, original = {}",
-                encoded, decoded, value);
-        }
+        let (decoded, consumed) = decode_varint(&encoded).expect("varint");
+        prop_assert_eq!(decoded, value);
+        prop_assert_eq!(consumed, encoded.len());
     }
 
     /// Invariant: VarInt Bounds
@@ -2846,20 +2869,14 @@ proptest! {
         // Calculate fee rates
         let mut fee_rates = Vec::new();
         for tx in &transactions {
-            if let Ok(fee) = calculate_fee(tx, &utxo_set) {
-                let size = calculate_transaction_size(tx);
-                if size > 0 {
-                    let fee_rate = fee as f64 / size as f64;
-                    fee_rates.push(fee_rate);
-                }
-            }
+            let fee = calculate_fee(tx, &utxo_set).expect("fee");
+            let size = calculate_transaction_size(tx);
+            prop_assert!(size > 0);
+            fee_rates.push(fee as f64 / size as f64);
         }
 
-        // Fee rates should be in descending order (higher fee rate = higher priority)
         for i in 1..fee_rates.len() {
-            prop_assert!(fee_rates[i-1] >= fee_rates[i] || fee_rates[i-1] == fee_rates[i],
-                "Fee rates should be ordered: fee_rate[{}] = {} should be >= fee_rate[{}] = {}",
-                i-1, fee_rates[i-1], i, fee_rates[i]);
+            prop_assert!(fee_rates[i - 1] >= fee_rates[i]);
         }
     }
 }
@@ -2899,11 +2916,9 @@ proptest! {
         // Longer chain should have more work
         if num_blocks > 1 {
             let shorter_chain = &blocks[0..num_blocks-1];
-            if let Ok(should_reorg) = reorganization::should_reorganize(&blocks, shorter_chain) {
-                prop_assert!(should_reorg,
-                    "Longer chain should have more work: longer = {}, shorter = {}",
-                    blocks.len(), shorter_chain.len());
-            }
+            let should_reorg = reorganization::should_reorganize(&blocks, shorter_chain)
+                .expect("reorg");
+            prop_assert!(should_reorg);
         }
     }
 
@@ -3049,16 +3064,13 @@ proptest! {
         }
 
         // Check which chain should win
-        if let Ok(should_reorg) = reorganization::should_reorganize(&chain2, &chain1) {
-            if chain2_len > chain1_len {
-                prop_assert!(should_reorg,
-                    "Longer chain should win: chain2_len = {} > chain1_len = {}",
-                    chain2_len, chain1_len);
-            } else if chain2_len < chain1_len {
-                prop_assert!(!should_reorg,
-                    "Shorter chain should not win: chain2_len = {} < chain1_len = {}",
-                    chain2_len, chain1_len);
-            }
+        let should_reorg = reorganization::should_reorganize(&chain2, &chain1).expect("reorg");
+        if chain2_len > chain1_len {
+            prop_assert!(should_reorg);
+        } else if chain2_len < chain1_len {
+            prop_assert!(!should_reorg);
+        } else {
+            prop_assert!(!should_reorg);
         }
     }
 }
@@ -3160,24 +3172,33 @@ proptest! {
         for i in 0..num_txs {
             transactions.push(Transaction {
                 version: 1,
-                inputs: vec![].into(),
+                inputs: vec![TransactionInput {
+                    prevout: OutPoint {
+                        hash: [i as u8; 32],
+                        index: i as u32,
+                    },
+                    script_sig: vec![i as u8; 20],
+                    sequence: 0xffffffff,
+                }]
+                .into(),
                 outputs: vec![TransactionOutput {
                     value: 1000 * (i as i64 + 1),
                     script_pubkey: vec![i as u8; 20],
-                }].into(),
+                }]
+                .into(),
                 lock_time: 0,
             });
         }
 
         // Calculate Merkle root
-        if let Ok(root1) = calculate_merkle_root(&transactions) {
-            // Same transactions should produce same root
-            if let Ok(root2) = calculate_merkle_root(&transactions) {
-                prop_assert_eq!(root1, root2,
-                    "Merkle root must be deterministic: root1 = {:?}, root2 = {:?}",
-                    root1, root2);
-            }
-        }
+        let root1 = calculate_merkle_root(&transactions).expect("merkle");
+        let root2 = calculate_merkle_root(&transactions).expect("merkle repeat");
+        prop_assert_eq!(root1, root2);
+        let ids: Vec<[u8; 32]> = transactions
+            .iter()
+            .map(blvm_consensus::block::calculate_tx_id)
+            .collect();
+        prop_assert_eq!(root1, independent_merkle(&ids));
     }
 }
 

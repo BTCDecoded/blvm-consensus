@@ -14,7 +14,7 @@ use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::types::Network;
-use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
+use blvm_consensus::{Block, UtxoSet, ValidationResult};
 use hex;
 use serde_json::Value;
 use std::fs;
@@ -152,7 +152,7 @@ pub fn score_core_block_tests(vectors: &[BlockTestVector]) -> (usize, usize) {
                 let is_valid = matches!(validation_result, ValidationResult::Valid);
                 is_valid == matches!(vector.expected_result, ValidationResult::Valid)
             }
-            Err(_) => !matches!(vector.expected_result, ValidationResult::Valid),
+            Err(_) => false,
         };
 
         if matches {
@@ -205,17 +205,11 @@ pub fn run_core_block_tests(vectors: &[BlockTestVector]) -> Result<(), Box<dyn s
                 }
             }
             Err(e) => {
-                let expected_valid = matches!(vector.expected_result, ValidationResult::Valid);
-                if !expected_valid {
-                    // Expected to fail, so this is OK
-                    passed += 1;
-                } else {
-                    failed += 1;
-                    eprintln!(
-                        "Block test {} failed with error: {}. Height: {}",
-                        i, e, vector.height
-                    );
-                }
+                failed += 1;
+                eprintln!(
+                    "Block test {} failed with error: {}. Height: {}",
+                    i, e, vector.height
+                );
             }
         }
     }
@@ -239,43 +233,4 @@ pub struct BlockTestVector {
     pub expected_result: ValidationResult,
     pub height: u64,
     pub prev_utxo_set: UtxoSet,
-}
-
-// Note: ValidationResult is already defined in consensus_proof crate
-// This is just for test vector structure
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_block_test_vector_loading() {
-        // Test that loading works even if directory doesn't exist
-        let vectors = load_block_test_vectors("tests/test_data/core_vectors/blocks");
-        assert!(vectors.is_ok());
-    }
-
-    #[test]
-    fn test_block_vector_structure() {
-        // Test minimal block vector structure
-        let vector = BlockTestVector {
-            block: Block {
-                header: BlockHeader {
-                    version: 1,
-                    prev_block_hash: [0; 32],
-                    merkle_root: [0; 32],
-                    timestamp: 0,
-                    bits: 0x1d00ffff,
-                    nonce: 0,
-                },
-                transactions: vec![].into(),
-            },
-            expected_result: ValidationResult::Invalid("Test block".to_string()),
-            height: 0,
-            prev_utxo_set: UtxoSet::default(),
-        };
-
-        // Verify structure is valid
-        assert_eq!(vector.height, 0);
-    }
 }

@@ -1,4 +1,5 @@
 use blvm_consensus::UtxoSet;
+use blvm_consensus::constants::MIN_RELAY_FEE;
 use blvm_consensus::mempool;
 use blvm_consensus::types::Network;
 
@@ -15,10 +16,21 @@ fn test_rbf_sequence_checks() {
     let rbf_tx = create_rbf_tx(0xfffffffd);
     let non_rbf_tx = create_rbf_tx(0xffffffffu64);
 
-    // Test RBF replacement logic (live 4-arg API includes UtxoSet)
-    let can_replace = mempool::replacement_checks(&rbf_tx, &non_rbf_tx, &utxo, &pool);
-    // Whether it succeeds depends on implementation, just exercise the path
-    let _ = can_replace;
+    assert!(
+        !mempool::replacement_checks(&rbf_tx, &non_rbf_tx, &utxo, &pool)
+            .expect("replacement check"),
+        "an existing transaction that does not signal replacement cannot be replaced"
+    );
+
+    let mut existing = create_rbf_tx(0xfffffffd);
+    existing.outputs[0].value = 9_000;
+    let mut replacement = existing.clone();
+    replacement.outputs[0].value = 10_000 - 1_000 - MIN_RELAY_FEE - 1;
+    assert!(
+        mempool::replacement_checks(&replacement, &existing, &utxo, &pool)
+            .expect("replacement check"),
+        "a higher fee for the same output replaces a signaling transaction"
+    );
 }
 
 #[test]

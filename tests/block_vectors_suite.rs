@@ -65,15 +65,17 @@ fn test_score_programmatic_coinbase_block_vector() {
 #[test]
 fn test_execute_core_block_vectors_if_present() {
     let vectors = load_block_test_vectors("tests/test_data/core_vectors/blocks").expect("load");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(
+        !vectors.is_empty(),
+        "block_valid.json must load at least one block"
+    );
     let (passed, failed) = score_core_block_tests(&vectors);
-    eprintln!(
-        "Core block vectors: {passed}/{} scored, {failed} mismatches",
+    assert_eq!(
+        failed,
+        0,
+        "block vectors {passed}/{} matched",
         vectors.len()
     );
-    assert_eq!(passed + failed, vectors.len());
 }
 
 #[test]

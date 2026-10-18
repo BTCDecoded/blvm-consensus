@@ -142,20 +142,31 @@ fn test_common_opcodes_with_flags() {
 /// Tests common opcode sequences to verify they work correctly together.
 #[test]
 fn test_opcode_interactions() {
-    // OP_1 OP_DUP
     let script = vec![OP_1, OP_DUP];
     let mut stack = Vec::new();
-    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
+    assert_eq!(
+        eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 2);
+    assert_eq!(stack[0].as_slice(), &[1]);
+    assert_eq!(stack[1].as_slice(), &[1]);
 
-    // OP_1 OP_1 OP_EQUAL
     let script = vec![OP_1, OP_1, OP_EQUAL];
     let mut stack = Vec::new();
-    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
+    assert_eq!(
+        eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack[0].as_slice(), &[1]);
 
-    // OP_1 OP_2 OP_EQUAL
     let script = vec![OP_1, OP_2, OP_EQUAL];
     let mut stack = Vec::new();
-    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_ok());
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap());
+    assert!(
+        stack.last().is_some_and(|top| top.is_empty()),
+        "OP_1 OP_2 OP_EQUAL must push false, stack {stack:?}"
+    );
 }
 
 /// Test script verification in different contexts

@@ -129,20 +129,36 @@ fn test_checksig_stack_underflow_errors() {
     let script_pubkey = vec![OP_CHECKSIG, OP_NOT];
     let empty_sig: Vec<u8> = vec![];
     let result = verify_script(&empty_sig, &script_pubkey, None, flags);
-    assert!(result.is_err() || result == Ok(false));
+    assert!(
+        matches!(
+            result,
+            Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode {
+                code: blvm_consensus::error::ScriptErrorCode::InvalidStackOperation,
+                ..
+            })
+        ),
+        "empty stack CHECKSIG must be InvalidStackOperation, got {result:?}"
+    );
 
     // Core: ["0", "CHECKSIG NOT", "STRICTENC", "INVALID_STACK_OPERATION"] — one item, needs two
     let script_sig = vec![OP_0];
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
-    assert!(result.is_err() || result == Ok(false));
+    assert!(
+        matches!(
+            result,
+            Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode {
+                code: blvm_consensus::error::ScriptErrorCode::InvalidStackOperation,
+                ..
+            })
+        ),
+        "one-item CHECKSIG must be InvalidStackOperation, got {result:?}"
+    );
 }
 
 #[test]
 fn test_core_checksig_not_ok_vectors_if_present() {
     let vectors = load_default_script_vectors().expect("load script_tests.json");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
     let subset: Vec<_> = vectors
         .into_iter()
@@ -153,10 +169,10 @@ fn test_core_checksig_not_ok_vectors_if_present() {
                 && !v.script_sig_asm.contains("0x")
         })
         .collect();
-
-    if subset.is_empty() {
-        return;
-    }
+    assert!(
+        !subset.is_empty(),
+        "CHECKSIG NOT success rows with an empty signature must load"
+    );
 
     let (passed, failed) = score_core_script_tests(&subset);
     assert_eq!(
@@ -168,26 +184,23 @@ fn test_core_checksig_not_ok_vectors_if_present() {
 #[test]
 fn test_core_checksig_with_context_if_present() {
     let vectors = load_default_script_vectors().expect("load");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
+    // An empty signature does not depend on the prevout those other rows were signed for.
     let subset: Vec<_> = vectors
         .into_iter()
         .filter(|v| {
             v.expected_ok
-                && (v.script_sig_asm.contains("CHECKSIG")
-                    || v.script_pubkey_asm.contains("CHECKSIG"))
-                && !v.script_sig_asm.contains("0x")
-                && !v.script_pubkey_asm.contains("0x")
+                && v.script_pubkey_asm.contains("CHECKSIG")
+                && v.script_pubkey_asm.contains("NOT")
+                && (v.script_sig_asm == "0" || v.script_sig_asm.is_empty())
         })
         .collect();
+    assert!(
+        !subset.is_empty(),
+        "empty-signature CHECKSIG NOT rows must load"
+    );
 
-    if subset.is_empty() {
-        return;
-    }
-
-    let mut passed = 0usize;
     let mut failed = 0usize;
     for vector in &subset {
         let (tx, prevouts) = sample_tx(vector.script_sig.clone(), vector.script_pubkey.clone());
@@ -202,53 +215,40 @@ fn test_core_checksig_with_context_if_present() {
             Some(500_000),
             Network::Mainnet,
         );
-        let ok = matches!(result, Ok(v) if v);
-        if ok == vector.expected_ok {
-            passed += 1;
-        } else {
+        if !matches!(result, Ok(true)) {
             failed += 1;
         }
     }
-
-    eprintln!(
-        "Core CHECKSIG with context: {passed}/{} scored, {failed} mismatches",
-        subset.len()
-    );
-    assert_eq!(passed + failed, subset.len());
     assert_eq!(
         failed, 0,
-        "CHECKSIG vectors with tx context should match Core expectations"
+        "empty-signature CHECKSIG NOT rows must succeed with a transaction"
     );
 }
 
 #[test]
 fn test_core_checksig_strictenc_progress_if_present() {
     let vectors = load_default_script_vectors().expect("load");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
     let subset: Vec<_> = vectors
         .into_iter()
         .filter(|v| {
             v.expected_ok
-                && v.flags == parse_flag_string("P2SH,STRICTENC")
+                && v.flags == parse_flag_string("STRICTENC")
                 && v.script_pubkey_asm.contains("CHECKSIG")
+                && v.script_pubkey_asm.contains("NOT")
         })
         .collect();
-
-    if subset.is_empty() {
-        return;
-    }
+    assert!(
+        !subset.is_empty(),
+        "STRICTENC CHECKSIG NOT success rows must load"
+    );
 
     let (passed, failed) = score_core_script_tests(&subset);
-    eprintln!(
-        "Core P2SH,STRICTENC CHECKSIG OK progress: {passed}/{}",
-        subset.len()
-    );
-    assert!(
-        passed >= subset.len().saturating_sub(5),
-        "CHECKSIG vector regressions: {passed} passed, {failed} failed (subset len {})",
+    assert_eq!(
+        failed,
+        0,
+        "STRICTENC CHECKSIG NOT vectors {passed}/{} matched",
         subset.len()
     );
 }

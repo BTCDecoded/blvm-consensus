@@ -85,69 +85,6 @@ proptest! {
     }
 }
 
-proptest! {
-    #[test]
-    fn prop_block_header_version(version in 0i64..10i64) {
-        let _consensus = ConsensusProof::new();
-        let header = BlockHeader {
-            version,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp: 1234567890,
-            bits: 0x1d00ffff_u64,
-            nonce: 0,
-        };
-        prop_assert_eq!(header.version, version);
-    }
-}
-
-proptest! {
-    #[test]
-    fn prop_block_timestamp(timestamp in 0u64..2000000000u64) {
-        let header = BlockHeader {
-            version: 1i64,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp,
-            bits: 0x1d00ffff_u64,
-            nonce: 0,
-        };
-        prop_assert!(header.timestamp >= 0);
-    }
-}
-
-proptest! {
-    #[test]
-    fn prop_block_merkle_root(root_bytes in prop::array::uniform32(0u8..=255u8)) {
-        let header = BlockHeader {
-            version: 1i64,
-            prev_block_hash: [0; 32],
-            merkle_root: root_bytes,
-            timestamp: 1234567890,
-            bits: 0x1d00ffff_u64,
-            nonce: 0,
-        };
-        let is_zero = root_bytes.iter().all(|&b| b == 0);
-        let _ = is_zero;
-    }
-}
-
-proptest! {
-    #[test]
-    fn prop_block_bits(bits in 0x01000000u64..=0x1d00ffffu64) {
-        let header = BlockHeader {
-            version: 1i64,
-            prev_block_hash: [0; 32],
-            merkle_root: [1; 32],
-            timestamp: 1234567890,
-            bits,
-            nonce: 0,
-        };
-        prop_assert!(header.bits != 0);
-        prop_assert!(header.bits <= 0x1d00ffff);
-    }
-}
-
 #[test]
 fn block_empty_transactions() {
     let block = Block {
@@ -172,10 +109,11 @@ fn block_empty_transactions() {
         None,
         blvm_consensus::types::Network::Mainnet,
     );
-    assert!(result.is_ok());
-    if let Ok((validation_result, _)) = result {
-        assert!(matches!(validation_result, ValidationResult::Invalid(_)));
-    }
+    let (validation_result, _) = result.expect("empty block returns a validation result");
+    assert!(
+        matches!(validation_result, ValidationResult::Invalid(_)),
+        "a block with no transactions must be Invalid, got {validation_result:?}"
+    );
 }
 
 #[test]
@@ -224,9 +162,4 @@ proptest! {
             prop_assert!(earlier_subsidy >= subsidy || subsidy == 0);
         }
     }
-}
-
-#[test]
-fn block_validation_deterministic() {
-    // Placeholder: determinism is verified by the main test suites
 }

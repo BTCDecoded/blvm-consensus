@@ -11,6 +11,7 @@ use bitcoinconsensus::{
     Error, Utxo, VERIFY_DERSIG, VERIFY_NULLDUMMY, VERIFY_P2SH, VERIFY_WITNESS, verify_with_flags,
 };
 use blvm_consensus::block::calculate_tx_id;
+use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
 use blvm_consensus::mining::compute_merkle_root_and_mutated;
 use blvm_consensus::opcodes::{OP_0, OP_CHECKSIG, OP_PUSHDATA1, OP_RETURN};
 use blvm_consensus::script::flags::{
@@ -225,7 +226,7 @@ fn p2pk_challenge() -> (Vec<u8>, Vec<u8>) {
     (challenge, script_sig)
 }
 
-fn verdicts(script_sig: &[u8], challenge: &[u8]) -> (bool, bool, bool) {
+fn script_verdicts(script_sig: &[u8], challenge: &[u8]) -> (bool, bool) {
     let header = header();
     let mut stripped = vec![OP_RETURN, 0x24, 0xaa, 0x21, 0xa9, 0xed];
     stripped.extend(std::iter::repeat_n(0xff, 32));
@@ -234,12 +235,10 @@ fn verdicts(script_sig: &[u8], challenge: &[u8]) -> (bool, bool, bool) {
     let image = header_image(&header, &coinbase(stripped), &dummy());
     let spend = to_spend(&image, challenge);
     let signed = to_sign(calculate_tx_id(&spend), script_sig.to_vec());
-    let library = library_accepts(&signed, challenge);
-    let ours = blvm_accepts(&signed, challenge);
-    // A non-DER signature is a script error. That rejects the block.
-    let block_ok =
-        check_signet_block_solution(&solution_block(script_sig), challenge, 1).unwrap_or(false);
-    (library, ours, block_ok)
+    (
+        library_accepts(&signed, challenge),
+        blvm_accepts(&signed, challenge),
+    )
 }
 
 #[test]
@@ -250,7 +249,9 @@ fn signet_solution_matches_libbitcoinconsensus() {
     assert_eq!(SCRIPT_VERIFY_NULLDUMMY, VERIFY_NULLDUMMY);
 
     let (challenge, script_sig) = p2pk_challenge();
-    let (library, ours, block_ok) = verdicts(&script_sig, &challenge);
+    let (library, ours) = script_verdicts(&script_sig, &challenge);
+    let block_ok = check_signet_block_solution(&solution_block(&script_sig), &challenge, 1)
+        .expect("a well-formed signet solution returns a boolean");
     assert!(
         library && ours && block_ok,
         "valid signet solution: libbitcoinconsensus={library} blvm={ours} check_signet={block_ok}"
@@ -258,9 +259,16 @@ fn signet_solution_matches_libbitcoinconsensus() {
 
     let mut bad = script_sig;
     bad[1] ^= 0xff;
-    let (library, ours, block_ok) = verdicts(&bad, &challenge);
+    let (library, ours) = script_verdicts(&bad, &challenge);
     assert!(
-        !library && !ours && !block_ok,
-        "bad signet solution: libbitcoinconsensus={library} blvm={ours} check_signet={block_ok}"
+        !library && !ours,
+        "bad signet solution: libbitcoinconsensus={library} blvm={ours}"
     );
+    match check_signet_block_solution(&solution_block(&bad), &challenge, 1) {
+        Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::SigDer,
+            ..
+        }) => {}
+        other => panic!("a flipped signature byte must be SigDer, got {other:?}"),
+    }
 }

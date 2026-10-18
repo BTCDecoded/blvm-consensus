@@ -7,7 +7,6 @@ mod bip_compliance_tests;
 mod bip_enforcement_tests;
 mod blvm_integration_tests;
 mod consensus_validation;
-mod core_test_vectors;
 mod differential_tests;
 mod helpers;
 mod historical_replay;

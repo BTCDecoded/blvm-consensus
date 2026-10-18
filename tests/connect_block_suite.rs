@@ -842,16 +842,10 @@ fn test_connect_rejects_bip34_at_activation() {
     let block = block_with_txs(vec![coinbase], 1_231_006_505);
     let result = connect(&block, UtxoSet::default(), height);
     match result {
-        Ok((ValidationResult::Invalid(ref r), _, _)) => {
-            assert!(
-                r.contains("BIP34") || r.contains("height") || r.contains("coinbase"),
-                "expected BIP34 rejection, got {r}"
-            );
-        }
-        Err(_) => {} // scriptSig height parse error is also a rejection
-        Ok((ValidationResult::Valid, _, _)) => {
-            panic!("BIP34 violation must not connect at activation height");
-        }
+        Ok((ValidationResult::Invalid(ref r), _, _)) if r.contains("BIP34") => {}
+        other => panic!(
+            "coinbase without a height at BIP34 activation must be Invalid(BIP34), got {other:?}"
+        ),
     }
 }
 

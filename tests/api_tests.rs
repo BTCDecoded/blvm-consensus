@@ -481,7 +481,7 @@ fn test_mine_block() {
             prev_block_hash: [0; 32],
             merkle_root: [0; 32],
             timestamp: 1231006505,
-            bits: 0x0300ffff,
+            bits: 0x207fffff,
             nonce: 0,
         },
         transactions: vec![Transaction {
@@ -505,11 +505,12 @@ fn test_mine_block() {
         .into_boxed_slice(),
     };
 
-    let (_mined_block, result) = consensus.mine_block(block, 1000).unwrap();
-    assert!(matches!(
-        result,
-        MiningResult::Success | MiningResult::Failure
-    ));
+    let (mined, result) = consensus.mine_block(block, 64).unwrap();
+    assert_eq!(result, MiningResult::Success);
+    assert_eq!(
+        blvm_consensus::pow::check_proof_of_work(&mined.header).expect("expanded target"),
+        true
+    );
 }
 
 #[test]

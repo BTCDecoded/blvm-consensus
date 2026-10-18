@@ -62,8 +62,10 @@ fn test_csv_sequence_disabled_fails() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x400);
 
-    // Should fail: sequence disabled per BIP112
-    assert!(matches!(result, Ok(false) | Err(_)));
+    assert!(
+        !result.expect("csv"),
+        "an input sequence with the disable bit set fails CSV"
+    );
 }
 
 #[test]
@@ -119,8 +121,10 @@ fn test_csv_insufficient_locktime_fails() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x400);
 
-    // Should fail: input_sequence (3 blocks) < required_sequence (4 blocks)
-    assert!(matches!(result, Ok(false) | Err(_)));
+    assert!(
+        !result.expect("csv"),
+        "3 blocks do not satisfy a 4-block CSV push"
+    );
 }
 
 #[test]
@@ -355,8 +359,10 @@ fn test_csv_bip68_encoding() {
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x400);
 
-    // Should fail: sequence disabled (0x80000000 bit set)
-    assert!(matches!(result, Ok(false) | Err(_)));
+    assert!(
+        !result.expect("csv"),
+        "the input disable bit fails CSV when the stack operand is enabled"
+    );
 }
 
 #[test]
@@ -455,11 +461,10 @@ fn test_csv_multiple_inputs_context() {
 
 #[test]
 fn test_csv_in_script_pubkey() {
-    // CSV can be in scriptPubkey (output locking script)
-    let required_sequence: u32 = 0x00000004; // 4 blocks
-    let mut script_pubkey = vec![OP_1]; // OP_1
-    script_pubkey.extend_from_slice(&encode_script_int(required_sequence));
-    script_pubkey.push(OP_CHECKSEQUENCEVERIFY); // CSV
+    let required_sequence: u32 = 0x00000004;
+    let mut script_pubkey = encode_script_int(required_sequence);
+    script_pubkey.push(OP_CHECKSEQUENCEVERIFY);
+    script_pubkey.push(OP_1);
 
     let tx = Transaction {
         version: 2,
@@ -468,13 +473,13 @@ fn test_csv_in_script_pubkey() {
                 hash: [1; 32].into(),
                 index: 0,
             },
-            script_sig: vec![OP_1], // OP_1 (unlocks scriptPubkey)
-            sequence: 0x00000005,   // 5 blocks >= required 4 blocks
+            script_sig: vec![],
+            sequence: 0x00000005,
         }]
         .into(),
         outputs: vec![TransactionOutput {
             value: 1000,
-            script_pubkey,
+            script_pubkey: vec![OP_1].into(),
         }]
         .into(),
         lock_time: 0,
@@ -488,17 +493,17 @@ fn test_csv_in_script_pubkey() {
         },
         std::sync::Arc::new(UTXO {
             value: 1000000,
-            script_pubkey: vec![OP_1].into(), // Previous output script
+            script_pubkey: script_pubkey.into(),
             is_coinbase: false,
             height: 0,
         }),
     );
 
     let result = validate_with_context(&tx, &utxo_set, 0, 0, 0x400);
-
-    // Should pass: CSV in scriptPubkey validates correctly
-    assert!(result.is_ok());
-    assert!(result.unwrap());
+    assert!(
+        result.expect("csv scriptPubKey"),
+        "the spent scriptPubKey accepts a 5-block sequence against a 4-block push"
+    );
 }
 
 #[test]

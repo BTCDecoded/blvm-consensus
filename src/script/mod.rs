@@ -3099,12 +3099,14 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             let mut sig_index = 0;
             let mut valid_sigs = 0u8;
 
-            // Stack order is the reverse of script order. Encoding failure aborts.
+            // Pubkeys are script order and signatures are bottom-to-top.
+            // CHECKMULTISIG pops the top signature against the last pubkey first.
             for pubkey_bytes in pubkeys.iter().rev() {
                 if sig_index >= signatures.len() {
                     break;
                 }
-                if signatures[sig_index].is_empty() {
+                let signature_bytes = &signatures[signatures.len() - 1 - sig_index];
+                if signature_bytes.is_empty() {
                     continue;
                 }
                 if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE != 0
@@ -3116,7 +3118,6 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                         message: "witness v0 public key must be compressed".into(),
                     }));
                 }
-                let signature_bytes = &signatures[sig_index];
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                 match crate::transaction_hash::calculate_bip143_sighash(
                     tx,

@@ -1,11 +1,13 @@
 //! COV-C-04c: Proof-of-work API coverage (`pow.rs`).
 
 use blvm_consensus::constants::{DIFFICULTY_ADJUSTMENT_INTERVAL, TARGET_TIME_PER_BLOCK};
+use blvm_consensus::error::ConsensusError;
 use blvm_consensus::pow::{
     batch_check_proof_of_work, check_proof_of_work, difficulty_from_bits, expand_target,
     get_next_work_required, get_next_work_required_corrected,
 };
 use blvm_consensus::types::BlockHeader;
+use sha2::{Digest, Sha256};
 
 fn easy_header(nonce: u64) -> BlockHeader {
     BlockHeader {
@@ -18,10 +20,53 @@ fn easy_header(nonce: u64) -> BlockHeader {
     }
 }
 
+fn header_bytes(header: &BlockHeader) -> [u8; 80] {
+    let mut bytes = [0u8; 80];
+    bytes[0..4].copy_from_slice(&(header.version as u32).to_le_bytes());
+    bytes[4..36].copy_from_slice(&header.prev_block_hash);
+    bytes[36..68].copy_from_slice(&header.merkle_root);
+    bytes[68..72].copy_from_slice(&(header.timestamp as u32).to_le_bytes());
+    bytes[72..76].copy_from_slice(&(header.bits as u32).to_le_bytes());
+    bytes[76..80].copy_from_slice(&(header.nonce as u32).to_le_bytes());
+    bytes
+}
+
+/// Independent of `check_proof_of_work`: double SHA256 compared with the expanded target.
+fn hash_meets_target(header: &BlockHeader) -> bool {
+    if header.bits & 0x0080_0000 != 0 {
+        return false;
+    }
+    let Ok(target) = expand_target(header.bits) else {
+        return false;
+    };
+    let target_bytes = target.to_le_bytes();
+    if target_bytes == [0u8; 32] {
+        return false;
+    }
+    let hash1 = Sha256::digest(header_bytes(header));
+    let hash2 = Sha256::digest(hash1);
+    for i in (0..32).rev() {
+        if hash2[i] != target_bytes[i] {
+            return hash2[i] < target_bytes[i];
+        }
+    }
+    true
+}
+
 #[test]
 fn test_check_proof_of_work_succeeds_for_easy_bits_header() {
-    let result = check_proof_of_work(&easy_header(0));
-    assert!(result.is_ok(), "easy bits must not error in PoW check");
+    let mut header = easy_header(0);
+    header.bits = 0x207f_ffff;
+    let nonce = (0..256u64)
+        .find(|nonce| {
+            header.nonce = *nonce;
+            hash_meets_target(&header)
+        })
+        .expect("regtest limit admits a header within 256 nonces");
+    header.nonce = nonce;
+    assert_eq!(check_proof_of_work(&header).unwrap(), true);
+    header.bits |= 0x0080_0000;
+    assert_eq!(check_proof_of_work(&header).unwrap(), false);
 }
 
 #[test]
@@ -29,8 +74,8 @@ fn test_check_proof_of_work_rejects_overlarge_target() {
     let mut header = easy_header(0);
     header.bits = 0xff00ffff;
     match check_proof_of_work(&header) {
-        Ok(valid) => assert!(!valid),
-        Err(_) => {}
+        Err(ConsensusError::InvalidProofOfWork(_)) => {}
+        other => panic!("exponent 0xff must be InvalidProofOfWork, got {other:?}"),
     }
 }
 

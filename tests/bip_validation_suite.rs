@@ -114,8 +114,8 @@ fn test_check_bip34_rejects_missing_height() {
     let block = block_with_coinbase(coinbase);
     let result = check_bip34(&block, height, &ctx());
     match result {
-        Ok(false) | Err(_) => {}
-        Ok(true) => panic!("BIP34 violation must not pass"),
+        Ok(false) => {}
+        other => panic!("missing BIP34 height must be Ok(false), got {other:?}"),
     }
 }
 

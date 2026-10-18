@@ -6,7 +6,6 @@
 //!
 //! Consensus-critical: Incorrect weight calculation causes block rejection/acceptance divergence.
 
-use blvm_consensus::SEGWIT_ACTIVATION_MAINNET;
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::segwit::calculate_transaction_weight;
@@ -41,15 +40,11 @@ fn test_block_weight_exact_limit() {
         lock_time: 0,
     };
 
-    let witness = Some(Witness::new());
-    let weight = calculate_transaction_weight(&tx, witness.as_ref());
-
-    // Should calculate weight successfully
-    assert!(weight.is_ok());
-    let weight_value = weight.unwrap();
-
-    // Weight should be positive
-    assert!(weight_value > 0);
+    let weight = calculate_transaction_weight(&tx, Some(&Witness::new())).expect("weight");
+    assert_eq!(
+        weight, 240,
+        "one empty input and one empty output is 60 stripped bytes, weight 4 times that"
+    );
 }
 
 /// Test block weight exceeding 4MB limit
@@ -58,11 +53,10 @@ fn test_block_weight_exceeding_limit() {
     // Create a block that would exceed 4MB weight
     // This would need to be constructed with actual size calculations
 
-    // Block weight > 4,000,000 should be rejected
-    let max_weight = MAX_BLOCK_WEIGHT;
-    let exceeding_weight = MAX_BLOCK_WEIGHT + 1;
-
-    assert!(exceeding_weight > max_weight);
+    assert_eq!(
+        blvm_consensus::witness::weight_to_vsize(MAX_BLOCK_WEIGHT + 1),
+        1_000_001
+    );
 }
 
 /// Test weight calculation with SegWit discount
@@ -99,13 +93,14 @@ fn test_segwit_weight_discount() {
     let weight_with_witness = calculate_transaction_weight(&tx, witness.as_ref());
     assert!(weight_with_witness.is_ok());
 
-    // SegWit transaction should have different weight calculation
-    // (witness data counted 1x instead of 4x)
-    let _weight_no = weight_no_witness.unwrap();
-    let _weight_with = weight_with_witness.unwrap();
-
-    // Weights may be equal if witness is empty, but calculation method differs
-    // weight_no and weight_with are u64 (Natural), always non-negative
+    let weight_no = weight_no_witness.expect("bare weight");
+    let weight_with = weight_with_witness.expect("empty witness weight");
+    assert_eq!(
+        weight_no % 4,
+        0,
+        "no witness means weight is 4 times the base size"
+    );
+    assert_eq!(weight_with, weight_no, "an empty witness adds no bytes");
 }
 
 /// Test weight calculation with mixed witness/non-witness transactions
@@ -154,25 +149,21 @@ fn test_mixed_witness_weight() {
     let segwit_weight = calculate_transaction_weight(&segwit_tx, Some(&Witness::new()));
     let non_segwit_weight = calculate_transaction_weight(&non_segwit_tx, None);
 
-    assert!(segwit_weight.is_ok());
-    assert!(non_segwit_weight.is_ok());
-
-    // Total block weight would be sum of all transaction weights
-    let total_weight = segwit_weight.unwrap() + non_segwit_weight.unwrap();
-    assert!(total_weight > 0);
-    // total_weight is either <= MAX_BLOCK_WEIGHT or > MAX_BLOCK_WEIGHT (always true)
-    let _ = total_weight <= MAX_BLOCK_WEIGHT;
+    let segwit_weight = segwit_weight.expect("segwit weight");
+    let non_segwit_weight = non_segwit_weight.expect("non-segwit weight");
+    assert!(segwit_weight > 0);
+    assert!(non_segwit_weight > 0);
+    assert_ne!(
+        segwit_weight, non_segwit_weight,
+        "the extra script byte must change the weight"
+    );
+    assert!(segwit_weight < MAX_BLOCK_WEIGHT);
+    assert!(non_segwit_weight < MAX_BLOCK_WEIGHT);
 }
 
-/// Test weight calculation at SegWit activation boundary
+/// A short witness is added to the weight once.
 #[test]
-fn test_weight_calculation_segwit_activation() {
-    // Before SegWit: blocks use size (1MB limit)
-    // After SegWit: blocks use weight (4MB limit)
-
-    let _pre_segwit_height = SEGWIT_ACTIVATION_MAINNET - 1;
-    let _post_segwit_height = SEGWIT_ACTIVATION_MAINNET;
-
+fn test_witness_bytes_counted_once() {
     let tx = Transaction {
         version: 1,
         inputs: vec![TransactionInput {
@@ -192,10 +183,10 @@ fn test_weight_calculation_segwit_activation() {
         lock_time: 0,
     };
 
-    // Weight calculation should work at both heights
-    // (implementation may differ, but should be consistent)
-    let weight = calculate_transaction_weight(&tx, None);
-    assert!(weight.is_ok());
+    let bare = calculate_transaction_weight(&tx, None).expect("bare weight");
+    let witness = vec![vec![0x11u8; 4]];
+    let witnessed = calculate_transaction_weight(&tx, Some(&witness)).expect("witness weight");
+    assert_eq!(witnessed - bare, 4, "witness element bytes are added once");
 }
 
 /// Test weight calculation with large witness data
@@ -227,12 +218,13 @@ fn test_weight_large_witness() {
 
     let weight = calculate_transaction_weight(&tx, witness.as_ref());
 
-    // Should calculate weight successfully
-    assert!(weight.is_ok());
-    let weight_value = weight.unwrap();
-
-    // Weight should account for witness size (1x discount)
-    assert!(weight_value > 0);
+    let bare = calculate_transaction_weight(&tx, None).expect("bare weight");
+    let weight_value = weight.expect("large witness weight");
+    assert_eq!(
+        weight_value - bare,
+        520,
+        "a 520-byte witness element is added once"
+    );
 }
 
 /// Test block weight boundary conditions
@@ -243,12 +235,16 @@ fn test_block_weight_boundaries() {
     let one_over_limit = MAX_BLOCK_WEIGHT + 1;
     let one_under_limit = MAX_BLOCK_WEIGHT - 1;
 
-    // Exactly at limit should be valid
-    assert_eq!(exact_limit, 4_000_000);
-
-    // One over limit should be invalid
-    assert!(one_over_limit > MAX_BLOCK_WEIGHT);
-
-    // One under limit should be valid
-    assert!(one_under_limit < MAX_BLOCK_WEIGHT);
+    assert_eq!(
+        blvm_consensus::witness::weight_to_vsize(exact_limit),
+        1_000_000
+    );
+    assert_eq!(
+        blvm_consensus::witness::weight_to_vsize(one_over_limit),
+        1_000_001
+    );
+    assert_eq!(
+        blvm_consensus::witness::weight_to_vsize(one_under_limit),
+        1_000_000
+    );
 }

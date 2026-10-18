@@ -549,17 +549,31 @@ fn test_accept_rejects_true_mempool_double_spend() {
 
 #[test]
 fn test_replacement_checks_rejects_no_conflict() {
-    let (set, _) = create_test_utxo(10_000);
+    let (mut set, _) = create_test_utxo(10_000);
+    let other = OutPoint {
+        hash: [2; 32],
+        index: 0,
+    };
+    set.insert(
+        other,
+        std::sync::Arc::new(blvm_consensus::UTXO {
+            value: 10_000,
+            script_pubkey: vec![blvm_consensus::opcodes::OP_1].into(),
+            height: 1,
+            is_coinbase: false,
+        }),
+    );
     let mut existing = create_rbf_tx(0xfffffffd);
     existing.outputs[0].value = 9_000;
-    let mut replacement = existing.clone();
-    replacement.inputs[0].prevout.hash = [0x55; 32];
-    replacement.outputs[0].value = 8_500;
+    let mut replacement = create_rbf_tx(0xfffffffd);
+    replacement.inputs[0].prevout = other;
+    replacement.outputs[0].value = 8_000;
     let pool = Mempool::new();
     let res = replacement_checks(&replacement, &existing, &set, &pool);
-    assert!(
-        matches!(res, Ok(false) | Err(_)),
-        "replacement without shared input must not succeed: {res:?}"
+    assert_eq!(
+        res.expect("replacement"),
+        false,
+        "a higher-fee transaction that spends a different output is not a replacement"
     );
 }
 

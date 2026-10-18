@@ -75,7 +75,11 @@ fn test_script_path_two_leaf_tree() {
     let branch = compute_script_merkle_root(&script_a, &[root_b], TAPROOT_LEAF_VERSION_TAPSCRIPT)
         .expect("branch root");
     assert!(validate_taproot_script_path(&script_a, &[root_b], &branch).unwrap());
-    let _ = root_a;
+    assert_ne!(root_a, root_b);
+    let branch_b = compute_script_merkle_root(&script_b, &[root_a], TAPROOT_LEAF_VERSION_TAPSCRIPT)
+        .expect("script b branch");
+    assert!(validate_taproot_script_path(&script_b, &[root_a], &branch_b).unwrap());
+    assert!(!validate_taproot_script_path(&script_a, &[root_a], &branch).unwrap());
 }
 
 #[test]

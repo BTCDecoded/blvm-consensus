@@ -12,7 +12,7 @@
 
 use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_CHECKMULTISIG, OP_DUP, OP_EQUAL, OP_HASH160, PUSH_20_BYTES,
+    OP_0, OP_1, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_HASH160, PUSH_20_BYTES,
 };
 use blvm_consensus::script::{
     SigVersion, disable_fast_paths, p2sh_push_only_check, verify_script,
@@ -29,23 +29,43 @@ pub const SCRIPT_VERIFY_LOW_S: u32 = 0x08;
 pub const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
 pub const SCRIPT_VERIFY_STRICTENC: u32 = 0x02;
 
+/// Signature over the all-zero message, the hash `verify_script` feeds CHECKSIG.
+/// Secret is 32 bytes of `0x11`. Low S verifies. High S is `n − s`.
+fn zero_hash_pubkey() -> Vec<u8> {
+    hex::decode("034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa").unwrap()
+}
+
+fn low_s_der() -> Vec<u8> {
+    hex::decode("3045022100e0a180fdd0fe38037cc878c03832861b40a29d32bd7b40b10c9e1efc8c1468a002205ae06d1624896d0d29f4b31e32772ea3cb1b4d7ed4e077e5da28dcc33c0e7812").unwrap()
+}
+
+fn high_s_der() -> Vec<u8> {
+    hex::decode("3046022100e0a180fdd0fe38037cc878c03832861b40a29d32bd7b40b10c9e1efc8c1468a0022100a51f92e9db7692f2d60b4ce1cd88d15aef938f67da682855e5a981c99427c92f").unwrap()
+}
+
+fn push_data(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(1 + data.len());
+    out.push(data.len() as u8);
+    out.extend_from_slice(data);
+    out
+}
+
+fn verify_signed(der: &[u8], hashtype: u8, flags: u32) -> blvm_consensus::error::Result<bool> {
+    let mut signature = der.to_vec();
+    signature.push(hashtype);
+    let script_sig = push_data(&signature);
+    let mut script_pubkey = push_data(&zero_hash_pubkey());
+    script_pubkey.push(OP_CHECKSIG);
+    verify_script(&script_sig, &script_pubkey, None, flags)
+}
+
 /// Test DER signature encoding validation
 ///
-/// Signatures must be valid DER-encoded ASN.1 sequences.
+/// A signature over the zero hash is strict DER. DERSIG must accept it.
 #[test]
 fn test_der_signature_encoding() {
-    // Valid DER signature format:
-    // 0x30 [length] 0x02 [r_length] [r_bytes] 0x02 [s_length] [s_bytes]
-
-    // DER validation checks ASN.1 structure, integer encoding, length fields.
-    // OP_1 used as minimal script input; verify_script returns Ok/Err without panic.
-    let script_sig = vec![OP_1]; // OP_1
-    let script_pubkey = vec![OP_1]; // OP_1
-
-    // Test with DERSIG flag
-    let flags = SCRIPT_VERIFY_DERSIG;
     assert_eq!(
-        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+        verify_signed(&low_s_der(), 0x01, SCRIPT_VERIFY_DERSIG).unwrap(),
         true
     );
 }
@@ -55,14 +75,13 @@ fn test_der_signature_encoding() {
 /// SCRIPT_VERIFY_LOW_S: S value must be <= secp256k1 order / 2
 #[test]
 fn test_low_s_requirement() {
-    let script_sig = vec![OP_1]; // OP_1
-    let script_pubkey = vec![OP_1]; // OP_1
-
-    // Test with LOW_S flag
-    let flags = SCRIPT_VERIFY_LOW_S;
     assert_eq!(
-        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+        verify_signed(&low_s_der(), 0x01, SCRIPT_VERIFY_LOW_S).unwrap(),
         true
+    );
+    assert_eq!(
+        verify_signed(&high_s_der(), 0x01, SCRIPT_VERIFY_LOW_S).unwrap(),
+        false
     );
 }
 
@@ -72,15 +91,11 @@ fn test_low_s_requirement() {
 /// (when LOW_S flag is enabled)
 #[test]
 fn test_high_s_rejection() {
-    // High S rejection requires constructing signatures with S > n/2; using minimal input here.
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
-    let flags = SCRIPT_VERIFY_LOW_S;
-
     assert_eq!(
-        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
-        true
+        verify_signed(&high_s_der(), 0x01, SCRIPT_VERIFY_LOW_S).unwrap(),
+        false
     );
+    assert_eq!(verify_signed(&high_s_der(), 0x01, 0).unwrap(), true);
 }
 
 /// Test NULLDUMMY enforcement
@@ -199,13 +214,15 @@ fn test_strictenc_enforcement() {
     // - Compressed: 0x02 or 0x03 + 32 bytes
     // - Uncompressed: 0x04 + 64 bytes
 
-    let script_pubkey = vec![OP_1];
-    let script_sig = vec![OP_1];
-
-    let flags = SCRIPT_VERIFY_STRICTENC;
-    let result = verify_script(&script_sig, &script_pubkey, None, flags);
-
-    assert_eq!(result.unwrap(), true);
+    assert_eq!(
+        verify_signed(&low_s_der(), 0x01, SCRIPT_VERIFY_STRICTENC).unwrap(),
+        true
+    );
+    assert_eq!(
+        verify_signed(&low_s_der(), 0x00, SCRIPT_VERIFY_STRICTENC).unwrap(),
+        false
+    );
+    assert_eq!(verify_signed(&low_s_der(), 0x00, 0).unwrap(), true);
 }
 
 /// Test combined signature validation flags
@@ -222,14 +239,40 @@ fn test_combined_signature_flags() {
         SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC,
     ];
 
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
+    let low = low_s_der();
+    let high = high_s_der();
+    assert_eq!(
+        verify_signed(
+            &low,
+            0x01,
+            SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC
+        )
+        .unwrap(),
+        true
+    );
+    assert_eq!(
+        verify_signed(&high, 0x01, SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC).unwrap(),
+        false
+    );
+    assert_eq!(
+        verify_signed(&low, 0x00, SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC).unwrap(),
+        false
+    );
 
+    let mut script_pubkey = push_data(&zero_hash_pubkey());
+    script_pubkey.push(OP_CHECKSIG);
+    let bad_der = vec![0x03, 0x30, 0x01, 0x00];
     for flags in flag_combinations {
-        assert_eq!(
-            verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
-            true
-        );
+        if flags & SCRIPT_VERIFY_DERSIG == 0 {
+            continue;
+        }
+        match verify_script(&bad_der, &script_pubkey, None, flags) {
+            Err(ConsensusError::ScriptErrorWithCode {
+                code: ScriptErrorCode::SigDer,
+                ..
+            }) => {}
+            other => panic!("non-DER under {flags:#x} must be SigDer, got {other:?}"),
+        }
     }
 }
 
@@ -243,13 +286,21 @@ fn test_invalid_der_encoding() {
     // - Leading zeros in integers
     // - Negative integers
 
-    let script_sig = vec![OP_1]; // Placeholder
-    let script_pubkey = vec![OP_1]; // Placeholder
+    let mut script_pubkey = vec![0x21];
+    script_pubkey.extend_from_slice(
+        &hex::decode("02865c40293a680cb9c020e7b1e106d8c1916d3cef99aa431a56d253e69256dac0").unwrap(),
+    );
+    script_pubkey.push(OP_CHECKSIG);
+    // A 3-byte push of `30 01 00` is not a DER signature.
+    let script_sig = vec![0x03, 0x30, 0x01, 0x00];
 
-    let flags = SCRIPT_VERIFY_DERSIG;
-    let result = verify_script(&script_sig, &script_pubkey, None, flags);
-
-    assert_eq!(result.unwrap(), true);
+    match verify_script(&script_sig, &script_pubkey, None, SCRIPT_VERIFY_DERSIG) {
+        Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::SigDer,
+            ..
+        }) => {}
+        other => panic!("non-DER signature under DERSIG must be SigDer, got {other:?}"),
+    }
 }
 
 /// Test signature validation edge cases from reference test vectors
@@ -260,22 +311,27 @@ fn test_invalid_der_encoding() {
 /// - Signatures before/after BIP66 activation
 #[test]
 fn test_core_signature_edge_cases() {
-    use blvm_consensus::transaction::check_transaction;
+    use blvm_consensus::ValidationResult;
 
     let vectors =
         tx_loader::load_transaction_test_vectors("tests/test_data/core_vectors/transactions")
             .expect("load tx vectors");
-    if vectors.is_empty() {
-        return;
-    }
-
-    let invalid: Vec<_> = vectors.iter().filter(|v| !v.expected_result).collect();
     assert!(
-        !invalid.is_empty(),
-        "expected invalid tx vectors in fixture set"
+        !vectors.is_empty(),
+        "tx_valid.json and tx_invalid.json must load"
     );
-
-    for vector in invalid.iter().take(50) {
-        let _verdict = check_transaction(&vector.transaction);
+    assert!(
+        vectors.iter().any(|v| v.structural_failure),
+        "BADTX rows must load"
+    );
+    for vector in &vectors {
+        match tx_loader::structural_validation(&vector.transaction) {
+            Ok(ValidationResult::Invalid(_)) if vector.structural_failure => {}
+            Ok(ValidationResult::Valid) if !vector.structural_failure => {}
+            other => panic!(
+                "structural verdict badtx={} got {other:?} ({})",
+                vector.structural_failure, vector.description
+            ),
+        }
     }
 }

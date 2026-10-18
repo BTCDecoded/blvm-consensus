@@ -201,7 +201,11 @@ fn test_witness_v0_minimalif_rejects_non_minimal() {
         Some(SEGWIT_ACTIVATION_MAINNET),
         Network::Mainnet,
     );
-    assert!(matches!(result, Ok(false) | Err(_)));
+    match result {
+        Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode { code, .. })
+            if code == blvm_consensus::error::ScriptErrorCode::MinimalIf => {}
+        other => panic!("a non-minimal IF argument must be MinimalIf, got {other:?}"),
+    }
 }
 
 #[test]
@@ -260,7 +264,11 @@ fn test_unexpected_witness_is_ignored_unless_witness_flag_is_set() {
     );
 }
 
-fn verify_pubkey(script_sig: &[u8], script_pubkey: &[u8], witness: Option<&Vec<Vec<u8>>>) -> bool {
+fn verify_pubkey(
+    script_sig: &[u8],
+    script_pubkey: &[u8],
+    witness: Option<&Vec<Vec<u8>>>,
+) -> blvm_consensus::error::Result<bool> {
     let tx = Transaction {
         version: 2,
         inputs: vec![TransactionInput {
@@ -294,40 +302,27 @@ fn verify_pubkey(script_sig: &[u8], script_pubkey: &[u8], witness: Option<&Vec<V
         Some(SEGWIT_ACTIVATION_MAINNET),
         Network::Mainnet,
     )
-    .unwrap_or(false)
 }
 
 #[test]
 fn test_reserved_and_negate_are_not_witness_programs() {
     // OP_RESERVED fails when executed. It must not be spent as a future witness program.
-    assert!(!verify_pubkey(&[], &[OP_RESERVED, 0x02, 0x01, 0x01], None));
+    assert!(!verify_pubkey(&[], &[OP_RESERVED, 0x02, 0x01, 0x01], None).expect("reserved"));
     // OP_1NEGATE then a push of zeros leaves a false item. The witness shortcut would accept it.
-    assert!(!verify_pubkey(&[], &[OP_1NEGATE, 0x02, 0x00, 0x00], None));
+    assert!(!verify_pubkey(&[], &[OP_1NEGATE, 0x02, 0x00, 0x00], None).expect("negate"));
     // A 3-byte push of [0x02, 0xaa, 0xbb] has the same length as a 2-byte witness program.
-    assert!(verify_pubkey(&[OP_1], &[0x03, 0x02, 0xaa, 0xbb], None));
+    assert!(verify_pubkey(&[OP_1], &[0x03, 0x02, 0xaa, 0xbb], None).expect("bare push"));
     // OP_2 plus a 2-byte program is a real future witness version. Its witness is ignored.
     let witness = vec![vec![0x01u8]];
-    assert!(verify_pubkey(
-        &[],
-        &[OP_2, 0x02, 0x11, 0x22],
-        Some(&witness),
-    ));
+    assert!(verify_pubkey(&[], &[OP_2, 0x02, 0x11, 0x22], Some(&witness),).expect("v2 program"));
     // scriptPubKey runs first. An all-zero program leaves a false stack.
-    assert!(!verify_pubkey(
-        &[],
-        &[OP_2, 0x02, 0x00, 0x00],
-        Some(&witness),
-    ));
-    assert!(verify_pubkey(
-        &[],
-        &[OP_2, 0x02, 0x00, 0x01],
-        Some(&witness),
-    ));
-    assert!(!verify_pubkey(
-        &[0x01],
-        &[OP_2, 0x02, 0x00, 0x00],
-        Some(&witness),
-    ));
+    assert!(!verify_pubkey(&[], &[OP_2, 0x02, 0x00, 0x00], Some(&witness),).expect("zero program"));
+    assert!(
+        verify_pubkey(&[], &[OP_2, 0x02, 0x00, 0x01], Some(&witness),).expect("nonzero program")
+    );
+    assert!(
+        !verify_pubkey(&[0x01], &[OP_2, 0x02, 0x00, 0x00], Some(&witness),).expect("scriptSig")
+    );
 }
 
 #[test]
@@ -370,7 +365,7 @@ fn minimal_push_rejects_pushdata_of_one_byte() {
             Some(SEGWIT_ACTIVATION_MAINNET),
             Network::Mainnet,
         )
-        .unwrap_or(false)
+        .expect("non-minimal push")
     );
     let block_flags = blvm_consensus::block::calculate_script_flags_for_block_network(
         &nonminimal,
@@ -391,7 +386,7 @@ fn minimal_push_rejects_pushdata_of_one_byte() {
             Some(SEGWIT_ACTIVATION_MAINNET),
             Network::Mainnet,
         )
-        .unwrap_or(false),
+        .expect("block-connect flags"),
         "block-connect flags accept the longer push"
     );
     let direct = tx_for(&[0x01, 0x51]);
@@ -407,7 +402,7 @@ fn minimal_push_rejects_pushdata_of_one_byte() {
             Some(SEGWIT_ACTIVATION_MAINNET),
             Network::Mainnet,
         )
-        .unwrap_or(false)
+        .expect("direct push")
     );
 }
 
@@ -514,42 +509,24 @@ fn test_tapscript_op_true_evaluates() {
 #[test]
 fn test_execute_all_core_witness_script_vectors() {
     let vectors = load_default_witness_script_vectors().expect("load witness vectors");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(
+        !vectors.is_empty(),
+        "script_tests.json has witness rows; an empty load does not score them"
+    );
 
+    assert!(
+        vectors.iter().any(|v| v.expected_ok),
+        "witness success rows must load"
+    );
+    assert!(
+        vectors.iter().any(|v| !v.expected_ok),
+        "witness expected-fail rows must load"
+    );
     let (passed, failed) = score_witness_script_tests(&vectors);
-    eprintln!(
-        "Core witness script vectors: {passed}/{} scored, {failed} mismatches",
+    assert_eq!(
+        failed,
+        0,
+        "witness vectors {passed}/{} matched",
         vectors.len()
     );
-    assert_eq!(passed + failed, vectors.len());
-
-    let ok_subset: Vec<_> = vectors.iter().filter(|v| v.expected_ok).cloned().collect();
-    if !ok_subset.is_empty() {
-        let (ok_passed, ok_failed) = score_witness_script_tests(&ok_subset);
-        eprintln!("Witness OK subset: {ok_passed}/{}", ok_subset.len());
-        assert!(
-            ok_failed == 0,
-            "expected all Core witness OK vectors to pass, got {ok_passed} passed / {ok_failed} failed"
-        );
-    }
-}
-
-#[test]
-fn test_execute_witness_fail_vectors_for_error_paths() {
-    let vectors = load_default_witness_script_vectors().expect("load");
-    if vectors.is_empty() {
-        return;
-    }
-    let fail_vectors: Vec<_> = vectors.iter().filter(|v| !v.expected_ok).cloned().collect();
-    if fail_vectors.is_empty() {
-        return;
-    }
-    let (passed, failed) = score_witness_script_tests(&fail_vectors);
-    eprintln!(
-        "Witness fail vectors: {passed}/{} scored, {failed} mismatches",
-        fail_vectors.len()
-    );
-    assert_eq!(passed + failed, fail_vectors.len());
 }

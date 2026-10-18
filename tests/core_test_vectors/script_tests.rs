@@ -12,7 +12,7 @@ use blvm_consensus::types::{Network, Witness};
 use blvm_consensus::{
     OutPoint, SEGWIT_ACTIVATION_MAINNET, Transaction, TransactionInput, TransactionOutput,
 };
-use script_asm::parse_core_script_asm;
+pub use script_asm::parse_core_script_asm;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,16 +26,6 @@ pub struct ScriptTestVector {
     pub flags: u32,
     pub expected_ok: bool,
     pub description: String,
-}
-
-/// Phase-1 smoke filter for COV-C-02a: a small Core baseline that must pass end-to-end.
-pub fn is_cov_c02a_smoke_vector(sig_asm: &str, spk_asm: &str) -> bool {
-    if sig_asm.contains("0x") || spk_asm.contains("0x") {
-        return false;
-    }
-    let sig = sig_asm.trim();
-    let spk = spk_asm.trim();
-    spk == "DEPTH 0 EQUAL" || spk == "2 EQUALVERIFY 1 EQUAL" || (spk.is_empty() && sig == "1")
 }
 
 pub fn parse_flag_string(flags_str: &str) -> u32 {
@@ -418,95 +408,4 @@ pub fn load_default_script_vectors() -> Result<Vec<ScriptTestVector>, Box<dyn st
         return Ok(Vec::new());
     }
     load_script_test_vectors(SCRIPT_VECTORS_PATH)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use blvm_consensus::opcodes::{OP_1, OP_2};
-
-    #[test]
-    fn test_verify_depth_zero_equal_direct() {
-        use blvm_consensus::script::verify_script;
-
-        let flags = parse_flag_string("P2SH,STRICTENC");
-        let spk = parse_core_script_asm("DEPTH 0 EQUAL").expect("parse spk");
-        let sig = parse_core_script_asm("").expect("parse empty sig");
-        let result = verify_script(&sig, &spk, None, flags);
-        eprintln!("verify_script empty DEPTH 0 EQUAL: {result:?}, spk={spk:?}");
-        assert_eq!(result.unwrap(), true, "Core baseline vector 0 should pass");
-
-        let sig_one = parse_core_script_asm("1").expect("parse 1");
-        let empty_spk: Vec<u8> = vec![];
-        let result2 = verify_script(&sig_one, &empty_spk, None, flags);
-        eprintln!("verify_script 1 empty spk: {result2:?}");
-        assert_eq!(result2.unwrap(), true);
-    }
-
-    #[test]
-    fn test_script_asm_roundtrip_samples() {
-        let sig = parse_core_script_asm("1 2").unwrap();
-        assert_eq!(sig, vec![OP_1, OP_2]);
-        let spk = parse_core_script_asm("2 EQUALVERIFY 1 EQUAL").unwrap();
-        assert!(spk.len() >= 3);
-    }
-
-    #[test]
-    fn test_load_script_vectors() {
-        let vectors = load_default_script_vectors().expect("load");
-        assert!(
-            !vectors.is_empty(),
-            "committed script_tests.json must load at least one vector"
-        );
-        assert!(vectors.iter().any(|v| v.expected_ok));
-    }
-
-    #[test]
-    fn test_run_legacy_ok_smoke() {
-        let vectors = load_default_script_vectors().expect("load");
-        assert!(
-            !vectors.is_empty(),
-            "committed script_tests.json must load at least one vector"
-        );
-
-        let smoke: Vec<_> = vectors
-            .iter()
-            .filter(|v| {
-                v.expected_ok
-                    && v.flags == parse_flag_string("P2SH,STRICTENC")
-                    && is_cov_c02a_smoke_vector(&v.script_sig_asm, &v.script_pubkey_asm)
-            })
-            .cloned()
-            .collect();
-
-        assert!(
-            !smoke.is_empty(),
-            "expected parseable P2SH,STRICTENC smoke vectors when script_tests.json is present"
-        );
-        run_core_script_tests(&smoke).expect("Core script smoke vectors should pass");
-    }
-
-    #[test]
-    fn test_run_legacy_ok_progress() {
-        let vectors = load_default_script_vectors().expect("load");
-        assert!(
-            !vectors.is_empty(),
-            "committed script_tests.json must load at least one vector"
-        );
-
-        let subset: Vec<_> = vectors
-            .iter()
-            .filter(|v| v.expected_ok && v.flags == parse_flag_string("P2SH,STRICTENC"))
-            .cloned()
-            .collect();
-
-        assert!(!subset.is_empty());
-        let (passed, failed) = score_core_script_tests(&subset);
-        eprintln!("Core legacy OK progress: {passed}/{} passing", subset.len());
-        // All 439 parseable P2SH,STRICTENC OK vectors now pass.
-        assert!(
-            passed >= 439,
-            "expected >=439 legacy OK vectors passing, got {passed} passed / {failed} failed"
-        );
-    }
 }

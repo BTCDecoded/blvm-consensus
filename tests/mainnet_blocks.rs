@@ -64,8 +64,10 @@ fn test_coinbase_transaction_eras() {
         lock_time: 0,
     };
 
-    let result = check_transaction(&pre_segwit_coinbase);
-    assert!(result.is_ok());
+    match check_transaction(&pre_segwit_coinbase) {
+        Ok(ValidationResult::Valid) => {}
+        other => panic!("pre-segwit coinbase must be structurally valid, got {other:?}"),
+    }
 
     // Post-SegWit coinbase includes witness commitment (height >= SEGWIT_ACTIVATION_MAINNET)
     // Note: Actual witness commitment would be in the coinbase output
@@ -91,8 +93,10 @@ fn test_coinbase_transaction_eras() {
         lock_time: 0,
     };
 
-    let result = check_transaction(&post_segwit_coinbase);
-    assert!(result.is_ok());
+    match check_transaction(&post_segwit_coinbase) {
+        Ok(ValidationResult::Valid) => {}
+        other => panic!("post-segwit coinbase must be structurally valid, got {other:?}"),
+    }
 }
 
 /// Test mainnet block serialization round-trip

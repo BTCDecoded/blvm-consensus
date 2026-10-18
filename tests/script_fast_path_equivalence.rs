@@ -956,9 +956,10 @@ fn fast_path_equiv_op_success_no_unexec_if() {
         None,
     );
     disable_fast_paths(false);
-    assert_eq!(fast.is_ok(), full.is_ok());
-    if let (Ok(a), Ok(b)) = (fast, full) {
-        assert_eq!(a, b);
+    match (fast, full) {
+        (Ok(a), Ok(b)) => assert_eq!(a, b),
+        (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string()),
+        (fast, full) => panic!("fast path and full path disagree: {fast:?} vs {full:?}"),
     }
 }
 
@@ -1013,7 +1014,7 @@ fn unexec_if_fast_path_counter() {
     let pv2 = vec![val2];
     let psp2: Vec<&[u8]> = vec![spk2.as_slice()];
     let _ = blvm_consensus::script::take_fast_path_unexec_if();
-    let _ = verify_script_with_context_full(
+    verify_script_with_context_full(
         &tx2.inputs[0].script_sig,
         &spk2,
         Some(&wit2),
@@ -1033,7 +1034,8 @@ fn unexec_if_fast_path_counter() {
         None,
         #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
         None,
-    );
+    )
+    .expect("two-envelope spend");
     assert_eq!(
         blvm_consensus::script::take_fast_path_unexec_if(),
         0,

@@ -129,7 +129,7 @@ pub fn create_cltv_transaction(
                 index: 0,
             },
             script_sig: script,
-            sequence: 0xffffffff,
+            sequence: 0,
         }]
         .into(),
         outputs: vec![TransactionOutput {
