@@ -267,7 +267,7 @@ jobs:
           set -euo pipefail
           CHANNEL=$(grep -E '^channel\s*=' rust-toolchain.toml | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/')
           test -n "$CHANNEL"
-          rustup run "$CHANNEL" cargo install blvm-spec-lock --version '>=0.1, <1' --locked --features z3
+          rustup run "$CHANNEL" cargo install --force blvm-spec-lock --version '>=0.1, <1' --locked --features z3
 
       # Single gate: drift → merged F_* verify → optional coverage rollup → attestation env (blocking parts use set -e).
       - name: Verify

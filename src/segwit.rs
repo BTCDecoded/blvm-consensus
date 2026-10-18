@@ -1070,8 +1070,11 @@ mod property_tests {
                 lock_time: 0,
             };
             let accepted = !trailing
-                && (version == 0 || version == 1)
-                && (2..=40).contains(&program_len);
+                && match version {
+                    0 => program_len == 20 || program_len == 32,
+                    1 => program_len == 32,
+                    _ => false,
+                };
             prop_assert_eq!(is_segwit_transaction(&tx), accepted);
         }
     }

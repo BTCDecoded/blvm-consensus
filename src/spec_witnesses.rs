@@ -1879,7 +1879,7 @@ pub(crate) fn _verify_f_bip34_height_zero(height: i64) -> i64 {
 #[blvm_spec_lock::requires(height == 17)]
 #[blvm_spec_lock::ensures(result == 1)]
 pub(crate) fn _verify_f_bip34_height_seventeen(height: i64) -> i64 {
-    if height >= 1 && height <= 16 {
+    if (1..=16).contains(&height) {
         80 + height
     } else {
         1
@@ -2016,6 +2016,7 @@ pub(crate) fn _verify_f_witness_payload_empty(len: i64) -> i64 {
 
 /// Digest of the pair (witness root, reserved nonce). The translator replaces the call.
 /// This body is not the compression function.
+#[allow(dead_code)]
 pub(crate) fn implied_hash(root: i64, nonce: i64) -> i64 {
     let _ = (root, nonce);
     0
