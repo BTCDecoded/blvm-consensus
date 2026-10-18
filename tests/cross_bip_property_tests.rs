@@ -116,51 +116,26 @@ proptest! {
     #[test]
     fn prop_segwit_taproot_combined(
         segwit_witness in prop::collection::vec(
-            prop::collection::vec(any::<u8>(), 0..80),
-            1..5
+            prop::collection::vec(any::<u8>(), 500..540),
+            1..4
         ),
         taproot_witness in prop::collection::vec(
-            prop::collection::vec(any::<u8>(), 0..100),
+            prop::collection::vec(any::<u8>(), 63..67),
             1..3
         ),
     ) {
         // Bound for tractability
-        let segwit_bounded: Vec<Vec<u8>> = segwit_witness.iter()
-            .take(5)
-            .map(|w| w.iter().take(520).cloned().collect()) // MAX_WITNESS_ELEMENT_SIZE
-            .collect();
+        let segwit_bounded: Vec<Vec<u8>> = segwit_witness;
+        let taproot_bounded: Vec<Vec<u8>> = taproot_witness;
+        let segwit_ok = witness::validate_segwit_witness_structure(&segwit_bounded).unwrap();
+        let element_ok = segwit_bounded.iter().all(|element| element.len() <= 520);
+        prop_assert_eq!(segwit_ok, element_ok);
 
-        let taproot_bounded: Vec<Vec<u8>> = taproot_witness.iter()
-            .take(3)
-            .map(|w| w.iter().take(100).cloned().collect())
-            .collect();
-
-        // Validate SegWit witness structure
-        let segwit_valid = witness::validate_segwit_witness_structure(&segwit_bounded).unwrap_or(false);
-
-        // Validate Taproot witness structure (assume key path for simplicity)
-        let taproot_valid = witness::validate_taproot_witness_structure(&taproot_bounded, false).unwrap_or(false);
-
-        // Property: Both witness types should be valid independently
-        // This verifies that SegWit and Taproot validation logic doesn't interfere
-        // (They would be in different transactions in practice)
-        if segwit_valid && taproot_valid {
-            // Both are valid - verify they use different witness versions.
-            // extract_witness_version requires full BIP141/BIP341 program lengths.
-            let mut segwit_script = vec![OP_0, PUSH_20_BYTES]; // OP_0 PUSH_20
-            segwit_script.extend([0u8; 20]);
-            let mut taproot_script = vec![OP_1, PUSH_32_BYTES];
-            taproot_script.extend([0u8; 32]);
-
-            assert_eq!(
-                witness::extract_witness_version(&segwit_script),
-                Some(witness::WitnessVersion::SegWitV0)
-            );
-            assert_eq!(
-                witness::extract_witness_version(&taproot_script),
-                Some(witness::WitnessVersion::TaprootV1)
-            );
-        }
+        let taproot_ok = witness::validate_taproot_witness_structure(&taproot_bounded, false).unwrap();
+        let key_ok = taproot_bounded.len() == 1
+            && (taproot_bounded[0].len() == 64
+                || (taproot_bounded[0].len() == 65 && taproot_bounded[0][64] != 0x00));
+        prop_assert_eq!(taproot_ok, key_ok);
     }
 }
 
@@ -170,59 +145,48 @@ proptest! {
 proptest! {
     #[test]
     fn prop_bip125_bip152_coordination(
-        tx1_inputs in prop::collection::vec(
-            (any::<[u8; 32]>(), any::<u32>()),
-            1..3
-        ),
-        tx2_inputs in prop::collection::vec(
-            (any::<[u8; 32]>(), any::<u32>()),
-            1..3
-        ),
+        hash in any::<[u8; 32]>(),
+        index in any::<u32>(),
+        share in any::<bool>(),
+        signals in any::<bool>()
     ) {
-        // Create two transactions that may conflict
+        let sequence = if signals {
+            (blvm_consensus::constants::SEQUENCE_RBF as u64).saturating_sub(1)
+        } else {
+            0xffff_ffff
+        };
+        let mut other = hash;
+        if !share {
+            other[0] ^= 0xff;
+        }
         let tx1 = Transaction {
             version: 1,
-            inputs: tx1_inputs.iter().map(|(hash, index)| TransactionInput {
-                prevout: OutPoint { hash: *hash, index: *index },
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash, index },
                 script_sig: vec![],
-                sequence: 0xffffffff - 1, // Signals RBF
-            }).collect(),
+                sequence,
+            }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![],
             }].into(),
             lock_time: 0,
         };
-
         let tx2 = Transaction {
             version: 1,
-            inputs: tx2_inputs.iter().map(|(hash, index)| TransactionInput {
-                prevout: OutPoint { hash: *hash, index: *index },
+            inputs: vec![TransactionInput {
+                prevout: OutPoint { hash: other, index },
                 script_sig: vec![],
-                sequence: 0xffffffff - 1, // Signals RBF
-            }).collect(),
+                sequence,
+            }].into(),
             outputs: vec![TransactionOutput {
                 value: 1000,
                 script_pubkey: vec![],
             }].into(),
             lock_time: 0,
         };
-
-        // Check if transactions conflict (share inputs)
-        let has_conflict = tx1.inputs.iter().any(|input1| {
-            tx2.inputs.iter().any(|input2| input1.prevout == input2.prevout)
-        });
-
-        // Property: If transactions conflict and both signal RBF,
-        // only one should be accepted (the one with higher fee rate wins)
-        if has_conflict {
-            // Both signal RBF - conflict detection should identify this
-            assert!(mempool::signals_rbf(&tx1));
-            assert!(mempool::signals_rbf(&tx2));
-
-            // In compact block reconstruction, the block version is authoritative
-            // This ensures we get the transaction that won the RBF
-        }
+        prop_assert_eq!(mempool::has_conflict_with_tx(&tx1, &tx2), share);
+        prop_assert_eq!(mempool::signals_rbf(&tx1), signals);
     }
 }
 

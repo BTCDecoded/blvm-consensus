@@ -5,6 +5,8 @@
 #[path = "script_asm.rs"]
 mod script_asm;
 
+use blvm_consensus::block::calculate_tx_id;
+use blvm_consensus::opcodes::OP_0;
 use blvm_consensus::script::verify_script;
 use blvm_consensus::types::{Network, Witness};
 use blvm_consensus::{
@@ -175,6 +177,7 @@ pub fn run_core_script_tests(
 
 /// Run vectors and return `(passed, failed)` without failing early.
 pub fn score_core_script_tests(vectors: &[ScriptTestVector]) -> (usize, usize) {
+    blvm_consensus::script::disable_caching(true);
     let mut passed = 0usize;
     let mut failed = 0usize;
 
@@ -193,6 +196,7 @@ pub fn score_core_script_tests(vectors: &[ScriptTestVector]) -> (usize, usize) {
         }
     }
 
+    blvm_consensus::script::disable_caching(false);
     (passed, failed)
 }
 
@@ -208,8 +212,36 @@ pub struct WitnessScriptTestVector {
     pub description: String,
 }
 
+fn witness_item_bytes(text: &str) -> Option<Vec<u8>> {
+    if text.is_empty() {
+        return Some(Vec::new());
+    }
+    if text.contains('#') || text.contains(' ') {
+        return None;
+    }
+    hex::decode(text).ok()
+}
+
+/// Core `script_tests.json` stores a witness as `[item, ..., amount_btc]`.
+/// `amount_btc` is the final number. Items are hex. A `#SCRIPT#` placeholder
+/// cannot be executed, so the row is skipped.
 fn parse_witness_stack(value: &Value) -> Option<(Witness, i64)> {
     let items = value.as_array()?;
+    if items.is_empty() {
+        return Some((Vec::new(), 0));
+    }
+    if items
+        .iter()
+        .any(|item| item.is_string() || item.is_number())
+    {
+        let amount_btc = items.last().and_then(|v| v.as_f64())?;
+        let sats = (amount_btc * 100_000_000.0).round() as i64;
+        let mut witness = Vec::new();
+        for item in &items[..items.len() - 1] {
+            witness.push(witness_item_bytes(item.as_str()?)?);
+        }
+        return Some((witness, sats));
+    }
     let mut witness: Witness = Vec::new();
     let mut amount = 0i64;
     for item in items {
@@ -217,13 +249,7 @@ fn parse_witness_stack(value: &Value) -> Option<(Witness, i64)> {
         if pair.is_empty() {
             continue;
         }
-        let hex_str = pair[0].as_str()?;
-        let bytes = if hex_str.is_empty() {
-            vec![]
-        } else {
-            hex::decode(hex_str).ok()?
-        };
-        witness.push(bytes);
+        witness.push(witness_item_bytes(pair[0].as_str()?)?);
         if pair.len() >= 2 {
             amount = pair[1].as_f64().unwrap_or(0.0) as i64;
         }
@@ -231,30 +257,52 @@ fn parse_witness_stack(value: &Value) -> Option<(Witness, i64)> {
     Some((witness, amount))
 }
 
+/// Credit and spend transactions from Core's `script_tests` harness.
+/// The JSON signatures are for this pair: version 1, locktime 0, one input,
+/// one empty output of the same value, and the credit txid as the prevout.
 fn witness_sample_tx(
     script_sig: Vec<u8>,
     script_pubkey: Vec<u8>,
+    amount: i64,
 ) -> (Transaction, Vec<TransactionOutput>) {
-    let tx = Transaction {
-        version: 2,
+    let credit = Transaction {
+        version: 1,
         inputs: vec![TransactionInput {
             prevout: OutPoint {
-                hash: [0xcd; 32],
-                index: 0,
+                hash: [0; 32],
+                index: 0xffff_ffff,
             },
-            script_sig: script_sig.into(),
-            sequence: 0xffffffff,
+            script_sig: vec![OP_0, OP_0].into(),
+            sequence: 0xffff_ffff,
         }]
         .into(),
         outputs: vec![TransactionOutput {
-            value: 1_000,
+            value: amount,
+            script_pubkey: script_pubkey.clone().into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: calculate_tx_id(&credit),
+                index: 0,
+            },
+            script_sig: script_sig.into(),
+            sequence: 0xffff_ffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: amount,
             script_pubkey: vec![].into(),
         }]
         .into(),
         lock_time: 0,
     };
     let prevouts = vec![TransactionOutput {
-        value: 100_000,
+        value: amount,
         script_pubkey: script_pubkey.into(),
     }];
     (tx, prevouts)
@@ -301,7 +349,7 @@ pub fn load_witness_script_test_vectors(
 
         vectors.push(WitnessScriptTestVector {
             witness,
-            prevout_value: if amount > 0 { amount } else { 100_000 },
+            prevout_value: amount,
             script_sig,
             script_pubkey,
             flags,
@@ -330,9 +378,11 @@ pub fn score_witness_script_tests(vectors: &[WitnessScriptTestVector]) -> (usize
     let block_height = SEGWIT_ACTIVATION_MAINNET + 1;
 
     for vector in vectors {
-        let (mut tx, mut prevouts) =
-            witness_sample_tx(vector.script_sig.clone(), vector.script_pubkey.clone());
-        prevouts[0].value = vector.prevout_value;
+        let (mut tx, prevouts) = witness_sample_tx(
+            vector.script_sig.clone(),
+            vector.script_pubkey.clone(),
+            vector.prevout_value,
+        );
         tx.inputs[0].script_sig = vector.script_sig.clone().into();
 
         let result = verify_script_with_context(

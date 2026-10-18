@@ -12,27 +12,22 @@
 
 use blvm_consensus::opcodes::{OP_1, OP_2};
 use blvm_consensus::taproot::{
-    compute_taproot_tweak, validate_taproot_key_aggregation, validate_taproot_script_path,
+    TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root, compute_taproot_tweak,
+    validate_taproot_key_aggregation, validate_taproot_script_path,
 };
 use blvm_consensus::types::Hash;
+use blvm_consensus::witness::validate_taproot_witness_structure;
 
 /// Test Taproot script path merkle proof validation
 #[test]
 fn test_taproot_script_path_merkle_proof() {
     // Create a script
-    let script = vec![OP_1]; // OP_1
-
-    // Create merkle proof (empty for single script)
+    let script = vec![OP_1];
     let merkle_proof: Vec<Hash> = vec![];
-
-    // Arbitrary root for single-script case; real validation computes from script tree.
-    let merkle_root: Hash = [0x42; 32];
-
-    // Validate script path
-    let result = validate_taproot_script_path(&script, &merkle_proof, &merkle_root);
-
-    // Should validate merkle proof
-    assert!(result.is_ok() || result.is_err());
+    let merkle_root =
+        compute_script_merkle_root(&script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    assert!(validate_taproot_script_path(&script, &merkle_proof, &merkle_root).unwrap());
+    assert!(!validate_taproot_script_path(&script, &merkle_proof, &[0x42; 32]).unwrap());
 }
 
 /// Test Taproot script path with invalid merkle proof
@@ -46,14 +41,7 @@ fn test_taproot_script_path_invalid_proof() {
     // Merkle root doesn't match
     let merkle_root: Hash = [0x42; 32];
 
-    // Should reject invalid merkle proof
-    let result = validate_taproot_script_path(&script, &invalid_proof, &merkle_root);
-
-    // Should fail validation
-    assert!(result.is_ok() || result.is_err());
-    if result.is_ok() {
-        assert!(!result.unwrap()); // Should be false
-    }
+    assert!(!validate_taproot_script_path(&script, &invalid_proof, &merkle_root).unwrap());
 }
 
 /// Test Taproot script path with empty scripts
@@ -63,12 +51,11 @@ fn test_taproot_script_path_empty_script() {
     let empty_script = vec![];
 
     let merkle_proof: Vec<Hash> = vec![];
-    let merkle_root: Hash = [0x42; 32]; // Would be hash of empty script
-
-    let result = validate_taproot_script_path(&empty_script, &merkle_proof, &merkle_root);
-
-    // Should handle empty scripts
-    assert!(result.is_ok() || result.is_err());
+    let merkle_root =
+        compute_script_merkle_root(&empty_script, &merkle_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT)
+            .unwrap();
+    assert!(validate_taproot_script_path(&empty_script, &merkle_proof, &merkle_root).unwrap());
+    assert!(!validate_taproot_script_path(&empty_script, &merkle_proof, &[0x42; 32]).unwrap());
 }
 
 /// Test Taproot script path depth limits
@@ -88,14 +75,14 @@ fn test_taproot_script_path_depth_limits() {
         deep_proof.push([i as u8; 32]);
     }
 
-    let merkle_root: Hash = [0x42; 32];
-
-    // Both should validate (if proof is correct)
-    let result_shallow = validate_taproot_script_path(&script, &shallow_proof, &merkle_root);
-    let result_deep = validate_taproot_script_path(&script, &deep_proof, &merkle_root);
-
-    assert!(result_shallow.is_ok() || result_shallow.is_err());
-    assert!(result_deep.is_ok() || result_deep.is_err());
+    let shallow_root =
+        compute_script_merkle_root(&script, &shallow_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT)
+            .unwrap();
+    let deep_root =
+        compute_script_merkle_root(&script, &deep_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    assert!(validate_taproot_script_path(&script, &shallow_proof, &shallow_root).unwrap());
+    assert!(validate_taproot_script_path(&script, &deep_proof, &deep_root).unwrap());
+    assert!(!validate_taproot_script_path(&script, &shallow_proof, &deep_root).unwrap());
 }
 
 /// Test Taproot key aggregation edge cases
@@ -153,19 +140,10 @@ fn test_taproot_witness_size_limits() {
     // - Signature(s)
 
     // Test with maximum witness size
-    // Maximum witness element size: 520 bytes
-    let max_witness_element = vec![0x42; 520];
-
-    // Taproot script path witness structure:
-    // - Script execution stack
-    // - Control block (33-65 bytes)
-
-    // Control block format: <version byte> <internal_key> <merkle_proof>
-    let control_block = [0xc0; 33]; // Version + internal key
-
-    // Should handle maximum witness sizes
-    assert!(max_witness_element.len() <= 520);
-    assert!(control_block.len() >= 33);
+    let script = vec![0x51];
+    let control = vec![0xc0; 33];
+    assert!(validate_taproot_witness_structure(&vec![script.clone(), control], true).unwrap());
+    assert!(!validate_taproot_witness_structure(&vec![script, vec![0x42; 520]], true).unwrap());
 }
 
 /// Test Taproot script path with multiple scripts
@@ -174,22 +152,17 @@ fn test_taproot_script_path_multiple_scripts() {
     // Taproot can have multiple script paths in merkle tree
     // Each script needs its own merkle proof
 
-    let script1 = vec![OP_1]; // OP_1
-    let script2 = vec![OP_2]; // OP_2
-
-    // Each script has its own merkle proof
+    let script1 = vec![OP_1];
+    let script2 = vec![OP_2];
     let proof1: Vec<Hash> = vec![[0x01; 32]];
     let proof2: Vec<Hash> = vec![[0x02; 32]];
-
-    // Merkle root would be computed from both scripts
-    let merkle_root: Hash = [0x42; 32];
-
-    // Both scripts should validate with their respective proofs
-    let result1 = validate_taproot_script_path(&script1, &proof1, &merkle_root);
-    let result2 = validate_taproot_script_path(&script2, &proof2, &merkle_root);
-
-    assert!(result1.is_ok() || result1.is_err());
-    assert!(result2.is_ok() || result2.is_err());
+    let root1 =
+        compute_script_merkle_root(&script1, &proof1, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    let root2 =
+        compute_script_merkle_root(&script2, &proof2, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    assert!(validate_taproot_script_path(&script1, &proof1, &root1).unwrap());
+    assert!(validate_taproot_script_path(&script2, &proof2, &root2).unwrap());
+    assert!(!validate_taproot_script_path(&script1, &proof1, &root2).unwrap());
 }
 
 /// Test Taproot key aggregation with empty merkle root
@@ -217,7 +190,7 @@ fn test_taproot_key_aggregation_empty_merkle() {
         &expected_key,
         parity,
     );
-    assert!(result.is_ok());
+    assert!(result.unwrap());
 }
 
 /// Test Taproot script path boundary conditions
@@ -228,13 +201,15 @@ fn test_taproot_script_path_boundaries() {
     let single_proof: Vec<Hash> = vec![[0x01; 32]];
     let merkle_root: Hash = [0x42; 32];
 
-    let result = validate_taproot_script_path(&script, &single_proof, &merkle_root);
-    assert!(result.is_ok() || result.is_err());
+    let single_root =
+        compute_script_merkle_root(&script, &single_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    assert!(validate_taproot_script_path(&script, &single_proof, &single_root).unwrap());
+    assert!(!validate_taproot_script_path(&script, &single_proof, &merkle_root).unwrap());
 
-    // Test merkle proof with no hashes (single script)
     let empty_proof: Vec<Hash> = vec![];
-    let result = validate_taproot_script_path(&script, &empty_proof, &merkle_root);
-    assert!(result.is_ok() || result.is_err());
+    let empty_root =
+        compute_script_merkle_root(&script, &empty_proof, TAPROOT_LEAF_VERSION_TAPSCRIPT).unwrap();
+    assert!(validate_taproot_script_path(&script, &empty_proof, &empty_root).unwrap());
 }
 
 /// Test Taproot control block validation
@@ -246,15 +221,18 @@ fn test_taproot_control_block() {
     // - Merkle proof (variable length)
 
     // Minimum control block: 33 bytes (version + internal key, no proof)
-    let min_control_block = [0xc0; 33];
-    assert_eq!(min_control_block.len(), 33);
-
-    // Control block with merkle proof: 33 + (proof_length * 32)
-    let proof_length = 5;
-    let control_block_with_proof = 33 + (proof_length * 32);
-    assert_eq!(control_block_with_proof, 33 + 160);
-
-    // Maximum control block: 65 bytes (version + internal key + 1 proof hash)
-    let max_control_block_single_proof = 33 + 32;
-    assert_eq!(max_control_block_single_proof, 65);
+    let script = vec![0x51];
+    assert!(
+        validate_taproot_witness_structure(&vec![script.clone(), vec![0xc0; 33]], true).unwrap()
+    );
+    assert!(
+        validate_taproot_witness_structure(&vec![script.clone(), vec![0xc0; 33 + 32]], true)
+            .unwrap()
+    );
+    let wide = 33 + 5 * 32;
+    let within = wide <= blvm_consensus::taproot::TAPROOT_CONTROL_MAX_SIZE;
+    assert_eq!(
+        validate_taproot_witness_structure(&vec![script, vec![0xc0; wide]], true).unwrap(),
+        within
+    );
 }

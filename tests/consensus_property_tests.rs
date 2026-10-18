@@ -73,6 +73,39 @@ fn one_tx_block(tx: Transaction) -> Block {
     }
 }
 
+fn compact_size_len(n: u64) -> usize {
+    if n < 0xfd {
+        1
+    } else if n <= 0xffff {
+        3
+    } else if n <= 0xffff_ffff {
+        5
+    } else {
+        9
+    }
+}
+
+fn expected_stripped_size(tx: &Transaction) -> usize {
+    let mut n = 8usize;
+    if tx.inputs.is_empty() && !tx.outputs.is_empty() {
+        n += compact_size_len(0) + 1 + compact_size_len(0);
+    } else {
+        n += compact_size_len(tx.inputs.len() as u64);
+    }
+    for input in tx.inputs.iter() {
+        n += 40;
+        n += compact_size_len(input.script_sig.len() as u64);
+        n += input.script_sig.len();
+    }
+    n += compact_size_len(tx.outputs.len() as u64);
+    for output in tx.outputs.iter() {
+        n += 8;
+        n += compact_size_len(output.script_pubkey.len() as u64);
+        n += output.script_pubkey.len();
+    }
+    n
+}
+
 fn coinbase_tx(script_sig: Vec<u8>, lock_time: u64, sequence: u64) -> Transaction {
     Transaction {
         version: 1,
@@ -303,35 +336,32 @@ proptest! {
     /// Mathematical specification:
     /// ∀ tx ∈ 𝒯𝒳: CheckTransaction(tx) = valid ⟹ |tx.inputs| > 0 ∧ |tx.outputs| > 0
     #[test]
-    fn prop_transaction_non_empty_inputs_outputs(
-        num_inputs in 1usize..10usize,
-        num_outputs in 1usize..10usize
+        fn prop_transaction_non_empty_inputs_outputs(
+        num_inputs in 0usize..4,
+        num_outputs in 0usize..4
     ) {
         let tx = Transaction {
             version: 1,
             inputs: (0..num_inputs).map(|i| TransactionInput {
                 prevout: OutPoint {
-                    hash: [i as u8; 32],
+                    hash: [i as u8 + 1; 32],
                     index: 0,
                 },
-                script_sig: vec![],
+                script_sig: vec![0x51],
                 sequence: 0xffffffff,
             }).collect(),
             outputs: (0..num_outputs).map(|_| TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![],
+                script_pubkey: vec![0x51],
             }).collect(),
             lock_time: 0,
         };
 
-        // Valid transactions must have at least one input and one output
-        prop_assert!(!tx.inputs.is_empty(), "Transaction must have at least one input");
-        prop_assert!(!tx.outputs.is_empty(), "Transaction must have at least one output");
-
-        // Check transaction should validate structure (may fail on other grounds)
-        let _result = transaction::check_transaction(&tx);
-        // If structure is valid, it should pass basic checks
-        // (may still fail on script validation, UTXO checks, etc.)
+        let valid = matches!(
+            transaction::check_transaction(&tx).unwrap(),
+            ValidationResult::Valid
+        );
+        prop_assert_eq!(valid, num_inputs > 0 && num_outputs > 0);
     }
 
     /// Invariant: Transaction size respects limits
@@ -339,39 +369,31 @@ proptest! {
     /// Mathematical specification:
     /// ∀ tx ∈ 𝒯𝒳: |tx| ≤ MAX_TX_SIZE
     #[test]
-    fn prop_transaction_size_bounded(
-        tx_size in 1usize..(MAX_TX_SIZE + 1)
+        fn prop_transaction_size_bounded(
+        n_in in 0usize..6,
+        n_out in 0usize..6,
+        script_len in 0usize..40
     ) {
-        // Create a transaction with bounded size
-        // This is a simplified test - actual serialization would be more complex
-        let max_inputs = (tx_size / 100).min(MAX_INPUTS);
-        let max_outputs = (tx_size / 50).min(MAX_OUTPUTS);
-
-        prop_assume!(max_inputs > 0 && max_outputs > 0);
-
         let tx = Transaction {
             version: 1,
-            inputs: (0..max_inputs).map(|i| TransactionInput {
+            inputs: (0..n_in).map(|i| TransactionInput {
                 prevout: OutPoint {
-                    hash: [i as u8; 32],
-                    index: 0,
+                    hash: [i as u8 + 1; 32],
+                    index: i as u32,
                 },
-                script_sig: vec![0; 10], // Small script
+                script_sig: vec![0x51; script_len],
                 sequence: 0xffffffff,
             }).collect(),
-            outputs: (0..max_outputs).map(|_| TransactionOutput {
+            outputs: (0..n_out).map(|_| TransactionOutput {
                 value: 1000,
-                script_pubkey: vec![0; 20], // Small script
+                script_pubkey: vec![0x51; script_len],
             }).collect(),
             lock_time: 0,
         };
-
-        // Transaction structure should be valid
-        // (Actual size check would require serialization)
-        prop_assert!(tx.inputs.len() <= MAX_INPUTS,
-            "Input count {} exceeds limit {}", tx.inputs.len(), MAX_INPUTS);
-        prop_assert!(tx.outputs.len() <= MAX_OUTPUTS,
-            "Output count {} exceeds limit {}", tx.outputs.len(), MAX_OUTPUTS);
+        prop_assert_eq!(
+            transaction::calculate_transaction_size(&tx),
+            expected_stripped_size(&tx)
+        );
     }
 
     /// Invariant: Coinbase transactions have special validation rules
@@ -379,33 +401,30 @@ proptest! {
     /// Mathematical specification:
     /// ∀ tx ∈ 𝒯𝒳: IsCoinbase(tx) ⟹ 2 ≤ |tx.inputs[0].scriptSig| ≤ 100
     #[test]
-    fn prop_coinbase_script_sig_length(
-        script_sig_len in 2usize..101usize
+        fn prop_coinbase_script_sig_length(
+        script_sig_len in 0usize..120
     ) {
         let tx = Transaction {
             version: 1,
             inputs: vec![TransactionInput {
                 prevout: OutPoint {
-                    hash: [0; 32], // Null prevout indicates coinbase
-                    index: 0xffffffff, // Coinbase index
+                    hash: [0; 32],
+                    index: 0xffffffff,
                 },
-                script_sig: vec![0; script_sig_len],
+                script_sig: vec![0x51; script_sig_len],
                 sequence: 0xffffffff,
             }].into(),
             outputs: vec![TransactionOutput {
                 value: 5000000000,
-                script_pubkey: vec![],
+                script_pubkey: vec![0x51],
             }].into(),
             lock_time: 0,
         };
-
-        // Coinbase scriptSig length must be in [2, 100]
-        if transaction::is_coinbase(&tx) {
-            prop_assert!(tx.inputs[0].script_sig.len() >= 2,
-                "Coinbase scriptSig too short: {}", tx.inputs[0].script_sig.len());
-            prop_assert!(tx.inputs[0].script_sig.len() <= 100,
-                "Coinbase scriptSig too long: {}", tx.inputs[0].script_sig.len());
-        }
+        let valid = matches!(
+            transaction::check_transaction(&tx).unwrap(),
+            ValidationResult::Valid
+        );
+        prop_assert_eq!(valid, (2..=100).contains(&script_sig_len));
     }
 }
 

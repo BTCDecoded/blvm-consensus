@@ -891,6 +891,17 @@ pub fn verify_script(
     witness: Option<&ByteString>,
     flags: u32,
 ) -> Result<bool> {
+    // P2SH: a non-push scriptSig is invalid before either script runs.
+    if flags & flags::SCRIPT_VERIFY_P2SH != 0
+        && script_pubkey.len() == 23
+        && script_pubkey[0] == OP_HASH160
+        && script_pubkey[1] == PUSH_20_BYTES
+        && script_pubkey[22] == OP_EQUAL
+        && !p2sh_push_only_check(script_sig)
+    {
+        return Ok(false);
+    }
+
     // SigVersion is always Base for this API (no tx/witness context)
     let sigversion = SigVersion::Base;
 
@@ -3088,12 +3099,22 @@ pub(crate) fn try_verify_p2wsh_fast_path(
             let mut sig_index = 0;
             let mut valid_sigs = 0u8;
 
-            for pubkey_bytes in pubkeys {
+            // Stack order is the reverse of script order. Encoding failure aborts.
+            for pubkey_bytes in pubkeys.iter().rev() {
                 if sig_index >= signatures.len() {
                     break;
                 }
                 if signatures[sig_index].is_empty() {
                     continue;
+                }
+                if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE != 0
+                    && !(pubkey_bytes.len() == 33
+                        && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
+                {
+                    return Some(Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::WitnessPubkeyType,
+                        message: "witness v0 public key must be compressed".into(),
+                    }));
                 }
                 let signature_bytes = &signatures[sig_index];
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
@@ -7092,9 +7113,19 @@ fn execute_opcode_with_context_full(
                 // Matching: for each pubkey in order, if current sig verifies with this pubkey, advance
                 let mut sig_index = 0;
                 let mut valid_sigs = 0usize;
-                for (i, _pubkey_bytes) in pubkeys.iter().enumerate() {
+                for (i, pubkey_bytes) in pubkeys.iter().enumerate() {
                     if sig_index >= signatures.len() {
                         break;
+                    }
+                    if sigversion == SigVersion::WitnessV0
+                        && flags & crate::script::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE != 0
+                        && !(pubkey_bytes.len() == 33
+                            && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
+                    {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::WitnessPubkeyType,
+                            message: "witness v0 public key must be compressed".into(),
+                        });
                     }
                     // Skip empty sigs without advancing (same as original)
                     while sig_index < signatures.len() && signatures[sig_index].is_empty() {
@@ -7129,6 +7160,17 @@ fn execute_opcode_with_context_full(
 
                     if signature_bytes.is_empty() {
                         continue;
+                    }
+                    // Encoding failure aborts the script. It is not "try the next key".
+                    if sigversion == SigVersion::WitnessV0
+                        && flags & crate::script::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE != 0
+                        && !(pubkey_bytes.len() == 33
+                            && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
+                    {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::WitnessPubkeyType,
+                            message: "witness v0 public key must be compressed".into(),
+                        });
                     }
 
                     let sig_len = signature_bytes.len();

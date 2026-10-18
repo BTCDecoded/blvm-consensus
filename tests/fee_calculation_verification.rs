@@ -319,14 +319,17 @@ fn test_fee_overflow_protection() {
         lock_time: 0,
     };
 
-    // This should either succeed (if overflow is handled) or fail gracefully
-    let result = check_tx_inputs(&tx, &utxo_set, 200);
-    // Result may be Ok or Err depending on overflow handling
-    // The important thing is it doesn't panic or produce incorrect results
-    assert!(
-        result.is_ok() || result.is_err(),
-        "Fee calculation should handle overflow gracefully"
-    );
+    let (validation, fee) = check_tx_inputs(&tx, &utxo_set, 200).unwrap();
+    match validation {
+        ValidationResult::Invalid(message) => {
+            assert!(
+                message.contains("exceeds maximum money"),
+                "sum above MAX_MONEY must be named, got {message}"
+            );
+            assert_eq!(fee, 0);
+        }
+        ValidationResult::Valid => panic!("ten inputs of MAX_MONEY/2 exceed the money range"),
+    }
 }
 
 /// Test coinbase transaction fee (should be 0)

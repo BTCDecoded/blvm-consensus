@@ -1196,16 +1196,9 @@ mod property_tests {
         fn prop_check_proof_of_work_deterministic(
             header in arb_block_header()
         ) {
-            // Use valid target to avoid expansion errors
-            let mut valid_header = header;
-            valid_header.bits = 0x1d00ffff; // Valid target
-
-            // Call twice with same header
-            let result1 = check_proof_of_work(&valid_header).unwrap_or(false);
-            let result2 = check_proof_of_work(&valid_header).unwrap_or(false);
-
-            // Deterministic property
-            prop_assert_eq!(result1, result2, "Proof of work check must be deterministic");
+            let result1 = check_proof_of_work(&header);
+            let result2 = check_proof_of_work(&header);
+            prop_assert_eq!(result1, result2);
         }
     }
 
@@ -1258,6 +1251,30 @@ mod property_tests {
 mod tests {
     use super::*;
     use crate::constants::MAX_TARGET;
+
+    fn header_hash_meets(header: &BlockHeader) -> bool {
+        if header.bits & 0x0080_0000 != 0 {
+            return false;
+        }
+        let Ok(target) = expand_target(header.bits) else {
+            return false;
+        };
+        if target.is_zero() {
+            return false;
+        }
+        let bytes = serialize_header(header);
+        let hash1 = Sha256::digest(bytes);
+        let hash2 = Sha256::digest(hash1);
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&hash2);
+        let target_bytes = target.to_le_bytes();
+        for i in (0..32).rev() {
+            if hash_bytes[i] != target_bytes[i] {
+                return hash_bytes[i] < target_bytes[i];
+            }
+        }
+        true
+    }
 
     #[test]
     fn negative_or_zero_target_fails_and_equal_hash_passes() {
@@ -1360,11 +1377,10 @@ mod tests {
             nonce: 0,
         };
 
-        // This should work with the valid target
-        let result = check_proof_of_work(&header).unwrap();
-        // Result depends on the hash, but should not panic
-        // Just test it returns a boolean (result is either true or false)
-        let _ = result;
+        assert_eq!(
+            check_proof_of_work(&header).unwrap(),
+            header_hash_meets(&header)
+        );
     }
 
     // ============================================================================
@@ -1574,9 +1590,13 @@ mod tests {
             nonce: 0,
         };
 
-        let result = check_proof_of_work(&header).unwrap();
-        // Just test it returns a boolean (result is either true or false)
-        let _ = result;
+        assert_eq!(
+            check_proof_of_work(&header).unwrap(),
+            header_hash_meets(&header)
+        );
+        let mut negative = header;
+        negative.bits |= 0x0080_0000;
+        assert!(!check_proof_of_work(&negative).unwrap());
     }
 
     #[test]

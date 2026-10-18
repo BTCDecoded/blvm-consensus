@@ -9,12 +9,26 @@
 //! - All verification flag combinations
 //! - Opcode interactions and edge cases
 
+use blvm_consensus::constants::{MAX_SCRIPT_OPS, MAX_SCRIPT_SIZE};
+use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
 use blvm_consensus::opcodes::{
-    OP_1, OP_2, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_RESERVED, OP_VER,
-    OP_VERIFY,
+    OP_1, OP_2, OP_CHECKSIG, OP_DUP, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_NOP, OP_VERIFY,
 };
 use blvm_consensus::script::flags::SCRIPT_VERIFY_TAPROOT;
 use blvm_consensus::script::{SigVersion, eval_script, verify_script};
+
+fn script_code(result: &Result<bool, ConsensusError>) -> Option<ScriptErrorCode> {
+    match result {
+        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => Some(*code),
+        _ => None,
+    }
+}
+
+fn is_disabled_opcode(opcode: u8) -> bool {
+    (0x7e..=0x81).contains(&opcode)
+        || (0x83..=0x86).contains(&opcode)
+        || matches!(opcode, 0x8d | 0x8e | 0x95 | 0x96 | 0x97 | 0x98 | 0x99)
+}
 
 /// Script verification flags (values match Bitcoin Core script/interpreter.h)
 #[allow(dead_code)]
@@ -46,14 +60,30 @@ fn test_all_opcodes_individual() {
         let mut stack = Vec::new();
         let flags = 0u32;
 
-        // Execute opcode - should not panic
         let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-
-        // Result may be Ok or Err, but should not panic
-        assert!(
-            result.is_ok() || result.is_err(),
-            "Opcode 0x{opcode:02x} caused panic"
-        );
+        if is_disabled_opcode(opcode) {
+            assert_eq!(
+                script_code(&result),
+                Some(ScriptErrorCode::DisabledOpcode),
+                "opcode {opcode:#x} result {result:?}"
+            );
+        } else if opcode == 0x00 {
+            assert!(result.unwrap());
+            assert_eq!(stack.len(), 1);
+            assert!(stack[0].is_empty());
+        } else if (0x51..=0x60).contains(&opcode) {
+            assert!(result.unwrap());
+            assert_eq!(stack.len(), 1);
+            assert_eq!(stack[0].as_slice(), &[opcode - 0x50]);
+        } else if opcode == OP_NOP {
+            assert!(result.unwrap());
+            assert!(stack.is_empty());
+        } else {
+            let mut again = Vec::new();
+            let second = eval_script(&script, &mut again, flags, SigVersion::Base);
+            assert_eq!(result.is_ok(), second.is_ok(), "opcode {opcode:#x}");
+            assert_eq!(stack, again, "opcode {opcode:#x}");
+        }
     }
 }
 
@@ -90,7 +120,19 @@ fn test_common_opcodes_with_flags() {
 
             // Execute with flags - should not panic
             let result = eval_script(&script, &mut stack, *flags, SigVersion::Base);
-            assert!(result.is_ok() || result.is_err());
+            if opcode == OP_1 || opcode == OP_2 {
+                assert_eq!(result.unwrap(), true);
+                assert_eq!(stack.len(), 1);
+                assert_eq!(stack[0].as_slice(), &[opcode - 0x50]);
+            } else if opcode == OP_DUP || opcode == OP_HASH160 || opcode == OP_VERIFY {
+                assert_eq!(result.unwrap(), false, "opcode {opcode:#x}");
+            } else {
+                assert_eq!(
+                    script_code(&result),
+                    Some(ScriptErrorCode::InvalidStackOperation),
+                    "opcode {opcode:#x} result {result:?}"
+                );
+            }
         }
     }
 }
@@ -129,12 +171,14 @@ fn test_script_contexts() {
     // Test as scriptSig + scriptPubKey
     // Note: verify_script is a simplified API that doesn't require full context
     // For full verification, use verify_script_with_context_full
-    let result = verify_script(&script_sig, &script_pubkey, None, 0);
-    assert!(result.is_ok());
-
-    // Test with witness (empty witness for non-SegWit)
-    let result = verify_script(&script_sig, &script_pubkey, Some(&vec![]), 0);
-    assert!(result.is_ok());
+    assert_eq!(
+        verify_script(&script_sig, &script_pubkey, None, 0).unwrap(),
+        true
+    );
+    assert_eq!(
+        verify_script(&script_sig, &script_pubkey, Some(&vec![]), 0).unwrap(),
+        true
+    );
 }
 
 /// Test disabled opcodes
@@ -144,16 +188,11 @@ fn test_script_contexts() {
 fn test_disabled_opcodes() {
     // Disabled opcodes (from consensus)
     // These should be rejected when encountered
-    let disabled_opcodes = vec![OP_RESERVED, OP_VER];
-
-    for opcode in disabled_opcodes {
+    for opcode in [0x7eu8, 0x95, 0x8d] {
         let script = vec![opcode];
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
-
-        // Disabled opcodes should fail
-        // Note: Exact behavior depends on implementation
-        assert!(result.is_ok() || result.is_err());
+        assert_eq!(script_code(&result), Some(ScriptErrorCode::DisabledOpcode));
     }
 }
 
@@ -162,23 +201,15 @@ fn test_disabled_opcodes() {
 /// Verifies that scripts exceeding size limits are rejected.
 #[test]
 fn test_script_size_limits() {
-    use blvm_consensus::constants::MAX_SCRIPT_SIZE;
-
-    // Create a script at the size limit
-    let script = vec![OP_1; MAX_SCRIPT_SIZE];
+    let at_limit = vec![OP_1; MAX_SCRIPT_SIZE];
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
+    let at_result = eval_script(&at_limit, &mut stack, 0, SigVersion::Base);
+    assert_eq!(script_code(&at_result), Some(ScriptErrorCode::StackSize));
 
-    // Should handle large scripts (may fail due to operation limit)
-    assert!(result.is_ok() || result.is_err());
-
-    // Create a script exceeding the size limit
-    let large_script = vec![OP_1; MAX_SCRIPT_SIZE + 1];
+    let over = vec![OP_1; MAX_SCRIPT_SIZE + 1];
     let mut stack = Vec::new();
-    let result = eval_script(&large_script, &mut stack, 0, SigVersion::Base);
-
-    // Should handle or reject oversized scripts
-    assert!(result.is_ok() || result.is_err());
+    let over_result = eval_script(&over, &mut stack, 0, SigVersion::Base);
+    assert_eq!(script_code(&over_result), Some(ScriptErrorCode::ScriptSize));
 }
 
 /// Test operation count limits
@@ -186,24 +217,17 @@ fn test_script_size_limits() {
 /// Verifies that scripts exceeding operation count limits are rejected.
 #[test]
 fn test_operation_count_limits() {
-    use blvm_consensus::constants::MAX_SCRIPT_OPS;
-
-    // Create a script at the operation limit
-    let script = vec![OP_1; MAX_SCRIPT_OPS]; // OP_1 repeated
+    let at_limit = vec![OP_NOP; MAX_SCRIPT_OPS];
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
+    assert_eq!(
+        eval_script(&at_limit, &mut stack, 0, SigVersion::Base).unwrap(),
+        true
+    );
 
-    // Should handle scripts at the limit (may fail due to operation count)
-    assert!(result.is_ok() || result.is_err());
-
-    // Create a script exceeding the operation limit
-    let large_script = vec![OP_1; MAX_SCRIPT_OPS + 1];
+    let over = vec![OP_NOP; MAX_SCRIPT_OPS + 1];
     let mut stack = Vec::new();
-    let result = eval_script(&large_script, &mut stack, 0, SigVersion::Base);
-
-    // Should reject scripts exceeding operation limit
-    // Note: Exact behavior depends on when limit is checked
-    assert!(result.is_ok() || result.is_err());
+    let result = eval_script(&over, &mut stack, 0, SigVersion::Base);
+    assert_eq!(script_code(&result), Some(ScriptErrorCode::OpCount));
 }
 
 /// Test stack size limits
@@ -272,9 +296,12 @@ fn test_flag_combinations() {
     let mut stack = Vec::new();
 
     for flags in flag_combinations {
-        let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-        // Should not panic with any flag combination
-        assert!(result.is_ok() || result.is_err());
-        stack.clear(); // Reset stack for next test
+        assert_eq!(
+            eval_script(&script, &mut stack, flags, SigVersion::Base).unwrap(),
+            true
+        );
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        stack.clear();
     }
 }

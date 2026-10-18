@@ -1,254 +1,51 @@
-//! Witness stack size limit tests
-//!
-//! Tests for witness stack size limits in SegWit and Taproot transactions.
-//! Witness stack has a separate size limit from regular script stack.
-//!
-//! Consensus-critical: Witness stack overflow can cause consensus divergence.
+//! Witness element and Taproot witness-structure limits.
 
-use blvm_consensus::opcodes::{OP_0, OP_1, PUSH_32_BYTES};
-use blvm_consensus::script::verify_script;
-use blvm_consensus::types::ByteString;
+use blvm_consensus::witness::{
+    validate_segwit_witness_structure, validate_taproot_witness_structure,
+};
 
-/// Maximum witness stack size: 100 items
-pub const MAX_WITNESS_STACK_SIZE: usize = 100;
-
-/// Test witness stack size at exact boundary
 #[test]
-fn test_witness_stack_size_boundary() {
-    // Create witness with exactly 100 items
-    let mut witness = Vec::new();
-    for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![OP_1]); // Each item is OP_1
-    }
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
-
-    // Convert witness to ByteString for verification
-    // Note: Actual implementation may handle witness differently
-    let witness_byte_string: ByteString = witness[0].clone();
-
-    let flags = 0x800; // SCRIPT_VERIFY_WITNESS
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
-    );
-
-    // Should handle witness at boundary
-    assert!(result.is_ok() || result.is_err());
+fn segwit_witness_element_limit_is_520_bytes() {
+    let at_limit = vec![vec![0x11; 520]];
+    let over_limit = vec![vec![0x11; 521]];
+    let many_small = vec![vec![0x11]; 101];
+    assert!(validate_segwit_witness_structure(&at_limit).unwrap());
+    assert!(!validate_segwit_witness_structure(&over_limit).unwrap());
+    assert!(validate_segwit_witness_structure(&many_small).unwrap());
 }
 
-/// Test witness stack size exceeding limit
-#[test]
-fn test_witness_stack_size_exceeding() {
-    // Create witness with 101 items (exceeding limit)
-    let mut witness = Vec::new();
-    for _ in 0..=MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![OP_1]);
-    }
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
-    let witness_byte_string: ByteString = witness[0].clone();
-
-    let flags = 0x800; // WITNESS
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
-    );
-
-    // Should reject witness exceeding stack size limit
-    assert!(result.is_ok() || result.is_err());
+fn witness(items: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    items
 }
 
-/// Test witness stack size in P2WSH scripts
 #[test]
-fn test_witness_stack_size_p2wsh() {
-    // P2WSH (Pay-to-Witness-Script-Hash) can have witness stack
-    // ScriptPubKey: OP_0 <32-byte-script-hash>
-    let script_pubkey = vec![
-        OP_0,
-        PUSH_32_BYTES,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ];
-
-    // Create witness stack for P2WSH
-    let mut witness = Vec::new();
-    for i in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![i as u8]);
-    }
-
-    let script_sig = vec![]; // Empty for P2WSH
-    let witness_byte_string: ByteString = witness[0].clone();
-
-    let flags = 0x800; // WITNESS
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
-    );
-
-    // Should respect witness stack size limit
-    assert!(result.is_ok() || result.is_err());
+fn taproot_key_path_accepts_64_and_nonzero_65() {
+    assert!(validate_taproot_witness_structure(&witness(vec![vec![0x11; 64]]), false).unwrap());
+    let mut sixty_five = vec![0x11; 65];
+    assert!(validate_taproot_witness_structure(&witness(vec![sixty_five.clone()]), false).unwrap());
+    sixty_five[64] = 0x00;
+    assert!(!validate_taproot_witness_structure(&witness(vec![sixty_five]), false).unwrap());
+    assert!(!validate_taproot_witness_structure(&witness(vec![vec![0x11; 63]]), false).unwrap());
+    assert!(!validate_taproot_witness_structure(&witness(vec![vec![0x11; 66]]), false).unwrap());
 }
 
-/// Test witness stack size in Taproot script paths
 #[test]
-fn test_witness_stack_size_taproot() {
-    // Taproot script path spending uses witness stack
-    // ScriptPubKey: OP_1 <32-byte-taproot-hash>
-    let script_pubkey = vec![
-        OP_1,
-        PUSH_32_BYTES,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ];
-
-    // Create witness stack for Taproot
-    let mut witness = Vec::new();
-    for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![OP_1]);
-    }
-
-    let script_sig = vec![]; // Empty for Taproot
-    let witness_byte_string: ByteString = witness[0].clone();
-
-    let flags = 0x4000; // SCRIPT_VERIFY_TAPROOT
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
+fn taproot_script_path_control_block_is_33_plus_32n() {
+    let script = vec![0x51];
+    assert!(
+        validate_taproot_witness_structure(&witness(vec![script.clone(), vec![0x11; 33]]), true)
+            .unwrap()
     );
-
-    // Should respect witness stack size limit
-    assert!(result.is_ok() || result.is_err());
-}
-
-/// Test witness stack size with large witness elements
-#[test]
-fn test_witness_stack_size_large_elements() {
-    // Witness elements can be up to 520 bytes each
-    // Test with maximum-size elements at stack limit
-
-    let mut witness = Vec::new();
-    for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![0x42; 520]); // Maximum-size element
-    }
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
-    let witness_byte_string: ByteString = witness[0].clone();
-
-    let flags = 0x800; // WITNESS
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
+    assert!(
+        validate_taproot_witness_structure(&witness(vec![script.clone(), vec![0x11; 65]]), true)
+            .unwrap()
     );
-
-    // Should handle large witness elements
-    assert!(result.is_ok() || result.is_err());
-}
-
-/// Test witness stack size vs regular stack size
-#[test]
-fn test_witness_stack_vs_regular_stack() {
-    use blvm_consensus::constants::MAX_STACK_SIZE;
-
-    // Witness stack limit (100) is different from regular stack limit (1000)
-    assert!(MAX_WITNESS_STACK_SIZE < MAX_STACK_SIZE);
-
-    // Regular stack can have more items than witness stack
-    // This is important for P2WSH scripts where witness provides data
-    // that gets pushed onto regular stack
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![OP_1];
-
-    // Witness stack with 100 items
-    let mut witness = Vec::new();
-    for _ in 0..MAX_WITNESS_STACK_SIZE {
-        witness.push(vec![OP_1]);
-    }
-
-    let witness_byte_string: ByteString = witness[0].clone();
-    let flags = 0x800; // WITNESS
-
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&witness_byte_string),
-        flags,
+    assert!(
+        !validate_taproot_witness_structure(&witness(vec![script.clone(), vec![0x11; 32]]), true)
+            .unwrap()
     );
-
-    // Should respect witness stack limit (100), not regular stack limit (1000)
-    assert!(result.is_ok() || result.is_err());
+    assert!(
+        !validate_taproot_witness_structure(&witness(vec![script, vec![0x11; 34]]), true).unwrap()
+    );
+    assert!(!validate_taproot_witness_structure(&witness(vec![vec![0x11; 33]]), true).unwrap());
 }

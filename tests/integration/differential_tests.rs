@@ -94,7 +94,11 @@ mod tests {
             1,
             blvm_consensus::types::Network::Regtest,
         );
-        assert!(result.is_ok());
+        let (validation, _) = result.expect("connect_block returns a verdict");
+        assert!(
+            matches!(validation, ValidationResult::Invalid(_)),
+            "coinbase above the subsidy and a tiny target are not a valid block"
+        );
     }
 
     #[test]

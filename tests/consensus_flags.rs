@@ -85,12 +85,9 @@ fn test_all_flag_combinations_simple() {
     for flags in flag_combinations {
         let mut stack = Vec::new();
         let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-
-        // Should not panic with any flag combination
-        assert!(
-            result.is_ok() || result.is_err(),
-            "Script failed with flags 0x{flags:x}"
-        );
+        assert_eq!(result.unwrap(), true, "flags {flags:#x}");
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 }
 
@@ -129,12 +126,10 @@ fn test_flag_combinations_p2sh() {
     let script_sig = vec![OP_1]; // OP_1
 
     for flags in flag_combinations {
-        let result = verify_script(&script_sig, &script_pubkey, None, flags);
-
-        // Should not panic
-        assert!(
-            result.is_ok() || result.is_err(),
-            "P2SH script failed with flags 0x{flags:x}"
+        assert_eq!(
+            verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+            false,
+            "zero program hash does not match OP_1, flags {flags:#x}"
         );
     }
 }
@@ -148,22 +143,34 @@ fn test_flag_interactions() {
     let flags = 0x01 | 0x800; // P2SH + WITNESS
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 
     // Test STRICTENC + DERSIG combination
     let flags = 0x02 | 0x04; // STRICTENC + DERSIG
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 
     // Test TAPROOT + WITNESS combination
     let flags = SCRIPT_VERIFY_TAPROOT | 0x800; // TAPROOT (0x20000) + WITNESS (0x800)
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 }
 
 /// Test historical flag changes
@@ -178,22 +185,34 @@ fn test_historical_flag_changes() {
     let pre_segwit_flags = 0x01 | 0x02 | 0x04; // P2SH + STRICTENC + DERSIG
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, pre_segwit_flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, pre_segwit_flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 
     // Post-SegWit flags (WITNESS enabled)
     let post_segwit_flags = 0x01 | 0x02 | 0x04 | 0x800; // + WITNESS
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, post_segwit_flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, post_segwit_flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 
     // Post-Taproot flags (TAPROOT enabled)
     let post_taproot_flags = 0x01 | 0x02 | 0x04 | 0x800 | SCRIPT_VERIFY_TAPROOT; // + TAPROOT (0x20000)
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, post_taproot_flags, SigVersion::Base);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, post_taproot_flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 }
 
 /// Test flag inheritance in transaction chains
@@ -208,10 +227,12 @@ fn test_flag_inheritance() {
     let flags = 0x01; // P2SH
     let script = vec![OP_1]; // OP_1
     let mut stack = Vec::new();
-    let result = eval_script(&script, &mut stack, flags, SigVersion::Base);
-
-    // Flags should be inherited correctly
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        eval_script(&script, &mut stack, flags, SigVersion::Base).unwrap(),
+        true
+    );
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].as_slice(), &[1]);
 }
 
 /// Test all individual flags
@@ -222,13 +243,13 @@ fn test_individual_flags() {
     for &flag in ALL_FLAGS {
         let script = vec![OP_1]; // OP_1
         let mut stack = Vec::new();
-        let result = eval_script(&script, &mut stack, flag, SigVersion::Base);
-
-        // Each flag should work correctly
-        assert!(
-            result.is_ok() || result.is_err(),
-            "Flag 0x{flag:x} caused error"
+        assert_eq!(
+            eval_script(&script, &mut stack, flag, SigVersion::Base).unwrap(),
+            true,
+            "flag {flag:#x}"
         );
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 }
 
@@ -251,9 +272,19 @@ fn test_flag_combinations_edge_cases() {
         for flags in &flag_combinations {
             let mut stack = Vec::new();
             let result = eval_script(&script, &mut stack, *flags, SigVersion::Base);
-
-            // Should handle edge cases with any flag combination
-            assert!(result.is_ok() || result.is_err());
+            if script.is_empty() {
+                assert_eq!(result.unwrap(), true);
+                assert!(stack.is_empty());
+            } else if script == vec![OP_1; 10] {
+                assert_eq!(result.unwrap(), true);
+                assert_eq!(stack.len(), 10);
+            } else if script == vec![OP_0] {
+                assert_eq!(result.unwrap(), true);
+                assert_eq!(stack.len(), 1);
+                assert!(stack[0].is_empty());
+            } else {
+                assert_eq!(result.unwrap(), false, "opcode 0xff flags {flags:#x}");
+            }
         }
     }
 }
@@ -274,12 +305,10 @@ fn test_comprehensive_flag_combinations() {
 
     for (script_sig, script_pubkey) in test_scripts {
         for flags in &flag_combinations {
-            let result = verify_script(&script_sig, &script_pubkey, None, *flags);
-
-            // Should handle all combinations
-            assert!(
-                result.is_ok() || result.is_err(),
-                "Script failed with flags 0x{flags:x}"
+            assert_eq!(
+                verify_script(&script_sig, &script_pubkey, None, *flags).unwrap(),
+                true,
+                "flags {flags:#x}"
             );
         }
     }

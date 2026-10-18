@@ -600,50 +600,38 @@ fn test_script_flags_per_transaction() {
         lock_time: 0,
     };
 
-    let prevouts = [TransactionOutput {
-        value: 1000000,
-        script_pubkey: script_pubkey_taproot.clone(),
-    }];
-
-    // Verify that Taproot transaction with empty scriptSig is accepted
-    // (This indirectly tests that Taproot flag is set correctly)
-    let pv: Vec<i64> = prevouts.iter().map(|p| p.value).collect();
-    let psp: Vec<&[u8]> = prevouts
-        .iter()
-        .map(|p| p.script_pubkey.as_slice())
-        .collect();
-    let result = verify_script_with_context_full(
-        &tx_with_taproot.inputs[0].script_sig,
-        &script_pubkey_taproot,
-        None,
-        0x800 | 0x8000 | SCRIPT_VERIFY_TAPROOT, // WITNESS | WITNESS_PUBKEYTYPE | TAPROOT
+    let legacy = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [2; 32],
+                index: 0,
+            },
+            script_sig: vec![0x51],
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1000,
+            script_pubkey: vec![0x51],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let taproot_flags = blvm_consensus::block::calculate_script_flags_for_block_network(
         &tx_with_taproot,
-        0,
-        &pv,
-        &psp,
-        Some(height),
-        None,
+        false,
+        height,
         Network::Mainnet,
-        SigVersion::Base,
-        #[cfg(feature = "production")]
-        None,
-        None, // precomputed_bip143
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(feature = "production")]
-        None,
-        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-        None,
     );
-
-    // Should not fail due to empty scriptSig (Taproot allows empty scriptSig)
-    // (May fail for other reasons like missing witness, but not due to empty scriptSig)
-    assert!(
-        result.is_ok() || result.is_err(),
-        "Taproot validation should handle empty scriptSig"
+    let legacy_flags = blvm_consensus::block::calculate_script_flags_for_block_network(
+        &legacy,
+        false,
+        height,
+        Network::Mainnet,
     );
+    assert_eq!(taproot_flags ^ legacy_flags, 0x800);
+    assert_ne!(taproot_flags & 0x800, 0);
 }
 
 // ============================================================================

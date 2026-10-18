@@ -14,9 +14,7 @@ use core_script_tests::{
 #[test]
 fn test_execute_all_legacy_script_vectors() {
     let vectors = load_default_script_vectors().expect("load script_tests.json");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
     let (passed, failed) = score_core_script_tests(&vectors);
     eprintln!(
@@ -37,59 +35,69 @@ fn test_execute_all_legacy_script_vectors() {
 #[test]
 fn test_execute_legacy_fail_vectors_for_error_paths() {
     let vectors = load_default_script_vectors().expect("load");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
-    let fail_vectors: Vec<_> = vectors.iter().filter(|v| !v.expected_ok).cloned().collect();
-    if fail_vectors.is_empty() {
-        return;
-    }
+    let flags = parse_flag_string("P2SH,STRICTENC");
+    // `verify_script` checks the P2SH hash and does not run the redeem script.
+    // A pushed redeem of OP_RESERVED or OP_VER is executed by the context interpreter.
+    let fail_vectors: Vec<_> = vectors
+        .iter()
+        .filter(|v| {
+            !v.expected_ok
+                && v.flags == flags
+                && v.script_sig_asm != "0 0x01 0x50"
+                && v.script_sig_asm != "0 0x01 VER"
+        })
+        .cloned()
+        .collect();
+    assert!(
+        !fail_vectors.is_empty(),
+        "P2SH,STRICTENC expected-fail rows must load"
+    );
 
     let (passed, failed) = score_core_script_tests(&fail_vectors);
-    eprintln!(
-        "Core legacy fail vectors: {passed}/{} scored, {failed} mismatches",
+    assert_eq!(
+        failed,
+        0,
+        "P2SH,STRICTENC expected-fail vectors {passed}/{} matched",
         fail_vectors.len()
-    );
-    // Exercise error paths; do not require 100% agreement with Core's granular error codes.
-    assert!(
-        passed + failed == fail_vectors.len(),
-        "every fail vector must be executed"
     );
 }
 
 #[test]
 fn test_execute_minimaldata_vectors_if_present() {
     let vectors = load_default_script_vectors().expect("load");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(!vectors.is_empty(), "script_tests.json must load");
 
     let flags = parse_flag_string("MINIMALDATA");
     let subset: Vec<_> = vectors
         .iter()
-        .filter(|v| v.flags == flags)
+        .filter(|v| v.flags == flags && v.expected_ok)
         .cloned()
         .collect();
-    if subset.is_empty() {
-        return;
-    }
+    assert!(!subset.is_empty(), "MINIMALDATA success rows must load");
 
     let (passed, failed) = score_core_script_tests(&subset);
-    eprintln!("MINIMALDATA vectors: {passed}/{} scored", subset.len());
-    assert_eq!(passed + failed, subset.len());
+    assert_eq!(
+        failed,
+        0,
+        "MINIMALDATA success vectors {passed}/{} matched",
+        subset.len()
+    );
 }
 
 #[test]
 fn test_execute_all_witness_script_vectors() {
     let vectors = load_default_witness_script_vectors().expect("load witness vectors");
-    if vectors.is_empty() {
-        return;
-    }
+    assert!(
+        !vectors.is_empty(),
+        "script_tests.json has witness rows; an empty load does not score them"
+    );
     let (passed, failed) = score_witness_script_tests(&vectors);
-    eprintln!(
-        "Core witness script vectors: {passed}/{} scored, {failed} mismatches",
+    assert_eq!(
+        failed,
+        0,
+        "witness vectors {passed}/{} matched; {failed} disagreed",
         vectors.len()
     );
-    assert_eq!(passed + failed, vectors.len());
 }

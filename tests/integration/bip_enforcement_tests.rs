@@ -88,22 +88,12 @@ fn test_connect_block_rejects_bip30_violation() {
 
     match result {
         Ok((ValidationResult::Invalid(reason), _, _)) => {
-            // Good - block was rejected
             assert!(
-                reason.contains("BIP30") || reason.contains("duplicate coinbase"),
-                "Rejection reason should mention BIP30 or duplicate coinbase, got: {}",
-                reason
+                reason.contains("BIP30"),
+                "Rejection reason should name BIP30, got: {reason}"
             );
         }
-        Ok((ValidationResult::Valid, _, _)) => {
-            panic!(
-                "CRITICAL BUG: connect_block accepted a block with duplicate coinbase (BIP30 violation)! This means BIP30 check is NOT being called in connect_block!"
-            );
-        }
-        Err(e) => {
-            // Error is also acceptable - means validation caught the violation
-            eprintln!("connect_block returned error (acceptable): {:?}", e);
-        }
+        other => panic!("duplicate coinbase must be Invalid(BIP30), got: {other:?}"),
     }
 }
 
@@ -151,11 +141,8 @@ fn test_connect_block_rejects_bip34_violation() {
         Ok((ValidationResult::Invalid(reason), _, _)) => {
             // Good - block was rejected
             assert!(
-                reason.contains("BIP34")
-                    || reason.contains("height")
-                    || reason.contains("coinbase"),
-                "Rejection reason should mention BIP34, height, or coinbase, got: {}",
-                reason
+                reason.contains("BIP34"),
+                "Rejection reason should name BIP34, got: {reason}"
             );
         }
         Ok((ValidationResult::Valid, _, _)) => {
@@ -165,8 +152,7 @@ fn test_connect_block_rejects_bip34_violation() {
             );
         }
         Err(e) => {
-            // Error is also acceptable
-            eprintln!("connect_block returned error (acceptable): {:?}", e);
+            panic!("connect_block error is not the BIP verdict: {e:?}");
         }
     }
 }
@@ -210,13 +196,15 @@ fn test_connect_block_allows_bip34_before_activation() {
         connect_block(&block, &witnesses, utxo_set, height, &ctx)
     };
 
-    // If rejected, it should NOT be due to BIP34
-    if let Ok((ValidationResult::Invalid(reason), _, _)) = result {
-        assert!(
-            !reason.contains("BIP34"),
-            "Block should not be rejected for BIP34 before activation height, but got: {}",
-            reason
-        );
+    match result {
+        Ok((ValidationResult::Invalid(reason), _, _)) => {
+            assert!(
+                !reason.contains("BIP34"),
+                "Block should not be rejected for BIP34 before activation height, but got: {reason}"
+            );
+        }
+        Ok((ValidationResult::Valid, _, _)) => {}
+        Err(e) => panic!("connect_block error is not a BIP34 verdict: {e:?}"),
     }
 }
 
@@ -269,11 +257,8 @@ fn test_connect_block_rejects_bip90_violation() {
         Ok((ValidationResult::Invalid(reason), _, _)) => {
             // Good - block was rejected
             assert!(
-                reason.contains("BIP90")
-                    || reason.contains("version")
-                    || reason.contains("Block version"),
-                "Rejection reason should mention BIP90 or version, got: {}",
-                reason
+                reason.contains("BIP90"),
+                "Rejection reason should name BIP90, got: {reason}"
             );
         }
         Ok((ValidationResult::Valid, _, _)) => {
@@ -283,8 +268,7 @@ fn test_connect_block_rejects_bip90_violation() {
             );
         }
         Err(e) => {
-            // Error is also acceptable
-            eprintln!("connect_block returned error (acceptable): {:?}", e);
+            panic!("connect_block error is not the BIP verdict: {e:?}");
         }
     }
 }
@@ -333,13 +317,15 @@ fn test_connect_block_allows_bip90_valid_version() {
         connect_block(&block, &witnesses, utxo_set, height, &ctx)
     };
 
-    // If rejected, it should NOT be due to BIP90
-    if let Ok((ValidationResult::Invalid(reason), _, _)) = result {
-        assert!(
-            !reason.contains("BIP90"),
-            "Block should not be rejected for BIP90 with valid version, but got: {}",
-            reason
-        );
+    match result {
+        Ok((ValidationResult::Invalid(reason), _, _)) => {
+            assert!(
+                !reason.contains("BIP90"),
+                "Block should not be rejected for BIP90 with valid version, but got: {reason}"
+            );
+        }
+        Ok((ValidationResult::Valid, _, _)) => {}
+        Err(e) => panic!("connect_block error is not a BIP90 verdict: {e:?}"),
     }
 }
 
@@ -400,17 +386,9 @@ fn test_connect_block_multiple_bip_violations() {
     match result {
         Ok((ValidationResult::Invalid(reason), _, _)) => {
             // Should mention at least one BIP violation
-            let mentions_bip = reason.contains("BIP30")
-                || reason.contains("BIP34")
-                || reason.contains("BIP90")
-                || reason.contains("duplicate coinbase")
-                || reason.contains("height")
-                || reason.contains("version");
-
             assert!(
-                mentions_bip,
-                "Rejection reason should mention a BIP violation, got: {}",
-                reason
+                reason.contains("BIP30") || reason.contains("BIP34") || reason.contains("BIP90"),
+                "Rejection reason should name BIP30, BIP34, or BIP90, got: {reason}"
             );
         }
         Ok((ValidationResult::Valid, _, _)) => {
@@ -419,8 +397,7 @@ fn test_connect_block_multiple_bip_violations() {
             );
         }
         Err(e) => {
-            // Error is also acceptable
-            eprintln!("connect_block returned error (acceptable): {:?}", e);
+            panic!("connect_block error is not the BIP verdict: {e:?}");
         }
     }
 }
@@ -463,17 +440,14 @@ fn test_bip_check_order() {
         connect_block(&block, &witnesses, utxo_set, height, &ctx)
     };
 
-    // BIP90 should be caught first (it's checked on header, before transaction checks)
-    if let Ok((ValidationResult::Invalid(reason), _, _)) = result {
-        // BIP90 should be mentioned (or version), not BIP34
-        // This verifies BIP90 is checked before BIP34
-        assert!(
-            reason.contains("BIP90")
-                || reason.contains("version")
-                || reason.contains("Block version"),
-            "BIP90 violation should be caught first, but got: {}",
-            reason
-        );
+    match result {
+        Ok((ValidationResult::Invalid(reason), _, _)) => {
+            assert!(
+                reason.contains("BIP90"),
+                "BIP90 is checked before BIP34, got: {reason}"
+            );
+        }
+        other => panic!("version-1 block at BIP34 height must be Invalid(BIP90), got: {other:?}"),
     }
 }
 
@@ -591,9 +565,11 @@ fn test_script_verification_rejects_bip66_violation() {
                 "CRITICAL BUG: Script verification accepted a transaction with invalid DER signature (BIP66 violation)! This means BIP66 check may not be called during script verification!"
             );
         }
-        Err(_) => {
-            // Error is also acceptable - means validation caught the violation
-        }
+        Err(blvm_consensus::error::ConsensusError::ScriptErrorWithCode {
+            code: blvm_consensus::error::ScriptErrorCode::SigDer,
+            ..
+        }) => {}
+        Err(e) => panic!("BIP66 rejection must be SigDer, got: {e:?}"),
     }
 }
 
@@ -688,9 +664,7 @@ fn test_script_verification_rejects_bip147_violation() {
                 "CRITICAL BUG: Script verification accepted a transaction with non-empty dummy in OP_CHECKMULTISIG (BIP147 violation)! This means BIP147 check may not be called during script verification!"
             );
         }
-        Err(_) => {
-            // Error is also acceptable - means validation caught the violation
-        }
+        Err(e) => panic!("script error is not the verdict: {e:?}"),
     }
 }
 
@@ -780,8 +754,6 @@ fn test_script_verification_allows_bip147_before_activation() {
         Ok(_) => {
             // OK - script verification completed (may be valid or invalid for other reasons)
         }
-        Err(_) => {
-            // Error is acceptable - may fail for other reasons (invalid signatures, etc.)
-        }
+        Err(e) => panic!("script error is not the verdict: {e:?}"),
     }
 }

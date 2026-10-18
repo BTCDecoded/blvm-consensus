@@ -1,378 +1,71 @@
-//! P2SH redeem script edge cases
-//!
-//! Tests for P2SH (Pay-to-Script-Hash) redeem script validation.
-//! P2SH allows sending to a script hash, with the actual script provided at spend time.
-//!
-//! Consensus-critical: P2SH redeem script bugs can cause consensus divergence.
+//! P2SH scriptPubKey checks the hash of the pushed redeem script.
 
-use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_2, OP_EQUAL, OP_HASH160, PUSH_20_BYTES, PUSH_32_BYTES,
-};
+use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
+use blvm_consensus::opcodes::{OP_EQUAL, OP_HASH160};
 use blvm_consensus::script::verify_script;
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256};
 
-/// Maximum redeem script size: 520 bytes
-pub const MAX_REDEEM_SCRIPT_SIZE: usize = 520;
-
-/// Test redeem script size limits
-#[test]
-fn test_redeem_script_size_limits() {
-    // Create redeem script at size limit
-    let redeem_script_max = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE];
-
-    // Create redeem script exceeding limit
-    let redeem_script_too_large = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE + 1];
-
-    let script_sig = vec![OP_1]; // OP_1
-    let script_pubkey = vec![OP_HASH160, PUSH_20_BYTES]; // OP_HASH160, push 20 bytes (P2SH)
-
-    // Script at limit should work (may fail due to other reasons)
-    let result_max = verify_script(&script_sig, &script_pubkey, Some(&redeem_script_max), 0x01); // P2SH flag
-    assert!(result_max.is_ok() || result_max.is_err());
-
-    // Script exceeding limit should fail
-    let result_too_large = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&redeem_script_too_large),
-        0x01,
-    );
-    // Should fail due to size limit
-    assert!(result_too_large.is_ok() || result_too_large.is_err());
+fn hash160(data: &[u8]) -> [u8; 20] {
+    let sha = Sha256::digest(data);
+    let mut ripe = Ripemd160::new();
+    ripe.update(sha);
+    ripe.finalize().into()
 }
 
-/// Test redeem script evaluation order
-///
-/// P2SH evaluation: scriptSig executed, then redeem script executed, then scriptPubKey executed
-#[test]
-fn test_redeem_script_evaluation_order() {
-    // P2SH scriptPubKey: OP_HASH160 <20-byte-hash> OP_EQUAL
-    let script_pubkey = vec![
-        OP_HASH160,    // OP_HASH160
-        PUSH_20_BYTES, // Push 20 bytes
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        OP_EQUAL, // OP_EQUAL
-    ];
-
-    // Redeem script: OP_1
-    let redeem_script = vec![OP_1]; // OP_1
-
-    // ScriptSig: <redeem_script>
-    let script_sig = redeem_script.clone();
-
-    // Evaluation order:
-    // 1. Execute scriptSig (pushes redeem script)
-    // 2. Execute scriptPubKey (hashes top stack item, compares to hash in scriptPubKey)
-    // 3. If hash matches, execute redeem script
-
-    let flags = 0x01; // SCRIPT_VERIFY_P2SH
-    let result = verify_script(&script_sig, &script_pubkey, Some(&redeem_script), flags);
-
-    // Should evaluate in correct order
-    assert!(result.is_ok() || result.is_err());
+fn p2sh_script(redeem: &[u8]) -> Vec<u8> {
+    let digest = hash160(redeem);
+    let mut script = vec![OP_HASH160, 0x14];
+    script.extend(digest);
+    script.push(OP_EQUAL);
+    script
 }
 
-/// Test redeem script with SegWit (P2WSH inside P2SH)
-#[test]
-fn test_redeem_script_with_segwit() {
-    // P2SH can contain P2WSH (Pay-to-Witness-Script-Hash) redeem script
-    // This is a nested SegWit scenario
-
-    // P2SH scriptPubKey
-    let script_pubkey = vec![
-        OP_HASH160,    // OP_HASH160
-        PUSH_20_BYTES, // Push 20 bytes
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        OP_EQUAL, // OP_EQUAL
-    ];
-
-    // Redeem script: P2WSH scriptPubKey (OP_0 <32-byte-hash>)
-    let redeem_script = vec![
-        OP_0,
-        PUSH_32_BYTES,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ];
-
-    let script_sig = redeem_script.clone();
-    let flags = 0x01 | 0x800; // P2SH + WITNESS
-
-    let result = verify_script(&script_sig, &script_pubkey, Some(&redeem_script), flags);
-
-    // Should handle nested SegWit
-    assert!(result.is_ok() || result.is_err());
+fn push_element(element: &[u8]) -> Vec<u8> {
+    assert!(element.len() <= 75, "direct push only");
+    let mut script = vec![element.len() as u8];
+    script.extend(element);
+    script
 }
 
-/// Test redeem script with disabled opcodes
-#[test]
-fn test_redeem_script_disabled_opcodes() {
-    // Redeem scripts cannot contain disabled opcodes
-    let disabled_opcodes = vec![0xba, 0xbb]; // OP_RESERVED, OP_VER
-
-    for opcode in disabled_opcodes {
-        let redeem_script = vec![opcode];
-        let script_sig = redeem_script.clone();
-        let script_pubkey = vec![
-            OP_HASH160,
-            PUSH_20_BYTES,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            OP_EQUAL,
-        ];
-
-        let flags = 0x01; // P2SH
-        let result = verify_script(&script_sig, &script_pubkey, Some(&redeem_script), flags);
-
-        // Should reject disabled opcodes
-        assert!(result.is_ok() || result.is_err());
+fn script_code(result: Result<bool, ConsensusError>) -> Option<ScriptErrorCode> {
+    match result {
+        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => Some(code),
+        _ => None,
     }
 }
 
-/// Test redeem script stack size limits
 #[test]
-fn test_redeem_script_stack_size() {
-    use blvm_consensus::constants::MAX_STACK_SIZE;
-
-    // Redeem script should respect stack size limits
-    // Create a script that would exceed stack size
-    let mut redeem_script = Vec::new();
-    for _ in 0..=MAX_STACK_SIZE {
-        redeem_script.push(OP_1); // OP_1
-    }
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![
-        OP_HASH160,
-        PUSH_20_BYTES,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        OP_EQUAL,
-    ];
-
-    let flags = 0x01; // P2SH
-    let result = verify_script(&script_sig, &script_pubkey, Some(&redeem_script), flags);
-
-    // Should respect stack size limits
-    assert!(result.is_ok() || result.is_err());
+fn p2sh_hash_matches_the_pushed_redeem_script() {
+    let redeem = vec![0x51];
+    let script_sig = push_element(&redeem);
+    assert_eq!(
+        verify_script(&script_sig, &p2sh_script(&redeem), None, 0x01).unwrap(),
+        true
+    );
+    let mut flipped = redeem.clone();
+    flipped[0] ^= 0xff;
+    assert_eq!(
+        verify_script(&script_sig, &p2sh_script(&flipped), None, 0x01).unwrap(),
+        false
+    );
 }
 
-/// Test invalid redeem script rejection
 #[test]
-fn test_invalid_redeem_script_rejection() {
-    // Redeem script must hash to the value in scriptPubKey
-    // If hash doesn't match, script should be rejected
+fn redeem_push_above_520_bytes_is_push_size() {
+    let element = vec![0x11; 521];
+    let mut script_sig = vec![0x4e];
+    script_sig.extend((element.len() as u32).to_le_bytes());
+    script_sig.extend(&element);
+    let result = verify_script(&script_sig, &p2sh_script(&element), None, 0x01);
+    assert_eq!(script_code(result), Some(ScriptErrorCode::PushSize));
 
-    let script_pubkey = vec![
-        OP_HASH160,    // OP_HASH160
-        PUSH_20_BYTES, // Push 20 bytes
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        OP_EQUAL, // OP_EQUAL
-    ];
-
-    // Wrong redeem script (doesn't hash to scriptPubKey value)
-    let wrong_redeem_script = vec![OP_2]; // OP_2
-
-    let script_sig = wrong_redeem_script.clone();
-    let flags = 0x01; // P2SH
-
-    let result = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&wrong_redeem_script),
-        flags,
+    let at_limit = vec![0x11; 520];
+    let mut script_sig = vec![0x4d];
+    script_sig.extend((at_limit.len() as u16).to_le_bytes());
+    script_sig.extend(&at_limit);
+    assert_eq!(
+        verify_script(&script_sig, &p2sh_script(&at_limit), None, 0x01).unwrap(),
+        true
     );
-
-    // Should reject wrong redeem script
-    assert!(result.is_ok() || result.is_err());
-}
-
-/// Test redeem script boundary conditions
-#[test]
-fn test_redeem_script_boundaries() {
-    // Test at exact boundary (520 bytes)
-    let redeem_script_exact = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE];
-
-    // Test just under boundary (519 bytes)
-    let redeem_script_under = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE - 1];
-
-    // Test just over boundary (521 bytes)
-    let redeem_script_over = vec![OP_1; MAX_REDEEM_SCRIPT_SIZE + 1];
-
-    let script_sig = vec![OP_1];
-    let script_pubkey = vec![
-        OP_HASH160,
-        PUSH_20_BYTES,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        OP_EQUAL,
-    ];
-    let flags = 0x01; // P2SH
-
-    // Exact boundary should work
-    let result_exact = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&redeem_script_exact),
-        flags,
-    );
-    assert!(result_exact.is_ok() || result_exact.is_err());
-
-    // Under boundary should work
-    let result_under = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&redeem_script_under),
-        flags,
-    );
-    assert!(result_under.is_ok() || result_under.is_err());
-
-    // Over boundary should fail
-    let result_over = verify_script(
-        &script_sig,
-        &script_pubkey,
-        Some(&redeem_script_over),
-        flags,
-    );
-    // Should fail due to size limit
-    assert!(result_over.is_ok() || result_over.is_err());
 }

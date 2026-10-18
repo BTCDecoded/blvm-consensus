@@ -5,13 +5,10 @@
 //!
 //! Consensus-critical: Spending coinbase too early causes consensus violation.
 
-use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::opcodes::OP_1;
 use blvm_consensus::types::{
-    Block, BlockHeader, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,
-    UtxoSet,
+    OutPoint, Transaction, TransactionInput, TransactionOutput, UTXO, UtxoSet, ValidationResult,
 };
-use blvm_consensus::witness::Witness;
 
 use blvm_consensus::constants::COINBASE_MATURITY;
 use blvm_consensus::{SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET};
@@ -166,11 +163,21 @@ fn test_multiple_coinbase_maturity() {
     // - Coinbase 2 is not mature (only 50 blocks deep)
     let current_height = 100;
 
-    let coinbase1_mature = current_height >= coinbase1_height + COINBASE_MATURITY;
-    let coinbase2_mature = current_height >= coinbase2_height + COINBASE_MATURITY;
-
-    assert!(coinbase1_mature); // 100 >= 0 + 100
-    assert!(!coinbase2_mature); // 100 < 50 + 100
+    assert!(blvm_consensus::transaction::check_coinbase_maturity(
+        current_height,
+        coinbase1_height,
+        true
+    ));
+    assert!(!blvm_consensus::transaction::check_coinbase_maturity(
+        current_height,
+        coinbase2_height,
+        true
+    ));
+    assert!(blvm_consensus::transaction::check_coinbase_maturity(
+        current_height,
+        coinbase2_height,
+        false
+    ));
 }
 
 /// Test coinbase maturity with block validation
@@ -178,65 +185,39 @@ fn test_multiple_coinbase_maturity() {
 /// Verifies that blocks attempting to spend immature coinbase are rejected.
 #[test]
 fn test_coinbase_maturity_block_validation() {
-    // Create a block at height 100 that tries to spend coinbase from height 0
-    let block = Block {
-        header: BlockHeader {
-            version: 1,
-            prev_block_hash: [0; 32],
-            merkle_root: [0; 32],
-            timestamp: 1231006505,
-            bits: 0x1d00ffff,
-            nonce: 0,
-        },
-        transactions: vec![
-            // Coinbase transaction
-            Transaction {
-                version: 1,
-                inputs: blvm_consensus::tx_inputs![TransactionInput {
-                    prevout: OutPoint {
-                        hash: [0; 32],
-                        index: 0xffffffff,
-                    },
-                    script_sig: vec![0x04, 0x64, 0x00, 0x00, 0x00], // Height 100
-                    sequence: 0xffffffff,
-                }],
-                outputs: blvm_consensus::tx_outputs![TransactionOutput {
-                    value: 50_0000_0000,
-                    script_pubkey: vec![OP_1],
-                }],
-                lock_time: 0,
-            },
-            // Transaction attempting to spend coinbase from height 0
-            Transaction {
-                version: 1,
-                inputs: blvm_consensus::tx_inputs![TransactionInput {
-                    prevout: OutPoint {
-                        hash: [1; 32], // Coinbase from height 0
-                        index: 0,
-                    },
-                    script_sig: vec![],
-                    sequence: 0xffffffff,
-                }],
-                outputs: blvm_consensus::tx_outputs![TransactionOutput {
-                    value: 25_0000_0000,
-                    script_pubkey: vec![OP_1],
-                }],
-                lock_time: 0,
-            },
-        ]
-        .into_boxed_slice(),
+    let prevout = OutPoint {
+        hash: [1; 32],
+        index: 0,
     };
-
-    let utxo_set = UtxoSet::default();
-    let height = 100;
-
-    // Block should be rejected if coinbase spending is immature
-    // (This depends on actual validation implementation)
-    // Provide empty witnesses for each transaction (non-SegWit)
-    let witnesses: Vec<Vec<Witness>> = vec![Vec::new(), Vec::new()];
-    let ctx = BlockValidationContext::for_network(Network::Mainnet);
-    let result = connect_block(&block, &witnesses, utxo_set, height, &ctx);
-
-    // Result may be invalid due to immature coinbase
-    assert!(result.is_ok() || result.is_err());
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        prevout,
+        std::sync::Arc::new(UTXO {
+            value: 50_0000_0000,
+            script_pubkey: vec![OP_1].into(),
+            height: 0,
+            is_coinbase: true,
+        }),
+    );
+    let spend = Transaction {
+        version: 1,
+        inputs: blvm_consensus::tx_inputs![TransactionInput {
+            prevout,
+            script_sig: vec![OP_1],
+            sequence: 0xffffffff,
+        }],
+        outputs: blvm_consensus::tx_outputs![TransactionOutput {
+            value: 25_0000_0000,
+            script_pubkey: vec![OP_1],
+        }],
+        lock_time: 0,
+    };
+    let (immature, fee) =
+        blvm_consensus::transaction::check_tx_inputs(&spend, &utxo_set, 99).unwrap();
+    assert!(matches!(immature, ValidationResult::Invalid(_)));
+    assert_eq!(fee, 0);
+    let (mature, fee) =
+        blvm_consensus::transaction::check_tx_inputs(&spend, &utxo_set, 100).unwrap();
+    assert!(matches!(mature, ValidationResult::Valid));
+    assert_eq!(fee, 25_0000_0000);
 }

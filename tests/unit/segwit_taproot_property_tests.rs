@@ -3,10 +3,11 @@
 //! Comprehensive property-based tests covering SegWit transaction weight,
 //! witness validation, Taproot output validation, and related edge cases.
 
-use blvm_consensus::constants::MAX_BLOCK_SIZE;
-use blvm_consensus::opcodes::OP_1;
+use blvm_consensus::opcodes::{OP_0, OP_1, PUSH_32_BYTES};
 use blvm_consensus::segwit;
+use blvm_consensus::taproot::validate_taproot_script;
 use blvm_consensus::types::*;
+use blvm_consensus::witness::validate_segwit_witness_structure;
 use proptest::prelude::*;
 
 /// Property test: transaction weight is always positive
@@ -41,15 +42,10 @@ proptest! {
         }
 
         let witness: segwit::Witness = vec![vec![OP_1; 50]; input_count];
-
-        // Calculate weight (API no longer takes Network parameter)
-        let result = segwit::calculate_transaction_weight(&tx, Some(&witness));
-
-        prop_assert!(result.is_ok());
-        if result.is_ok() {
-            let weight = result.unwrap();
-            prop_assert!(weight > 0, "Transaction weight must be positive");
-        }
+        let weight = segwit::calculate_transaction_weight(&tx, Some(&witness)).unwrap();
+        let base = blvm_consensus::serialization::serialize_transaction(&tx).len() as u64;
+        let extra: u64 = witness.iter().map(|element| element.len() as u64).sum();
+        prop_assert_eq!(weight, base * 4 + extra);
     }
 }
 
@@ -87,66 +83,59 @@ proptest! {
         };
 
         let witnesses: Vec<segwit::Witness> = vec![vec![vec![]]; tx_count];
-
-        let result = segwit::calculate_block_weight(&block, &witnesses);
-
-        prop_assert!(result.is_ok());
-        if result.is_ok() {
-            let weight = result.unwrap();
-            // Block weight should not exceed MAX_BLOCK_SIZE * 4 (weight units)
-            prop_assert!(weight <= (MAX_BLOCK_SIZE as u64 * 4),
-                "Block weight must not exceed maximum");
-        }
+        let weight = segwit::calculate_block_weight(&block, &witnesses).unwrap();
+        let tx_bytes: u64 = block
+            .transactions
+            .iter()
+            .map(|tx| blvm_consensus::serialization::serialize_transaction(tx).len() as u64)
+            .sum();
+        prop_assert_eq!(weight, 4 * (80 + 1 + tx_bytes));
     }
 }
 
 /// Property test: transaction weight formula consistency
 proptest! {
     #[test]
-    fn prop_transaction_weight_formula(
-        base_size in 100usize..1000usize,
-        witness_size in 0usize..500usize
+        fn prop_transaction_weight_formula(
+        base_size in 100u64..1000,
+        witness_size in 0u64..500
     ) {
-        // Weight = base_size * 3 + witness_size
-        // This is a simplified formula test
-        let base_weight = base_size * 3;
-        let total_weight = base_weight + witness_size;
-
-        prop_assert!(total_weight >= base_size);
-        prop_assert!(total_weight >= witness_size);
-        prop_assert!(total_weight <= (base_size * 4 + witness_size));
+        let weight = blvm_consensus::witness::calculate_transaction_weight_segwit(
+            base_size,
+            base_size + witness_size,
+        );
+        prop_assert_eq!(weight, base_size * 4 + witness_size);
     }
 }
 
 /// Property test: SegWit witness data size bounds
 proptest! {
     #[test]
-    fn prop_segwit_witness_bounds(
-        witness_item_count in 0usize..10usize,
-        witness_item_size in 1usize..100usize
+        fn prop_segwit_witness_bounds(
+        witness_item_count in 0usize..5,
+        witness_item_size in 1usize..=530
     ) {
-        // Create witness with multiple items
         let witness: Vec<Vec<u8>> = (0..witness_item_count)
             .map(|_| vec![OP_1; witness_item_size])
             .collect();
-
-        let total_witness_size: usize = witness.iter().map(|w| w.len()).sum();
-
-        prop_assert!(total_witness_size >= 0);
-        prop_assert!(total_witness_size <= witness_item_count * witness_item_size);
+        let valid = validate_segwit_witness_structure(&witness).unwrap();
+        prop_assert_eq!(valid, witness_item_count == 0 || witness_item_size <= 520);
     }
 }
 
 /// Property test: Taproot output validation
 proptest! {
     #[test]
-    fn prop_taproot_output_valid(
-        script_bytes in prop::collection::vec(any::<u8>(), 0..100)
+        fn prop_taproot_output_valid(
+        version in prop::sample::select(vec![OP_0, OP_1, 0x52u8]),
+        program_len in 31usize..=35,
+        push in prop::sample::select(vec![PUSH_32_BYTES, 0x21u8])
     ) {
-        // Taproot outputs should have valid script format
-        // This is a structural property test
-        prop_assert!(script_bytes.len() >= 0);
-        prop_assert!(script_bytes.len() <= 10000); // MAX_SCRIPT_SIZE
+        let mut script = vec![version, push];
+        script.extend(std::iter::repeat(0x11).take(program_len));
+        let valid = validate_taproot_script(&script).unwrap();
+        let expected = script.len() == 34 && version == OP_1 && push == PUSH_32_BYTES;
+        prop_assert_eq!(valid, expected);
     }
 }
 

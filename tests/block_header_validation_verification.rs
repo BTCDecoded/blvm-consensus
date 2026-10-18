@@ -94,20 +94,51 @@ fn test_block_header_invalid_merkle_root_zero() {
     );
 }
 
+fn header_bytes(header: &BlockHeader) -> [u8; 80] {
+    let mut bytes = [0u8; 80];
+    bytes[0..4].copy_from_slice(&(header.version as u32).to_le_bytes());
+    bytes[4..36].copy_from_slice(&header.prev_block_hash);
+    bytes[36..68].copy_from_slice(&header.merkle_root);
+    bytes[68..72].copy_from_slice(&(header.timestamp as u32).to_le_bytes());
+    bytes[72..76].copy_from_slice(&(header.bits as u32).to_le_bytes());
+    bytes[76..80].copy_from_slice(&(header.nonce as u32).to_le_bytes());
+    bytes
+}
+
+fn sha256d(data: &[u8]) -> [u8; 32] {
+    let first = Sha256::digest(data);
+    Sha256::digest(first).into()
+}
+
+fn hash_meets_target(header: &BlockHeader) -> bool {
+    if header.bits & 0x0080_0000 != 0 {
+        return false;
+    }
+    let Ok(target) = expand_target(header.bits) else {
+        return false;
+    };
+    let target_bytes = target.to_le_bytes();
+    if target_bytes == [0; 32] {
+        return false;
+    }
+    let hash = sha256d(&header_bytes(header));
+    for i in (0..32).rev() {
+        if hash[i] != target_bytes[i] {
+            return hash[i] < target_bytes[i];
+        }
+    }
+    true
+}
+
 /// Test proof of work verification: valid PoW
 ///
 /// Consensus: hash < target should pass
 #[test]
 fn test_proof_of_work_valid() {
-    // Create a header with valid proof of work
-    // For testing, we'll use genesis difficulty which is very easy
     let header = create_valid_header();
-
-    // Verify PoW check doesn't panic
-    let result = check_proof_of_work(&header);
-    assert!(
-        result.is_ok() || result.is_err(),
-        "PoW check should complete"
+    assert_eq!(
+        check_proof_of_work(&header).unwrap(),
+        hash_meets_target(&header)
     );
 }
 
@@ -119,14 +150,10 @@ fn test_proof_of_work_invalid_hash_too_large() {
     // Create a header where hash would be >= target
     // This is difficult to test without actually mining, but we can verify
     // the function exists and works
-    let header = create_valid_header();
-
-    // The check should complete (may pass or fail depending on nonce)
-    let result = check_proof_of_work(&header);
-    assert!(
-        result.is_ok() || result.is_err(),
-        "PoW check should complete"
-    );
+    let mut header = create_valid_header();
+    header.bits |= 0x0080_0000;
+    assert!(!check_proof_of_work(&header).unwrap());
+    assert!(!hash_meets_target(&header));
 }
 
 /// Test proof of work: target expansion matches header bits

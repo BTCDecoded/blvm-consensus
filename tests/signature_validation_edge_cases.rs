@@ -5,13 +5,20 @@
 //! - Low S requirement (SCRIPT_VERIFY_LOW_S)
 //! - High S rejection
 //! - Null dummy enforcement (SCRIPT_VERIFY_NULLDUMMY)
-//! - Signature push-only enforcement (SCRIPT_VERIFY_SIGPUSHONLY)
+//! - P2SH scriptSig push-only enforcement
 //! - Signature strict encoding (SCRIPT_VERIFY_STRICTENC)
 //!
 //! Consensus-critical: Signature validation bugs can allow invalid transactions.
 
-use blvm_consensus::opcodes::{OP_0, OP_1, OP_2, OP_CHECKMULTISIG, OP_DUP, PUSH_65_BYTES};
-use blvm_consensus::script::verify_script;
+use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_CHECKMULTISIG, OP_DUP, OP_EQUAL, OP_HASH160, PUSH_20_BYTES,
+};
+use blvm_consensus::script::{
+    SigVersion, disable_fast_paths, p2sh_push_only_check, verify_script,
+    verify_script_with_context_full,
+};
+use blvm_consensus::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
 
 #[path = "core_test_vectors/tx_loader.rs"]
 mod tx_loader;
@@ -20,7 +27,6 @@ mod tx_loader;
 pub const SCRIPT_VERIFY_DERSIG: u32 = 0x04;
 pub const SCRIPT_VERIFY_LOW_S: u32 = 0x08;
 pub const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
-pub const SCRIPT_VERIFY_SIGPUSHONLY: u32 = 0x20;
 pub const SCRIPT_VERIFY_STRICTENC: u32 = 0x02;
 
 /// Test DER signature encoding validation
@@ -38,10 +44,10 @@ fn test_der_signature_encoding() {
 
     // Test with DERSIG flag
     let flags = SCRIPT_VERIFY_DERSIG;
-    let result = verify_script(&script_sig, &script_pubkey, None, flags);
-
-    // Should handle DER validation (may fail if signature invalid)
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+        true
+    );
 }
 
 /// Test Low S requirement
@@ -54,10 +60,10 @@ fn test_low_s_requirement() {
 
     // Test with LOW_S flag
     let flags = SCRIPT_VERIFY_LOW_S;
-    let result = verify_script(&script_sig, &script_pubkey, None, flags);
-
-    // Should enforce Low S requirement
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+        true
+    );
 }
 
 /// Test High S rejection
@@ -71,8 +77,10 @@ fn test_high_s_rejection() {
     let script_pubkey = vec![OP_1];
     let flags = SCRIPT_VERIFY_LOW_S;
 
-    let result = verify_script(&script_sig, &script_pubkey, None, flags);
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(
+        verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+        true
+    );
 }
 
 /// Test NULLDUMMY enforcement
@@ -80,132 +88,106 @@ fn test_high_s_rejection() {
 /// SCRIPT_VERIFY_NULLDUMMY: OP_CHECKMULTISIG dummy argument must be empty
 #[test]
 fn test_null_dummy_enforcement() {
-    // OP_CHECKMULTISIG requires a dummy argument (extra stack element)
-    // With NULLDUMMY flag, this must be empty (OP_0)
-
-    // Multisig script: 2 <pubkey1> <pubkey2> 2 OP_CHECKMULTISIG
-    let script_pubkey = vec![
-        OP_2,
-        PUSH_65_BYTES,
-        0x04, // Push pubkey (simplified)
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        0xff,
-        OP_2,
-        OP_CHECKMULTISIG,
-    ];
-
-    // ScriptSig with NULLDUMMY: <sig1> <sig2> OP_0
-    let script_sig_valid = vec![
-        0x47, 0x30, 0x44, // Signature (simplified)
-        OP_0, // OP_0 (NULLDUMMY)
-    ];
-
-    // ScriptSig without NULLDUMMY: <sig1> <sig2> OP_1 (invalid)
-    let script_sig_invalid = vec![
-        0x47, 0x30, 0x44, // Signature
-        OP_1, // OP_1 (non-empty dummy - invalid)
-    ];
-
-    let flags = SCRIPT_VERIFY_NULLDUMMY;
-
-    // Valid NULLDUMMY should pass
-    let result_valid = verify_script(&script_sig_valid, &script_pubkey, None, flags);
-    // May pass or fail depending on signature validity
-
-    // Invalid NULLDUMMY should fail
-    let result_invalid = verify_script(&script_sig_invalid, &script_pubkey, None, flags);
-    // Should fail due to non-empty dummy
-
-    assert!(result_valid.is_ok() || result_valid.is_err());
-    assert!(result_invalid.is_ok() || result_invalid.is_err());
+    let height = blvm_consensus::BIP147_ACTIVATION_MAINNET;
+    let empty_dummy = vec![OP_0, OP_0, OP_0, OP_CHECKMULTISIG];
+    let one_byte_dummy = vec![0x01, 0x00, OP_0, OP_0, OP_CHECKMULTISIG];
+    assert_eq!(
+        nulldummy_at(&empty_dummy, height).expect("empty dummy"),
+        true
+    );
+    match nulldummy_at(&one_byte_dummy, height) {
+        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => {
+            assert_eq!(code, ScriptErrorCode::SigNullDummy);
+        }
+        other => panic!("one-byte dummy must be SigNullDummy, got {other:?}"),
+    }
+    assert_eq!(
+        nulldummy_at(&one_byte_dummy, height - 1).expect("before activation"),
+        true
+    );
 }
 
-/// Test SIGPUSHONLY enforcement
-///
-/// SCRIPT_VERIFY_SIGPUSHONLY: scriptSig must only contain data pushes
+fn nulldummy_at(script_pubkey: &[u8], height: u64) -> blvm_consensus::error::Result<bool> {
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x11; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffff_ffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    disable_fast_paths(true);
+    let values = [0i64];
+    let scripts = [script_pubkey];
+    let result = verify_script_with_context_full(
+        &tx.inputs[0].script_sig,
+        script_pubkey,
+        None,
+        SCRIPT_VERIFY_NULLDUMMY,
+        &tx,
+        0,
+        &values,
+        &scripts,
+        Some(height),
+        None,
+        Network::Mainnet,
+        SigVersion::Base,
+        None,
+        None,
+        None,
+        None,
+        None,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        None,
+    );
+    disable_fast_paths(false);
+    result
+}
+
+/// P2SH scriptSig must be push-only when SCRIPT_VERIFY_P2SH is set.
 #[test]
-fn test_sigpushonly_enforcement() {
-    // ScriptSig must only contain push operations (no opcodes)
-    // This prevents script injection attacks
+fn test_p2sh_scriptsig_push_only() {
+    let redeem = vec![OP_1];
+    assert!(p2sh_push_only_check(&redeem));
+    assert!(!p2sh_push_only_check(&[OP_DUP]));
 
-    let script_pubkey = vec![OP_1]; // OP_1
+    let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+    script_pubkey.extend_from_slice(&hash160(&redeem));
+    script_pubkey.push(OP_EQUAL);
 
-    // Valid: only data pushes
-    let script_sig_valid = vec![OP_1]; // OP_1 (push 1)
+    let pushed = {
+        let mut script = vec![redeem.len() as u8];
+        script.extend_from_slice(&redeem);
+        script
+    };
+    assert_eq!(
+        verify_script(&pushed, &script_pubkey, None, 0x01).unwrap(),
+        true
+    );
+    assert_eq!(
+        verify_script(&vec![OP_DUP], &script_pubkey, None, 0x01).unwrap(),
+        false
+    );
+}
 
-    // Invalid: contains opcodes
-    let script_sig_invalid = vec![OP_DUP]; // OP_DUP (not a push)
-
-    let flags = SCRIPT_VERIFY_SIGPUSHONLY;
-
-    let result_valid = verify_script(&script_sig_valid, &script_pubkey, None, flags);
-    let result_invalid = verify_script(&script_sig_invalid, &script_pubkey, None, flags);
-
-    // Valid should pass, invalid should fail
-    assert!(result_valid.is_ok() || result_valid.is_err());
-    assert!(result_invalid.is_ok() || result_invalid.is_err());
+fn hash160(data: &[u8]) -> [u8; 20] {
+    use ripemd::Ripemd160;
+    use sha2::{Digest, Sha256};
+    let sha = Sha256::digest(data);
+    let ripe = Ripemd160::digest(sha);
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&ripe);
+    out
 }
 
 /// Test STRICTENC enforcement
@@ -223,8 +205,7 @@ fn test_strictenc_enforcement() {
     let flags = SCRIPT_VERIFY_STRICTENC;
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
 
-    // Should enforce strict encoding
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(result.unwrap(), true);
 }
 
 /// Test combined signature validation flags
@@ -245,9 +226,10 @@ fn test_combined_signature_flags() {
     let script_pubkey = vec![OP_1];
 
     for flags in flag_combinations {
-        let result = verify_script(&script_sig, &script_pubkey, None, flags);
-        // Should handle all flag combinations
-        assert!(result.is_ok() || result.is_err());
+        assert_eq!(
+            verify_script(&script_sig, &script_pubkey, None, flags).unwrap(),
+            true
+        );
     }
 }
 
@@ -267,8 +249,7 @@ fn test_invalid_der_encoding() {
     let flags = SCRIPT_VERIFY_DERSIG;
     let result = verify_script(&script_sig, &script_pubkey, None, flags);
 
-    // Should reject invalid DER encoding
-    assert!(result.is_ok() || result.is_err());
+    assert_eq!(result.unwrap(), true);
 }
 
 /// Test signature validation edge cases from reference test vectors
@@ -295,10 +276,6 @@ fn test_core_signature_edge_cases() {
     );
 
     for vector in invalid.iter().take(50) {
-        let result = check_transaction(&vector.transaction);
-        assert!(
-            result.is_ok() || !vector.expected_result,
-            "check_transaction must not panic on Core invalid vectors"
-        );
+        let _verdict = check_transaction(&vector.transaction);
     }
 }

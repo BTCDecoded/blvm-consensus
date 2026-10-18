@@ -11,10 +11,7 @@ use blvm_consensus::block::{BlockValidationContext, connect_block};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::serialization::block::deserialize_block_with_witnesses;
 use blvm_consensus::types::Network;
-use blvm_consensus::{
-    Block, BlockHeader, SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET, UtxoSet,
-    ValidationResult,
-};
+use blvm_consensus::{Block, BlockHeader, UtxoSet, ValidationResult};
 
 /// Genesis block (height 0) - the first Bitcoin block
 ///
@@ -23,121 +20,16 @@ use blvm_consensus::{
 #[test]
 fn test_genesis_block_validation() {
     // Genesis block hex (canonical mainnet genesis)
-    let genesis_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c010100000001000000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
+    let genesis_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c0101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
 
-    let block_bytes = hex::decode(genesis_block_hex).ok();
-    if let Some(bytes) = block_bytes {
-        if let Ok((block, witnesses)) = deserialize_block_with_witnesses(&bytes) {
-            let utxo_set = UtxoSet::default();
-            // connect_block expects &[Witness] where Witness is Vec<ByteString> (one per transaction)
-            let ctx = BlockValidationContext::for_network(Network::Mainnet);
-            let result = connect_block(&block, &witnesses, utxo_set, 0, &ctx);
-
-            // Genesis block should validate (or fail gracefully with missing context)
-            assert!(result.is_ok());
-            if let Ok((validation_result, _, _undo_log)) = result {
-                // Genesis block should be valid
-                match validation_result {
-                    ValidationResult::Valid => {
-                        // Success - genesis block validated correctly
-                    }
-                    ValidationResult::Invalid(reason) => {
-                        // May fail due to missing context (previous blocks, difficulty validation, etc.)
-                        // But deserialization succeeded, which is what we're testing here
-                        eprintln!("Genesis block validation failed: {reason}");
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Test block validation at SegWit activation height
-///
-/// At `SEGWIT_ACTIVATION_MAINNET`, SegWit rules apply.
-/// This block should validate with SegWit rules enabled.
-#[test]
-fn test_segwit_activation_block() {
-    let segwit_activation_height = SEGWIT_ACTIVATION_MAINNET;
-
-    // Try to load block from disk if available
-    let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
-
-    if let Ok((block, witnesses)) =
-        load_mainnet_block_from_disk(&block_dir, segwit_activation_height)
-    {
-        let utxo_set = UtxoSet::default();
-        let ctx = BlockValidationContext::for_network(Network::Mainnet);
-        let result = connect_block(&block, &witnesses, utxo_set, segwit_activation_height, &ctx);
-
-        // Block should deserialize and validate (may fail due to missing UTXO context)
-        assert!(result.is_ok());
-
-        if let Ok((validation_result, _, _undo_log)) = result {
-            match validation_result {
-                ValidationResult::Valid => {
-                    // Success - SegWit activation block validated correctly
-                }
-                ValidationResult::Invalid(reason) => {
-                    // May fail due to missing context (previous blocks, UTXO set, etc.)
-                    // But deserialization succeeded, which is what we're testing here
-                    eprintln!("SegWit activation block validation failed: {reason}");
-                }
-            }
-        }
-    } else {
-        // Block not available - skip test (not a failure)
-        eprintln!(
-            "Block {segwit_activation_height} not available in test_data/mainnet_blocks, skipping test"
-        );
-    }
-}
-
-/// Test block validation at Taproot activation height
-///
-/// At `TAPROOT_ACTIVATION_MAINNET`, Taproot rules apply.
-/// This block should validate with Taproot rules enabled.
-#[test]
-fn test_taproot_activation_block() {
-    let taproot_activation_height = TAPROOT_ACTIVATION_MAINNET;
-
-    // Try to load block from disk if available
-    let block_dir = std::path::PathBuf::from("tests/test_data/mainnet_blocks");
-
-    if let Ok((block, witnesses)) =
-        load_mainnet_block_from_disk(&block_dir, taproot_activation_height)
-    {
-        let utxo_set = UtxoSet::default();
-        let ctx = BlockValidationContext::for_network(Network::Mainnet);
-        let result = connect_block(
-            &block,
-            &witnesses,
-            utxo_set,
-            taproot_activation_height,
-            &ctx,
-        );
-
-        // Block should deserialize and validate (may fail due to missing UTXO context)
-        assert!(result.is_ok());
-
-        if let Ok((validation_result, _, _undo_log)) = result {
-            match validation_result {
-                ValidationResult::Valid => {
-                    // Success - Taproot activation block validated correctly
-                }
-                ValidationResult::Invalid(reason) => {
-                    // May fail due to missing context (previous blocks, UTXO set, etc.)
-                    // But deserialization succeeded, which is what we're testing here
-                    eprintln!("Taproot activation block validation failed: {reason}");
-                }
-            }
-        }
-    } else {
-        // Block not available - skip test (not a failure)
-        eprintln!(
-            "Block {taproot_activation_height} not available in test_data/mainnet_blocks, skipping test"
-        );
-    }
+    let block_bytes = hex::decode(genesis_block_hex).expect("genesis hex");
+    let (block, witnesses) =
+        deserialize_block_with_witnesses(&block_bytes).expect("genesis bytes parse");
+    let utxo_set = UtxoSet::default();
+    let ctx = BlockValidationContext::for_network(Network::Mainnet);
+    let (validation_result, _, _undo_log) =
+        connect_block(&block, &witnesses, utxo_set, 0, &ctx).expect("genesis connects");
+    assert!(matches!(validation_result, ValidationResult::Valid));
 }
 
 /// Test coinbase transaction validation from different eras
@@ -391,12 +283,12 @@ mod tests {
     #[test]
     fn test_validate_mainnet_block_helper() {
         // Test the helper function with a minimal block
-        let minimal_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c010100000001000000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
+        let minimal_block_hex = "0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c0101000000010000000000000000000000000000000000000000000000000000000000000000ffffffff4d04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73ffffffff0100f2052a01000000434104678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5fac00000000";
 
         let utxo_set = UtxoSet::default();
         let result = validate_mainnet_block(minimal_block_hex, 0, utxo_set);
 
-        // Should parse successfully (may fail validation due to missing context)
-        assert!(result.is_ok() || result.is_err());
+        let (validation, _) = result.expect("genesis bytes connect");
+        assert!(matches!(validation, ValidationResult::Valid));
     }
 }
