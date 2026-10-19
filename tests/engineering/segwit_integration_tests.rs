@@ -253,9 +253,9 @@ fn test_segwit_witness_commitment() {
 #[test]
 fn test_segwit_p2wpkh_validation() {
     // Test P2WPKH (Pay-to-Witness-Public-Key-Hash) validation
-    // P2WPKH: scriptPubkey is OP_0 <20-byte-hash>
+    // P2WPKH: scriptPubkey is OP_0 PUSH20 <20-byte-hash>
     let p2wpkh_hash = [0x51; 20]; // 20-byte hash
-    let mut script_pubkey = vec![OP_0]; // OP_0
+    let mut script_pubkey = vec![OP_0, 20];
     script_pubkey.extend_from_slice(&p2wpkh_hash);
 
     let tx = Transaction {
@@ -341,9 +341,9 @@ fn test_segwit_p2wpkh_validation() {
 #[test]
 fn test_segwit_p2wsh_validation() {
     // Test P2WSH (Pay-to-Witness-Script-Hash) validation
-    // P2WSH: scriptPubkey is OP_0 <32-byte-hash>
+    // P2WSH: scriptPubkey is OP_0 PUSH32 <32-byte-hash>
     let p2wsh_hash = [0x51; 32]; // 32-byte hash
-    let mut script_pubkey = vec![OP_0]; // OP_0
+    let mut script_pubkey = vec![OP_0, 32];
     script_pubkey.extend_from_slice(&p2wsh_hash);
 
     let tx = Transaction {
