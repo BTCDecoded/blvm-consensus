@@ -548,6 +548,9 @@ fn align_declared_witnesses(
                 .into(),
             ));
         }
+        // A legacy spend has no witness. Store empty stacks so the commitment
+        // lookup finds this txid. A None slot stays an error for a witness spend.
+        let slot = slot.or_else(|| Some(vec![Vec::new(); tx.inputs.len()]));
         out.push(slot);
     }
     Ok(out)
