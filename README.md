@@ -207,17 +207,20 @@ Orange Paper (spec) → #[spec_locked] on the functions that carry it → implem
 - **Runtime assertions** on selected paths (see feature flags and [PROOF_LIMITATIONS.md](docs/PROOF_LIMITATIONS.md))
 - **Coverage-guided fuzzing** ([Fuzzing (BLVM docs)](https://docs.thebitcoincommons.org/development/fuzzing.html); harnesses under `fuzz/`)
 
-## Orange Paper Compliance
+## Orange Paper sections
 
-Covers all major Orange Paper sections:
+The top-level sections in `PROTOCOL.md` are:
 
-- **Section 5**: Transaction and Block Validation
-- **Section 6**: Script System
-- **Section 7**: Economic Model
-- **Section 8**: Proof of Work
-- **Section 9**: Mempool and Network Protocol
-- **Section 10**: Mining Protocol
-- **Section 11**: Advanced Features (SegWit, Taproot)
+- **5**: State Transition Functions
+- **6**: Economic Model
+- **7**: Proof of Work
+- **8**: Security Properties
+- **9**: Mempool Protocol
+- **10**: Network Protocol
+- **11**: Advanced Features
+- **12**: Mining Protocol
+
+An annotated function names one of those sections. That name is not a proof that the section is fully implemented. The mutation gate is in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Security
 
