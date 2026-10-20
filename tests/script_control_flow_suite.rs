@@ -88,15 +88,24 @@ fn test_op_1add_rejects_negative_zero_when_minimaldata_is_set() {
         .is_err()
     );
     let mut minimal = Vec::new();
-    assert!(eval_script(&[OP_0, OP_1ADD], &mut minimal, SCRIPT_VERIFY_MINIMALDATA, SigVersion::Base).unwrap());
+    assert!(
+        eval_script(
+            &[OP_0, OP_1ADD],
+            &mut minimal,
+            SCRIPT_VERIFY_MINIMALDATA,
+            SigVersion::Base
+        )
+        .unwrap()
+    );
     assert_eq!(minimal[0].as_slice(), &[1]);
 }
 
 #[test]
-fn test_second_op_else_fails() {
-    let script = vec![OP_1, OP_IF, OP_ELSE, OP_ELSE, OP_ENDIF];
+fn test_second_op_else_inverts_again() {
+    let script = vec![OP_1, OP_IF, OP_ELSE, OP_ELSE, OP_1, OP_ENDIF];
     let mut stack = Vec::new();
-    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_err());
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap());
+    assert_eq!(stack[0].as_slice(), &[1]);
 }
 
 #[test]

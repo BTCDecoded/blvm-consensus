@@ -297,8 +297,8 @@ mod tests {
         script_pubkey.extend_from_slice(&pubkey);
         script_pubkey.push(0xac);
 
-        let passed = super::super::verify_script(&script_sig, &script_pubkey, None, 0)
-            .expect("script runs");
+        let passed =
+            super::super::verify_script(&script_sig, &script_pubkey, None, 0).expect("script runs");
         assert!(!passed);
     }
 }

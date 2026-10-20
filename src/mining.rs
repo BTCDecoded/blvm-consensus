@@ -1465,9 +1465,7 @@ mod tests {
         };
         let mut txs = vec![cb.clone(), spend.clone()];
         let short = vec![vec![Vec::new()]];
-        assert!(
-            append_witness_commitment_from_nested(&mut cb, &mut txs, Some(&short)).is_err()
-        );
+        assert!(append_witness_commitment_from_nested(&mut cb, &mut txs, Some(&short)).is_err());
         assert_eq!(cb.outputs.len(), 1);
 
         let txs = vec![cb, spend.clone()];

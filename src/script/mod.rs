@@ -716,10 +716,7 @@ fn eval_script_inner(
             // OP_IF
             OP_IF => {
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::If {
-                        executing: false,
-                        else_used: false,
-                    });
+                    control_stack.push(control_flow::ControlBlock::If { executing: false });
                 } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
@@ -744,17 +741,13 @@ fn eval_script_inner(
 
                     control_stack.push(control_flow::ControlBlock::If {
                         executing: condition,
-                        else_used: false,
                     });
                 }
             }
             // OP_NOTIF
             OP_NOTIF => {
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::NotIf {
-                        executing: false,
-                        else_used: false,
-                    });
+                    control_stack.push(control_flow::ControlBlock::NotIf { executing: false });
                 } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
@@ -779,7 +772,6 @@ fn eval_script_inner(
 
                     control_stack.push(control_flow::ControlBlock::NotIf {
                         executing: !condition,
-                        else_used: false,
                     });
                 }
             }
@@ -787,21 +779,8 @@ fn eval_script_inner(
             OP_ELSE => {
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If {
-                            executing,
-                            else_used,
-                        }
-                        | control_flow::ControlBlock::NotIf {
-                            executing,
-                            else_used,
-                        } => {
-                            if *else_used {
-                                return Err(ConsensusError::ScriptErrorWithCode {
-                                    code: ScriptErrorCode::UnbalancedConditional,
-                                    message: "OP_ELSE after OP_ELSE".into(),
-                                });
-                            }
-                            *else_used = true;
+                        control_flow::ControlBlock::If { executing }
+                        | control_flow::ControlBlock::NotIf { executing } => {
                             *executing = !*executing;
                         }
                     }
@@ -4823,10 +4802,7 @@ fn eval_script_with_context_full_inner(
             OP_IF => {
                 // OP_IF
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::If {
-                        executing: false,
-                        else_used: false,
-                    });
+                    control_stack.push(control_flow::ControlBlock::If { executing: false });
                     i += 1;
                     continue;
                 }
@@ -4853,16 +4829,12 @@ fn eval_script_with_context_full_inner(
 
                 control_stack.push(control_flow::ControlBlock::If {
                     executing: condition,
-                    else_used: false,
                 });
             }
             OP_NOTIF => {
                 // OP_NOTIF
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::NotIf {
-                        executing: false,
-                        else_used: false,
-                    });
+                    control_stack.push(control_flow::ControlBlock::NotIf { executing: false });
                     i += 1;
                     continue;
                 }
@@ -4889,28 +4861,14 @@ fn eval_script_with_context_full_inner(
 
                 control_stack.push(control_flow::ControlBlock::NotIf {
                     executing: !condition,
-                    else_used: false,
                 });
             }
             OP_ELSE => {
                 // OP_ELSE
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If {
-                            executing,
-                            else_used,
-                        }
-                        | control_flow::ControlBlock::NotIf {
-                            executing,
-                            else_used,
-                        } => {
-                            if *else_used {
-                                return Err(ConsensusError::ScriptErrorWithCode {
-                                    code: ScriptErrorCode::UnbalancedConditional,
-                                    message: "OP_ELSE after OP_ELSE".into(),
-                                });
-                            }
-                            *else_used = true;
+                        control_flow::ControlBlock::If { executing }
+                        | control_flow::ControlBlock::NotIf { executing } => {
                             *executing = !*executing;
                         }
                     }

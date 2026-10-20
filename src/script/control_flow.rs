@@ -4,8 +4,8 @@ use blvm_spec_lock::spec_locked;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlBlock {
-    If { executing: bool, else_used: bool },
-    NotIf { executing: bool, else_used: bool },
+    If { executing: bool },
+    NotIf { executing: bool },
 }
 
 /// True if we're in a non-executing branch (IF/NOTIF with executing=false). Used by both paths.
@@ -14,14 +14,7 @@ pub(crate) fn in_false_branch(control_stack: &[ControlBlock]) -> bool {
     control_stack.iter().any(|b| {
         !matches!(
             b,
-            ControlBlock::If {
-                executing: true,
-                ..
-            }
-            | ControlBlock::NotIf {
-                executing: true,
-                ..
-            }
+            ControlBlock::If { executing: true } | ControlBlock::NotIf { executing: true }
         )
     })
 }

@@ -1437,12 +1437,13 @@ mod tests {
             matches!(tip_result, crate::types::ValidationResult::Valid),
             "{tip_result:?}"
         );
-        let mut context_for_height = |_height: u64,
-                                      _headers: Option<&[BlockHeader]>,
-                                      _time: u64,
-                                      network: crate::types::Network| {
-            crate::block::BlockValidationContext::for_network(network)
-        };
+        let mut context_for_height =
+            |_height: u64,
+             _headers: Option<&[BlockHeader]>,
+             _time: u64,
+             network: crate::types::Network| {
+                crate::block::BlockValidationContext::for_network(network)
+            };
         let new_chain = vec![ancestor.clone(), new_tip];
         let new_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
             .iter()
