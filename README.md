@@ -192,27 +192,14 @@ cargo test --test integration_opportunities
 cargo spec-lock verify --crate-path .
 ```
 
-## Mathematical Lock
+## Spec linkage
 
-Implementation is mathematically locked to the Orange Paper specification:
+Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. Three functions are mutation-validated: `check_transaction`, `is_strict_der`, and `merkle_tree_from_hashes`. The other anchors are not formally verified by that gate. Witnesses in `spec_witnesses.rs` are not the production functions. The inner connect path has no `#[spec_locked]` attribute. Counts, skip flags, and the command list are in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
-- Every function implements a mathematical specification from the Orange Paper
-- Critical functions have `#[spec_locked("section")]` annotations verified by blvm-spec-lock
-- All specs reference Orange Paper sections and theorems
-- No consensus rule can be changed without updating both spec and implementation
-
-Formal verification linkage level is unique among Bitcoin implementations.
-
-**Chain of Trust**:
+**Chain of trust**:
 ```
-Orange Paper (Math Spec) → #[spec_locked] → Implementation → Bitcoin Consensus
+Orange Paper (spec) → #[spec_locked] on the functions that carry it → implementation
 ```
-
-**Why This Matters for Bitcoin**:
-- Consensus rules are immutable - once deployed, they cannot change
-- Network divergence is catastrophic - all nodes must agree
-- Security is critical - billions of dollars depend on correctness
-- Mathematical proof exceeds human review
 
 **Verification approaches** (details and scope: [docs/VERIFICATION.md](docs/VERIFICATION.md)):
 - **Spec-lock** on `#[spec_locked]` functions against the Orange Paper
@@ -234,12 +221,11 @@ Covers all major Orange Paper sections:
 
 ## Security
 
-Implements mathematically verified Bitcoin consensus rules with:
+Checks on this crate:
 
-- **Formal Verification**: blvm-spec-lock prevents consensus violations
-- **Property Testing**: Randomized testing discovers edge cases
-- **Audit Trail**: OpenTimestamps provides immutable proof of verification
-- **CI Enforcement**: No human override of verification results
+- **Spec-lock**: Z3 on `#[spec_locked]` functions. A passing verify job is not the mutation gate in [docs/VERIFICATION.md](docs/VERIFICATION.md).
+- **Property testing**: randomized tests under `tests/`, including `consensus_property_tests`.
+- **CI**: the verify job runs unless the commit message contains `[skip ci]` or `[skip_verify]`, or a workflow dispatch sets `skip_tests`. OpenTimestamps is not a step in `.github/workflows/ci.yml`.
 
 See [SECURITY.md](SECURITY.md) for security policies and [BTCDecoded Security Policy](https://github.com/BTCDecoded/.github/blob/main/SECURITY.md) for organization-wide guidelines.
 
@@ -247,7 +233,7 @@ See [SECURITY.md](SECURITY.md) for security policies and [BTCDecoded Security Po
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the [BTCDecoded Contribution Guide](https://github.com/BTCDecoded/.github/blob/main/CONTRIBUTING.md).
 
-**Note**: All consensus changes must pass formal verification before merge. See [docs/VERIFICATION.md](docs/VERIFICATION.md) for verification requirements.
+**Note**: Consensus changes are expected to pass the tests and the verify job. A commit message can skip that job. See [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## License
 

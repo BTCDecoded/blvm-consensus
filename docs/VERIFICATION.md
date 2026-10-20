@@ -225,8 +225,8 @@ cargo spec-lock verify --crate-path . \
 
 **Run specific verification:**
 ```bash
-cargo test --test property_tests
 cargo test --test consensus_property_tests
+cargo test --test orange_paper_property_tests
 ```
 
 ## Adding New Verification
