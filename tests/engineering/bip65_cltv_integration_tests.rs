@@ -556,3 +556,59 @@ fn test_cltv_in_script_pubkey() {
         "the spent scriptPubKey accepts locktime 500000"
     );
 }
+
+#[test]
+fn cltv_rejects_non_minimal_locktime_when_minimaldata_is_set() {
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
+            script_sig: vec![],
+            sequence: 1,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1],
+        }]
+        .into(),
+        lock_time: 1,
+    };
+    let non_minimal = vec![0x02, 0x01, 0x00, OP_CHECKLOCKTIMEVERIFY];
+    let flags = 0x200 | script::flags::SCRIPT_VERIFY_MINIMALDATA;
+    let rejected = verify_script_with_context(
+        &Vec::new(),
+        &non_minimal,
+        None,
+        flags,
+        &tx,
+        0,
+        &[TransactionOutput {
+            value: 1_000,
+            script_pubkey: non_minimal.clone(),
+        }],
+        Some(1_000),
+        Network::Regtest,
+    );
+    assert!(rejected.is_err(), "{rejected:?}");
+
+    let minimal = vec![OP_1, OP_CHECKLOCKTIMEVERIFY];
+    let accepted = verify_script_with_context(
+        &Vec::new(),
+        &minimal,
+        None,
+        flags,
+        &tx,
+        0,
+        &[TransactionOutput {
+            value: 1_000,
+            script_pubkey: minimal.clone(),
+        }],
+        Some(1_000),
+        Network::Regtest,
+    );
+    assert!(accepted.unwrap());
+}

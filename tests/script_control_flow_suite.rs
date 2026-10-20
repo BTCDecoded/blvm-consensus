@@ -1,9 +1,9 @@
 //! COV-C-02b: Script control-flow and VERIFY opcode coverage (IF/NOTIF/ELSE/ENDIF, MINIMALIF).
 
 use blvm_consensus::opcodes::{
-    OP_0, OP_1, OP_2, OP_3, OP_ELSE, OP_ENDIF, OP_IF, OP_NOTIF, OP_VERIFY,
+    OP_0, OP_1, OP_1ADD, OP_2, OP_3, OP_ELSE, OP_ENDIF, OP_IF, OP_NOTIF, OP_VERIFY,
 };
-use blvm_consensus::script::flags::SCRIPT_VERIFY_MINIMALIF;
+use blvm_consensus::script::flags::{SCRIPT_VERIFY_MINIMALDATA, SCRIPT_VERIFY_MINIMALIF};
 use blvm_consensus::script::{SigVersion, eval_script, verify_script};
 
 #[test]
@@ -72,6 +72,31 @@ fn test_op_verify_failure_on_false() {
     let mut stack = Vec::new();
     let result = eval_script(&script, &mut stack, 0, SigVersion::Base);
     assert!(result.is_err() || result == Ok(false));
+}
+
+#[test]
+fn test_op_1add_rejects_negative_zero_when_minimaldata_is_set() {
+    let script = vec![0x01, 0x80, OP_1ADD];
+    let mut stack = Vec::new();
+    assert!(
+        eval_script(
+            &script,
+            &mut stack,
+            SCRIPT_VERIFY_MINIMALDATA,
+            SigVersion::Base
+        )
+        .is_err()
+    );
+    let mut minimal = Vec::new();
+    assert!(eval_script(&[OP_0, OP_1ADD], &mut minimal, SCRIPT_VERIFY_MINIMALDATA, SigVersion::Base).unwrap());
+    assert_eq!(minimal[0].as_slice(), &[1]);
+}
+
+#[test]
+fn test_second_op_else_fails() {
+    let script = vec![OP_1, OP_IF, OP_ELSE, OP_ELSE, OP_ENDIF];
+    let mut stack = Vec::new();
+    assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).is_err());
 }
 
 #[test]

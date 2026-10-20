@@ -191,8 +191,9 @@ pub(crate) fn op_hash256(stack: &mut Vec<StackElement>) -> Result<bool> {
     }
 }
 
-/// OP_CHECKSIG (simple path) - verify ECDSA signature with dummy hash.
-/// Used by execute_opcode when no transaction context is available (e.g. basic tests).
+/// OP_CHECKSIG (simple path).
+/// Used by execute_opcode when no transaction context is available.
+/// There is no sighash, so the check cannot succeed.
 pub(crate) fn op_checksig_simple(stack: &mut Vec<StackElement>, flags: u32) -> Result<bool> {
     if stack.len() < 2 {
         return Err(ConsensusError::ScriptErrorWithCode {
@@ -200,40 +201,12 @@ pub(crate) fn op_checksig_simple(stack: &mut Vec<StackElement>, flags: u32) -> R
             message: "OP_CHECKSIG: insufficient stack items".into(),
         });
     }
-    let pubkey_bytes = stack.pop().unwrap();
+    let _pubkey_bytes = stack.pop().unwrap();
     let signature_bytes = stack.pop().unwrap();
 
-    let dummy_hash = [0u8; 32];
-    #[cfg(feature = "production")]
-    let result = signature::with_secp_context(|secp| {
-        signature::verify_signature(
-            secp,
-            &pubkey_bytes,
-            &signature_bytes,
-            &dummy_hash,
-            flags,
-            0,
-            Network::Regtest,
-            SigVersion::Base,
-        )
-    });
-
-    #[cfg(not(feature = "production"))]
-    let result = {
-        let secp = signature::new_secp();
-        signature::verify_signature(
-            &secp,
-            &pubkey_bytes,
-            &signature_bytes,
-            &dummy_hash,
-            flags,
-            0,
-            Network::Regtest,
-            SigVersion::Base,
-        )
-    };
-
-    let ok = result?;
+    // This interpreter has no transaction to hash. A signature of the
+    // all-zero message is not a check of this input.
+    let ok = false;
 
     if !ok && (flags & SCRIPT_VERIFY_NULLFAIL) != 0 && !signature_bytes.is_empty() {
         return Err(ConsensusError::ScriptErrorWithCode {
@@ -295,4 +268,37 @@ pub(crate) fn op_checksigverify_simple(stack: &mut Vec<StackElement>, flags: u32
     }
 
     Ok(ok)
+}
+
+#[cfg(test)]
+mod tests {
+    /// A signature of the 32-byte zero message does not make `verify_script` succeed.
+    /// Block connect uses `verify_script_with_context_full`, which is a different interpreter.
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    #[test]
+    fn a_zero_hash_signature_does_not_pass_checksig() {
+        use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[52u8; 32]).expect("secret");
+        let pubkey = PublicKey::from_secret_key(&secp, &secret).serialize();
+        let mut der = secp
+            .sign_ecdsa(
+                &Message::from_digest_slice(&[0u8; 32]).expect("digest"),
+                &secret,
+            )
+            .serialize_der()
+            .to_vec();
+        der.push(0x01);
+
+        let mut script_sig = vec![der.len() as u8];
+        script_sig.extend_from_slice(&der);
+        let mut script_pubkey = vec![pubkey.len() as u8];
+        script_pubkey.extend_from_slice(&pubkey);
+        script_pubkey.push(0xac);
+
+        let passed = super::super::verify_script(&script_sig, &script_pubkey, None, 0)
+            .expect("script runs");
+        assert!(!passed);
+    }
 }

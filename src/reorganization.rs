@@ -235,7 +235,9 @@ pub fn reorganize_chain_with_witnesses(
                     )
                 })?
             } else {
-                BlockUndoLog::new()
+                return Err(crate::error::ConsensusError::BlockValidation(
+                    "missing undo log for disconnected block".into(),
+                ));
             };
 
             utxo_set = disconnect_block(block, &undo_log, utxo_set, (i as Natural) + 1)?;
@@ -330,14 +332,7 @@ pub fn reorganize_chain_with_witnesses(
 
         // Persist undo log to database via callback (required for future reorganizations)
         if let Some(ref store_undo_log) = store_undo_log_for_block {
-            if let Err(e) = store_undo_log(&block_hash, &undo_log) {
-                // Continue without persisting — reorg state is still returned in-memory.
-                // Avoid stderr in default release builds; enable `profile` or use a debug build to see this.
-                #[cfg(any(debug_assertions, feature = "profile"))]
-                eprintln!("Warning: Failed to store undo log for block {block_hash:?}: {e}");
-                #[cfg(not(any(debug_assertions, feature = "profile")))]
-                let _ = e;
-            }
+            store_undo_log(&block_hash, &undo_log)?;
         }
 
         // Also store in-memory for the reorganization result
@@ -1238,6 +1233,28 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
+    fn missing_undo_callback_does_not_connect_the_new_chain() {
+        let ancestor = create_test_block_at_height(0);
+        let mut old_tip = create_test_block_at_height(1);
+        old_tip.header.nonce = 1;
+        let mut new_tip = create_test_block_at_height(1);
+        new_tip.header.nonce = 2;
+        let current = vec![ancestor.clone(), old_tip];
+        let new_chain = vec![ancestor, new_tip];
+        let err = super::reorganize_chain(
+            &new_chain,
+            &current,
+            UtxoSet::default(),
+            1,
+            crate::types::Network::Regtest,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("missing undo log"), "{err}");
+    }
+
+    #[test]
     fn undo_lookup_uses_the_block_header_hash() {
         let header = create_test_block().header.clone();
         assert_eq!(
@@ -1387,6 +1404,80 @@ mod tests {
             Err(_) => {
                 // Expected failure due to simplified validation
             }
+        }
+    }
+
+    #[test]
+    fn failed_undo_store_is_not_a_successful_reorg() {
+        use crate::segwit::Witness;
+        let ancestor = create_test_block_at_height(1);
+        let witnesses_one: Vec<Vec<Witness>> = ancestor
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+            .collect();
+        let ctx = crate::block::BlockValidationContext::for_network(crate::types::Network::Regtest);
+        let (_result, utxo_set, undo_log) =
+            connect_block(&ancestor, &witnesses_one, UtxoSet::default(), 1, &ctx).unwrap();
+        let ancestor_hash = calculate_block_hash(&ancestor.header);
+        let mut stored = HashMap::new();
+        stored.insert(ancestor_hash, undo_log);
+        let mut new_tip = create_test_block_at_height(2);
+        new_tip.header.prev_block_hash = ancestor_hash;
+        new_tip.header.timestamp = ancestor.header.timestamp + 1;
+        new_tip.header.nonce = 42;
+        let tip_witnesses: Vec<Vec<Witness>> = new_tip
+            .transactions
+            .iter()
+            .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+            .collect();
+        let (tip_result, _, _) =
+            connect_block(&new_tip, &tip_witnesses, utxo_set.clone(), 2, &ctx).unwrap();
+        assert!(
+            matches!(tip_result, crate::types::ValidationResult::Valid),
+            "{tip_result:?}"
+        );
+        let mut context_for_height = |_height: u64,
+                                      _headers: Option<&[BlockHeader]>,
+                                      _time: u64,
+                                      network: crate::types::Network| {
+            crate::block::BlockValidationContext::for_network(network)
+        };
+        let new_chain = vec![ancestor.clone(), new_tip];
+        let new_witnesses: Vec<Vec<Vec<Witness>>> = new_chain
+            .iter()
+            .map(|block| {
+                block
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.inputs.iter().map(|_| Vec::new()).collect())
+                    .collect()
+            })
+            .collect();
+        let result = reorganize_chain_with_witnesses(
+            &new_chain,
+            &new_witnesses,
+            None,
+            &[ancestor],
+            utxo_set,
+            1,
+            None::<fn(&Block) -> Option<Vec<Witness>>>,
+            None::<fn(Natural) -> Option<Vec<BlockHeader>>>,
+            Some(|hash: &Hash| stored.get(hash).cloned()),
+            Some(|_hash: &Hash, _log: &BlockUndoLog| {
+                Err(crate::error::ConsensusError::BlockValidation(
+                    "undo store failed".into(),
+                ))
+            }),
+            2_000_000_000,
+            crate::types::Network::Regtest,
+            Some(&mut context_for_height),
+        );
+        match result {
+            Err(crate::error::ConsensusError::BlockValidation(msg)) => {
+                assert!(msg.contains("undo store failed"), "{msg}");
+            }
+            other => panic!("expected undo store error, got {other:?}"),
         }
     }
 

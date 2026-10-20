@@ -716,7 +716,10 @@ fn eval_script_inner(
             // OP_IF
             OP_IF => {
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::If { executing: false });
+                    control_stack.push(control_flow::ControlBlock::If {
+                        executing: false,
+                        else_used: false,
+                    });
                 } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
@@ -741,13 +744,17 @@ fn eval_script_inner(
 
                     control_stack.push(control_flow::ControlBlock::If {
                         executing: condition,
+                        else_used: false,
                     });
                 }
             }
             // OP_NOTIF
             OP_NOTIF => {
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::NotIf { executing: false });
+                    control_stack.push(control_flow::ControlBlock::NotIf {
+                        executing: false,
+                        else_used: false,
+                    });
                 } else if stack.is_empty() {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::InvalidStackOperation,
@@ -772,6 +779,7 @@ fn eval_script_inner(
 
                     control_stack.push(control_flow::ControlBlock::NotIf {
                         executing: !condition,
+                        else_used: false,
                     });
                 }
             }
@@ -779,8 +787,21 @@ fn eval_script_inner(
             OP_ELSE => {
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If { executing }
-                        | control_flow::ControlBlock::NotIf { executing } => {
+                        control_flow::ControlBlock::If {
+                            executing,
+                            else_used,
+                        }
+                        | control_flow::ControlBlock::NotIf {
+                            executing,
+                            else_used,
+                        } => {
+                            if *else_used {
+                                return Err(ConsensusError::ScriptErrorWithCode {
+                                    code: ScriptErrorCode::UnbalancedConditional,
+                                    message: "OP_ELSE after OP_ELSE".into(),
+                                });
+                            }
+                            *else_used = true;
                             *executing = !*executing;
                         }
                     }
@@ -4802,7 +4823,10 @@ fn eval_script_with_context_full_inner(
             OP_IF => {
                 // OP_IF
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::If { executing: false });
+                    control_stack.push(control_flow::ControlBlock::If {
+                        executing: false,
+                        else_used: false,
+                    });
                     i += 1;
                     continue;
                 }
@@ -4829,12 +4853,16 @@ fn eval_script_with_context_full_inner(
 
                 control_stack.push(control_flow::ControlBlock::If {
                     executing: condition,
+                    else_used: false,
                 });
             }
             OP_NOTIF => {
                 // OP_NOTIF
                 if in_false_branch {
-                    control_stack.push(control_flow::ControlBlock::NotIf { executing: false });
+                    control_stack.push(control_flow::ControlBlock::NotIf {
+                        executing: false,
+                        else_used: false,
+                    });
                     i += 1;
                     continue;
                 }
@@ -4861,14 +4889,28 @@ fn eval_script_with_context_full_inner(
 
                 control_stack.push(control_flow::ControlBlock::NotIf {
                     executing: !condition,
+                    else_used: false,
                 });
             }
             OP_ELSE => {
                 // OP_ELSE
                 if let Some(block) = control_stack.last_mut() {
                     match block {
-                        control_flow::ControlBlock::If { executing }
-                        | control_flow::ControlBlock::NotIf { executing } => {
+                        control_flow::ControlBlock::If {
+                            executing,
+                            else_used,
+                        }
+                        | control_flow::ControlBlock::NotIf {
+                            executing,
+                            else_used,
+                        } => {
+                            if *else_used {
+                                return Err(ConsensusError::ScriptErrorWithCode {
+                                    code: ScriptErrorCode::UnbalancedConditional,
+                                    message: "OP_ELSE after OP_ELSE".into(),
+                                });
+                            }
+                            *else_used = true;
                             *executing = !*executing;
                         }
                     }
@@ -5026,6 +5068,17 @@ fn eval_script_with_context_full_inner(
         return Ok(clean);
     }
     Ok(true)
+}
+
+/// A script number whose final byte is `0x00` or `0x80` is minimal only when the
+/// previous byte's high bit requires that sign byte. `0x80` is negative zero.
+pub(crate) fn script_num_is_minimally_encoded(data: &[u8]) -> bool {
+    if let Some(&last) = data.last() {
+        if last & 0x7f == 0 && (data.len() <= 1 || data[data.len() - 2] & 0x80 == 0) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Decode a CScriptNum from byte representation.
@@ -5601,6 +5654,14 @@ fn execute_opcode(
         // OP_1ADD - increment top by 1
         OP_1ADD => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_1ADD: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(a + 1)));
                 Ok(true)
@@ -7370,6 +7431,14 @@ fn execute_opcode_with_context_full(
 
             // Script number, at most 5 bytes. The sign bit is on the last byte.
             let locktime_bytes = stack.last().expect("Stack is not empty");
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !script_num_is_minimally_encoded(locktime_bytes.as_ref())
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::MinimalData,
+                    message: "OP_CHECKLOCKTIMEVERIFY: non-minimal script number".into(),
+                });
+            }
             let locktime_number = match decode_locktime_value(locktime_bytes.as_ref()) {
                 Some(v) => v,
                 None => {
@@ -7438,6 +7507,14 @@ fn execute_opcode_with_context_full(
             // Decode sequence value from stack using shared locktime logic.
             // Interpret the top stack element as a sequence value (BIP112).
             let sequence_bytes = stack.last().expect("Stack is not empty");
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !script_num_is_minimally_encoded(sequence_bytes.as_ref())
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::MinimalData,
+                    message: "OP_CHECKSEQUENCEVERIFY: non-minimal script number".into(),
+                });
+            }
             let sequence_number = match decode_locktime_value(sequence_bytes.as_ref()) {
                 Some(v) => v,
                 None => return Ok(false), // Invalid encoding

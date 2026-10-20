@@ -534,3 +534,59 @@ fn test_csv_zero_locktime() {
     assert!(result.is_ok());
     assert!(result.unwrap());
 }
+
+#[test]
+fn csv_rejects_non_minimal_sequence_when_minimaldata_is_set() {
+    let tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [1; 32],
+                index: 0,
+            },
+            script_sig: vec![],
+            sequence: 1,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1],
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let non_minimal = vec![0x02, 0x01, 0x00, OP_CHECKSEQUENCEVERIFY];
+    let flags = 0x400 | script::flags::SCRIPT_VERIFY_MINIMALDATA;
+    let rejected = verify_script_with_context(
+        &Vec::new(),
+        &non_minimal,
+        None,
+        flags,
+        &tx,
+        0,
+        &[TransactionOutput {
+            value: 1_000,
+            script_pubkey: non_minimal.clone(),
+        }],
+        Some(1_000),
+        Network::Regtest,
+    );
+    assert!(rejected.is_err(), "{rejected:?}");
+
+    let minimal = vec![OP_1, OP_CHECKSEQUENCEVERIFY];
+    let accepted = verify_script_with_context(
+        &Vec::new(),
+        &minimal,
+        None,
+        flags,
+        &tx,
+        0,
+        &[TransactionOutput {
+            value: 1_000,
+            script_pubkey: minimal.clone(),
+        }],
+        Some(1_000),
+        Network::Regtest,
+    );
+    assert!(accepted.unwrap());
+}

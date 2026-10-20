@@ -495,6 +495,17 @@ impl U256 {
         bytes
     }
 
+    /// Construct from 32 little-endian bytes.
+    pub fn from_le_bytes(bytes: [u8; 32]) -> Self {
+        let mut words = [0u64; 4];
+        for (i, word) in words.iter_mut().enumerate() {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&bytes[i * 8..(i + 1) * 8]);
+            *word = u64::from_le_bytes(buf);
+        }
+        U256(words)
+    }
+
     /// Bitcoin RPC `GetHex()` / getblocktemplate `target` (byte-reversed display hex).
     pub fn gbt_target_hex(&self) -> String {
         let mut bytes = self.to_le_bytes();
@@ -855,6 +866,33 @@ impl U256 {
         result += (self.0[2] as f64) * 2.0_f64.powi(128);
         result += (self.0[3] as f64) * 2.0_f64.powi(192);
         result
+    }
+}
+
+impl serde::Serialize for U256 {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.gbt_target_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for U256 {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let hex_str = <String as serde::Deserialize>::deserialize(deserializer)?;
+        if hex_str.len() != 64 {
+            return Err(serde::de::Error::custom("target hex must be 64 characters"));
+        }
+        let mut bytes = [0u8; 32];
+        for i in 0..32 {
+            bytes[i] = u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16)
+                .map_err(serde::de::Error::custom)?;
+        }
+        bytes.reverse();
+        Ok(U256::from_le_bytes(bytes))
     }
 }
 

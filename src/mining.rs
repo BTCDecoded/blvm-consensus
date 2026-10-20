@@ -158,10 +158,11 @@ pub fn create_new_block_with_time(
     let max_weight = crate::constants::MAX_BLOCK_WEIGHT as u64;
     let max_sigops = crate::constants::MAX_BLOCK_SIGOPS_COST;
 
-    // 2. Select transactions from mempool with proper validation
-    // Use mempool validation to ensure transactions are valid and properly formatted
+    // 2. Select transactions from mempool with proper validation.
+    // Outputs of a selected transaction are spendable by a later one in this template.
     let mut selected_txs = Vec::new();
-    let temp_mempool = Mempool::new(); // Temporary empty mempool for validation
+    let mut temp_mempool = Mempool::new();
+    let mut available = utxo_set.clone();
 
     for (idx, tx) in mempool_txs.iter().enumerate() {
         // First check basic transaction structure
@@ -179,7 +180,7 @@ pub fn create_new_block_with_time(
         match accept_to_memory_pool(
             tx,
             tx_witnesses,
-            utxo_set,
+            &available,
             &temp_mempool,
             height,
             time_context,
@@ -194,7 +195,7 @@ pub fn create_new_block_with_time(
                     };
                 let tx_sigops = match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
                     tx,
-                    utxo_set,
+                    &available,
                     tx_witnesses,
                     0x01,
                 ) {
@@ -208,6 +209,22 @@ pub fn create_new_block_with_time(
                 }
                 running_weight = running_weight.saturating_add(tx_weight);
                 running_sigops = running_sigops.saturating_add(tx_sigops);
+                temp_mempool.insert_transaction_with_witness(tx, tx_witnesses);
+                let txid = crate::block::calculate_tx_id(tx);
+                for (index, output) in tx.outputs.iter().enumerate() {
+                    available.insert(
+                        OutPoint {
+                            hash: txid,
+                            index: index as u32,
+                        },
+                        std::sync::Arc::new(UTXO {
+                            value: output.value,
+                            script_pubkey: output.script_pubkey.clone().into(),
+                            height,
+                            is_coinbase: false,
+                        }),
+                    );
+                }
                 selected_txs.push(tx.clone());
             }
             MempoolResult::Rejected(_reason) => {
@@ -279,7 +296,7 @@ pub struct BlockTemplate {
     pub header: BlockHeader,
     pub coinbase_tx: Transaction,
     pub transactions: Vec<Transaction>,
-    pub target: u128,
+    pub target: crate::pow::U256,
     pub height: Natural,
     pub timestamp: Natural,
 }
@@ -310,14 +327,7 @@ pub fn create_block_template(
         mempool_witnesses,
     )?;
 
-    let target_u256 = crate::pow::expand_target(block.header.bits)?;
-    let target = if target_u256.is_zero() {
-        0
-    } else if target_u256.low_u128() > 0 {
-        target_u256.low_u128()
-    } else {
-        1
-    };
+    let target = crate::pow::expand_target(block.header.bits)?;
 
     let header = block.header.clone();
 
@@ -441,7 +451,7 @@ pub fn create_block_template_with_outputs(
     let mut txs = Vec::with_capacity(1 + tmpl.transactions.len());
     txs.push(tmpl.coinbase_tx.clone());
     txs.extend(tmpl.transactions.iter().cloned());
-    let nested = nested_witnesses_for_selected(&txs, mempool_txs, mempool_witnesses);
+    let nested = nested_witnesses_for_selected(&txs, mempool_txs, mempool_witnesses)?;
     append_witness_commitment_from_nested(&mut tmpl.coinbase_tx, &mut txs, Some(&nested))?;
     tmpl.header.merkle_root = calculate_merkle_root(&txs)?;
     Ok(tmpl)
@@ -614,7 +624,7 @@ fn nested_witnesses_for_selected(
     txs: &[Transaction],
     mempool_txs: &[Transaction],
     mempool_witnesses: Option<&[Option<Vec<crate::segwit::Witness>>]>,
-) -> Vec<Vec<crate::segwit::Witness>> {
+) -> Result<Vec<Vec<crate::segwit::Witness>>> {
     use crate::block::calculate_tx_id;
     use std::collections::HashMap;
 
@@ -626,26 +636,68 @@ fn nested_witnesses_for_selected(
             }
         }
     }
-    txs.iter()
-        .enumerate()
-        .map(|(i, tx)| {
-            if i == 0 {
-                vec![Vec::new(); tx.inputs.len()]
-            } else {
-                by_txid
-                    .get(&calculate_tx_id(tx))
-                    .cloned()
-                    .unwrap_or_else(|| vec![Vec::new(); tx.inputs.len()])
-            }
-        })
-        .collect()
+    let mut nested = Vec::with_capacity(txs.len());
+    for (i, tx) in txs.iter().enumerate() {
+        if i == 0 || mempool_witnesses.is_none() {
+            nested.push(vec![Vec::new(); tx.inputs.len()]);
+            continue;
+        }
+        let stacks = by_txid.get(&calculate_tx_id(tx)).cloned().ok_or_else(|| {
+            crate::error::ConsensusError::BlockValidation(
+                "missing witness for selected transaction".into(),
+            )
+        })?;
+        nested.push(stacks);
+    }
+    Ok(nested)
 }
 
-/// Fees of selected (non-coinbase) txs. Missing UTXOs count as 0 so empty-set tests still run.
+/// Fees of selected (non-coinbase) txs.
+/// An input missing from the chain set is priced from an earlier selected transaction.
+/// Any other missing input contributes nothing.
 pub fn sum_selected_fees(utxo_set: &UtxoSet, txs: &[Transaction]) -> Integer {
-    txs.iter()
-        .map(|tx| crate::economic::calculate_fee(tx, utxo_set).unwrap_or(0))
-        .fold(0, |a, b| a.saturating_add(b))
+    use crate::block::calculate_tx_id;
+
+    let mut created: std::collections::HashMap<Hash, usize> = std::collections::HashMap::new();
+    let mut total = 0i64;
+    for (i, tx) in txs.iter().enumerate() {
+        if !crate::transaction::is_coinbase(tx) {
+            total = total.saturating_add(selected_tx_fee(tx, utxo_set, txs, &created));
+        }
+        created.insert(calculate_tx_id(tx), i);
+    }
+    total
+}
+
+fn selected_tx_fee(
+    tx: &Transaction,
+    utxo_set: &UtxoSet,
+    txs: &[Transaction],
+    created: &std::collections::HashMap<Hash, usize>,
+) -> Integer {
+    let mut total_input = 0i64;
+    for input in &tx.inputs {
+        let value = if let Some(utxo) = utxo_set.get(&input.prevout) {
+            utxo.value
+        } else if let Some(&parent_i) = created.get(&input.prevout.hash) {
+            let Some(output) = txs[parent_i].outputs.get(input.prevout.index as usize) else {
+                return 0;
+            };
+            output.value
+        } else {
+            return 0;
+        };
+        total_input = match total_input.checked_add(value) {
+            Some(sum) => sum,
+            None => return 0,
+        };
+    }
+    let total_output = tx
+        .outputs
+        .iter()
+        .try_fold(0i64, |acc, output| acc.checked_add(output.value))
+        .unwrap_or(0);
+    total_input.saturating_sub(total_output).max(0)
 }
 
 /// If payouts exceed subsidy+fees, error. Shortfall is added to the first output.
@@ -698,18 +750,12 @@ pub fn append_witness_commitment_from_nested(
     }
     let owned: Vec<Vec<crate::segwit::Witness>>;
     let nested = if let Some(n) = nested {
-        if n.len() >= txs.len() {
-            n
-        } else {
-            owned = (0..txs.len())
-                .map(|i| {
-                    n.get(i)
-                        .cloned()
-                        .unwrap_or_else(|| vec![Vec::new(); txs[i].inputs.len()])
-                })
-                .collect();
-            &owned
+        if n.len() < txs.len() {
+            return Err(crate::error::ConsensusError::BlockValidation(
+                "missing witness for selected transaction".into(),
+            ));
         }
+        n
     } else {
         owned = txs
             .iter()
@@ -1237,7 +1283,7 @@ mod tests {
         // That's ok for testing the error path
         if let Ok(template) = result {
             assert_eq!(template.height, height);
-            assert!(template.target > 0);
+            assert!(!template.target.is_zero());
             assert!(is_coinbase(&template.coinbase_tx));
             assert_eq!(template.transactions.len(), 1);
         } else {
@@ -1395,6 +1441,37 @@ mod tests {
     }
 
     #[test]
+    fn missing_witness_does_not_commit_empty_stacks() {
+        let script = vec![OP_1];
+        let mut cb = create_coinbase_with_outputs(1, &script, &[(50, vec![OP_1])]).unwrap();
+        let spend = Transaction {
+            version: 2,
+            inputs: crate::tx_inputs![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0x11u8; 32],
+                    index: 0,
+                },
+                script_sig: vec![],
+                sequence: 0xfffffffe,
+            }],
+            outputs: crate::tx_outputs![TransactionOutput {
+                value: 90_000,
+                script_pubkey: vec![OP_1],
+            }],
+            lock_time: 0,
+        };
+        let mut txs = vec![cb.clone(), spend.clone()];
+        let short = vec![vec![Vec::new()]];
+        assert!(
+            append_witness_commitment_from_nested(&mut cb, &mut txs, Some(&short)).is_err()
+        );
+        assert_eq!(cb.outputs.len(), 1);
+
+        let txs = vec![cb, spend.clone()];
+        assert!(nested_witnesses_for_selected(&txs, &[spend], Some(&[None])).is_err());
+    }
+
+    #[test]
     fn test_calculate_tx_hash() {
         let tx = create_valid_transaction();
         let hash = calculate_tx_hash(&tx);
@@ -1532,7 +1609,9 @@ mod tests {
         .expect("create_block_template must not fail on regtest nBits");
 
         assert_eq!(template.header.bits, 0x207fffff);
-        assert!(template.target > 0);
+        let expanded = crate::pow::expand_target(0x207fffff).unwrap();
+        assert_eq!(template.target, expanded);
+        assert_ne!(template.target, crate::pow::U256::one());
     }
 
     #[test]
@@ -1624,7 +1703,7 @@ mod tests {
         if let Ok(template) = result {
             // Test all fields
             assert_eq!(template.height, height);
-            assert!(template.target > 0);
+            assert!(!template.target.is_zero());
             assert!(template.timestamp > 0);
             assert!(is_coinbase(&template.coinbase_tx));
             assert_eq!(template.transactions.len(), 1);
@@ -1636,6 +1715,83 @@ mod tests {
     }
 
     // Helper functions for tests
+    #[test]
+    fn a_child_of_a_selected_parent_is_in_the_template() {
+        use crate::block::calculate_tx_id;
+
+        let funding = OutPoint {
+            hash: [4; 32],
+            index: 0,
+        };
+        let mut utxo_set = UtxoSet::default();
+        utxo_set.insert(
+            funding,
+            std::sync::Arc::new(UTXO {
+                value: 50_000,
+                script_pubkey: vec![].into(),
+                height: 0,
+                is_coinbase: false,
+            }),
+        );
+        let parent = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: funding,
+                script_sig: vec![OP_1],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 40_000,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let child = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: calculate_tx_id(&parent),
+                    index: 0,
+                },
+                script_sig: vec![OP_1],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 25_000,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let height = 100;
+        let prev_header = create_valid_block_header();
+        let mut prev_header2 = prev_header.clone();
+        prev_header2.timestamp = prev_header.timestamp + 600;
+        let tmpl = create_block_template_with_outputs(
+            &utxo_set,
+            &[parent, child.clone()],
+            height,
+            &prev_header,
+            &[prev_header.clone(), prev_header2],
+            &vec![OP_1],
+            &[(0, vec![OP_1])],
+            Network::Regtest,
+            None,
+        )
+        .unwrap();
+        assert!(
+            tmpl.transactions
+                .iter()
+                .any(|tx| calculate_tx_id(tx) == calculate_tx_id(&child)),
+            "child must be selected with its parent"
+        );
+        let subsidy = get_block_subsidy_for_network(height, Network::Regtest);
+        assert_eq!(tmpl.coinbase_tx.outputs[0].value, subsidy + 25_000);
+    }
+
     fn create_valid_transaction() -> Transaction {
         // Use thread-local counter to avoid non-determinism across tests
         use std::cell::Cell;
