@@ -3308,6 +3308,27 @@ pub(crate) fn connect_block_inner<'a>(
                 }
             }
         }
+        // Core CheckBlockHeader -> CheckProofOfWork: the header hash must be at or
+        // below the target its own nBits encodes. The bits check above does not hash.
+        // Run with the ancestor lookup, which every node connect path passes. Placed after
+        // BIP94 only so its reject reason wins; both reject the block.
+        match crate::pow::check_proof_of_work(&block.header) {
+            Ok(true) => {}
+            Ok(false) => {
+                return invalid_block_result(
+                    utxo_set,
+                    &[],
+                    "Block hash does not meet its proof of work target",
+                );
+            }
+            Err(err) => {
+                return invalid_block_result(
+                    utxo_set,
+                    &[],
+                    format!("Block proof of work check failed: {err}"),
+                );
+            }
+        }
     }
 
     // BIP54 timewarp: at period boundaries require boundary timestamps and enforce rules
