@@ -247,7 +247,7 @@ fn build_segwit_p2sh_p2wsh_spend_block() -> (Block, Vec<Vec<Witness>>, UtxoSet) 
     ]
     .into();
 
-    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
     (block, witnesses, utxo_set)
 }
 
@@ -315,7 +315,7 @@ fn build_segwit_p2wsh_spend_block() -> (Block, Vec<Vec<Witness>>, UtxoSet) {
     ]
     .into();
 
-    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
     (block, witnesses, utxo_set)
 }
 
@@ -402,7 +402,7 @@ fn build_taproot_script_path_spend_block() -> (Block, Vec<Vec<Witness>>, UtxoSet
     ]
     .into();
 
-    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
     (block, witnesses, utxo_set)
 }
 
@@ -432,7 +432,7 @@ fn build_segwit_witness_block(invalid_commitment: bool) -> (Block, Vec<Vec<Witne
         },
     ]
     .into();
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
     (block, witnesses)
 }
 
@@ -501,8 +501,17 @@ fn spend_tx_duplicate_inputs(prevout_byte: u8, output_value: i64) -> Transaction
     }
 }
 
+fn meet_pow_for_connect(block: &mut Block, ctx: &BlockValidationContext) {
+    if ctx.difficulty_ancestor.is_some() || block.header.bits == 0 {
+        return;
+    }
+    if !blvm_consensus::pow::check_proof_of_work(&block.header).unwrap_or(false) {
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+    }
+}
+
 fn connect(
-    block: &Block,
+    block: &mut Block,
     utxo_set: UtxoSet,
     height: u64,
 ) -> blvm_consensus::error::Result<(
@@ -514,7 +523,7 @@ fn connect(
 }
 
 fn connect_with_ctx(
-    block: &Block,
+    block: &mut Block,
     utxo_set: UtxoSet,
     height: u64,
     validation_ctx: &BlockValidationContext,
@@ -523,6 +532,7 @@ fn connect_with_ctx(
     UtxoSet,
     blvm_consensus::reorganization::BlockUndoLog,
 )> {
+    meet_pow_for_connect(block, validation_ctx);
     connect_block(
         block,
         &per_tx_witnesses(block),
@@ -533,7 +543,7 @@ fn connect_with_ctx(
 }
 
 fn connect_with_witnesses(
-    block: &Block,
+    block: &mut Block,
     witnesses: &[Vec<Witness>],
     utxo_set: UtxoSet,
     height: u64,
@@ -542,11 +552,13 @@ fn connect_with_witnesses(
     UtxoSet,
     blvm_consensus::reorganization::BlockUndoLog,
 )> {
-    connect_block(block, witnesses, utxo_set, height, &ctx())
+    let validation_ctx = ctx();
+    meet_pow_for_connect(block, &validation_ctx);
+    connect_block(block, witnesses, utxo_set, height, &validation_ctx)
 }
 
 fn connect_with_witnesses_and_ctx(
-    block: &Block,
+    block: &mut Block,
     witnesses: &[Vec<Witness>],
     utxo_set: UtxoSet,
     height: u64,
@@ -556,20 +568,21 @@ fn connect_with_witnesses_and_ctx(
     UtxoSet,
     blvm_consensus::reorganization::BlockUndoLog,
 )> {
+    meet_pow_for_connect(block, validation_ctx);
     connect_block(block, witnesses, utxo_set, height, validation_ctx)
 }
 
 #[test]
 fn test_connect_valid_coinbase_height_1() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
 }
 
 #[test]
 fn test_connect_rejects_empty_block() {
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
@@ -580,7 +593,7 @@ fn test_connect_rejects_empty_block() {
         },
         transactions: vec![].into(),
     };
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("no transactions")),
         "empty block must not connect: {result:?}"
@@ -592,7 +605,7 @@ fn test_connect_rejects_bad_merkle_root() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     block.header.merkle_root = [0xff; 32];
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
 
@@ -620,8 +633,8 @@ fn test_connect_rejects_block_weight_exceeded() {
         .into(),
         lock_time: 0,
     };
-    let block = block_with_txs(vec![coinbase, bloat_tx], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs(vec![coinbase, bloat_tx], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("weight")),
         "expected weight rejection, got {result:?}"
@@ -642,8 +655,8 @@ fn test_connect_rejects_relative_height_lock_until_it_elapses() {
     seed_op1_utxo(&mut too_soon, 0x61, 10_000, height - 10);
     let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
     let spend = spend_tx_seq(0x61, 9_000, 2, 50);
-    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
-    let (result, _, _) = connect(&block, too_soon, height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&mut block, too_soon, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("relative lock")),
         "50-block relative lock from 10 blocks ago must fail: {result:?}"
@@ -653,8 +666,8 @@ fn test_connect_rejects_relative_height_lock_until_it_elapses() {
     seed_op1_utxo(&mut elapsed, 0x62, 10_000, height - 10);
     let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
     let spend = spend_tx_seq(0x62, 9_000, 2, 5);
-    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
-    let (result, _, _) = connect(&block, elapsed, height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&mut block, elapsed, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "5-block relative lock from 10 blocks ago must pass: {result:?}"
@@ -668,8 +681,8 @@ fn test_connect_skips_relative_lock_before_csv_and_on_version_one() {
     seed_op1_utxo(&mut utxo_set, 0x63, 10_000, height - 10);
     let coinbase = coinbase_at_height(height - 1, coinbase_value(height - 1, 1_000));
     let spend = spend_tx_seq(0x63, 9_000, 2, 50);
-    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
-    let (result, _, _) = connect(&block, utxo_set, height - 1).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&mut block, utxo_set, height - 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "relative lock is not enforced before CSV: {result:?}"
@@ -679,8 +692,8 @@ fn test_connect_skips_relative_lock_before_csv_and_on_version_one() {
     seed_op1_utxo(&mut utxo_set, 0x64, 10_000, height - 10);
     let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
     let spend = spend_tx_seq(0x64, 9_000, 1, 50);
-    let block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
-    let (result, _, _) = connect(&block, utxo_set, height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase, spend], 1_700_000_000, 4);
+    let (result, _, _) = connect(&mut block, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "version 1 ignores a relative lock: {result:?}"
@@ -712,23 +725,23 @@ fn test_connect_time_relative_lock_uses_prior_median() {
     let coinbase = coinbase_at_height(height, coinbase_value(height, 1_000));
     let spend = spend_tx_seq(0x65, 9_000, 2, 0x0040_0000 | 1);
     // The block time must be strictly later than the median of these headers.
-    let block = block_with_txs_at(vec![coinbase, spend], mtp + 1, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], mtp + 1, 4);
 
-    let (result, _, _) = connect_with_ctx(&block, utxo_set.clone(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, utxo_set.clone(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("unavailable")),
         "a time lock with no median lookup must fail: {result:?}"
     );
 
     ctx.sequence_prev_mtp = Some(Arc::new(move |_| Some(mtp)));
-    let (result, _, _) = connect_with_ctx(&block, utxo_set.clone(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, utxo_set.clone(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("not satisfied")),
         "one 512-second unit from the current median must fail: {result:?}"
     );
 
     ctx.sequence_prev_mtp = Some(Arc::new(move |_| Some(mtp - 1_000)));
-    let (result, _, _) = connect_with_ctx(&block, utxo_set, height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, utxo_set, height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "a time lock measured from an earlier median must pass: {result:?}"
@@ -743,9 +756,9 @@ fn test_connect_valid_spend_from_utxo() {
     let fee = 10_000 - 9_000;
     let coinbase = coinbase_at_height(1, coinbase_value(1, fee));
     let spend = spend_tx(0x42, 10_000, 9_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, new_set, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, new_set, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "OP_1 spend block should connect: {result:?}"
@@ -758,17 +771,17 @@ fn test_connect_rejects_spend_without_utxo() {
     let fee = 10_000 - 9_000;
     let coinbase = coinbase_at_height(1, coinbase_value(1, fee));
     let spend = spend_tx(0x99, 10_000, 9_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
 
 #[test]
 fn test_connect_two_block_chain() {
     let coinbase1 = coinbase_at_height(1, coinbase_value(1, 0));
-    let block1 = block_with_txs(vec![coinbase1], 1_231_006_505);
-    let (r1, utxo1, _) = connect(&block1, UtxoSet::default(), 1).unwrap();
+    let mut block1 = block_with_txs(vec![coinbase1], 1_231_006_505);
+    let (r1, utxo1, _) = connect(&mut block1, UtxoSet::default(), 1).unwrap();
     assert!(matches!(r1, ValidationResult::Valid));
     let utxo1_len = utxo1.len();
 
@@ -776,7 +789,7 @@ fn test_connect_two_block_chain() {
     let mut block2 = block_with_txs(vec![coinbase2], 1_231_006_506);
     block2.header.prev_block_hash = merkle_root_for_tx(&block1.transactions[0]);
 
-    let (r2, utxo2, _) = connect(&block2, utxo1, 2).unwrap();
+    let (r2, utxo2, _) = connect(&mut block2, utxo1, 2).unwrap();
     assert!(matches!(r2, ValidationResult::Valid));
     assert!(utxo2.len() >= utxo1_len);
 }
@@ -795,9 +808,9 @@ fn test_connect_multi_input_block_35_inputs() {
     for i in 1u8..=35 {
         txs.push(spend_tx(i, 10_000, 9_000));
     }
-    let block = block_with_txs(txs, 1_231_006_505);
+    let mut block = block_with_txs(txs, 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "35-input block should connect (exercises parallel script path): {result:?}"
@@ -808,8 +821,8 @@ fn test_connect_multi_input_block_35_inputs() {
 fn test_connect_bip34_compliant_at_activation() {
     let height = BIP34_ACTIVATION_MAINNET;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "BIP34-encoded coinbase at activation height should connect: {result:?}"
@@ -822,8 +835,8 @@ fn test_connect_rejects_second_coinbase() {
     let first = coinbase_at_height(height, coinbase_value(height, 0));
     let mut second = coinbase_at_height(height, 1);
     second.inputs[0].script_sig = vec![OP_1, 0x02, 0x03].into();
-    let block = block_with_txs(vec![first, second], 1_231_006_505);
-    let (result, utxo, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs(vec![first, second], 1_231_006_505);
+    let (result, utxo, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("coinbase")),
         "a second coinbase must not connect: {result:?}"
@@ -839,8 +852,8 @@ fn test_connect_rejects_bip34_at_activation() {
     let height = BIP34_ACTIVATION_MAINNET;
     let mut coinbase = coinbase_at_height(height, coinbase_value(height, 0));
     coinbase.inputs[0].script_sig = vec![OP_1, OP_1].into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let result = connect(&block, UtxoSet::default(), height);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let result = connect(&mut block, UtxoSet::default(), height);
     match result {
         Ok((ValidationResult::Invalid(ref r), _, _)) if r.contains("BIP34") => {}
         other => panic!(
@@ -855,7 +868,7 @@ fn test_connect_rejects_bip90_version_at_bip34() {
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     block.header.version = 1;
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP90")),
         "expected BIP90 rejection, got {result:?}"
@@ -865,8 +878,8 @@ fn test_connect_rejects_bip90_version_at_bip34() {
 #[test]
 fn test_connect_rejects_coinbase_over_subsidy() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0) + 1);
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("subsidy") || r.contains("Coinbase output")),
         "expected coinbase subsidy rejection, got {result:?}"
@@ -880,9 +893,9 @@ fn test_connect_rejects_spend_exceeds_input_value() {
 
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let spend = spend_tx(0x55, 1_000, 2_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
 
@@ -891,17 +904,17 @@ fn test_connect_rejects_non_coinbase_first_tx() {
     let spend = spend_tx(0x01, 10_000, 9_000);
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     // Coinbase must be first — swap order deliberately.
-    let block = block_with_txs(vec![spend, coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![spend, coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(matches!(result, ValidationResult::Invalid(_)));
 }
 
 #[test]
 fn test_connect_valid_segwit_witness_commitment() {
     let height = SEGWIT_ACTIVATION_MAINNET;
-    let (block, witnesses) = build_segwit_witness_block(false);
+    let (mut block, witnesses) = build_segwit_witness_block(false);
     let (result, _, _) =
-        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "SegWit block with valid witness commitment should connect: {result:?}"
@@ -913,10 +926,10 @@ fn test_connect_rejects_witness_data_without_commitment() {
     let height = SEGWIT_ACTIVATION_MAINNET;
     let subsidy = coinbase_value(height, 0);
     let coinbase = coinbase_at_height(height, subsidy);
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
     let witnesses: Vec<Vec<Witness>> = vec![vec![vec![vec![0x11u8; 32]]]];
     let (result, _, _) =
-        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("witness commitment")),
         "witness data without a commitment must not connect: {result:?}"
@@ -944,9 +957,9 @@ fn test_connect_rejects_commitment_without_reserved_value() {
         },
     ]
     .into();
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
     let (result, _, _) =
-        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("witness commitment")),
         "a commitment with an empty reserved value must not connect: {result:?}"
@@ -956,9 +969,9 @@ fn test_connect_rejects_commitment_without_reserved_value() {
 #[test]
 fn test_connect_rejects_invalid_witness_commitment() {
     let height = SEGWIT_ACTIVATION_MAINNET;
-    let (block, witnesses) = build_segwit_witness_block(true);
+    let (mut block, witnesses) = build_segwit_witness_block(true);
     let (result, _, _) =
-        connect_with_witnesses(&block, &witnesses, UtxoSet::default(), height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("witness commitment")),
         "expected witness commitment rejection, got {result:?}"
@@ -969,8 +982,8 @@ fn test_connect_rejects_invalid_witness_commitment() {
 fn test_connect_rejects_coinbase_scriptsig_too_short() {
     let mut coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     coinbase.inputs[0].script_sig = vec![OP_1].into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("scriptSig")),
         "expected coinbase scriptSig length rejection, got {result:?}"
@@ -981,8 +994,8 @@ fn test_connect_rejects_coinbase_scriptsig_too_short() {
 fn test_connect_rejects_coinbase_scriptsig_too_long() {
     let mut coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     coinbase.inputs[0].script_sig = vec![OP_1; 101].into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("scriptSig")),
         "expected coinbase scriptSig too long rejection, got {result:?}"
@@ -1005,14 +1018,14 @@ fn test_connect_with_script_exec_cache_enabled() {
     let fee = 1_000i64;
     let coinbase = coinbase_at_height(height, coinbase_value(height, fee));
     let spend = spend_tx(0x7e, 10_000, 9_000);
-    let block = block_with_txs_at(vec![coinbase, spend], 1_500_353_985, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], 1_500_353_985, 4);
 
-    let (r1, _, _) = connect(&block, utxo_set.clone(), height).unwrap();
+    let (r1, _, _) = connect(&mut block, utxo_set.clone(), height).unwrap();
     assert!(
         matches!(r1, ValidationResult::Valid),
         "first connect: {r1:?}"
     );
-    let (r2, _, _) = connect(&block, utxo_set, height).unwrap();
+    let (r2, _, _) = connect(&mut block, utxo_set, height).unwrap();
     assert!(
         matches!(r2, ValidationResult::Valid),
         "cached replay: {r2:?}"
@@ -1032,8 +1045,8 @@ fn test_connect_rejects_block_sigop_cost_exceeded() {
         script_pubkey: high_sigop_scriptpubkey(sigops).into(),
     }]
     .into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("sigop cost")),
         "expected sigop limit rejection, got {result:?}"
@@ -1044,8 +1057,8 @@ fn test_connect_rejects_block_sigop_cost_exceeded() {
 fn test_connect_rejects_bip66_version_at_activation() {
     let height = BIP66_ACTIVATION_MAINNET;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 2);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 2);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP90")),
         "expected BIP90/BIP66 version rejection, got {result:?}"
@@ -1056,8 +1069,8 @@ fn test_connect_rejects_bip66_version_at_activation() {
 fn test_connect_accepts_bip66_version_at_activation() {
     let height = BIP66_ACTIVATION_MAINNET;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 3);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 3);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "version 3 at BIP66 height should connect: {result:?}"
@@ -1075,8 +1088,8 @@ fn test_connect_rejects_i64_output_sum_overflow() {
         })
         .collect::<Vec<_>>()
         .into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let err = connect(&block, UtxoSet::default(), 1)
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let err = connect(&mut block, UtxoSet::default(), 1)
         .expect_err("wrapping output sum must surface as Err");
     assert!(
         err.to_string().contains("overflow"),
@@ -1091,8 +1104,8 @@ fn test_connect_rejects_duplicate_inputs_in_tx() {
 
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let spend = spend_tx_duplicate_inputs(0x44, 4_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "duplicate prevouts in one tx must not connect: {result:?}"
@@ -1122,7 +1135,7 @@ fn test_connect_rejects_merkle_mutation_cve() {
         mutated,
         "duplicate txids at paired leaves should flag merkle mutation"
     );
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 2,
             prev_block_hash: [0; 32],
@@ -1133,7 +1146,7 @@ fn test_connect_rejects_merkle_mutation_cve() {
         },
         transactions: txs.into(),
     };
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("CVE-2012-2459")),
         "expected CVE-2012-2459 rejection with ibd_mode false, got {result:?}"
@@ -1161,8 +1174,8 @@ fn test_connect_rejects_merkle_mutation_cve() {
 fn test_connect_rejects_bip65_version_at_activation() {
     let height = BIP65_ACTIVATION_MAINNET;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 3);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 3);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP90")),
         "expected BIP90/BIP65 version rejection, got {result:?}"
@@ -1173,8 +1186,8 @@ fn test_connect_rejects_bip65_version_at_activation() {
 fn test_connect_accepts_bip65_version_at_activation() {
     let height = BIP65_ACTIVATION_MAINNET;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let mut block = block_with_txs_at(vec![coinbase], 1_500_353_985, 4);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "version 4 at BIP65 height should connect: {result:?}"
@@ -1186,9 +1199,9 @@ fn test_connect_accepts_bip54_compliant_coinbase() {
     let activation = 100u64;
     let height = 500u64;
     let coinbase = coinbase_bip54_compliant(height, coinbase_value(height, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     let ctx = ctx_bip54_active(activation);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "BIP54-compliant coinbase should connect: {result:?}"
@@ -1201,9 +1214,9 @@ fn test_connect_rejects_bip54_coinbase_locktime() {
     let height = 500u64;
     let mut coinbase = coinbase_bip54_compliant(height, coinbase_value(height, 0));
     coinbase.lock_time = 0;
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     let ctx = ctx_bip54_active(activation);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP54")),
         "expected BIP54 coinbase rejection, got {result:?}"
@@ -1216,9 +1229,9 @@ fn test_connect_rejects_bip54_64_byte_tx() {
     let height = 500u64;
     let coinbase = coinbase_bip54_compliant(height, coinbase_value(height, 0));
     let bad_tx = tx_witness_stripped_size_64();
-    let block = block_with_txs(vec![coinbase, bad_tx], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, bad_tx], 1_231_006_505);
     let ctx = ctx_bip54_active(activation);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("64 bytes")),
         "expected BIP54 64-byte tx rejection, got {result:?}"
@@ -1240,9 +1253,9 @@ fn test_connect_rejects_bip54_sigop_limit() {
         script_pubkey: high_sigop_scriptpubkey(sigops).into(),
     }]
     .into();
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
     let ctx = ctx_bip54_active(activation);
-    let (result, _, _) = connect_with_ctx(&block, utxo_set, height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, utxo_set, height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP54") && r.contains("sigop")),
         "expected BIP54 sigop rejection, got {result:?}"
@@ -1268,9 +1281,9 @@ fn test_connect_rejects_script_verification_failure() {
     let fee = 1_000i64;
     let coinbase = coinbase_at_height(1, coinbase_value(1, fee));
     let spend = spend_tx(0xfa, 10_000, 9_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "script failure must reject block connect: {result:?}"
@@ -1307,7 +1320,7 @@ fn legacy_op1_spend_with_witness(spend_witness: Witness) -> (Block, Vec<Vec<Witn
         },
     ]
     .into();
-    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    let mut block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
     (block, witnesses, utxo_set)
 }
 
@@ -1315,15 +1328,15 @@ fn legacy_op1_spend_with_witness(spend_witness: Witness) -> (Block, Vec<Vec<Witn
 fn test_connect_legacy_spend_rejects_witness_stack_of_empty_items() {
     let height = SEGWIT_ACTIVATION_MAINNET;
 
-    let (block, witnesses, utxo_set) = legacy_op1_spend_with_witness(Vec::new());
-    let (result, _, _) = connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+    let (mut block, witnesses, utxo_set) = legacy_op1_spend_with_witness(Vec::new());
+    let (result, _, _) = connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "a legacy input with no witness items must connect: {result:?}"
     );
 
-    let (block, witnesses, utxo_set) = legacy_op1_spend_with_witness(vec![vec![]]);
-    let (result, _, _) = connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+    let (mut block, witnesses, utxo_set) = legacy_op1_spend_with_witness(vec![vec![]]);
+    let (result, _, _) = connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Invalid script")),
         "one empty witness item on a non-witness spend must be rejected: {result:?}"
@@ -1333,9 +1346,9 @@ fn test_connect_legacy_spend_rejects_witness_stack_of_empty_items() {
 #[test]
 fn test_connect_valid_p2wsh_spend_with_witness_commitment() {
     let height = SEGWIT_ACTIVATION_MAINNET;
-    let (block, witnesses, utxo_set) = build_segwit_p2wsh_spend_block();
+    let (mut block, witnesses, utxo_set) = build_segwit_p2wsh_spend_block();
     let (result, new_set, _) =
-        connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "P2WSH spend with valid witness commitment should connect: {result:?}"
@@ -1346,9 +1359,9 @@ fn test_connect_valid_p2wsh_spend_with_witness_commitment() {
 #[test]
 fn test_connect_valid_p2sh_p2wsh_nested_spend() {
     let height = SEGWIT_ACTIVATION_MAINNET;
-    let (block, witnesses, utxo_set) = build_segwit_p2sh_p2wsh_spend_block();
+    let (mut block, witnesses, utxo_set) = build_segwit_p2sh_p2wsh_spend_block();
     let (result, new_set, _) =
-        connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "nested P2SH→P2WSH spend should connect: {result:?}"
@@ -1363,9 +1376,9 @@ fn test_connect_rejects_negative_fee() {
 
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut spend = spend_tx(0xfb, 1_000, 2_000);
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Negative fee") || r.contains("input")),
         "spend exceeding input value must not connect: {result:?}"
@@ -1380,9 +1393,9 @@ fn test_connect_rejects_tx_without_outputs() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut spend = spend_tx(0xfc, 1_000, 500);
     spend.outputs = vec![].into();
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "tx without outputs must not connect: {result:?}"
@@ -1392,9 +1405,9 @@ fn test_connect_rejects_tx_without_outputs() {
 #[test]
 fn test_connect_valid_taproot_script_path_spend() {
     let height = TAPROOT_ACTIVATION_MAINNET;
-    let (block, witnesses, utxo_set) = build_taproot_script_path_spend_block();
+    let (mut block, witnesses, utxo_set) = build_taproot_script_path_spend_block();
     let (result, new_set, _) =
-        connect_with_witnesses(&block, &witnesses, utxo_set, height).unwrap();
+        connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "Taproot script-path OP_TRUE spend should connect: {result:?}"
@@ -1410,9 +1423,9 @@ fn test_connect_rejects_negative_output_value() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut spend = spend_tx(0xfd, 1_000, 500);
     spend.outputs[0].value = -1;
-    let block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Invalid output") || r.contains("output")),
         "negative output value must not connect: {result:?}"
@@ -1456,7 +1469,7 @@ fn test_connect_rejects_duplicate_txid_cve_2012_2459() {
     let (merkle_root, mutated) = compute_merkle_root_and_mutated(&tx_ids).expect("merkle root");
     assert!(mutated, "duplicate txids must flag merkle mutation");
 
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 2,
             prev_block_hash: [0; 32],
@@ -1468,7 +1481,7 @@ fn test_connect_rejects_duplicate_txid_cve_2012_2459() {
         transactions: txs.into(),
     };
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(
             result,
@@ -1491,9 +1504,9 @@ fn test_connect_rejects_coinbase_with_inputs() {
         sequence: 0xffffffff,
     }]
     .into();
-    let block = block_with_txs(vec![bad_coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![bad_coinbase], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "coinbase with non-null prevout must not connect: {result:?}"
@@ -1508,9 +1521,9 @@ fn test_connect_rejects_double_spend_in_block() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let spend_a = spend_tx(0x55, 5_000, 3_000);
     let spend_b = spend_tx(0x55, 5_000, 2_000);
-    let block = block_with_txs(vec![coinbase, spend_a, spend_b], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase, spend_a, spend_b], 1_231_006_505);
 
-    let (result, _, _) = connect(&block, utxo_set, 1).unwrap();
+    let (result, _, _) = connect(&mut block, utxo_set, 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "double spend of same prevout in one block must not connect: {result:?}"
@@ -1520,8 +1533,8 @@ fn test_connect_rejects_double_spend_in_block() {
 #[test]
 fn test_connect_rejects_invalid_header_timestamp_zero() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
-    let block = block_with_txs(vec![coinbase], 0);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 0);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Invalid block header") || r.contains("header")),
         "timestamp=0 block must fail header validation: {result:?}"
@@ -1533,7 +1546,7 @@ fn test_connect_rejects_header_version_zero() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     block.header.version = 0;
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "version=0 header must not connect: {result:?}"
@@ -1545,7 +1558,7 @@ fn test_connect_rejects_header_bits_zero() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     block.header.bits = 0;
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(_)),
         "bits=0 header must not connect: {result:?}"
@@ -1555,10 +1568,10 @@ fn test_connect_rejects_header_bits_zero() {
 #[test]
 fn test_connect_rejects_witness_row_count_mismatch() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     let bad_witnesses = [vec![Witness::default()], vec![Witness::default()]];
     let (result, _, _) =
-        connect_with_witnesses(&block, &bad_witnesses, UtxoSet::default(), 1).unwrap();
+        connect_with_witnesses(&mut block, &bad_witnesses, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Witness count")),
         "witness row mismatch must fail: {result:?}"
@@ -1568,9 +1581,9 @@ fn test_connect_rejects_witness_row_count_mismatch() {
 #[test]
 fn test_connect_rejects_block_height_overflow() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     let height = i64::MAX as u64 + 1;
-    let (result, _, _) = connect(&block, UtxoSet::default(), height).unwrap();
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("height")),
         "height overflow must fail: {result:?}"
@@ -1581,8 +1594,8 @@ fn test_connect_rejects_block_height_overflow() {
 fn test_connect_rejects_coinbase_output_exceeds_max_money() {
     use blvm_consensus::constants::MAX_MONEY;
     let coinbase = coinbase_at_height(1, MAX_MONEY + 1);
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r)
             if r.contains("maximum money")
@@ -1607,8 +1620,8 @@ fn test_connect_rejects_coinbase_outputs_sum_overflow() {
         },
     ]
     .into();
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let (result, _, _) = connect(&block, UtxoSet::default(), 1).unwrap();
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r)
             if r.contains("exceeds fees") || r.contains("subsidy") || r.contains("Coinbase output")),
@@ -1624,7 +1637,7 @@ fn test_connect_rejects_bip54_period_end_without_boundary_timestamps() {
     let mut block = block_with_txs(vec![coinbase], 1_600_000_000);
     block.header.timestamp = 1_600_000_000;
     let ctx = ctx_bip54_active(activation);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "period-end block without boundary data must fail: {result:?}"
@@ -1643,7 +1656,7 @@ fn test_connect_rejects_bip54_period_end_timestamp_before_first_of_period() {
         timestamp_n_minus_2015: 1_200_000,
     };
     let ctx = ctx_bip54_with_boundary(activation, boundary);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "timestamp before period start must fail: {result:?}"
@@ -1662,7 +1675,7 @@ fn test_connect_rejects_bip54_period_start_timestamp_too_early() {
         timestamp_n_minus_2015: 1_200_000,
     };
     let ctx = ctx_bip54_with_boundary(activation, boundary);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("Timewarp")),
         "period-start timestamp timewarp violation must fail: {result:?}"
@@ -1681,7 +1694,7 @@ fn test_connect_accepts_bip54_period_start_with_valid_boundary() {
         timestamp_n_minus_2015: 1_200_000,
     };
     let ctx = ctx_bip54_with_boundary(activation, boundary);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "valid period-start boundary should connect: {result:?}"
@@ -1700,7 +1713,7 @@ fn test_connect_accepts_bip54_period_end_with_valid_boundary() {
         timestamp_n_minus_2015: 1_200_000,
     };
     let ctx = ctx_bip54_with_boundary(activation, boundary);
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Valid),
         "valid period-end boundary should connect: {result:?}"
@@ -1712,7 +1725,7 @@ fn test_connect_accepts_bip54_period_end_with_valid_boundary() {
 fn test_connect_rejects_bits_that_miss_the_ancestor_window() {
     let height = 100u64;
     let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
-    let block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     let mut ctx = ctx();
     ctx.difficulty_ancestor = Some(Arc::new(|h| {
         if h == 99 {
@@ -1721,7 +1734,7 @@ fn test_connect_rejects_bits_that_miss_the_ancestor_window() {
             None
         }
     }));
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("do not match required work")),
         "header bits must match the ancestor window: {result:?}"
@@ -1743,7 +1756,7 @@ fn test_connect_rejects_testnet4_retarget_more_than_ten_minutes_early() {
         2015 => Some((0x1d00ffff, parent_time)),
         _ => None,
     }));
-    let (result, _, _) = connect_with_ctx(&block, UtxoSet::default(), height, &ctx).unwrap();
+    let (result, _, _) = connect_with_ctx(&mut block, UtxoSet::default(), height, &ctx).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP94")),
         "testnet4 retarget more than 600s early must fail: {result:?}"

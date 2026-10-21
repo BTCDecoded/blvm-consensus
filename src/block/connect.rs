@@ -3310,6 +3310,10 @@ pub(crate) fn connect_block_inner<'a>(
         }
     }
 
+    if !crate::pow::check_proof_of_work(&block.header).unwrap_or(false) {
+        return invalid_block_result(utxo_set, &[], "Block header failed proof of work");
+    }
+
     // BIP54 timewarp: at period boundaries require boundary timestamps and enforce rules
     if !crate::bip_validation::check_bip54_timewarp(
         &block.header,
@@ -3543,7 +3547,9 @@ pub(crate) fn connect_block_inner<'a>(
         .map(|cw| cw >= min_chain_work)
         .unwrap_or(false);
     #[cfg(feature = "production")]
-    let skip_signatures = height < crate::block::get_assume_valid_height() && chainwork_ok;
+    let skip_signatures = height < crate::block::get_assume_valid_height()
+        && chainwork_ok
+        && crate::config::get_assume_valid_hash().is_some();
 
     #[cfg(not(feature = "production"))]
     let skip_signatures = false;

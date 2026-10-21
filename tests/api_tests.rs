@@ -129,7 +129,7 @@ fn test_validate_block() {
     // Calculate merkle root for the block
     let merkle_root = calculate_merkle_root(&[coinbase_tx.clone()]).unwrap();
 
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 4,
             prev_block_hash: [0; 32],
@@ -140,6 +140,7 @@ fn test_validate_block() {
         },
         transactions: vec![coinbase_tx].into_boxed_slice(),
     };
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
 
     let utxo_set = UtxoSet::default();
     let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = block

@@ -524,17 +524,21 @@ mod tests {
             lock_time: 0,
         };
         let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle");
-        Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: [0; 32],
                 merkle_root,
                 timestamp: 1_600_000_000 + height,
                 bits: 0x207f_ffff,
-                nonce: height,
+                nonce: 0,
             },
             transactions: vec![coinbase].into(),
+        };
+        while !crate::pow::check_proof_of_work(&block.header).unwrap_or(false) {
+            block.header.nonce = block.header.nonce.wrapping_add(1);
         }
+        block
     }
 
     fn connect_coinbase(network: Network, height: u64, value: i64) -> ValidationResult {

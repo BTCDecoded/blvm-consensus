@@ -1425,7 +1425,10 @@ mod tests {
         let mut new_tip = create_test_block_at_height(2);
         new_tip.header.prev_block_hash = ancestor_hash;
         new_tip.header.timestamp = ancestor.header.timestamp + 1;
-        new_tip.header.nonce = 42;
+        new_tip.header.nonce = 0;
+        while !crate::pow::check_proof_of_work(&new_tip.header).unwrap_or(false) {
+            new_tip.header.nonce = new_tip.header.nonce.wrapping_add(1);
+        }
         let tip_witnesses: Vec<Vec<Witness>> = new_tip
             .transactions
             .iter()
@@ -1635,17 +1638,21 @@ mod tests {
         let merkle_root =
             calculate_merkle_root(&[coinbase_tx.clone()]).expect("Failed to calculate merkle root");
 
-        Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: [0; 32],
                 merkle_root,
                 timestamp: 1231006505,
-                bits: 0x0300ffff, // Valid compact target for chain-work tests
+                bits: 0x207fffff,
                 nonce: 0,
             },
             transactions: vec![coinbase_tx].into_boxed_slice(),
+        };
+        while !crate::pow::check_proof_of_work(&block.header).unwrap_or(false) {
+            block.header.nonce = block.header.nonce.wrapping_add(1);
         }
+        block
     }
 
     /// Create a test block at height 0 (backward-compatible default).

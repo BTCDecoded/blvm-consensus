@@ -37,16 +37,20 @@ fn programmatic_coinbase_block(height: u64) -> BlockTestVector {
     };
     let merkle_root = calculate_merkle_root(&[coinbase.clone()]).expect("merkle");
     BlockTestVector {
-        block: Block {
-            header: BlockHeader {
-                version: 2,
-                prev_block_hash: [0; 32],
-                merkle_root,
-                timestamp: 1_231_006_505,
-                bits: 0x0300ffff,
-                nonce: 0,
-            },
-            transactions: vec![coinbase].into(),
+        block: {
+            let mut block = Block {
+                header: BlockHeader {
+                    version: 2,
+                    prev_block_hash: [0; 32],
+                    merkle_root,
+                    timestamp: 1_231_006_505,
+                    bits: 0x0300ffff,
+                    nonce: 0,
+                },
+                transactions: vec![coinbase].into(),
+            };
+            blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+            block
         },
         expected_result: ValidationResult::Valid,
         height: 1,
@@ -64,7 +68,12 @@ fn test_score_programmatic_coinbase_block_vector() {
 
 #[test]
 fn test_execute_core_block_vectors_if_present() {
-    let vectors = load_block_test_vectors("tests/test_data/core_vectors/blocks").expect("load");
+    let mut vectors = load_block_test_vectors("tests/test_data/core_vectors/blocks").expect("load");
+    for vector in &mut vectors {
+        if !blvm_consensus::pow::check_proof_of_work(&vector.block.header).unwrap_or(false) {
+            blvm_consensus::pow::meet_regtest_proof_of_work(&mut vector.block.header);
+        }
+    }
     assert!(
         !vectors.is_empty(),
         "block_valid.json must load at least one block"

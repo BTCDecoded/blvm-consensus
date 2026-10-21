@@ -55,6 +55,7 @@ fn test_mempool_to_block_integration() {
         )
         .unwrap();
     block.header.version = 4;
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
 
     // 4. Verify block structure
     assert_eq!(block.transactions.len(), 1); // Only coinbase
@@ -194,6 +195,7 @@ fn test_pow_block_integration() {
     let mut regtest_block = create_valid_regtest_block(0);
     regtest_block.header.bits = 0x207fffff;
     regtest_block.header.version = 4;
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut regtest_block.header);
     let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = regtest_block
         .transactions
         .iter()

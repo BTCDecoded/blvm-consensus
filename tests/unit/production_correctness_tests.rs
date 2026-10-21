@@ -34,7 +34,7 @@ mod tests {
         };
         let merkle_root =
             mining::calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle root");
-        Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: [0; 32],
@@ -44,7 +44,9 @@ mod tests {
                 nonce: 0,
             },
             transactions: vec![coinbase].into(),
-        }
+        };
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+        block
     }
 
     #[test]

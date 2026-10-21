@@ -155,7 +155,7 @@ fn test_pow_block_integration() {
         lock_time: 0,
     };
     let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).unwrap();
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 4,
             prev_block_hash: [0; 32],
@@ -166,6 +166,7 @@ fn test_pow_block_integration() {
         },
         transactions: vec![coinbase].into(),
     };
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
 
     let pow_result = consensus.check_proof_of_work(&block.header).unwrap();
     let again = consensus.check_proof_of_work(&block.header).unwrap();

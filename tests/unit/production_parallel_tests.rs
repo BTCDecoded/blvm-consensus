@@ -114,7 +114,7 @@ mod tests {
         let coinbase = regtest_coinbase(0);
         let transactions = vec![coinbase, tx];
         let merkle_root = mining::calculate_merkle_root(&transactions).expect("merkle root");
-        Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: [0; 32],
@@ -124,7 +124,9 @@ mod tests {
                 nonce: 0,
             },
             transactions: transactions.into(),
-        }
+        };
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+        block
     }
 
     #[test]
@@ -215,7 +217,7 @@ mod tests {
         let coinbase = regtest_coinbase(0);
         let merkle_root =
             mining::calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle root");
-        let block = Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: [0; 32],
@@ -226,6 +228,7 @@ mod tests {
             },
             transactions: vec![coinbase].into(),
         };
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
 
         let (result, _, _) = connect_regtest(&block, UtxoSet::default(), 0);
         assert_eq!(result, ValidationResult::Valid);

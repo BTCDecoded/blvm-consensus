@@ -18,7 +18,7 @@ fn enforcement_coinbase_block(version: i64, coinbase_tx: Transaction, timestamp:
     use blvm_consensus::mining::calculate_merkle_root;
     let merkle_root =
         calculate_merkle_root(std::slice::from_ref(&coinbase_tx)).expect("merkle root");
-    Block {
+    let mut block = Block {
         header: BlockHeader {
             version,
             prev_block_hash: [0; 32],
@@ -28,7 +28,9 @@ fn enforcement_coinbase_block(version: i64, coinbase_tx: Transaction, timestamp:
             nonce: 0,
         },
         transactions: vec![coinbase_tx].into(),
-    }
+    };
+    pow::meet_regtest_proof_of_work(&mut block.header);
+    block
 }
 
 /// Test that BIP30 (duplicate coinbase) is enforced in connect_block

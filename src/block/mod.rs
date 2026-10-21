@@ -1611,7 +1611,7 @@ fn genesis_coinbase_is_missing_when_spent_at_maturity() {
         lock_time: 0,
     };
     let merkle_root = calculate_merkle_root(&[coinbase.clone(), spend.clone()]).unwrap();
-    let child = Block {
+    let mut child = Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: block_header_hash(&genesis.header),
@@ -1622,6 +1622,10 @@ fn genesis_coinbase_is_missing_when_spent_at_maturity() {
         },
         transactions: vec![coinbase, spend].into_boxed_slice(),
     };
+    while !crate::pow::check_proof_of_work(&child.header).unwrap_or(false) {
+        child.header.bits = 0x207fffff;
+        child.header.nonce = child.header.nonce.wrapping_add(1);
+    }
     let child_witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()], vec![Vec::new()]];
     let (result, utxo_set, undo_log) =
         connect_block(&child, &child_witnesses, utxo_set, 100, &ctx).unwrap();
@@ -1660,17 +1664,20 @@ fn a_non_genesis_block_at_height_zero_still_adds_its_coinbase() {
         lock_time: 0,
     };
     let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).unwrap();
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
             merkle_root,
             timestamp: 1_231_006_505,
-            bits: 0x1d00ffff,
-            nonce: 1,
+            bits: 0x207fffff,
+            nonce: 0,
         },
         transactions: vec![coinbase].into_boxed_slice(),
     };
+    while !crate::pow::check_proof_of_work(&block.header).unwrap_or(false) {
+        block.header.nonce = block.header.nonce.wrapping_add(1);
+    }
     let witnesses: Vec<Vec<Witness>> = vec![vec![Vec::new()]];
     let ctx = BlockValidationContext::for_network(Network::Mainnet);
     let (result, utxo_set, _) =

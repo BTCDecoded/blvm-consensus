@@ -30,7 +30,7 @@ fn coinbase_block(height: u64) -> Block {
         .into(),
         lock_time: 0,
     };
-    Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 1,
             prev_block_hash: [0; 32],
@@ -40,7 +40,9 @@ fn coinbase_block(height: u64) -> Block {
             nonce: 0,
         },
         transactions: vec![coinbase].into(),
-    }
+    };
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+    block
 }
 
 #[test]

@@ -61,7 +61,7 @@ fn create_test_block() -> Block {
         lock_time: 0,
     };
     let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle root");
-    Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 4,
             prev_block_hash: [0; 32],
@@ -71,7 +71,9 @@ fn create_test_block() -> Block {
             nonce: 0,
         },
         transactions: vec![coinbase].into(),
-    }
+    };
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
+    block
 }
 
 /// Regtest genesis-height coinbase block must validate through the public API.

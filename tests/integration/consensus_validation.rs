@@ -182,7 +182,7 @@ fn test_consensus_proof_block_validation() {
         lock_time: 0,
     };
     let merkle_root = calculate_merkle_root(std::slice::from_ref(&coinbase)).expect("merkle root");
-    let block = Block {
+    let mut block = Block {
         header: BlockHeader {
             version: 4,
             prev_block_hash: [0; 32],
@@ -193,6 +193,7 @@ fn test_consensus_proof_block_validation() {
         },
         transactions: vec![coinbase].into(),
     };
+    blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
 
     let utxo_set = UtxoSet::default();
     let witnesses: Vec<Vec<blvm_consensus::segwit::Witness>> = block

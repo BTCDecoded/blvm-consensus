@@ -263,7 +263,7 @@ fn connect_regtest_blocks_from(
     for height in start_height..=end_height {
         let coinbase = regtest_coinbase(height as u64);
         let merkle_root = calculate_merkle_root(&[coinbase.clone()]).expect("merkle");
-        let block = Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: prev_hash,
@@ -274,6 +274,7 @@ fn connect_regtest_blocks_from(
             },
             transactions: vec![coinbase].into(),
         };
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
         let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()
@@ -317,7 +318,7 @@ fn extend_regtest_fork(
         // A competing block must not reuse the same coinbase transaction.
         coinbase.inputs[0].script_sig.push(0x01);
         let merkle_root = calculate_merkle_root(&[coinbase.clone()]).expect("merkle");
-        let block = Block {
+        let mut block = Block {
             header: BlockHeader {
                 version: 4,
                 prev_block_hash: prev_hash,
@@ -328,6 +329,7 @@ fn extend_regtest_fork(
             },
             transactions: vec![coinbase].into(),
         };
+        blvm_consensus::pow::meet_regtest_proof_of_work(&mut block.header);
         let witnesses: Vec<Vec<Witness>> = block
             .transactions
             .iter()

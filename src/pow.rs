@@ -402,6 +402,18 @@ fn proof_hash_meets_target(bits: Natural, hash_value: &U256) -> Result<bool> {
     Ok(*hash_value <= target)
 }
 
+/// Set the regtest easiest target and search a nonce until the header meets it.
+///
+/// Synthetic test headers are built with compact targets that a unit test cannot
+/// grind. Call this after the header fields are final.
+pub fn meet_regtest_proof_of_work(header: &mut BlockHeader) {
+    header.bits = 0x207f_ffff;
+    header.nonce = 0;
+    while !check_proof_of_work(header).unwrap_or(false) {
+        header.nonce = header.nonce.wrapping_add(1);
+    }
+}
+
 /// Batch check proof of work for multiple headers
 ///
 /// This function validates multiple block headers in batch, which is useful during
