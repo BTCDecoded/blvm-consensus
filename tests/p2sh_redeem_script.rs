@@ -60,7 +60,22 @@ fn redeem_push_above_520_bytes_is_push_size() {
     let result = verify_script(&script_sig, &p2sh_script(&element), None, 0x01);
     assert_eq!(script_code(result), Some(ScriptErrorCode::PushSize));
 
-    let at_limit = vec![0x11; 520];
+    // 0x11 is a 17-byte push. A 520-byte run of it ends mid-push, so executing
+    // the redeem script fails. The hash match alone is not success.
+    let broken = vec![0x11; 520];
+    let mut script_sig = vec![0x4d];
+    script_sig.extend((broken.len() as u16).to_le_bytes());
+    script_sig.extend(&broken);
+    assert_eq!(
+        verify_script(&script_sig, &p2sh_script(&broken), None, 0x01).unwrap(),
+        false
+    );
+
+    // One PUSHDATA2 of 517 nonzero bytes is a 520-byte redeem. It fits the push
+    // limit, runs, and leaves a true stack item.
+    let mut at_limit = vec![0x4d];
+    at_limit.extend(517u16.to_le_bytes());
+    at_limit.extend(std::iter::repeat(0x11).take(517));
     let mut script_sig = vec![0x4d];
     script_sig.extend((at_limit.len() as u16).to_le_bytes());
     script_sig.extend(&at_limit);

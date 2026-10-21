@@ -321,7 +321,7 @@ pub(super) fn merge_overlay_changes_to_cache(
                     }
                 }
             }
-            // undo_log is always None on the IBD path — nothing to do.
+            // The IBD undo log is built by `undo_log_from_overlay`, not here.
         } else if let Some(arc) = utxo_set.remove(&outpoint) {
             if let Some(idx) = bip30_index.as_deref_mut() {
                 if arc.is_coinbase {
@@ -357,6 +357,44 @@ pub(super) fn merge_overlay_changes_to_cache(
             utxo_set.insert(*outpoint, std::sync::Arc::clone(arc));
         }
     }
+}
+
+/// Undo log for an overlay that was not merged into the scratch UTXO set.
+///
+/// Spent coins are read from `base`, the view the block was validated against.
+/// A spent coin that `base` cannot return is an error. An empty log would let a
+/// later disconnect succeed and restore nothing.
+#[cfg(feature = "production")]
+pub(super) fn undo_log_from_overlay(
+    additions: &FxHashMap<OutPoint, std::sync::Arc<UTXO>>,
+    deletions: &FxHashSet<crate::utxo_overlay::UtxoDeletionKey>,
+    base: &dyn crate::utxo_overlay::UtxoLookup,
+) -> crate::error::Result<crate::reorganization::BlockUndoLog> {
+    use crate::reorganization::{BlockUndoLog, UndoEntry};
+
+    let mut log = BlockUndoLog::new();
+    log.entries.reserve(deletions.len() + additions.len());
+    for del_key in deletions {
+        let outpoint = crate::utxo_overlay::utxo_deletion_key_to_outpoint(del_key);
+        let Some(prev) = base.get(&outpoint) else {
+            return Err(crate::error::ConsensusError::BlockValidation(
+                format!("undo log: spent coin {outpoint:?} is not in the base view").into(),
+            ));
+        };
+        log.entries.push(UndoEntry {
+            outpoint,
+            previous_utxo: Some(std::sync::Arc::new(prev.clone())),
+            new_utxo: None,
+        });
+    }
+    for (outpoint, arc) in additions {
+        log.entries.push(UndoEntry {
+            outpoint: *outpoint,
+            previous_utxo: None,
+            new_utxo: Some(std::sync::Arc::clone(arc)),
+        });
+    }
+    Ok(log)
 }
 
 /// Compute BIP143/precomputed sighash for the parallel script-check path. Uses local refs and specs Vecs
