@@ -3178,6 +3178,7 @@ pub(crate) fn connect_block_inner<'a>(
     precomputed_tx_ids: Option<&'a [Hash]>,
     block_arc: Option<std::sync::Arc<Block>>,
     ibd_mode: bool,
+    collect_undo: bool,
     best_header_chainwork: Option<crate::pow::U256>,
     ibd_utxo_lookup: Option<&dyn crate::utxo_overlay::UtxoLookup>,
 ) -> Result<(
@@ -4034,6 +4035,17 @@ pub(crate) fn connect_block_inner<'a>(
                     None,
                     true,
                 );
+                if collect_undo {
+                    // Parallel IBD persists this log and a reorg replays it. Build it from
+                    // the same overlay the sequential path merges, so disconnect restores
+                    // every spent coin and removes every created one.
+                    let base: &dyn crate::utxo_overlay::UtxoLookup = match ibd_utxo_lookup {
+                        Some(lookup) => lookup,
+                        None => &utxo_set,
+                    };
+                    undo_log =
+                        script_cache::undo_log_from_overlay(&additions_arc, &deletions, base)?;
+                }
             } else {
                 script_cache::merge_overlay_changes_to_cache(
                     &additions_arc,
@@ -4082,7 +4094,7 @@ pub(crate) fn connect_block_inner<'a>(
         total_fees,
         bip30_index,
         maintain_bip30_index,
-        ibd_mode,
+        collect_undo,
     )?;
     #[cfg(feature = "profile")]
     profile_log!(
@@ -4118,17 +4130,17 @@ fn connect_block_inner_with_tx_ids(
     total_fees: i64,
     mut bip30_index: Option<&mut crate::bip_validation::Bip30Index>,
     maintain_bip30_index: bool,
-    ibd_mode: bool,
+    collect_undo: bool,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
     crate::reorganization::BlockUndoLog,
 )> {
     // 5. Apply all transactions to UTXO set (with pre-computed transaction IDs)
-    // Build undo log for all UTXO changes (skipped during IBD — never persisted on parallel path).
+    // Build undo log for all UTXO changes. Only `connect_block_ibd` skips it; parallel IBD
+    // persists the log from `connect_block_ibd_with_undo`.
     use crate::reorganization::BlockUndoLog;
     let mut undo_log = BlockUndoLog::new();
-    let collect_undo = !ibd_mode;
 
     if tx_ids.len() != block.transactions.len() {
         return Err(ConsensusError::BlockValidation(

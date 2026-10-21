@@ -160,7 +160,8 @@ pub fn connect_block(
     #[cfg(not(all(feature = "production", feature = "rayon")))]
     let block_arc = None;
     let (result, new_utxo_set, _tx_ids, undo_log, _delta) = connect::connect_block_inner(
-        block, witnesses, utxo_set, None, height, context, None, None, block_arc, false, None, None,
+        block, witnesses, utxo_set, None, height, context, None, None, block_arc, false, true,
+        None, None,
     )?;
     Ok((result, new_utxo_set, undo_log))
 }
@@ -201,6 +202,7 @@ pub fn connect_block_with_chainwork(
         None,
         block_arc,
         false,
+        true,
         best_header_chainwork,
         None,
     )?;
@@ -250,6 +252,7 @@ pub fn connect_block_ibd<'a>(
         precomputed_tx_ids,
         block_arc,
         true,
+        false,
         best_header_chainwork,
         None,
     )?;
@@ -287,6 +290,7 @@ pub fn connect_block_ibd_with_undo<'a>(
         bip30_index,
         precomputed_tx_ids,
         block_arc,
+        true,
         true,
         best_header_chainwork,
         ibd_utxo_lookup,
