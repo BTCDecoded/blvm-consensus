@@ -136,8 +136,9 @@ fn enforce_tx_finality(
 ///
 /// Active once CSV is active. A height lock counts blocks from the coin's
 /// confirmation height. A time lock counts 512-second units from the median
-/// time of the block before that confirmation. A missing coin is left for the
-/// input check. A time lock with no median time is rejected.
+/// time of the block before that confirmation. A missing coin returns an error
+/// before that transaction's outputs are recorded. A time lock with no median
+/// time is rejected.
 fn enforce_relative_locks(
     block: &Block,
     height: Natural,
@@ -179,15 +180,15 @@ fn enforce_relative_locks(
         if !is_coinbase(tx) && tx_has_relative_lock(tx) {
             let mut prev_heights = Vec::with_capacity(tx.inputs.len());
             let mut prev_mtps = Vec::with_capacity(tx.inputs.len());
-            let mut missing = false;
             for input in tx.inputs.iter() {
                 let coin_height = if let Some(h) = created.get(&input.prevout) {
                     *h
                 } else if let Some(utxo) = lookup.get(&input.prevout) {
                     utxo.height
                 } else {
-                    missing = true;
-                    break;
+                    return Err(format!(
+                        "relative lock input spends a missing output for transaction {i}"
+                    ));
                 };
                 prev_heights.push(coin_height);
                 let seq = input.sequence as u32;
@@ -218,17 +219,15 @@ fn enforce_relative_locks(
                     prev_mtps.push(-1);
                 }
             }
-            if !missing {
-                let locks = crate::sequence_locks::calculate_sequence_locks(
-                    tx,
-                    crate::sequence_locks::LOCKTIME_VERIFY_SEQUENCE,
-                    &prev_heights,
-                    Some(&prev_mtps),
-                )
-                .map_err(|e| e.to_string())?;
-                if !crate::sequence_locks::evaluate_sequence_locks(height, block_mtp, locks) {
-                    return Err(format!("relative lock not satisfied for transaction {i}"));
-                }
+            let locks = crate::sequence_locks::calculate_sequence_locks(
+                tx,
+                crate::sequence_locks::LOCKTIME_VERIFY_SEQUENCE,
+                &prev_heights,
+                Some(&prev_mtps),
+            )
+            .map_err(|e| e.to_string())?;
+            if !crate::sequence_locks::evaluate_sequence_locks(height, block_mtp, locks) {
+                return Err(format!("relative lock not satisfied for transaction {i}"));
             }
         }
         if i == last_lock {

@@ -874,6 +874,37 @@ fn eval_script_inner(
 /// 3. If witness present: execute w on stack
 /// 4. Return final stack has exactly one true value
 ///
+/// After scriptSig and scriptPubKey, a P2SH output still has to run the redeem
+/// script. The pubkey script only checked HASH160. `OP_RESERVED` in the redeem
+/// script fails. The redeem runs only when `SCRIPT_VERIFY_P2SH` is set.
+fn apply_p2sh_redeem(
+    script_sig: &[u8],
+    script_pubkey: &[u8],
+    flags: u32,
+    sigversion: SigVersion,
+    stack: &mut Vec<StackElement>,
+) -> Result<bool> {
+    let is_p2sh = (flags & flags::SCRIPT_VERIFY_P2SH) != 0
+        && script_pubkey.len() == 23
+        && script_pubkey[0] == OP_HASH160
+        && script_pubkey[1] == PUSH_20_BYTES
+        && script_pubkey[22] == OP_EQUAL;
+    if !is_p2sh {
+        return Ok(true);
+    }
+    if stack.is_empty() || !cast_to_bool(&stack[stack.len() - 1]) {
+        return Ok(false);
+    }
+    stack.pop();
+    let Some(pushes) = parse_p2sh_script_sig_pushes(script_sig) else {
+        return Ok(false);
+    };
+    let Some(redeem) = pushes.last() else {
+        return Ok(false);
+    };
+    eval_script(redeem.as_ref(), stack, flags, sigversion)
+}
+
 /// Legacy script verification (Base sigversion, at most one witness push).
 ///
 /// **Deprecated**: accepts `Option<&ByteString>` not a full witness stack. SegWit and Taproot
@@ -940,6 +971,15 @@ pub fn verify_script(
                     cache.put(cache_key, false);
                 }
                 false
+            } else if !apply_p2sh_redeem(script_sig, script_pubkey, flags, sigversion, &mut stack)?
+            {
+                if !is_caching_disabled() {
+                    let mut cache = get_script_cache()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
+                    cache.put(cache_key, false);
+                }
+                false
             } else if let Some(w) = witness {
                 if !eval_script(w, &mut stack, flags, sigversion)? {
                     if !is_caching_disabled() {
@@ -989,6 +1029,9 @@ pub fn verify_script(
 
         // Execute scriptPubkey
         if !eval_script(script_pubkey, &mut stack, flags, sigversion)? {
+            return Ok(false);
+        }
+        if !apply_p2sh_redeem(script_sig, script_pubkey, flags, sigversion, &mut stack)? {
             return Ok(false);
         }
 
@@ -9346,6 +9389,42 @@ mod tests {
             spend(&p2sh, &redeem, &[OP_RESERVED], flags::SCRIPT_VERIFY_P2SH),
             Ok(true)
         ));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn verify_script_runs_the_p2sh_redeem_script() {
+        let bad = vec![OP_RESERVED];
+        let bad_hash = Ripemd160::digest(OptimizedSha256::new().hash(&bad));
+        let mut bad_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+        bad_pubkey.extend_from_slice(&bad_hash);
+        bad_pubkey.push(OP_EQUAL);
+        assert_eq!(
+            verify_script(
+                &serialize_push_data(&bad),
+                &bad_pubkey,
+                None,
+                flags::SCRIPT_VERIFY_P2SH
+            )
+            .unwrap(),
+            false
+        );
+
+        let ok = vec![OP_1];
+        let ok_hash = Ripemd160::digest(OptimizedSha256::new().hash(&ok));
+        let mut ok_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+        ok_pubkey.extend_from_slice(&ok_hash);
+        ok_pubkey.push(OP_EQUAL);
+        assert_eq!(
+            verify_script(
+                &serialize_push_data(&ok),
+                &ok_pubkey,
+                None,
+                flags::SCRIPT_VERIFY_P2SH
+            )
+            .unwrap(),
+            true
+        );
     }
 
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
