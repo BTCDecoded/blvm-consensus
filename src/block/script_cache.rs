@@ -261,6 +261,9 @@ pub(super) fn insert_script_exec_cache_for_block(
     height: u64,
     context: &BlockValidationContext,
 ) {
+    if !crate::script_exec_cache::enabled() {
+        return;
+    }
     let block_hash = crate::crypto::OptimizedSha256::new().hash256(
         &crate::serialization::block::serialize_block_header(&block.header),
     );

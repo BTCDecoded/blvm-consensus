@@ -362,25 +362,6 @@ fn use_ecdsa_batch_collect() -> bool {
     })
 }
 
-#[cfg(all(feature = "production", feature = "rayon"))]
-#[allow(dead_code)]
-fn n_crypto_drain_threads() -> usize {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<usize> = OnceLock::new();
-    *CACHE.get_or_init(|| {
-        std::env::var("BLVM_CRYPTO_DRAIN_THREADS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                let cores = std::thread::available_parallelism()
-                    .map(|p| p.get())
-                    .unwrap_or(8);
-                (cores / 2).clamp(4, 8)
-            })
-            .clamp(1, 16)
-    })
-}
-
 /// HASH160(pubkey) from a standard P2PKH scriptSig (`<sig> <pubkey>`).
 #[cfg(feature = "production")]
 fn try_precompute_p2pkh_hash160(script_sig: &[u8]) -> Option<[u8; 20]> {
@@ -487,28 +468,6 @@ fn try_batch_precompute_sighashes_ibd(
     out
 }
 
-#[cfg(all(feature = "production", feature = "rayon"))]
-#[allow(dead_code)]
-fn script_check_queue() -> &'static crate::checkqueue::ScriptCheckQueue {
-    use std::sync::OnceLock;
-    static Q: OnceLock<crate::checkqueue::ScriptCheckQueue> = OnceLock::new();
-    Q.get_or_init(|| {
-        let n = std::env::var("BLVM_SCRIPT_WORKERS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or_else(|| {
-                std::thread::available_parallelism()
-                    .map(|p| p.get().saturating_sub(1).max(1))
-                    .unwrap_or(4)
-            });
-        let batch_size = blvm_primitives::ibd_tuning::chunk_threshold_config_or_hardware(
-            crate::config::get_consensus_config_ref()
-                .performance
-                .ibd_chunk_threshold,
-        );
-        crate::checkqueue::ScriptCheckQueue::new(n, Some(batch_size))
-    })
-}
 #[cfg(feature = "production")]
 enum ProductionTxFlow<'a> {
     Stop(
@@ -1087,7 +1046,7 @@ fn validate_production_transactions<'a, 'b>(
                 let pv = prevout_values_vec.as_slice();
                 // Script exec cache: skip all checks if (witness_hash, flags) cached.
                 #[cfg(all(feature = "production", feature = "rayon"))]
-                if segwit_active {
+                if segwit_active && crate::script_exec_cache::enabled() {
                     if let Some(tx_witnesses) = witnesses_ref.get(i) {
                         if tx_witnesses.len() == tx.inputs.len() {
                             let key =

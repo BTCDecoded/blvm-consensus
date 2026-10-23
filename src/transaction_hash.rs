@@ -87,6 +87,42 @@ pub fn derive_bip143_script_code(
 /// is preserved. Orange Paper §5.1.1.
 #[inline]
 fn write_script_code_for_sighash(preimage: &mut Vec<u8>, code: &[u8]) {
+    // OP_CODESEPARATOR is the byte 0xab. If that byte is absent, it is not an opcode
+    // and it is not hiding inside a push, so the script is copied as-is.
+    if !code.contains(&0xab) {
+        write_varint_to_vec(preimage, code.len() as u64);
+        preimage.extend_from_slice(code);
+        return;
+    }
+    // Under 253 bytes the length prefix is one byte before and after stripping.
+    // Write that byte once the single strip walk knows how many separators it removed.
+    if code.len() < 0xfd {
+        let len_at = preimage.len();
+        preimage.push(0);
+        let body = preimage.len();
+        append_stripped_codeseparators(preimage, code);
+        preimage[len_at] = (preimage.len() - body) as u8;
+        return;
+    }
+    // Up to 65535 bytes, stripping cannot widen the compact size past 3 bytes,
+    // and it can shrink a 3-byte prefix to 1 byte. One strip walk, then write the prefix.
+    if code.len() <= 0xffff {
+        let start = preimage.len();
+        preimage.resize(start + 3, 0);
+        append_stripped_codeseparators(preimage, code);
+        let body_len = preimage.len() - (start + 3);
+        if body_len < 0xfd {
+            preimage.copy_within(start + 3.., start + 1);
+            preimage.truncate(start + 1 + body_len);
+            preimage[start] = body_len as u8;
+        } else {
+            preimage[start] = 0xfd;
+            let len_bytes = (body_len as u16).to_le_bytes();
+            preimage[start + 1] = len_bytes[0];
+            preimage[start + 2] = len_bytes[1];
+        }
+        return;
+    }
     let n_codeseps = count_opcode_codeseparators(code);
     write_varint_to_vec(preimage, (code.len() - n_codeseps) as u64);
     if n_codeseps == 0 {

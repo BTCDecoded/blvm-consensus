@@ -192,6 +192,21 @@ fn witness_program_len(script: &[u8]) -> Option<usize> {
     Some(program_len)
 }
 
+/// Standard SegWit v0 (20 or 32 bytes) or Taproot v1 (32 bytes).
+///
+/// Future witness versions stay false. The program bytes remain in `script`.
+#[inline]
+pub fn is_standard_witness_program(script: &[u8]) -> bool {
+    use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};
+    let Some(program_len) = witness_program_len(script) else {
+        return false;
+    };
+    if script[0] == OP_0 {
+        return program_len == SEGWIT_P2WPKH_LENGTH || program_len == SEGWIT_P2WSH_LENGTH;
+    }
+    script[0] == OP_1 && program_len == TAPROOT_PROGRAM_LENGTH
+}
+
 /// Witness version byte: `OP_0`, or `OP_1` through `OP_16`.
 #[inline]
 fn is_witness_version_opcode(opcode: u8) -> bool {

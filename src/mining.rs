@@ -489,19 +489,9 @@ pub fn resolve_declared_txs(
 }
 
 fn declared_tx_spends_witness_utxo(tx: &Transaction, utxo_set: &UtxoSet) -> bool {
-    use crate::witness::{
-        extract_witness_program, extract_witness_version, validate_witness_program_length,
-    };
     tx.inputs.iter().any(|input| {
         utxo_set.get(&input.prevout).is_some_and(|utxo| {
-            let script = utxo.script_pubkey.as_ref().to_vec();
-            extract_witness_version(&script)
-                .and_then(|version| {
-                    extract_witness_program(&script, version).map(|program| (version, program))
-                })
-                .is_some_and(|(version, program)| {
-                    validate_witness_program_length(&program, version)
-                })
+            crate::witness::is_standard_witness_program(utxo.script_pubkey.as_ref())
         })
     })
 }

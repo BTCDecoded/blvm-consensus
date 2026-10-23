@@ -902,7 +902,7 @@ fn apply_p2sh_redeem(
         return Ok(false);
     }
     stack.pop();
-    let Some(pushes) = parse_p2sh_script_sig_pushes(script_sig) else {
+    let Some(pushes) = parse_borrowed_pushes(script_sig) else {
         return Ok(false);
     };
     let Some(redeem) = pushes.last() else {
@@ -1165,8 +1165,9 @@ pub fn try_verify_p2pk_fast_path(
     let script_code: &[u8] = if script_pubkey.len() < 71 {
         script_pubkey
     } else {
-        let pattern = serialize_push_data(signature_bytes);
-        deleted_storage = find_and_delete(script_pubkey, &pattern);
+        deleted_storage = with_push_pattern(signature_bytes, |pattern| {
+            find_and_delete(script_pubkey, pattern)
+        });
         deleted_storage.as_ref()
     };
     let sighash = match calculate_transaction_sighash_single_input(
@@ -1277,8 +1278,9 @@ pub fn try_verify_p2pkh_fast_path(
     let script_code: &[u8] = if script_pubkey.len() < 71 {
         script_pubkey
     } else {
-        let pattern = serialize_push_data(signature_bytes);
-        deleted_storage = find_and_delete(script_pubkey, &pattern);
+        deleted_storage = with_push_pattern(signature_bytes, |pattern| {
+            find_and_delete(script_pubkey, pattern)
+        });
         deleted_storage.as_ref()
     };
     let sighash = {
@@ -1692,7 +1694,7 @@ fn try_verify_p2sh_multisig_fast_path(
     {
         return None;
     }
-    let pushes = parse_p2sh_script_sig_pushes(script_sig.as_ref())?;
+    let pushes = parse_borrowed_pushes(script_sig.as_ref())?;
     if pushes.len() < 2 {
         return None;
     }
@@ -1725,18 +1727,7 @@ fn try_verify_p2sh_multisig_fast_path(
         }
     }
 
-    let mut cleaned = redeem.to_vec();
-    for sig in &signatures {
-        if sig.is_empty() {
-            continue;
-        }
-        // Push encoding is ≥ sig.len()+1; FindAndDelete is a no-op when pattern can't fit.
-        if sig.len().saturating_add(1) > cleaned.len() {
-            continue;
-        }
-        let pattern = serialize_push_data(sig);
-        cleaned = find_and_delete(&cleaned, &pattern).into_owned();
-    }
+    let cleaned = multisig_script_code(redeem, &signatures);
 
     use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
@@ -1943,7 +1934,7 @@ fn try_verify_bare_multisig_fast_path(
     >,
 ) -> Option<Result<bool>> {
     let (m, _n, pubkeys) = parse_redeem_multisig(script_pubkey)?;
-    let pushes = parse_p2sh_script_sig_pushes(script_sig.as_ref())?;
+    let pushes = parse_borrowed_pushes(script_sig.as_ref())?;
     let Some((dummy, signatures)) = checkmultisig_window(&pushes, m, false) else {
         return Some(Ok(false));
     };
@@ -1963,17 +1954,7 @@ fn try_verify_bare_multisig_fast_path(
         }
     }
 
-    let mut cleaned = script_pubkey.to_vec();
-    for sig in &signatures {
-        if sig.is_empty() {
-            continue;
-        }
-        if sig.len().saturating_add(1) > cleaned.len() {
-            continue;
-        }
-        let pattern = serialize_push_data(sig);
-        cleaned = find_and_delete(&cleaned, &pattern).into_owned();
-    }
+    let cleaned = multisig_script_code(script_pubkey, &signatures);
 
     use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
@@ -2052,6 +2033,198 @@ fn try_verify_bare_multisig_fast_path(
     Some(Ok(success))
 }
 
+/// Verify a P2SH-P2PKH redeem from borrowed signature, pubkey, and redeem slices.
+#[cfg(feature = "production")]
+#[allow(clippy::too_many_arguments)]
+fn verify_p2sh_p2pkh_redeem(
+    signature_bytes: &[u8],
+    pubkey_bytes: &[u8],
+    redeem: &[u8],
+    flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    block_height: Option<u64>,
+    network: crate::types::Network,
+    #[cfg(feature = "production")] sighash_cache: Option<
+        &crate::transaction_hash::SighashMidstateCache,
+    >,
+    #[cfg(feature = "production")] precomputed_sighash_all: Option<[u8; 32]>,
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collect: Option<(
+        &crate::ecdsa_batch::EcdsaSignatureCollector,
+        usize,
+    )>,
+) -> Result<bool> {
+    #[cfg(feature = "production")]
+    let sighash = if let Some(precomp) = precomputed_sighash_all {
+        precomp
+    } else {
+        use crate::transaction_hash::{
+            calculate_transaction_sighash_single_input, SighashType,
+        };
+        let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+        let sighash_type = SighashType::from_byte(sighash_byte);
+        let deleted_storage;
+        let script_code: &[u8] = if redeem.len() < 71 {
+            redeem
+        } else {
+            deleted_storage = with_push_pattern(signature_bytes, |pattern| {
+                find_and_delete(redeem, pattern)
+            });
+            deleted_storage.as_ref()
+        };
+        calculate_transaction_sighash_single_input(
+            tx,
+            input_index,
+            script_code,
+            prevout_values[input_index],
+            sighash_type,
+            sighash_cache,
+        )?
+    };
+    #[cfg(not(feature = "production"))]
+    let sighash = {
+        use crate::transaction_hash::{
+            calculate_transaction_sighash_single_input, SighashType,
+        };
+        let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+        let sighash_type = SighashType::from_byte(sighash_byte);
+        let deleted_storage;
+        let script_code: &[u8] = if redeem.len() < 71 {
+            redeem
+        } else {
+            deleted_storage = with_push_pattern(signature_bytes, |pattern| {
+                find_and_delete(redeem, pattern)
+            });
+            deleted_storage.as_ref()
+        };
+        calculate_transaction_sighash_single_input(
+            tx,
+            input_index,
+            script_code,
+            prevout_values[input_index],
+            sighash_type,
+        )?
+    };
+    let height = block_height.unwrap_or(0);
+    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+    let strict_der = flags & 0x04 != 0;
+    let enforce_low_s = flags & 0x08 != 0;
+    if strict_der
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
+            .unwrap_or(false)
+    {
+        return Ok(false);
+    }
+    if flags & 0x02 != 0 {
+        let sighash_base = signature_bytes[signature_bytes.len() - 1] & !0x80;
+        if !(0x01..=0x03).contains(&sighash_base) {
+            return Ok(false);
+        }
+        match pubkey_bytes.len() {
+            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => {
+                return Ok(false);
+            }
+            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
+            33 | 65 => {}
+            _ => return Ok(false),
+        }
+    }
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    if let Some((collector, global_idx)) = ecdsa_collect {
+        // Default-on; set BLVM_P2SH_P2PKH_SOA=0 to disable.
+        if std::env::var_os("BLVM_P2SH_P2PKH_SOA").is_none_or(|v| v != "0") {
+            let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
+                der_sig,
+                strict_der,
+                enforce_low_s,
+            ) {
+                Some(c) => c,
+                None => return Ok(false),
+            };
+            let pk33 = match pubkey_bytes.len() {
+                33 => {
+                    let mut a = [0u8; 33];
+                    a.copy_from_slice(pubkey_bytes);
+                    a
+                }
+                65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
+                    Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
+                    None => return Ok(false),
+                },
+                _ => return Ok(false),
+            };
+            collector.collect_with_index(global_idx, &sighash, &pk33, &compact);
+            return Ok(true);
+        }
+    }
+    signature::with_secp_context(|secp| {
+        signature::verify_signature(
+            secp,
+            pubkey_bytes,
+            signature_bytes,
+            &sighash,
+            flags,
+            height,
+            network,
+            SigVersion::Base,
+        )
+    })
+}
+
+/// Verify a P2SH-P2PK redeem from a borrowed signature and redeem script.
+#[cfg(feature = "production")]
+#[allow(clippy::too_many_arguments)]
+fn verify_p2sh_p2pk_redeem(
+    signature_bytes: &[u8],
+    pubkey_bytes: &[u8],
+    redeem: &[u8],
+    flags: u32,
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    block_height: Option<u64>,
+    network: crate::types::Network,
+    #[cfg(feature = "production")] sighash_cache: Option<
+        &crate::transaction_hash::SighashMidstateCache,
+    >,
+) -> Result<bool> {
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+    let sighash_type = SighashType::from_byte(sighash_byte);
+    // Redeem is 35 or 67 bytes. A signature push is at least 71, so FindAndDelete cannot match.
+    let deleted_storage;
+    let script_code: &[u8] = if redeem.len() < 71 {
+        redeem
+    } else {
+        deleted_storage =
+            with_push_pattern(signature_bytes, |pattern| find_and_delete(redeem, pattern));
+        deleted_storage.as_ref()
+    };
+    let sighash = calculate_transaction_sighash_single_input(
+        tx,
+        input_index,
+        script_code,
+        prevout_values[input_index],
+        sighash_type,
+        #[cfg(feature = "production")]
+        sighash_cache,
+    )?;
+    let height = block_height.unwrap_or(0);
+    signature::with_secp_context(|secp| {
+        signature::verify_signature(
+            secp,
+            pubkey_bytes,
+            signature_bytes,
+            &sighash,
+            flags,
+            height,
+            network,
+            SigVersion::Base,
+        )
+    })
+}
+
 /// P2SH fast-path for regular P2SH (redeem script is not a witness program).
 /// Skips scriptSig + scriptPubKey interpreter run; verifies hash then runs redeem script only.
 /// Returns None to fall back to full interpreter (e.g. witness programs, non-P2SH).
@@ -2091,12 +2264,76 @@ fn try_verify_p2sh_fast_path(
     }
     let expected_hash = &script_pubkey[2..22];
 
-    let mut pushes = parse_script_sig_push_only(script_sig.as_ref())?;
+    // P2SH-P2PKH is three data pushes. Borrow them. The owned parse below is for
+    // numeric pushes and redeems that still run the interpreter.
+    if let Some((signature_bytes, pubkey_bytes, redeem)) =
+        parse_p2sh_p2pkh_pushes(script_sig.as_ref())
+    {
+        let redeem_sha = OptimizedSha256::new().hash(redeem);
+        let redeem_hash = Ripemd160::digest(redeem_sha);
+        if &redeem_hash[..] != expected_hash {
+            return Some(Ok(false));
+        }
+        if pubkey_bytes.len() == 33 || pubkey_bytes.len() == 65 {
+            let pubkey_sha = OptimizedSha256::new().hash(pubkey_bytes);
+            let pubkey_hash = Ripemd160::digest(pubkey_sha);
+            if &pubkey_hash[..] == &redeem[3..23] {
+                return Some(verify_p2sh_p2pkh_redeem(
+                    signature_bytes,
+                    pubkey_bytes,
+                    redeem,
+                    flags,
+                    tx,
+                    input_index,
+                    prevout_values,
+                    block_height,
+                    network,
+                    #[cfg(feature = "production")]
+                    sighash_cache,
+                    #[cfg(feature = "production")]
+                    precomputed_sighash_all,
+                    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                    ecdsa_collect,
+                ));
+            }
+        }
+    }
+
+    // P2SH-P2PK is a signature push plus a 35-byte or 67-byte redeem.
+    if let Some((signature_bytes, pubkey_bytes, redeem)) =
+        parse_p2sh_p2pk_pushes(script_sig.as_ref())
+    {
+        let redeem_sha = OptimizedSha256::new().hash(redeem);
+        let redeem_hash = Ripemd160::digest(redeem_sha);
+        if &redeem_hash[..] != expected_hash {
+            return Some(Ok(false));
+        }
+        return Some(verify_p2sh_p2pk_redeem(
+            signature_bytes,
+            pubkey_bytes,
+            redeem,
+            flags,
+            tx,
+            input_index,
+            prevout_values,
+            block_height,
+            network,
+            #[cfg(feature = "production")]
+            sighash_cache,
+        ));
+    }
+
+    // The redeem is the last push and is only used as script bytes. The items
+    // under it are copied because the interpreter pops them.
+    let pushes = parse_borrowed_pushes(script_sig.as_ref())?;
     if pushes.is_empty() {
         return None;
     }
-    let redeem = pushes.pop().expect("at least one push");
-    let mut stack = pushes;
+    let redeem = pushes.last().expect("at least one push").as_ref();
+    let mut stack: Vec<StackElement> = pushes[..pushes.len() - 1]
+        .iter()
+        .map(|push| to_stack_element(push.as_ref()))
+        .collect();
 
     // Any witness-program redeem, including a future version. The interpreter
     // checks the hash, the canonical push, and that the program bytes are a
@@ -2129,126 +2366,23 @@ fn try_verify_p2sh_fast_path(
             let sha256_hash = OptimizedSha256::new().hash(pubkey_bytes);
             let pubkey_hash = Ripemd160::digest(sha256_hash);
             if &pubkey_hash[..] == expected_pubkey_hash {
-                #[cfg(feature = "production")]
-                let sighash = if let Some(precomp) = precomputed_sighash_all {
-                    precomp
-                } else {
-                    use crate::transaction_hash::{
-                        calculate_transaction_sighash_single_input, SighashType,
-                    };
-                    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
-                    let sighash_type = SighashType::from_byte(sighash_byte);
-                    let deleted_storage;
-                    let script_code: &[u8] = if redeem.len() < 71 {
-                        redeem.as_ref()
-                    } else {
-                        let pattern = serialize_push_data(signature_bytes);
-                        deleted_storage = find_and_delete(redeem.as_ref(), &pattern);
-                        deleted_storage.as_ref()
-                    };
-                    match calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        script_code,
-                        prevout_values[input_index],
-                        sighash_type,
-                        sighash_cache,
-                    ) {
-                        Ok(h) => h,
-                        Err(e) => return Some(Err(e)),
-                    }
-                };
-                #[cfg(not(feature = "production"))]
-                let sighash = {
-                    use crate::transaction_hash::{
-                        calculate_transaction_sighash_single_input, SighashType,
-                    };
-                    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
-                    let sighash_type = SighashType::from_byte(sighash_byte);
-                    let deleted_storage;
-                    let script_code: &[u8] = if redeem.len() < 71 {
-                        redeem.as_ref()
-                    } else {
-                        let pattern = serialize_push_data(signature_bytes);
-                        deleted_storage = find_and_delete(redeem.as_ref(), &pattern);
-                        deleted_storage.as_ref()
-                    };
-                    match calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        script_code,
-                        prevout_values[input_index],
-                        sighash_type,
-                    ) {
-                        Ok(h) => h,
-                        Err(e) => return Some(Err(e)),
-                    }
-                };
-                let height = block_height.unwrap_or(0);
-                let der_sig = &signature_bytes[..signature_bytes.len() - 1];
-                let strict_der = flags & 0x04 != 0;
-                let enforce_low_s = flags & 0x08 != 0;
-                if strict_der
-                    && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
-                        .unwrap_or(false)
-                {
-                    return Some(Ok(false));
-                }
-                if flags & 0x02 != 0 {
-                    let sighash_base = signature_bytes[signature_bytes.len() - 1] & !0x80;
-                    if !(0x01..=0x03).contains(&sighash_base) {
-                        return Some(Ok(false));
-                    }
-                    match pubkey_bytes.len() {
-                        33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => {
-                            return Some(Ok(false));
-                        }
-                        65 if pubkey_bytes[0] != 0x04 => return Some(Ok(false)),
-                        33 | 65 => {}
-                        _ => return Some(Ok(false)),
-                    }
-                }
-                #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-                if let Some((collector, global_idx)) = ecdsa_collect {
-                    // Default-on; set BLVM_P2SH_P2PKH_SOA=0 to disable.
-                    if std::env::var_os("BLVM_P2SH_P2PKH_SOA").is_none_or(|v| v != "0") {
-                        let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
-                            der_sig,
-                            strict_der,
-                            enforce_low_s,
-                        ) {
-                            Some(c) => c,
-                            None => return Some(Ok(false)),
-                        };
-                        let pk33 = match pubkey_bytes.len() {
-                            33 => {
-                                let mut a = [0u8; 33];
-                                a.copy_from_slice(pubkey_bytes);
-                                a
-                            }
-                            65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
-                                Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
-                                None => return Some(Ok(false)),
-                            },
-                            _ => return Some(Ok(false)),
-                        };
-                        collector.collect_with_index(global_idx, &sighash, &pk33, &compact);
-                        return Some(Ok(true));
-                    }
-                }
-                let is_valid = signature::with_secp_context(|secp| {
-                    signature::verify_signature(
-                        secp,
-                        pubkey_bytes,
-                        signature_bytes,
-                        &sighash,
-                        flags,
-                        height,
-                        network,
-                        SigVersion::Base,
-                    )
-                });
-                return Some(is_valid);
+                return Some(verify_p2sh_p2pkh_redeem(
+                    signature_bytes,
+                    pubkey_bytes,
+                    redeem.as_ref(),
+                    flags,
+                    tx,
+                    input_index,
+                    prevout_values,
+                    block_height,
+                    network,
+                    #[cfg(feature = "production")]
+                    sighash_cache,
+                    #[cfg(feature = "production")]
+                    precomputed_sighash_all,
+                    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+                    ecdsa_collect,
+                ));
             }
         }
     }
@@ -2258,47 +2392,19 @@ fn try_verify_p2sh_fast_path(
         if let Some(pubkey_bytes) = canonical_p2pk_pubkey(redeem.as_ref()) {
             let signature_bytes = &stack[0];
             if !signature_bytes.is_empty() {
-                use crate::transaction_hash::{
-                    calculate_transaction_sighash_single_input, SighashType,
-                };
-                let sighash_byte = signature_bytes[signature_bytes.len() - 1];
-                let sighash_type = SighashType::from_byte(sighash_byte);
-                // Fast-path: redeem is 35 or 67 bytes; signature push ≥71. FindAndDelete no-op.
-                let deleted_storage;
-                let script_code: &[u8] = if redeem.len() < 71 {
-                    redeem.as_ref()
-                } else {
-                    let pattern = serialize_push_data(signature_bytes);
-                    deleted_storage = find_and_delete(redeem.as_ref(), &pattern);
-                    deleted_storage.as_ref()
-                };
-                match calculate_transaction_sighash_single_input(
+                return Some(verify_p2sh_p2pk_redeem(
+                    signature_bytes,
+                    pubkey_bytes,
+                    redeem.as_ref(),
+                    flags,
                     tx,
                     input_index,
-                    script_code,
-                    prevout_values[input_index],
-                    sighash_type,
+                    prevout_values,
+                    block_height,
+                    network,
                     #[cfg(feature = "production")]
                     sighash_cache,
-                ) {
-                    Ok(sighash) => {
-                        let height = block_height.unwrap_or(0);
-                        let is_valid = signature::with_secp_context(|secp| {
-                            signature::verify_signature(
-                                secp,
-                                pubkey_bytes,
-                                signature_bytes,
-                                &sighash,
-                                flags,
-                                height,
-                                network,
-                                SigVersion::Base,
-                            )
-                        });
-                        return Some(is_valid);
-                    }
-                    Err(e) => return Some(Err(e)),
-                }
+                ));
             }
         }
     }
@@ -2463,6 +2569,17 @@ pub fn verify_p2wpkh_inline(
     .unwrap_or(false))
 }
 
+/// The script is one data push. Numeric opcodes are not this pattern.
+#[cfg(feature = "production")]
+#[inline(always)]
+fn single_data_push(script: &[u8]) -> Option<&[u8]> {
+    let (advance, start, end) = parse_one_data_push(script, 0)?;
+    if advance != script.len() {
+        return None;
+    }
+    Some(&script[start..end])
+}
+
 /// P2WPKH-in-P2SH inline verify (BIP143). Caller must gate scriptPubKey / scriptSig / witness shape.
 #[cfg(feature = "production")]
 #[allow(clippy::too_many_arguments)]
@@ -2484,14 +2601,9 @@ pub fn verify_p2wpkh_in_p2sh_inline(
     )>,
 ) -> Result<bool> {
     let expected_hash = &script_pubkey[2..22];
-    let pushes = match parse_script_sig_push_only(script_sig) {
-        Some(p) => p,
-        None => return Ok(false),
-    };
-    if pushes.len() != 1 {
+    let Some(redeem) = single_data_push(script_sig) else {
         return Ok(false);
-    }
-    let redeem = &pushes[0];
+    };
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return Ok(false);
     }
@@ -2694,11 +2806,7 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     if witness.len() != 2 {
         return None;
     }
-    let pushes = parse_script_sig_push_only(script_sig.as_ref())?;
-    if pushes.len() != 1 {
-        return None;
-    }
-    let redeem = &pushes[0];
+    let redeem = single_data_push(script_sig.as_ref())?;
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return None;
     }
@@ -2821,11 +2929,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     {
         return None;
     }
-    let pushes = parse_script_sig_push_only(script_sig.as_ref())?;
-    if pushes.len() != 1 {
-        return None;
-    }
-    let redeem = &pushes[0];
+    let redeem = single_data_push(script_sig.as_ref())?;
     if redeem.len() != 34 || redeem[0] != OP_0 || redeem[1] != PUSH_32_BYTES {
         return None;
     }
@@ -3034,18 +3138,13 @@ pub(crate) fn try_verify_p2wsh_fast_path(
         }
     }
 
-    // Multisig and the interpreter are the only callers that need owned stack items.
-    let mut stack: Vec<StackElement> = witness
-        .iter()
-        .take(witness.len() - 1)
-        .map(|w| to_stack_element(w))
-        .collect();
-
     // P2WSH multisig: witness script is `OP_m <pubkeys> OP_n OP_CHECKMULTISIG`.
     // The stack under the script must be exactly the dummy plus `m` signatures.
+    // Those items are borrowed from the witness. The interpreter copy is below.
     if witness_sigversion == SigVersion::WitnessV0 {
         if let Some((m, _n, pubkeys)) = parse_redeem_multisig(witness_script) {
-            let Some((dummy, signatures)) = checkmultisig_window(&stack, m, true) else {
+            let items = &witness[..witness.len() - 1];
+            let Some((dummy, signatures)) = checkmultisig_window(items, m, true) else {
                 return Some(Ok(false));
             };
 
@@ -3216,6 +3315,11 @@ pub(crate) fn try_verify_p2wsh_fast_path(
 
     // Witness script uses interpreter path (no batch collection).
     // CHECKMULTISIG in witness script can produce invalid sig/pubkey pairings for batch.
+    let mut stack: Vec<StackElement> = witness
+        .iter()
+        .take(witness.len() - 1)
+        .map(|w| to_stack_element(w))
+        .collect();
     let result = eval_script_with_context_full_inner(
         witness_script,
         &mut stack,
@@ -3729,6 +3833,16 @@ pub fn verify_script_with_context_full(
         && script_pubkey[1] == PUSH_20_BYTES   // push 20 bytes
         && script_pubkey[22] == OP_EQUAL; // OP_EQUAL
 
+    // Where the last scriptSig push lives. Data pushes are already in `script_sig`.
+    enum RedeemSource {
+        Absent,
+        Empty,
+        Slice(usize, usize),
+        Number(i64),
+        StackCopy,
+    }
+    let mut redeem_source = RedeemSource::Absent;
+
     // CRITICAL: For P2SH, scriptSig MUST only contain push operations (data pushes only)
     // This prevents script injection attacks. If scriptSig contains non-push opcodes, fail immediately.
     // This check MUST happen BEFORE executing scriptSig
@@ -3742,9 +3856,10 @@ pub fn verify_script_with_context_full(
                 // Non-push opcode found in P2SH scriptSig - this is invalid
                 return Ok(false);
             }
-            // Advance past the push opcode and data
+            // Advance past the push opcode and data. Remember the last push: that is the redeem script.
             if opcode == OP_0 {
                 // OP_0 - push empty array, no data to skip
+                redeem_source = RedeemSource::Empty;
                 i += 1;
             } else if opcode <= 0x4b {
                 // Direct push: opcode is the length (1-75 bytes)
@@ -3752,6 +3867,7 @@ pub fn verify_script_with_context_full(
                 if i + 1 + len > script_sig.len() {
                     return Ok(false); // Invalid push length
                 }
+                redeem_source = RedeemSource::Slice(i + 1, i + 1 + len);
                 i += 1 + len;
             } else if opcode == OP_PUSHDATA1 {
                 // OP_PUSHDATA1
@@ -3762,6 +3878,7 @@ pub fn verify_script_with_context_full(
                 if i + 2 + len > script_sig.len() {
                     return Ok(false);
                 }
+                redeem_source = RedeemSource::Slice(i + 2, i + 2 + len);
                 i += 2 + len;
             } else if opcode == OP_PUSHDATA2 {
                 // OP_PUSHDATA2
@@ -3772,6 +3889,7 @@ pub fn verify_script_with_context_full(
                 if i + 3 + len > script_sig.len() {
                     return Ok(false);
                 }
+                redeem_source = RedeemSource::Slice(i + 3, i + 3 + len);
                 i += 3 + len;
             } else if opcode == OP_PUSHDATA4 {
                 // OP_PUSHDATA4
@@ -3787,10 +3905,15 @@ pub fn verify_script_with_context_full(
                 if i + 5 + len > script_sig.len() {
                     return Ok(false);
                 }
+                redeem_source = RedeemSource::Slice(i + 5, i + 5 + len);
                 i += 5 + len;
+            } else if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
+                // Numeric pushes. The stack item is the CScriptNum, not a slice of scriptSig.
+                redeem_source = RedeemSource::Number(script_num_from_opcode(opcode));
+                i += 1;
             } else if (OP_1NEGATE..=OP_16).contains(&opcode) {
-                // OP_1NEGATE, OP_RESERVED, OP_1-OP_16
-                // These are single-byte push opcodes with no data payload
+                // OP_RESERVED. Not a data push. Execution fails before the redeem is used.
+                redeem_source = RedeemSource::StackCopy;
                 i += 1;
             } else {
                 // Should not reach here if is_push_opcode is correct, but fail anyway
@@ -3860,9 +3983,26 @@ pub fn verify_script_with_context_full(
         return Ok(false);
     }
 
-    // Save redeem script if P2SH (it's the last item on stack after scriptSig)
-    let redeem_script: Option<ByteString> = if is_p2sh && !stack.is_empty() {
-        Some(stack.last().expect("Stack is not empty").as_slice().to_vec())
+    // The redeem script is the last scriptSig push. Data pushes borrow `script_sig`.
+    // scriptPubkey pops that stack item, so the borrow cannot point at the stack.
+    let mut numeric_redeem = script_num_encode(0);
+    let mut copied_redeem: Option<ByteString> = None;
+    if is_p2sh && !stack.is_empty() {
+        match redeem_source {
+            RedeemSource::Number(n) => numeric_redeem = script_num_encode(n),
+            RedeemSource::StackCopy | RedeemSource::Absent => {
+                copied_redeem = Some(stack.last().expect("Stack is not empty").as_slice().to_vec());
+            }
+            RedeemSource::Empty | RedeemSource::Slice(_, _) => {}
+        }
+    }
+    let redeem_script: Option<&[u8]> = if is_p2sh && !stack.is_empty() {
+        match redeem_source {
+            RedeemSource::Slice(start, end) => Some(&script_sig[start..end]),
+            RedeemSource::Empty => Some(&[]),
+            RedeemSource::Number(_) => Some(&numeric_redeem[..]),
+            RedeemSource::StackCopy | RedeemSource::Absent => copied_redeem.as_deref(),
+        }
     } else {
         None
     };
@@ -5230,15 +5370,40 @@ pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64>
     Ok(result)
 }
 
+/// Encoded CScriptNum. At most 9 bytes, kept off the heap.
+pub(crate) struct ScriptNumBytes {
+    buf: [u8; 9],
+    len: u8,
+}
+
+impl ScriptNumBytes {
+    fn new(buf: [u8; 9], len: u8) -> Self {
+        Self { buf, len }
+    }
+}
+
+impl std::ops::Deref for ScriptNumBytes {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.buf[..self.len as usize]
+    }
+}
+
 /// Encode an i64 as CScriptNum byte representation.
 /// CScriptNum::serialize() — BIP62 numeric encoding.
-#[cfg(feature = "production")]
-pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
-    // Fast paths for common values
+pub(crate) fn script_num_encode(value: i64) -> ScriptNumBytes {
     match value {
-        0 => return vec![],
-        1 => return vec![1],
-        -1 => return vec![0x81],
+        0 => return ScriptNumBytes::new([0; 9], 0),
+        1 => {
+            let mut buf = [0u8; 9];
+            buf[0] = 1;
+            return ScriptNumBytes::new(buf, 1);
+        }
+        -1 => {
+            let mut buf = [0u8; 9];
+            buf[0] = 0x81;
+            return ScriptNumBytes::new(buf, 1);
+        }
         _ => {}
     }
 
@@ -5248,44 +5413,21 @@ pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
     } else {
         value as u64
     };
-    // Pre-allocate Vec: most script numbers are 1-4 bytes
-    let mut result = Vec::with_capacity(4);
+    let mut buf = [0u8; 9];
+    let mut len = 0u8;
     while absvalue > 0 {
-        result.push((absvalue & 0xff) as u8);
+        buf[len as usize] = (absvalue & 0xff) as u8;
+        len += 1;
         absvalue >>= 8;
     }
     // If MSB is set, add extra byte for sign
-    if result.last().expect("Result is not empty (absvalue > 0)") & 0x80 != 0 {
-        result.push(if neg { 0x80 } else { 0x00 });
+    if buf[len as usize - 1] & 0x80 != 0 {
+        buf[len as usize] = if neg { 0x80 } else { 0x00 };
+        len += 1;
     } else if neg {
-        *result.last_mut().unwrap() |= 0x80;
+        buf[len as usize - 1] |= 0x80;
     }
-    result
-}
-
-#[cfg(not(feature = "production"))]
-pub(crate) fn script_num_encode(value: i64) -> Vec<u8> {
-    if value == 0 {
-        return vec![];
-    }
-    let neg = value < 0;
-    let mut absvalue = if neg {
-        (-(value as i128)) as u64
-    } else {
-        value as u64
-    };
-    let mut result = Vec::new();
-    while absvalue > 0 {
-        result.push((absvalue & 0xff) as u8);
-        absvalue >>= 8;
-    }
-    // If MSB is set, add extra byte for sign
-    if result.last().expect("Result is not empty (absvalue > 0)") & 0x80 != 0 {
-        result.push(if neg { 0x80 } else { 0x00 });
-    } else if neg {
-        *result.last_mut().unwrap() |= 0x80;
-    }
-    result
+    ScriptNumBytes::new(buf, len)
 }
 
 /// NOP1 and NOP4–NOP10 stay successful until the upgradable-NOP flag is set.
@@ -5927,19 +6069,17 @@ fn execute_opcode(
     }
 }
 
-/// Parse P2SH-P2PKH scriptSig for batch sighash precompute. Zero-allocation.
-/// script_sig = [sig, pubkey, redeem] where redeem is P2PKH (25 bytes).
-/// Returns (sighash_byte, redeem_slice) or None. Pub(crate) for block.rs.
-#[cfg(feature = "production")]
+/// Three data pushes: signature, pubkey, and a 25-byte P2PKH redeem.
+/// Borrows `script_sig`. Numeric opcodes are not this pattern.
 #[inline(always)]
-pub(crate) fn parse_p2sh_p2pkh_for_precompute(script_sig: &[u8]) -> Option<(u8, &[u8])> {
+fn parse_p2sh_p2pkh_pushes(script_sig: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
     let mut i = 0;
     let (adv1, s_start, s_end) = parse_one_data_push(script_sig, i)?;
     i += adv1;
     if i >= script_sig.len() {
         return None;
     }
-    let (adv2, _p_start, _p_end) = parse_one_data_push(script_sig, i)?;
+    let (adv2, p_start, p_end) = parse_one_data_push(script_sig, i)?;
     i += adv2;
     if i >= script_sig.len() {
         return None;
@@ -5950,6 +6090,7 @@ pub(crate) fn parse_p2sh_p2pkh_for_precompute(script_sig: &[u8]) -> Option<(u8, 
         return None;
     }
     let sig = &script_sig[s_start..s_end];
+    let pubkey = &script_sig[p_start..p_end];
     let redeem = &script_sig[r_start..r_end];
     if sig.is_empty() || redeem.len() != 25 {
         return None;
@@ -5962,6 +6103,40 @@ pub(crate) fn parse_p2sh_p2pkh_for_precompute(script_sig: &[u8]) -> Option<(u8, 
     {
         return None;
     }
+    Some((sig, pubkey, redeem))
+}
+
+/// Two data pushes: a non-empty signature and a canonical P2PK redeem.
+/// Borrows `script_sig`. Numeric opcodes are not this pattern.
+#[inline(always)]
+fn parse_p2sh_p2pk_pushes(script_sig: &[u8]) -> Option<(&[u8], &[u8], &[u8])> {
+    let mut i = 0;
+    let (adv1, s_start, s_end) = parse_one_data_push(script_sig, i)?;
+    i += adv1;
+    if i >= script_sig.len() {
+        return None;
+    }
+    let (adv2, r_start, r_end) = parse_one_data_push(script_sig, i)?;
+    i += adv2;
+    if i != script_sig.len() {
+        return None;
+    }
+    let sig = &script_sig[s_start..s_end];
+    let redeem = &script_sig[r_start..r_end];
+    if sig.is_empty() {
+        return None;
+    }
+    let pubkey = canonical_p2pk_pubkey(redeem)?;
+    Some((sig, pubkey, redeem))
+}
+
+/// Parse P2SH-P2PKH scriptSig for batch sighash precompute. Zero-allocation.
+/// script_sig = [sig, pubkey, redeem] where redeem is P2PKH (25 bytes).
+/// Returns (sighash_byte, redeem_slice) or None. Pub(crate) for block.rs.
+#[cfg(feature = "production")]
+#[inline(always)]
+pub(crate) fn parse_p2sh_p2pkh_for_precompute(script_sig: &[u8]) -> Option<(u8, &[u8])> {
+    let (sig, _pubkey, redeem) = parse_p2sh_p2pkh_pushes(script_sig)?;
     Some((sig[sig.len() - 1], redeem))
 }
 
@@ -6046,12 +6221,26 @@ fn parse_one_data_push(script: &[u8], i: usize) -> Option<(usize, usize, usize)>
 /// Returns true if script_sig contains only push opcodes (valid), false otherwise (invalid).
 #[spec_locked("5.2.1", "P2SHPushOnlyCheck")]
 pub fn p2sh_push_only_check(script_sig: &[u8]) -> bool {
-    parse_script_sig_push_only(script_sig).is_some()
+    let mut i = 0;
+    while i < script_sig.len() {
+        let opcode = script_sig[i];
+        if !is_push_opcode(opcode) {
+            return false;
+        }
+        if opcode == OP_0 || opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
+            i += 1;
+            continue;
+        }
+        let Some((advance, _, _)) = parse_one_data_push(script_sig, i) else {
+            return false;
+        };
+        i += advance;
+    }
+    true
 }
 
-/// Parse script_sig as push-only and return pushed items in order.
-/// Returns None if script contains non-push opcodes or invalid push encoding.
-/// Used by P2PKH fast-path to get [signature, pubkey] without running the interpreter.
+/// Copies each push. Spec-lock mutation coverage extracts this body; the live check does not call it.
+#[allow(dead_code)]
 fn parse_script_sig_push_only(script_sig: &[u8]) -> Option<Vec<StackElement>> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -6060,64 +6249,70 @@ fn parse_script_sig_push_only(script_sig: &[u8]) -> Option<Vec<StackElement>> {
         if !is_push_opcode(opcode) {
             return None;
         }
-        let (advance, data) = if opcode == OP_0 {
-            (1, vec![])
-        } else if opcode <= 0x4b {
-            let len = opcode as usize;
-            if i + 1 + len > script_sig.len() {
-                return None;
-            }
-            (1 + len, script_sig[i + 1..i + 1 + len].to_vec())
-        } else if opcode == OP_PUSHDATA1 {
-            if i + 1 >= script_sig.len() {
-                return None;
-            }
-            let len = script_sig[i + 1] as usize;
-            if i + 2 + len > script_sig.len() {
-                return None;
-            }
-            (2 + len, script_sig[i + 2..i + 2 + len].to_vec())
-        } else if opcode == OP_PUSHDATA2 {
-            if i + 2 >= script_sig.len() {
-                return None;
-            }
-            let len = u16::from_le_bytes([script_sig[i + 1], script_sig[i + 2]]) as usize;
-            if i + 3 + len > script_sig.len() {
-                return None;
-            }
-            (3 + len, script_sig[i + 3..i + 3 + len].to_vec())
-        } else if opcode == OP_PUSHDATA4 {
-            if i + 4 >= script_sig.len() {
-                return None;
-            }
-            let len = u32::from_le_bytes([
-                script_sig[i + 1],
-                script_sig[i + 2],
-                script_sig[i + 3],
-                script_sig[i + 4],
-            ]) as usize;
-            if i + 5 + len > script_sig.len() {
-                return None;
-            }
-            (5 + len, script_sig[i + 5..i + 5 + len].to_vec())
-        } else if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
+        if opcode == OP_0 {
+            out.push(to_stack_element(&[]));
+            i += 1;
+            continue;
+        }
+        if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
             // Numeric pushes. OP_RESERVED sits between OP_1NEGATE and OP_1 and is not one of them.
-            let n = script_num_from_opcode(opcode);
-            (1, script_num_encode(n))
-        } else {
+            out.push(to_stack_element(&script_num_encode(script_num_from_opcode(
+                opcode,
+            ))));
+            i += 1;
+            continue;
+        }
+        let Some((advance, data_start, data_end)) = parse_one_data_push(script_sig, i) else {
             return None;
         };
-        out.push(to_stack_element(&data));
+        out.push(to_stack_element(&script_sig[data_start..data_end]));
         i += advance;
     }
     Some(out)
 }
 
-/// Parse all pushes from P2SH scriptSig (including OP_0/dummy).
-/// Returns pushed data in order; last push = redeem script.
-/// Uses parse_script_sig_push_only; caller uses .as_ref() for &[u8].
-fn parse_p2sh_script_sig_pushes(script_sig: &[u8]) -> Option<Vec<StackElement>> {
-    parse_script_sig_push_only(script_sig)
+/// One scriptSig push. Data and `OP_0` borrow the script. A numeric opcode keeps its
+/// one-byte encoding beside the slice, because that encoding is not in the script.
+enum BorrowedPush<'a> {
+    Borrowed(&'a [u8]),
+    Number(ScriptNumBytes),
+}
+
+impl AsRef<[u8]> for BorrowedPush<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            BorrowedPush::Borrowed(bytes) => bytes,
+            BorrowedPush::Number(encoded) => &encoded[..],
+        }
+    }
+}
+
+/// Push-only script as borrowed values. `OP_0` is an empty slice. `OP_RESERVED` is not a push.
+fn parse_borrowed_pushes(script_sig: &[u8]) -> Option<Vec<BorrowedPush<'_>>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < script_sig.len() {
+        let opcode = script_sig[i];
+        if !is_push_opcode(opcode) {
+            return None;
+        }
+        if opcode == OP_0 {
+            out.push(BorrowedPush::Borrowed(&[]));
+            i += 1;
+            continue;
+        }
+        if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
+            out.push(BorrowedPush::Number(script_num_encode(
+                script_num_from_opcode(opcode),
+            )));
+            i += 1;
+            continue;
+        }
+        let (advance, data_start, data_end) = parse_one_data_push(script_sig, i)?;
+        out.push(BorrowedPush::Borrowed(&script_sig[data_start..data_end]));
+        i += advance;
+    }
+    Some(out)
 }
 
 /// Stack items are bottom-to-top, before the script pushes `m`, the keys, and `n`.
@@ -6125,7 +6320,11 @@ fn parse_p2sh_script_sig_pushes(script_sig: &[u8]) -> Option<Vec<StackElement>> 
 /// `OP_CHECKMULTISIG` pops exactly `m` signatures from the top and the item
 /// under them as the dummy. `exact` is the witness rule: the stack must be
 /// that dummy plus those signatures and nothing underneath.
-fn checkmultisig_window(items: &[StackElement], m: u8, exact: bool) -> Option<(&[u8], Vec<&[u8]>)> {
+fn checkmultisig_window<T: AsRef<[u8]>>(
+    items: &[T],
+    m: u8,
+    exact: bool,
+) -> Option<(&[u8], Vec<&[u8]>)> {
     let m = m as usize;
     let need = m + 1;
     if m == 0 || items.len() < need {
@@ -6499,6 +6698,19 @@ pub(crate) fn serialize_push_data(data: &[u8]) -> Vec<u8> {
     result
 }
 
+/// Push encoding for a FindAndDelete probe. Direct pushes stay on the stack.
+fn with_push_pattern<R>(data: &[u8], f: impl FnOnce(&[u8]) -> R) -> R {
+    let len = data.len();
+    if len < 76 {
+        let mut buf = [0u8; 76];
+        buf[0] = len as u8;
+        buf[1..1 + len].copy_from_slice(data);
+        f(&buf[..1 + len])
+    } else {
+        f(serialize_push_data(data).as_slice())
+    }
+}
+
 /// Advance `pc` past one opcode (Bitcoin `CScript::GetOp`-compatible sizing).
 #[inline]
 fn script_get_op_advance(script: &[u8], pc: usize) -> Option<usize> {
@@ -6526,6 +6738,34 @@ fn script_get_op_advance(script: &[u8], pc: usize) -> Option<usize> {
     } else {
         Some(next)
     }
+}
+
+/// Legacy CHECKMULTISIG scriptCode. Stays borrowed until a signature push is removed.
+fn multisig_script_code<'a, S: AsRef<[u8]>>(
+    script: &'a [u8],
+    signatures: &[S],
+) -> std::borrow::Cow<'a, [u8]> {
+    let mut cleaned = std::borrow::Cow::Borrowed(script);
+    for sig in signatures {
+        let sig = sig.as_ref();
+        if sig.is_empty() {
+            continue;
+        }
+        // Push encoding is ≥ sig.len()+1; FindAndDelete is a no-op when pattern can't fit.
+        if sig.len().saturating_add(1) > cleaned.len() {
+            continue;
+        }
+        let next = with_push_pattern(sig, |pattern| {
+            match find_and_delete(cleaned.as_ref(), pattern) {
+                std::borrow::Cow::Owned(next) => Some(next),
+                std::borrow::Cow::Borrowed(_) => None,
+            }
+        });
+        if let Some(next) = next {
+            cleaned = std::borrow::Cow::Owned(next);
+        }
+    }
+    cleaned
 }
 
 /// FindAndDelete — consensus match to the reference FindAndDelete algorithm.
@@ -6794,7 +7034,7 @@ fn execute_opcode_with_context_full(
                     // FindAndDelete: remove the *current* signature's push encoding from scriptCode.
                     // Must not use only the first scriptSig push — P2SH inputs may contain multiple
                     // signatures before the redeem script, each checked with its own sighash.
-                    let pattern = serialize_push_data(signature_bytes.as_ref());
+                    let sig = signature_bytes.as_ref();
 
                     let base_script = match (
                         redeem_script_for_sighash,
@@ -6805,7 +7045,11 @@ fn execute_opcode_with_context_full(
                         (None, Some(prevout)) => *prevout,
                         (None, None) => &[],
                     };
-                    let cleaned = find_and_delete(base_script, &pattern);
+                    let cleaned = if sig.len().saturating_add(1) > base_script.len() {
+                        std::borrow::Cow::Borrowed(base_script)
+                    } else {
+                        with_push_pattern(sig, |pattern| find_and_delete(base_script, pattern))
+                    };
 
                     calculate_transaction_sighash_single_input(
                         tx,
@@ -6917,7 +7161,7 @@ fn execute_opcode_with_context_full(
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
                     // FindAndDelete: remove the signature under verification (not first scriptSig push).
-                    let pattern = serialize_push_data(signature_bytes.as_ref());
+                    let sig = signature_bytes.as_ref();
 
                     let base_script = match (
                         redeem_script_for_sighash,
@@ -6928,7 +7172,11 @@ fn execute_opcode_with_context_full(
                         (None, Some(prevout)) => *prevout,
                         (None, None) => &[],
                     };
-                    let cleaned = find_and_delete(base_script, &pattern);
+                    let cleaned = if sig.len().saturating_add(1) > base_script.len() {
+                        std::borrow::Cow::Borrowed(base_script)
+                    } else {
+                        with_push_pattern(sig, |pattern| find_and_delete(base_script, pattern))
+                    };
 
                     calculate_transaction_sighash_single_input(
                         tx,
@@ -7112,7 +7360,9 @@ fn execute_opcode_with_context_full(
 
             // FindAndDelete: Remove ALL signatures from scriptCode BEFORE any sighash computation
             // Consensus rule for OP_CHECKMULTISIG (legacy only, not SegWit)
-            let cleaned_script_for_multisig: Vec<u8> = if sigversion == SigVersion::Base {
+            let cleaned_script_for_multisig: std::borrow::Cow<[u8]> = if sigversion
+                == SigVersion::Base
+            {
                 let base_script = match (
                     redeem_script_for_sighash,
                     prevout_script_pubkeys.get(input_index),
@@ -7122,28 +7372,15 @@ fn execute_opcode_with_context_full(
                     (None, Some(prevout)) => *prevout,
                     (None, None) => &[],
                 };
-                let mut cleaned = base_script.to_vec();
-                for sig in &signatures {
-                    if sig.is_empty() {
-                        continue;
-                    }
-                    if sig.len().saturating_add(1) > cleaned.len() {
-                        continue;
-                    }
-                    let pattern = serialize_push_data(sig.as_ref());
-                    cleaned = find_and_delete(&cleaned, &pattern).into_owned();
-                }
-                cleaned
+                multisig_script_code(base_script, &signatures)
             } else {
                 // For SegWit, no FindAndDelete needed
-                redeem_script_for_sighash
-                    .map(|s| s.to_vec())
-                    .unwrap_or_else(|| {
-                        prevout_script_pubkeys
-                            .get(input_index)
-                            .map(|p| p.to_vec())
-                            .unwrap_or_default()
-                    })
+                std::borrow::Cow::Borrowed(redeem_script_for_sighash.unwrap_or_else(|| {
+                    prevout_script_pubkeys
+                        .get(input_index)
+                        .copied()
+                        .unwrap_or(&[])
+                }))
             };
 
             use crate::transaction_hash::{

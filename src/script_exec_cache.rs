@@ -16,19 +16,26 @@ const CACHE_CAPACITY: usize = 65536;
 
 static CACHE: OnceLock<std::sync::Mutex<lru::LruCache<[u8; 32], ()>>> = OnceLock::new();
 
-fn get_cache() -> Option<&'static std::sync::Mutex<lru::LruCache<[u8; 32], ()>>> {
-    if std::env::var("BLVM_SCRIPT_EXEC_CACHE")
+fn cache_requested() -> bool {
+    std::env::var("BLVM_SCRIPT_EXEC_CACHE")
         .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
-    {
-        Some(CACHE.get_or_init(|| {
-            std::sync::Mutex::new(lru::LruCache::new(
-                std::num::NonZeroUsize::new(CACHE_CAPACITY).unwrap(),
-            ))
-        }))
-    } else {
-        None
+}
+
+/// `BLVM_SCRIPT_EXEC_CACHE=1` or `true`. Read on every call so tests can set and clear it.
+pub(crate) fn enabled() -> bool {
+    cache_requested()
+}
+
+fn get_cache() -> Option<&'static std::sync::Mutex<lru::LruCache<[u8; 32], ()>>> {
+    if !cache_requested() {
+        return None;
     }
+    Some(CACHE.get_or_init(|| {
+        std::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(CACHE_CAPACITY).unwrap(),
+        ))
+    }))
 }
 
 /// Compute cache key: SHA256(witness_hash || flags_le) where witness_hash = SHA256d(serialize_tx_with_witness).

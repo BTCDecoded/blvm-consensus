@@ -360,22 +360,12 @@ pub(crate) fn last_witness_commitment_in_coinbase_outputs(
     last_commitment
 }
 
-/// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs
+/// Check if transaction is SegWit (v0) or Taproot (v1) based on outputs.
 #[spec_locked("11.1.6", "IsSegWitTransaction")]
 pub fn is_segwit_transaction(tx: &Transaction) -> bool {
-    use crate::witness::{
-        extract_witness_program, extract_witness_version, validate_witness_program_length,
-    };
-
-    tx.outputs.iter().any(|output| {
-        let script = &output.script_pubkey;
-        if let Some(version) = extract_witness_version(script) {
-            if let Some(program) = extract_witness_program(script, version) {
-                return validate_witness_program_length(&program, version);
-            }
-        }
-        false
-    })
+    tx.outputs
+        .iter()
+        .any(|output| crate::witness::is_standard_witness_program(&output.script_pubkey))
 }
 
 /// Calculate block weight for SegWit blocks

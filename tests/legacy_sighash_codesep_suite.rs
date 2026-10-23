@@ -164,3 +164,30 @@ fn test_two_input_legacy_sighash_keeps_codesep_byte_inside_pushdata() {
         "0xab inside push-data must stay in a two-input sighash"
     );
 }
+
+#[test]
+fn test_long_script_code_strips_codeseparator() {
+    let tx = sample_tx();
+    // 253 bytes with one separator shrinks to 252. The prefix drops from 3 bytes to 1.
+    let mut shrink = vec![OP_CODESEPARATOR];
+    shrink.extend(std::iter::repeat(OP_DUP).take(252));
+    let shrunk = vec![OP_DUP; 252];
+    assert_eq!(sighash_all(&tx, 0, &shrink), sighash_all(&tx, 0, &shrunk));
+
+    // 254 bytes with one separator stays at 253, so the prefix stays 3 bytes.
+    let mut wide = vec![OP_CODESEPARATOR];
+    wide.extend(std::iter::repeat(OP_DUP).take(253));
+    let widened = vec![OP_DUP; 253];
+    assert_eq!(sighash_all(&tx, 0, &wide), sighash_all(&tx, 0, &widened));
+
+    // 0xab inside a push of a script that is at least 253 bytes is payload.
+    let mut push_ab = vec![0x4c, 253];
+    push_ab.extend(std::iter::repeat(0xab).take(253));
+    assert_eq!(
+        serialize_script_code_for_legacy_sighash(&push_ab),
+        push_ab
+    );
+    let mut push_ac = push_ab.clone();
+    push_ac[2] = 0xac;
+    assert_ne!(sighash_all(&tx, 0, &push_ab), sighash_all(&tx, 0, &push_ac));
+}

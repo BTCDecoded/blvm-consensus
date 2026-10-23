@@ -3,7 +3,7 @@
 use crate::constants::*;
 use crate::economic::calculate_fee;
 use crate::error::{ConsensusError, Result};
-use crate::script::verify_script_with_context;
+use crate::script::{SigVersion, verify_script_with_context_full};
 use crate::segwit::Witness;
 use crate::transaction::{check_transaction, check_tx_inputs};
 use crate::types::*;
@@ -799,18 +799,15 @@ fn verify_mempool_scripts(
     flags: u32,
     network: Network,
 ) -> Result<Option<String>> {
-    let mut prevouts = Vec::with_capacity(tx.inputs.len());
+    let mut prevout_values = Vec::with_capacity(tx.inputs.len());
+    let mut prevout_scripts: Vec<&[u8]> = Vec::with_capacity(tx.inputs.len());
     for input in &tx.inputs {
         if let Some(utxo) = utxo_set.get(&input.prevout) {
-            prevouts.push(TransactionOutput {
-                value: utxo.value,
-                script_pubkey: utxo.script_pubkey.as_ref().to_vec(),
-            });
+            prevout_values.push(utxo.value);
+            prevout_scripts.push(utxo.script_pubkey.as_ref());
         } else {
-            prevouts.push(TransactionOutput {
-                value: 0,
-                script_pubkey: ByteString::new(),
-            });
+            prevout_values.push(0);
+            prevout_scripts.push(&[]);
         }
     }
 
@@ -819,16 +816,30 @@ fn verify_mempool_scripts(
             continue;
         };
         let witness = witnesses.and_then(|wits| wits.get(i));
-        let is_valid = verify_script_with_context(
+        let is_valid = verify_script_with_context_full(
             &input.script_sig,
             utxo.script_pubkey.as_ref(),
             witness,
             flags,
             tx,
             i,
-            &prevouts,
+            &prevout_values,
+            &prevout_scripts,
             Some(height),
+            None,
             network,
+            SigVersion::Base,
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+            None,
         )?;
         if !is_valid {
             return Ok(Some(format!("Invalid script at input {i}")));

@@ -28,9 +28,37 @@ pub(crate) fn clear_hash_cache() {
     HASH_CACHE.with(|cell| cell.borrow_mut().clear());
 }
 
+/// HASH160 is 20 bytes, HASH256 is 32. Stored inline so a miss does not allocate.
+#[cfg(feature = "production")]
+struct CachedHash {
+    bytes: [u8; 32],
+    len: u8,
+}
+
+#[cfg(feature = "production")]
+impl CachedHash {
+    fn from_20(src: impl AsRef<[u8]>) -> Self {
+        let src = src.as_ref();
+        let mut bytes = [0u8; 32];
+        bytes[..20].copy_from_slice(&src[..20]);
+        Self { bytes, len: 20 }
+    }
+
+    fn from_32(src: &[u8; 32]) -> Self {
+        Self {
+            bytes: *src,
+            len: 32,
+        }
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[..self.len as usize]
+    }
+}
+
 #[cfg(feature = "production")]
 thread_local! {
-    static HASH_CACHE: std::cell::RefCell<lru::LruCache<[u8; 32], Vec<u8>>> = std::cell::RefCell::new({
+    static HASH_CACHE: std::cell::RefCell<lru::LruCache<[u8; 32], CachedHash>> = std::cell::RefCell::new({
         use lru::LruCache;
         use std::num::NonZeroUsize;
         LruCache::new(NonZeroUsize::new(25_000).unwrap())
@@ -40,35 +68,26 @@ thread_local! {
 #[cfg(feature = "production")]
 fn with_hash_cache<F, R>(f: F) -> R
 where
-    F: FnOnce(&mut lru::LruCache<[u8; 32], Vec<u8>>) -> R,
+    F: FnOnce(&mut lru::LruCache<[u8; 32], CachedHash>) -> R,
 {
     HASH_CACHE.with(|cell| f(&mut cell.borrow_mut()))
 }
 
+/// Distinguish HASH160 from HASH256 without hashing the script item again.
+/// `first_sha` is SHA256(item), which both opcodes already need.
 #[cfg(feature = "production")]
-fn compute_hash_cache_key(input: &[u8], op_hash160: bool) -> [u8; 32] {
-    let mut data = input.to_vec();
-    data.push(if op_hash160 { OP_HASH160 } else { OP_HASH256 });
-    let hash = OptimizedSha256::new().hash(&data);
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&hash);
-    key
+fn cache_key_from_first_sha(first_sha: &[u8; 32], op_hash160: bool) -> [u8; 32] {
+    let mut buf = [0u8; 33];
+    buf[..32].copy_from_slice(first_sha);
+    buf[32] = if op_hash160 { OP_HASH160 } else { OP_HASH256 };
+    OptimizedSha256::new().hash(&buf)
 }
 
 /// OP_RIPEMD160 - RIPEMD160(x)
 pub(crate) fn op_ripemd160(stack: &mut Vec<StackElement>) -> Result<bool> {
     if let Some(item) = stack.pop() {
         let hash = Ripemd160::digest(&item);
-        #[cfg(feature = "production")]
-        {
-            let mut hash_vec = Vec::with_capacity(20);
-            hash_vec.extend_from_slice(&hash);
-            stack.push(to_stack_element(&hash_vec));
-        }
-        #[cfg(not(feature = "production"))]
-        {
-            stack.push(to_stack_element(&hash));
-        }
+        stack.push(to_stack_element(&hash));
         Ok(true)
     } else {
         Ok(false)
@@ -79,16 +98,7 @@ pub(crate) fn op_ripemd160(stack: &mut Vec<StackElement>) -> Result<bool> {
 pub(crate) fn op_sha1(stack: &mut Vec<StackElement>) -> Result<bool> {
     if let Some(item) = stack.pop() {
         let hash = Sha1::digest(&item);
-        #[cfg(feature = "production")]
-        {
-            let mut hash_vec = Vec::with_capacity(20);
-            hash_vec.extend_from_slice(&hash);
-            stack.push(to_stack_element(&hash_vec));
-        }
-        #[cfg(not(feature = "production"))]
-        {
-            stack.push(to_stack_element(&hash));
-        }
+        stack.push(to_stack_element(&hash));
         Ok(true)
     } else {
         Ok(false)
@@ -99,16 +109,7 @@ pub(crate) fn op_sha1(stack: &mut Vec<StackElement>) -> Result<bool> {
 pub(crate) fn op_sha256(stack: &mut Vec<StackElement>) -> Result<bool> {
     if let Some(item) = stack.pop() {
         let hash = OptimizedSha256::new().hash(&item);
-        #[cfg(feature = "production")]
-        {
-            let mut hash_vec = Vec::with_capacity(32);
-            hash_vec.extend_from_slice(&hash);
-            stack.push(to_stack_element(&hash_vec));
-        }
-        #[cfg(not(feature = "production"))]
-        {
-            stack.push(to_stack_element(&hash));
-        }
+        stack.push(to_stack_element(&hash));
         Ok(true)
     } else {
         Ok(false)
@@ -127,19 +128,20 @@ pub(crate) fn op_hash160(stack: &mut Vec<StackElement>) -> Result<bool> {
                 let ripemd160_hash = Ripemd160::digest(sha256_hash);
                 stack.push(to_stack_element(&ripemd160_hash));
             } else if !is_hash_caching_disabled() {
-                let cache_key = compute_hash_cache_key(&item, true);
-                if let Some(cached_result) = with_hash_cache(|c| c.peek(&cache_key).cloned()) {
-                    if cached_result.len() == 20 {
-                        stack.push(to_stack_element(&cached_result));
-                        return Ok(true);
-                    }
-                }
                 let sha256_hash = OptimizedSha256::new().hash(&item);
+                let cache_key = cache_key_from_first_sha(&sha256_hash, true);
+                let hit = with_hash_cache(|c| {
+                    c.peek(&cache_key)
+                        .filter(|cached| cached.len == 20)
+                        .map(|cached| to_stack_element(cached.as_slice()))
+                });
+                if let Some(elem) = hit {
+                    stack.push(elem);
+                    return Ok(true);
+                }
                 let ripemd160_hash = Ripemd160::digest(sha256_hash);
-                let mut hash_vec = Vec::with_capacity(20);
-                hash_vec.extend_from_slice(&ripemd160_hash);
-                with_hash_cache(|c| c.put(cache_key, hash_vec.clone()));
-                stack.push(to_stack_element(&hash_vec));
+                stack.push(to_stack_element(&ripemd160_hash));
+                with_hash_cache(|c| c.put(cache_key, CachedHash::from_20(&ripemd160_hash)));
             } else {
                 let sha256_hash = OptimizedSha256::new().hash(&item);
                 let ripemd160_hash = Ripemd160::digest(sha256_hash);
@@ -163,22 +165,27 @@ pub(crate) fn op_hash256(stack: &mut Vec<StackElement>) -> Result<bool> {
     if let Some(item) = stack.pop() {
         #[cfg(feature = "production")]
         {
-            if !is_hash_caching_disabled() {
-                let cache_key = compute_hash_cache_key(&item, false);
-                if let Some(cached_result) = with_hash_cache(|c| c.peek(&cache_key).cloned()) {
-                    if cached_result.len() == 32 {
-                        stack.push(to_stack_element(&cached_result));
-                        return Ok(true);
-                    }
+            let first = OptimizedSha256::new().hash(&item);
+            let cache_key = if !is_hash_caching_disabled() {
+                let cache_key = cache_key_from_first_sha(&first, false);
+                let hit = with_hash_cache(|c| {
+                    c.peek(&cache_key)
+                        .filter(|cached| cached.len == 32)
+                        .map(|cached| to_stack_element(cached.as_slice()))
+                });
+                if let Some(elem) = hit {
+                    stack.push(elem);
+                    return Ok(true);
                 }
-            }
-            let hasher = OptimizedSha256::new();
-            let result = hasher.hash256(&item).to_vec();
-            if !is_hash_caching_disabled() {
-                let cache_key = compute_hash_cache_key(&item, false);
-                with_hash_cache(|c| c.put(cache_key, result.clone()));
-            }
+                Some(cache_key)
+            } else {
+                None
+            };
+            let result = OptimizedSha256::new().hash(&first);
             stack.push(to_stack_element(&result));
+            if let Some(cache_key) = cache_key {
+                with_hash_cache(|c| c.put(cache_key, CachedHash::from_32(&result)));
+            }
         }
         #[cfg(not(feature = "production"))]
         {
