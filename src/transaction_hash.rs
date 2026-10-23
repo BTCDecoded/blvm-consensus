@@ -1288,7 +1288,7 @@ fn legacy_all_from_prefix_midstate(
     let input = &tx.inputs[input_index];
     tmp.extend_from_slice(&input.prevout.hash);
     tmp.extend_from_slice(&input.prevout.index.to_le_bytes());
-    let code = script_code.unwrap_or(prevout_script_pubkeys[input_index]);
+    let code = script_code.unwrap_or_else(|| prevout_script_pubkeys[input_index]);
     write_script_code_for_sighash(&mut tmp, code);
     tmp.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     for later in &tx.inputs[input_index + 1..] {
