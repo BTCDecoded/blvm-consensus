@@ -256,7 +256,6 @@ fn script_code_id(code: &[u8]) -> [u8; 32] {
 /// SHA256 of the transaction fields the legacy preimage still depends on after the
 /// signing script code and the sighash byte are fixed. Counts are written so an
 /// extra input cannot line up with an output and share an id.
-#[cfg(feature = "production")]
 #[inline]
 fn legacy_sighash_tx_id(tx: &Transaction) -> [u8; 32] {
     use sha2::{Digest, Sha256};
@@ -494,7 +493,6 @@ pub fn compute_legacy_sighash_nocache(
 }
 
 /// Helper: write varint directly to a sha2::Sha256 hasher (no intermediate buffer).
-#[cfg(feature = "production")]
 #[inline]
 fn update_varint(hasher: &mut sha2::Sha256, value: u64) {
     use sha2::Digest;
@@ -1240,6 +1238,81 @@ fn build_preimage_2in2out_sighash_all(
 }
 
 #[inline]
+/// Blank-script SHA256 state before each input. SIGHASH_ALL reuses these prefixes.
+fn blank_input_prefixes(tx: &crate::types::Transaction) -> Vec<sha2::Sha256> {
+    use sha2::{Digest, Sha256};
+    let n = tx.inputs.len();
+    let mut running = Sha256::new();
+    let mut tmp = Vec::new();
+    tmp.extend_from_slice(&(tx.version as u32).to_le_bytes());
+    write_varint_to_vec(&mut tmp, n as u64);
+    running.update(&tmp);
+    let mut boundaries = Vec::with_capacity(n);
+    for input in &tx.inputs {
+        boundaries.push(running.clone());
+        tmp.clear();
+        tmp.extend_from_slice(&input.prevout.hash);
+        tmp.extend_from_slice(&input.prevout.index.to_le_bytes());
+        tmp.push(0);
+        tmp.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+        running.update(&tmp);
+    }
+    boundaries
+}
+
+fn legacy_all_from_prefix_midstate(
+    tx: &crate::types::Transaction,
+    input_index: usize,
+    prevout_script_pubkeys: &[&[u8]],
+    script_code: Option<&[u8]>,
+    sighash_byte: u32,
+) -> Hash {
+    use sha2::{Digest, Sha256};
+    use std::cell::RefCell;
+    thread_local! {
+        static PREFIX: RefCell<Option<([u8; 32], Vec<Sha256>)>> = const { RefCell::new(None) };
+    }
+    let tx_id = legacy_sighash_tx_id(tx);
+    let mut hasher = PREFIX.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let stale = match slot.as_ref() {
+            Some((id, bounds)) => *id != tx_id || bounds.len() != tx.inputs.len(),
+            None => true,
+        };
+        if stale {
+            *slot = Some((tx_id, blank_input_prefixes(tx)));
+        }
+        slot.as_ref().unwrap().1[input_index].clone()
+    });
+    let mut tmp = Vec::new();
+    let input = &tx.inputs[input_index];
+    tmp.extend_from_slice(&input.prevout.hash);
+    tmp.extend_from_slice(&input.prevout.index.to_le_bytes());
+    let code = script_code.unwrap_or(prevout_script_pubkeys[input_index]);
+    write_script_code_for_sighash(&mut tmp, code);
+    tmp.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    for later in &tx.inputs[input_index + 1..] {
+        tmp.extend_from_slice(&later.prevout.hash);
+        tmp.extend_from_slice(&later.prevout.index.to_le_bytes());
+        tmp.push(0);
+        tmp.extend_from_slice(&(later.sequence as u32).to_le_bytes());
+    }
+    write_varint_to_vec(&mut tmp, tx.outputs.len() as u64);
+    for output in &tx.outputs {
+        tmp.extend_from_slice(&output.value.to_le_bytes());
+        write_varint_to_vec(&mut tmp, output.script_pubkey.len() as u64);
+        tmp.extend_from_slice(&output.script_pubkey);
+    }
+    tmp.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+    tmp.extend_from_slice(&sighash_byte.to_le_bytes());
+    hasher.update(&tmp);
+    let first = hasher.finalize();
+    let second = Sha256::digest(first);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&second);
+    out
+}
+
 fn build_preimage_and_hash(
     tx: &crate::types::Transaction,
     input_index: usize,
@@ -1319,10 +1392,8 @@ fn build_preimage_and_hash(
     preimage.extend_from_slice(&sighash_byte.to_le_bytes());
 
     // Double SHA256; in production use cache (first_hash as key) to save one SHA256 on hit
-    #[cfg(feature = "production")]
-    let result = sighash_with_cache(preimage);
     #[cfg(not(feature = "production"))]
-    let result = {
+    let mut result = {
         let hasher = OptimizedSha256::new();
         let first_hash = hasher.hash(&preimage);
         let second_hash = hasher.hash(&first_hash);
@@ -1330,7 +1401,49 @@ fn build_preimage_and_hash(
         r.copy_from_slice(&second_hash);
         r
     };
+    #[cfg(feature = "production")]
+    let mut result = sighash_with_cache(preimage);
+    if !anyone_can_pay && !hash_none && !hash_single && !tx.inputs.is_empty() {
+        let prefixed = legacy_all_from_prefix_midstate(
+            tx,
+            input_index,
+            prevout_script_pubkeys,
+            script_code,
+            sighash_byte,
+        );
+        #[cfg(test)]
+        assert_eq!(prefixed, result, "prefix midstate diverged from the preimage hash");
+        result = prefixed;
+    }
     (Ok(result), ())
+}
+
+/// Legacy sighash for a Core `sighash.json` row. `hash_type` is the full 32-bit field.
+pub fn legacy_sighash_for_vector(
+    tx: &Transaction,
+    input_index: usize,
+    script_code: &[u8],
+    hash_type: i32,
+) -> Result<Hash> {
+    let hash_type = hash_type as u32;
+    let base = hash_type & 0x1f;
+    let values = vec![0i64; tx.inputs.len()];
+    let empty: &[u8] = &[];
+    let scripts = vec![empty; tx.inputs.len()];
+    let mut preimage = Vec::new();
+    let (result, _) = build_preimage_and_hash(
+        tx,
+        input_index,
+        &values,
+        &scripts,
+        Some(script_code),
+        hash_type,
+        (hash_type & 0x80) != 0,
+        base == 0x02,
+        base == 0x03,
+        &mut preimage,
+    );
+    result
 }
 
 /// Batch compute sighashes for all inputs of a transaction

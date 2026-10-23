@@ -29,7 +29,6 @@ pub struct ScriptContext<'a> {
     pub tapscript_validation_weight: Option<&'a std::cell::Cell<i64>>,
     #[cfg(feature = "production")]
     pub schnorr_collector: Option<&'a crate::bip348::SchnorrSignatureCollector>,
-    #[cfg(feature = "production")]
     pub precomputed_bip143: Option<&'a crate::transaction_hash::Bip143PrecomputedHashes>,
     #[cfg(feature = "production")]
     pub sighash_cache: Option<&'a crate::transaction_hash::SighashMidstateCache>,

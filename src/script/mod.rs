@@ -28,8 +28,9 @@ mod signature;
 mod stack;
 pub mod templates;
 
+#[cfg(feature = "production")]
 pub use signature::{batch_verify_signatures, verify_pre_extracted_ecdsa};
-pub use stack::{StackElement, cast_to_bool, to_stack_element};
+pub use stack::{cast_to_bool, to_stack_element, StackElement};
 
 use crate::constants::*;
 use crate::crypto::OptimizedSha256;
@@ -79,7 +80,11 @@ fn charge_checkmultisig_pubkeys(stack: &[StackElement], op_count: usize) -> Resu
 
 #[inline]
 fn script_bool_bytes(value: bool) -> &'static [u8] {
-    if value { &[1] } else { &[] }
+    if value {
+        &[1]
+    } else {
+        &[]
+    }
 }
 
 #[cold]
@@ -101,8 +106,8 @@ fn bip143_p2wpkh_script_code(pubkey_hash: &[u8]) -> [u8; 25] {
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
 use std::sync::{
-    OnceLock, RwLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
+    OnceLock, RwLock,
 };
 #[cfg(feature = "production")]
 use std::thread_local;
@@ -244,6 +249,7 @@ static FAST_PATH_P2SH: AtomicU64 = AtomicU64::new(0);
 static FAST_PATH_P2WPKH: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_P2WSH: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "production")]
 static FAST_PATH_P2TR: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "production")]
 static FAST_PATH_UNEXEC_IF: AtomicU64 = AtomicU64::new(0);
@@ -1152,7 +1158,7 @@ pub fn try_verify_p2pk_fast_path(
     }
 
     // Fast-path: P2PK script_pubkey is 35 or 67 bytes; signature push ≥71. Skip serialize+find_and_delete.
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
     let deleted_storage;
@@ -1732,7 +1738,7 @@ fn try_verify_p2sh_multisig_fast_path(
         cleaned = find_and_delete(&cleaned, &pattern).into_owned();
     }
 
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
     // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
@@ -1969,7 +1975,7 @@ fn try_verify_bare_multisig_fast_path(
         cleaned = find_and_delete(&cleaned, &pattern).into_owned();
     }
 
-    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
 
     let mut sig_index = 0;
     let mut valid_sigs = 0u8;
@@ -2128,7 +2134,7 @@ fn try_verify_p2sh_fast_path(
                     precomp
                 } else {
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                     let sighash_type = SighashType::from_byte(sighash_byte);
@@ -2155,7 +2161,7 @@ fn try_verify_p2sh_fast_path(
                 #[cfg(not(feature = "production"))]
                 let sighash = {
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                     let sighash_type = SighashType::from_byte(sighash_byte);
@@ -2253,7 +2259,7 @@ fn try_verify_p2sh_fast_path(
             let signature_bytes = &stack[0];
             if !signature_bytes.is_empty() {
                 use crate::transaction_hash::{
-                    SighashType, calculate_transaction_sighash_single_input,
+                    calculate_transaction_sighash_single_input, SighashType,
                 };
                 let sighash_byte = signature_bytes[signature_bytes.len() - 1];
                 let sighash_type = SighashType::from_byte(sighash_byte);
@@ -3306,6 +3312,27 @@ fn try_verify_p2tr_scriptpath_p2pk_fast_path(
     Some(result)
 }
 
+/// 64-byte Schnorr signatures use sighash `0x00`. A 65th byte of `0x00` is invalid.
+fn parse_taproot_keypath_sig(sig_bytes: &[u8]) -> Option<([u8; 64], u8)> {
+    match sig_bytes.len() {
+        64 => {
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(sig_bytes);
+            Some((sig, 0x00))
+        }
+        65 => {
+            let hashtype = sig_bytes[64];
+            if hashtype == 0x00 {
+                return None;
+            }
+            let mut sig = [0u8; 64];
+            sig.copy_from_slice(&sig_bytes[..64]);
+            Some((sig, hashtype))
+        }
+        _ => None,
+    }
+}
+
 /// Taproot (P2TR) key-path fast-path. ScriptPubKey OP_1 <32-byte output key>, witness [64-byte sig].
 /// Skips interpreter; verifies Schnorr directly. Returns None for script-path or pre-activation.
 #[cfg(feature = "production")]
@@ -3770,7 +3797,11 @@ pub fn verify_script_with_context_full(
                 return Ok(false);
             }
         }
-        if !fast_paths_disabled() {
+        #[cfg(feature = "production")]
+        let run_fast_paths = !fast_paths_disabled();
+        #[cfg(not(feature = "production"))]
+        let run_fast_paths = true;
+        if run_fast_paths {
             if let Some(result) = try_verify_p2sh_multisig_fast_path(
                 script_sig,
                 script_pubkey,
@@ -3796,7 +3827,9 @@ pub fn verify_script_with_context_full(
     #[cfg(feature = "production")]
     let stack = &mut _stack_guard.0;
     #[cfg(not(feature = "production"))]
-    let mut stack = Vec::with_capacity(20);
+    let mut stack_buf: Vec<StackElement> = Vec::with_capacity(20);
+    #[cfg(not(feature = "production"))]
+    let stack = &mut stack_buf;
 
     // Execute scriptSig (always Base sigversion)
     // FIX: scriptSig can contain CHECKSIG/CHECKMULTISIG (non-standard); collecting produces invalid
@@ -3829,7 +3862,7 @@ pub fn verify_script_with_context_full(
 
     // Save redeem script if P2SH (it's the last item on stack after scriptSig)
     let redeem_script: Option<ByteString> = if is_p2sh && !stack.is_empty() {
-        Some(stack.last().expect("Stack is not empty").as_ref().to_vec())
+        Some(stack.last().expect("Stack is not empty").as_slice().to_vec())
     } else {
         None
     };
@@ -4046,7 +4079,26 @@ pub fn verify_script_with_context_full(
             }
             #[cfg(not(feature = "production"))]
             {
-                return Ok(false);
+                if witness_body.len() != 1 {
+                    return Ok(false);
+                }
+                let Some((sig_bytes, sighash_type)) =
+                    parse_taproot_keypath_sig(witness_body[0].as_ref())
+                else {
+                    return Ok(false);
+                };
+                let output_key = &script_pubkey[2..34];
+                let sighash = crate::taproot::compute_taproot_signature_hash(
+                    tx,
+                    input_index,
+                    prevout_values,
+                    prevout_script_pubkeys,
+                    sighash_type,
+                    annex_hash.as_ref(),
+                )?;
+                let mut pubkey = [0u8; 32];
+                pubkey.copy_from_slice(output_key);
+                return crate::secp256k1_backend::verify_schnorr(&sig_bytes, &sighash, &pubkey);
             }
         }
         if witness_body.len() < 2 {
@@ -4782,7 +4834,6 @@ fn eval_script_with_context_full_inner(
                     tapscript_validation_weight: weight_cell.as_ref(),
                     #[cfg(feature = "production")]
                     schnorr_collector,
-                    #[cfg(feature = "production")]
                     precomputed_bip143,
                     #[cfg(feature = "production")]
                     sighash_cache,
@@ -5031,7 +5082,6 @@ fn eval_script_with_context_full_inner(
                     tapscript_validation_weight: weight_cell.as_ref(),
                     #[cfg(feature = "production")]
                     schnorr_collector,
-                    #[cfg(feature = "production")]
                     precomputed_bip143,
                     #[cfg(feature = "production")]
                     sighash_cache,
@@ -5250,8 +5300,7 @@ fn upgradable_nop(flags: u32) -> Result<bool> {
 }
 
 /// Execute a single opcode (currently ignores sigversion; accepts it for future compatibility)
-#[cfg(feature = "production")]
-#[inline(always)]
+#[cfg_attr(feature = "production", inline(always))]
 fn execute_opcode(
     opcode: u8,
     stack: &mut Vec<StackElement>,
@@ -5609,9 +5658,9 @@ fn execute_opcode(
             if stack.len() >= 6 {
                 // Remove from bottom-most of the pair first (index 0 = 6th from top).
                 let sixth = stack.remove(stack.len() - 6); // a
-                // After first remove the stack shrank; 5th from original top is now at index 0.
+                                                           // After first remove the stack shrank; 5th from original top is now at index 0.
                 let fifth = stack.remove(stack.len() - 5); // b
-                // Push in original order: sixth (a) below, fifth (b) on top.
+                                                           // Push in original order: sixth (a) below, fifth (b) on top.
                 stack.push(sixth);
                 stack.push(fifth);
                 Ok(true)
@@ -6585,9 +6634,7 @@ fn eval_checksig_tapscript(
         if !success {
             return Ok(Some(false));
         }
-        use crate::bip348::try_parse_taproot_schnorr_witness_sig;
-        let Some((sig_bytes, sighash_byte)) =
-            try_parse_taproot_schnorr_witness_sig(signature_bytes)
+        let Some((sig_bytes, sighash_byte)) = parse_taproot_keypath_sig(signature_bytes)
         else {
             return Ok(None);
         };
@@ -6674,7 +6721,6 @@ fn execute_opcode_with_context_full(
     let redeem_script_for_sighash = effective_script_code;
     #[cfg(feature = "production")]
     let schnorr_collector = ctx.schnorr_collector;
-    #[cfg(feature = "production")]
     let precomputed_bip143 = ctx.precomputed_bip143;
     #[cfg(feature = "production")]
     let sighash_cache = ctx.sighash_cache;
@@ -6741,7 +6787,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -6866,7 +6912,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
+                        calculate_transaction_sighash_single_input, SighashType,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -6928,7 +6974,11 @@ fn execute_opcode_with_context_full(
                     )?
                 };
 
-                if is_valid { Ok(true) } else { Ok(false) }
+                if is_valid {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
             } else {
                 Ok(false)
             }
@@ -7097,7 +7147,7 @@ fn execute_opcode_with_context_full(
             };
 
             use crate::transaction_hash::{
-                SighashType, calculate_transaction_sighash_single_input,
+                calculate_transaction_sighash_single_input, SighashType,
             };
 
             // Batch path: when n*m >= 4, precompute sighashes once per sig and batch-verify all (pubkey, sig) pairs.
@@ -7384,7 +7434,6 @@ fn execute_opcode_with_context_full(
                 tapscript_validation_weight: ctx.tapscript_validation_weight,
                 #[cfg(feature = "production")]
                 schnorr_collector: None,
-                #[cfg(feature = "production")]
                 precomputed_bip143,
                 #[cfg(feature = "production")]
                 sighash_cache,
@@ -7896,7 +7945,7 @@ pub fn reset_benchmarking_state() {
     clear_all_caches();
     clear_stack_pool();
     disable_caching(false); // Re-enable caching by default
-    // Also clear sighash templates (currently no-op as templates aren't populated yet)
+                            // Also clear sighash templates (currently no-op as templates aren't populated yet)
     #[cfg(feature = "benchmarking")]
     crate::transaction_hash::clear_sighash_templates();
 }
@@ -8007,30 +8056,26 @@ mod tests {
 
         let mut stack = Vec::new();
         assert!(eval_script(&[0x51, 0x51, 0x87], &mut stack, 0, SigVersion::Base).unwrap());
-        assert_eq!(stack[0].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
 
         let mut stack = Vec::new();
-        assert!(
-            eval_script(
-                &[0x00, 0x01, 0x02, 0xac, 0x82],
-                &mut stack,
-                0,
-                SigVersion::Base
-            )
-            .unwrap()
-        );
+        assert!(eval_script(
+            &[0x00, 0x01, 0x02, 0xac, 0x82],
+            &mut stack,
+            0,
+            SigVersion::Base
+        )
+        .unwrap());
         assert!(stack.last().unwrap().is_empty());
 
         let mut stack = Vec::new();
-        assert!(
-            eval_script(
-                &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
-                &mut stack,
-                0,
-                SigVersion::Base
-            )
-            .unwrap()
-        );
+        assert!(eval_script(
+            &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
+            &mut stack,
+            0,
+            SigVersion::Base
+        )
+        .unwrap());
         assert!(stack.last().unwrap().is_empty());
     }
 
@@ -8100,6 +8145,63 @@ mod tests {
         assert!(redeem_push_is_canonical(&canonical, &redeem));
         assert!(!redeem_push_is_canonical(&pushdata1, &redeem));
         assert_eq!(canonical[0], 22);
+    }
+
+    #[test]
+    fn keypath_spend_reaches_the_sighash_check() {
+        use crate::script::flags::SCRIPT_VERIFY_WITNESS;
+        use crate::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+
+        let mut script_pubkey = vec![OP_1, PUSH_32_BYTES];
+        script_pubkey.extend_from_slice(&[0x11u8; 32]);
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0x22; 32],
+                    index: 0,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 1_000,
+                script_pubkey: vec![OP_1].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let witness = vec![vec![0x40u8; 64]];
+        let result = verify_script_with_context_full(
+            &vec![].into(),
+            &script_pubkey,
+            Some(&witness),
+            SCRIPT_VERIFY_WITNESS,
+            &tx,
+            0,
+            &[],
+            &[],
+            Some(1),
+            None,
+            Network::Regtest,
+            SigVersion::Tapscript,
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+            None,
+        );
+        assert!(
+            result.is_err(),
+            "a key-path witness with no prevouts must reach the sighash check, got {result:?}"
+        );
     }
 
     #[test]
@@ -8362,7 +8464,7 @@ mod tests {
 
         assert!(eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap());
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 
     #[test]
@@ -8412,7 +8514,7 @@ mod tests {
             let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
             assert!(result);
             assert_eq!(stack.len(), 1);
-            assert_eq!(stack[0].as_ref(), &[i]);
+            assert_eq!(stack[0].as_slice(), &[i]);
         }
     }
 
@@ -8423,8 +8525,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 2 items (EvalScript doesn't check count)
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[1]);
     }
 
     #[test]
@@ -8478,7 +8580,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result);
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[1]); // True
+        assert_eq!(stack[0].as_slice(), &[1]); // True
     }
 
     #[test]
@@ -8685,8 +8787,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 2 items after dup
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[1]);
     }
 
     #[test]
@@ -8696,7 +8798,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; IFDUP doesn't dup falsy items
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[] as &[u8]);
+        assert_eq!(stack[0].as_slice(), &[] as &[u8]);
     }
 
     #[test]
@@ -8706,7 +8808,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack[2].as_ref(), &[2]); // Depth should be 2 (before OP_DEPTH)
+        assert_eq!(stack[2].as_slice(), &[2]); // Depth should be 2 (before OP_DEPTH)
     }
 
     #[test]
@@ -8716,7 +8818,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [1]
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 
     #[test]
@@ -8735,7 +8837,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [2]
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[2]);
+        assert_eq!(stack[0].as_slice(), &[2]);
     }
 
     #[test]
@@ -8754,9 +8856,9 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[2]);
-        assert_eq!(stack[2].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[2]);
+        assert_eq!(stack[2].as_slice(), &[1]);
     }
 
     #[test]
@@ -8775,7 +8877,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
-        assert_eq!(stack[3].as_ref(), &[2]); // Should pick index 1 (OP_2)
+        assert_eq!(stack[3].as_slice(), &[2]); // Should pick index 1 (OP_2)
     }
 
     #[test]
@@ -8786,7 +8888,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 2 items
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack[1].as_ref(), &[1]); // Picked the top (OP_1 value)
+        assert_eq!(stack[1].as_slice(), &[1]); // Picked the top (OP_1 value)
     }
 
     #[test]
@@ -8805,9 +8907,9 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[3]);
-        assert_eq!(stack[2].as_ref(), &[2]); // Should roll index 1 (OP_2) to top
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[3]);
+        assert_eq!(stack[2].as_slice(), &[2]); // Should roll index 1 (OP_2) to top
     }
 
     #[test]
@@ -8818,7 +8920,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Stack has [1], which is truthy
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 
     #[test]
@@ -8837,9 +8939,9 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack[0].as_ref(), &[2]);
-        assert_eq!(stack[1].as_ref(), &[3]);
-        assert_eq!(stack[2].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[2]);
+        assert_eq!(stack[1].as_slice(), &[3]);
+        assert_eq!(stack[2].as_slice(), &[1]);
     }
 
     #[test]
@@ -8858,8 +8960,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 2 items
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack[0].as_ref(), &[2]);
-        assert_eq!(stack[1].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[2]);
+        assert_eq!(stack[1].as_slice(), &[1]);
     }
 
     #[test]
@@ -8878,9 +8980,9 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 3 items
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack[0].as_ref(), &[2]);
-        assert_eq!(stack[1].as_ref(), &[1]);
-        assert_eq!(stack[2].as_ref(), &[2]);
+        assert_eq!(stack[0].as_slice(), &[2]);
+        assert_eq!(stack[1].as_slice(), &[1]);
+        assert_eq!(stack[2].as_slice(), &[2]);
     }
 
     #[test]
@@ -8899,7 +9001,7 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // Final stack has 1 item [1]
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack[0].as_ref(), &[1]);
+        assert_eq!(stack[0].as_slice(), &[1]);
     }
 
     #[test]
@@ -8918,10 +9020,10 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[2]);
-        assert_eq!(stack[2].as_ref(), &[1]);
-        assert_eq!(stack[3].as_ref(), &[2]);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[2]);
+        assert_eq!(stack[2].as_slice(), &[1]);
+        assert_eq!(stack[3].as_slice(), &[2]);
     }
 
     #[test]
@@ -8940,12 +9042,12 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[2]);
-        assert_eq!(stack[2].as_ref(), &[3]);
-        assert_eq!(stack[3].as_ref(), &[1]);
-        assert_eq!(stack[4].as_ref(), &[2]);
-        assert_eq!(stack[5].as_ref(), &[3]);
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[2]);
+        assert_eq!(stack[2].as_slice(), &[3]);
+        assert_eq!(stack[3].as_slice(), &[1]);
+        assert_eq!(stack[4].as_slice(), &[2]);
+        assert_eq!(stack[5].as_slice(), &[3]);
     }
 
     #[test]
@@ -8964,8 +9066,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
-        assert_eq!(stack[4].as_ref(), &[1]); // Should copy second pair
-        assert_eq!(stack[5].as_ref(), &[2]);
+        assert_eq!(stack[4].as_slice(), &[1]); // Should copy second pair
+        assert_eq!(stack[5].as_slice(), &[2]);
     }
 
     #[test]
@@ -8987,8 +9089,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 6 items
         assert_eq!(stack.len(), 6);
-        assert_eq!(stack[4].as_ref(), &[1]); // OP_1 moved to second-from-top
-        assert_eq!(stack[5].as_ref(), &[2]); // OP_2 moved to top
+        assert_eq!(stack[4].as_slice(), &[1]); // OP_1 moved to second-from-top
+        assert_eq!(stack[5].as_slice(), &[2]); // OP_2 moved to top
     }
 
     #[test]
@@ -9007,10 +9109,10 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 4 items
         assert_eq!(stack.len(), 4);
-        assert_eq!(stack[0].as_ref(), &[3]); // Should swap second pair
-        assert_eq!(stack[1].as_ref(), &[4]);
-        assert_eq!(stack[2].as_ref(), &[1]);
-        assert_eq!(stack[3].as_ref(), &[2]);
+        assert_eq!(stack[0].as_slice(), &[3]); // Should swap second pair
+        assert_eq!(stack[1].as_slice(), &[4]);
+        assert_eq!(stack[2].as_slice(), &[1]);
+        assert_eq!(stack[3].as_slice(), &[2]);
     }
 
     #[test]
@@ -9029,8 +9131,8 @@ mod tests {
         let result = eval_script(&script, &mut stack, 0, SigVersion::Base).unwrap();
         assert!(result); // eval_script succeeds; stack has 2 items (original + size)
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack[0].as_ref(), &[1]);
-        assert_eq!(stack[1].as_ref(), &[1]); // Size of [1] is 1
+        assert_eq!(stack[0].as_slice(), &[1]);
+        assert_eq!(stack[1].as_slice(), &[1]); // Size of [1] is 1
     }
 
     #[test]
@@ -9189,7 +9291,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn p2pk_fast_path_does_not_accept_a_push_that_does_not_fit() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9251,7 +9353,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn raw_key_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9315,7 +9417,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn reserved_opcode_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9430,7 +9532,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn hybrid_pubkey_is_accepted_without_strictenc() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         const PUBKEY_UNCOMPRESSED: u8 = 0x04;
@@ -9581,7 +9683,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn nullfail_waits_until_the_multisig_fails() {
-        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
+        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();

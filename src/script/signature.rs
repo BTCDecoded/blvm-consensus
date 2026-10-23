@@ -38,16 +38,13 @@ pub(crate) fn new_secp() -> SecpCtx {
     }
 }
 
-#[cfg(feature = "production")]
 use std::thread_local;
 
-#[cfg(feature = "production")]
 thread_local! {
     static SECP256K1_CONTEXT: SecpCtx = new_secp();
 }
 
 /// Run a closure with the thread-local context (avoids repeated allocation under secp256k1-fallback).
-#[cfg(feature = "production")]
 pub(crate) fn with_secp_context<F, R>(f: F) -> R
 where
     F: FnOnce(&SecpCtx) -> R,
@@ -137,7 +134,7 @@ pub(crate) fn verify_signature(
 
     #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
     {
-        use secp256k1::{PublicKey, ecdsa::Signature};
+        use secp256k1::{ecdsa::Signature, PublicKey};
 
         let signature = if strict_der {
             match Signature::from_der(der_sig) {

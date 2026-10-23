@@ -6,7 +6,12 @@
 mod core_test_vectors;
 
 use blvm_consensus::opcodes::{OP_1, OP_2};
-use blvm_consensus::script::verify_script;
+use blvm_consensus::script::flags::{
+    SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_LOW_S, SCRIPT_VERIFY_P2SH,
+};
+use blvm_consensus::script::{SigVersion, verify_script, verify_script_with_context_full};
+use blvm_consensus::serialization::transaction::deserialize_transaction;
+use blvm_consensus::types::Network;
 use core_test_vectors::{
     load_default_script_vectors, load_transaction_test_vectors, parse_core_script_asm,
     parse_flag_string, run_core_script_tests, score_core_script_tests,
@@ -116,11 +121,65 @@ fn test_verify_depth_zero_equal_direct() {
         verify_script(&sig, &spk, None, flags).expect("DEPTH 0 EQUAL"),
         true
     );
-
     let sig_one = parse_core_script_asm("1").expect("parse 1");
     assert_eq!(
         verify_script(&sig_one, &[], None, flags).expect("push one"),
         true
+    );
+}
+
+#[test]
+fn cve_2024_38365_partial_push_still_verifies() {
+    let text = std::fs::read_to_string("tests/test_data/core_vectors/transactions/tx_valid.json")
+        .expect("tx_valid");
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&text).expect("json");
+    let row = rows
+        .iter()
+        .find(|row| {
+            row.as_array().is_some_and(|fields| {
+                fields
+                    .get(1)
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|hex| hex.starts_with("020000000100010000"))
+            })
+        })
+        .expect("CVE-2024-38365 row");
+    let fields = row.as_array().unwrap();
+    let prevout_asm = fields[0][0][2].as_str().unwrap();
+    let tx_bytes = hex::decode(fields[1].as_str().unwrap()).unwrap();
+    let tx = deserialize_transaction(&tx_bytes).expect("tx");
+    let script_pubkey = parse_core_script_asm(prevout_asm).expect("script");
+    let values = vec![0i64; tx.inputs.len()];
+    let scripts: Vec<&[u8]> = vec![script_pubkey.as_slice()];
+    let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S;
+    assert!(
+        verify_script_with_context_full(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            None,
+            flags,
+            &tx,
+            0,
+            &values,
+            &scripts,
+            Some(500_000),
+            None,
+            Network::Mainnet,
+            SigVersion::Base,
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(feature = "production")]
+            None,
+            #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+            None,
+        )
+        .expect("verify"),
+        "the partial push stays in the script code and the signature verifies"
     );
 }
 

@@ -6,7 +6,7 @@
 use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::opcodes::*;
 use crate::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS};
-use crate::segwit::{Witness, is_segwit_transaction};
+use crate::segwit::{is_segwit_transaction, Witness};
 use crate::transaction::is_coinbase;
 use crate::types::*;
 use crate::witness::is_witness_empty;
@@ -388,9 +388,12 @@ pub(super) fn undo_log_from_overlay(
         });
     }
     for (outpoint, arc) in additions {
+        let previous_utxo = base
+            .get(outpoint)
+            .map(|prev| std::sync::Arc::new(prev.clone()));
         log.entries.push(UndoEntry {
             outpoint: *outpoint,
-            previous_utxo: None,
+            previous_utxo,
             new_utxo: Some(std::sync::Arc::clone(arc)),
         });
     }
@@ -661,5 +664,59 @@ mod script_flag_exceptions_tests {
         assert_eq!(flags & 0x8000, 0);
         assert_ne!(flags & 0x800, 0);
         assert_ne!(flags & 0x04, 0);
+    }
+}
+
+#[cfg(all(test, feature = "production"))]
+mod replaced_output_undo_tests {
+    use super::undo_log_from_overlay;
+    use crate::types::{OutPoint, UtxoSet, UTXO};
+    use rustc_hash::{FxHashMap, FxHashSet};
+    use std::sync::Arc;
+
+    #[test]
+    fn addition_records_the_coin_it_replaces() {
+        let outpoint = OutPoint {
+            hash: [9u8; 32],
+            index: 0,
+        };
+        let mut base = UtxoSet::default();
+        base.insert(
+            outpoint,
+            Arc::new(UTXO {
+                value: 50,
+                script_pubkey: vec![0x51].into(),
+                height: 1,
+                is_coinbase: true,
+            }),
+        );
+        let mut additions = FxHashMap::default();
+        additions.insert(
+            outpoint,
+            Arc::new(UTXO {
+                value: 50,
+                script_pubkey: vec![0x52].into(),
+                height: 91_842,
+                is_coinbase: true,
+            }),
+        );
+        let deletions = FxHashSet::default();
+        let log = undo_log_from_overlay(&additions, &deletions, &base).unwrap();
+        let previous = log.entries[0]
+            .previous_utxo
+            .as_ref()
+            .expect("replaced coin is kept");
+        assert_eq!(previous.height, 1);
+        assert!(previous.is_coinbase);
+        assert_eq!(log.entries[0].new_utxo.as_ref().unwrap().height, 91_842);
+
+        let mut after = UtxoSet::default();
+        after.insert(
+            outpoint,
+            Arc::clone(log.entries[0].new_utxo.as_ref().unwrap()),
+        );
+        after.remove(&outpoint);
+        after.insert(outpoint, Arc::clone(previous));
+        assert_eq!(after.get(&outpoint).unwrap().height, 1);
     }
 }
