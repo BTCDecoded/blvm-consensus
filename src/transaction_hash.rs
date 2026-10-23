@@ -1412,7 +1412,10 @@ fn build_preimage_and_hash(
             sighash_byte,
         );
         #[cfg(test)]
-        assert_eq!(prefixed, result, "prefix midstate diverged from the preimage hash");
+        assert_eq!(
+            prefixed, result,
+            "prefix midstate diverged from the preimage hash"
+        );
         result = prefixed;
     }
     (Ok(result), ())
