@@ -6,7 +6,7 @@
 use crate::activation::{ForkActivationTable, IsForkActive};
 use crate::opcodes::*;
 use crate::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS};
-use crate::segwit::{is_segwit_transaction, Witness};
+use crate::segwit::{Witness, is_segwit_transaction};
 use crate::transaction::is_coinbase;
 use crate::types::*;
 use crate::witness::is_witness_empty;
@@ -673,7 +673,7 @@ mod script_flag_exceptions_tests {
 #[cfg(all(test, feature = "production"))]
 mod replaced_output_undo_tests {
     use super::undo_log_from_overlay;
-    use crate::types::{OutPoint, UtxoSet, UTXO};
+    use crate::types::{OutPoint, UTXO, UtxoSet};
     use rustc_hash::{FxHashMap, FxHashSet};
     use std::sync::Arc;
 

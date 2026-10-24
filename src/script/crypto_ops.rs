@@ -10,9 +10,9 @@ use digest::Digest;
 use ripemd::Ripemd160;
 use sha1::Sha1;
 
-use super::signature;
-use super::stack::{to_stack_element, StackElement};
 use super::SigVersion;
+use super::signature;
+use super::stack::{StackElement, to_stack_element};
 
 const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
 
@@ -141,7 +141,7 @@ pub(crate) fn op_hash160(stack: &mut Vec<StackElement>) -> Result<bool> {
                 }
                 let ripemd160_hash = Ripemd160::digest(sha256_hash);
                 stack.push(to_stack_element(&ripemd160_hash));
-                with_hash_cache(|c| c.put(cache_key, CachedHash::from_20(&ripemd160_hash)));
+                with_hash_cache(|c| c.put(cache_key, CachedHash::from_20(ripemd160_hash)));
             } else {
                 let sha256_hash = OptimizedSha256::new().hash(&item);
                 let ripemd160_hash = Ripemd160::digest(sha256_hash);

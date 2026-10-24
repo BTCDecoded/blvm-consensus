@@ -30,7 +30,7 @@ pub mod templates;
 
 #[cfg(feature = "production")]
 pub use signature::{batch_verify_signatures, verify_pre_extracted_ecdsa};
-pub use stack::{cast_to_bool, to_stack_element, StackElement};
+pub use stack::{StackElement, cast_to_bool, to_stack_element};
 
 use crate::constants::*;
 use crate::crypto::OptimizedSha256;
@@ -80,11 +80,7 @@ fn charge_checkmultisig_pubkeys(stack: &[StackElement], op_count: usize) -> Resu
 
 #[inline]
 fn script_bool_bytes(value: bool) -> &'static [u8] {
-    if value {
-        &[1]
-    } else {
-        &[]
-    }
+    if value { &[1] } else { &[] }
 }
 
 #[cold]
@@ -106,8 +102,8 @@ fn bip143_p2wpkh_script_code(pubkey_hash: &[u8]) -> [u8; 25] {
 use std::collections::VecDeque;
 #[cfg(feature = "production")]
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     OnceLock, RwLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 #[cfg(feature = "production")]
 use std::thread_local;
@@ -1158,7 +1154,7 @@ pub fn try_verify_p2pk_fast_path(
     }
 
     // Fast-path: P2PK script_pubkey is 35 or 67 bytes; signature push ≥71. Skip serialize+find_and_delete.
-    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
     let deleted_storage;
@@ -1729,7 +1725,7 @@ fn try_verify_p2sh_multisig_fast_path(
 
     let cleaned = multisig_script_code(redeem, &signatures);
 
-    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
 
     // IBD deferral: cartesian oracle → SoA/GPU; Core match + NULLFAIL at block end.
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
@@ -1956,7 +1952,7 @@ fn try_verify_bare_multisig_fast_path(
 
     let cleaned = multisig_script_code(script_pubkey, &signatures);
 
-    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
 
     let mut sig_index = 0;
     let mut valid_sigs = 0u8;
@@ -2059,18 +2055,15 @@ fn verify_p2sh_p2pkh_redeem(
     let sighash = if let Some(precomp) = precomputed_sighash_all {
         precomp
     } else {
-        use crate::transaction_hash::{
-            calculate_transaction_sighash_single_input, SighashType,
-        };
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         let sighash_byte = signature_bytes[signature_bytes.len() - 1];
         let sighash_type = SighashType::from_byte(sighash_byte);
         let deleted_storage;
         let script_code: &[u8] = if redeem.len() < 71 {
             redeem
         } else {
-            deleted_storage = with_push_pattern(signature_bytes, |pattern| {
-                find_and_delete(redeem, pattern)
-            });
+            deleted_storage =
+                with_push_pattern(signature_bytes, |pattern| find_and_delete(redeem, pattern));
             deleted_storage.as_ref()
         };
         calculate_transaction_sighash_single_input(
@@ -2084,18 +2077,15 @@ fn verify_p2sh_p2pkh_redeem(
     };
     #[cfg(not(feature = "production"))]
     let sighash = {
-        use crate::transaction_hash::{
-            calculate_transaction_sighash_single_input, SighashType,
-        };
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         let sighash_byte = signature_bytes[signature_bytes.len() - 1];
         let sighash_type = SighashType::from_byte(sighash_byte);
         let deleted_storage;
         let script_code: &[u8] = if redeem.len() < 71 {
             redeem
         } else {
-            deleted_storage = with_push_pattern(signature_bytes, |pattern| {
-                find_and_delete(redeem, pattern)
-            });
+            deleted_storage =
+                with_push_pattern(signature_bytes, |pattern| find_and_delete(redeem, pattern));
             deleted_storage.as_ref()
         };
         calculate_transaction_sighash_single_input(
@@ -2189,7 +2179,7 @@ fn verify_p2sh_p2pk_redeem(
         &crate::transaction_hash::SighashMidstateCache,
     >,
 ) -> Result<bool> {
-    use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+    use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
     // Redeem is 35 or 67 bytes. A signature push is at least 71, so FindAndDelete cannot match.
@@ -2277,7 +2267,7 @@ fn try_verify_p2sh_fast_path(
         if pubkey_bytes.len() == 33 || pubkey_bytes.len() == 65 {
             let pubkey_sha = OptimizedSha256::new().hash(pubkey_bytes);
             let pubkey_hash = Ripemd160::digest(pubkey_sha);
-            if &pubkey_hash[..] == &redeem[3..23] {
+            if pubkey_hash[..] == redeem[3..23] {
                 return Some(verify_p2sh_p2pkh_redeem(
                     signature_bytes,
                     pubkey_bytes,
@@ -2339,7 +2329,7 @@ fn try_verify_p2sh_fast_path(
     // checks the hash, the canonical push, and that the program bytes are a
     // true stack value. Executing the redeem here would report success for a
     // base script without that check.
-    if crate::witness::is_any_witness_program(redeem.as_ref()) {
+    if crate::witness::is_any_witness_program(redeem) {
         return None;
     }
 
@@ -2369,7 +2359,7 @@ fn try_verify_p2sh_fast_path(
                 return Some(verify_p2sh_p2pkh_redeem(
                     signature_bytes,
                     pubkey_bytes,
-                    redeem.as_ref(),
+                    redeem,
                     flags,
                     tx,
                     input_index,
@@ -2389,13 +2379,13 @@ fn try_verify_p2sh_fast_path(
 
     // P2SH-with-P2PK-redeem fast-path: redeem = push(pubkey) OP_CHECKSIG, stack = [sig]
     if stack.len() == 1 {
-        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(redeem.as_ref()) {
+        if let Some(pubkey_bytes) = canonical_p2pk_pubkey(redeem) {
             let signature_bytes = &stack[0];
             if !signature_bytes.is_empty() {
                 return Some(verify_p2sh_p2pk_redeem(
                     signature_bytes,
                     pubkey_bytes,
-                    redeem.as_ref(),
+                    redeem,
                     flags,
                     tx,
                     input_index,
@@ -2411,7 +2401,7 @@ fn try_verify_p2sh_fast_path(
 
     // Execute redeem script with remaining stack (same as regular P2SH path: no batch collector)
     let result = eval_script_with_context_full_inner(
-        &redeem,
+        redeem,
         &mut stack,
         flags,
         tx,
@@ -2422,7 +2412,7 @@ fn try_verify_p2sh_fast_path(
         median_time_past,
         network,
         SigVersion::Base,
-        Some(redeem.as_ref()),
+        Some(redeem),
         Some(script_sig), // FindAndDelete uses the same scriptSig as the slow path
         None,             // taproot_annex_hash
         None,             // tapscript_validation_weight
@@ -2607,7 +2597,7 @@ pub fn verify_p2wpkh_in_p2sh_inline(
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return Ok(false);
     }
-    if !redeem_push_is_canonical(script_sig, redeem.as_ref()) {
+    if !redeem_push_is_canonical(script_sig, redeem) {
         return Ok(false);
     }
     let sha256_hash = OptimizedSha256::new().hash(redeem.as_ref());
@@ -2810,7 +2800,7 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     if redeem.len() != 22 || redeem[0] != OP_0 || redeem[1] != PUSH_20_BYTES {
         return None;
     }
-    if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+    if !redeem_push_is_canonical(script_sig.as_ref(), redeem) {
         return Some(Ok(false));
     }
     let height = block_height.unwrap_or(0);
@@ -2933,7 +2923,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     if redeem.len() != 34 || redeem[0] != OP_0 || redeem[1] != PUSH_32_BYTES {
         return None;
     }
-    if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+    if !redeem_push_is_canonical(script_sig.as_ref(), redeem) {
         return Some(Ok(false));
     }
     let expected_hash = &script_pubkey[2..22];
@@ -2945,7 +2935,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     // Native P2WSH path with an empty scriptSig and the redeem script as the v0 program.
     try_verify_p2wsh_fast_path(
         &[],
-        redeem.as_ref(),
+        redeem,
         witness,
         flags,
         tx,
@@ -3991,7 +3981,13 @@ pub fn verify_script_with_context_full(
         match redeem_source {
             RedeemSource::Number(n) => numeric_redeem = script_num_encode(n),
             RedeemSource::StackCopy | RedeemSource::Absent => {
-                copied_redeem = Some(stack.last().expect("Stack is not empty").as_slice().to_vec());
+                copied_redeem = Some(
+                    stack
+                        .last()
+                        .expect("Stack is not empty")
+                        .as_slice()
+                        .to_vec(),
+                );
             }
             RedeemSource::Empty | RedeemSource::Slice(_, _) => {}
         }
@@ -4348,7 +4344,7 @@ pub fn verify_script_with_context_full(
             && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)  // P2WPKH: push 20 bytes, total 22
                 || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34)); // P2WSH: push 32 bytes, total 34
 
-        if witness_flag && crate::witness::is_invalid_v0_witness_program(redeem.as_ref()) {
+        if witness_flag && crate::witness::is_invalid_v0_witness_program(redeem) {
             return Ok(false);
         }
 
@@ -4496,11 +4492,11 @@ pub fn verify_script_with_context_full(
                 return Ok(false); // Invalid witness program format
             }
             // P2WSH-in-P2SH path falls through to final stack check above
-        } else if witness_flag && crate::witness::is_any_witness_program(redeem.as_ref()) {
+        } else if witness_flag && crate::witness::is_any_witness_program(redeem) {
             // A P2SH-wrapped program that is not v0 P2WPKH/P2WSH is not taproot.
             // It succeeds when the redeem push is canonical, unless the
             // discourage-upgradable flag is set. Witness bytes are ignored.
-            if !redeem_push_is_canonical(script_sig.as_ref(), redeem.as_ref()) {
+            if !redeem_push_is_canonical(script_sig.as_ref(), redeem) {
                 return Ok(false);
             }
             if flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM != 0 {
@@ -4515,7 +4511,7 @@ pub fn verify_script_with_context_full(
             // The redeem script will consume the signatures and should leave exactly one true value
             // CRITICAL FIX: Pass redeem script for P2SH sighash calculation
             let redeem_result = eval_script_with_context_full_inner(
-                &redeem,
+                redeem,
                 stack,
                 flags,
                 tx,
@@ -4526,7 +4522,7 @@ pub fn verify_script_with_context_full(
                 median_time_past,
                 network,
                 SigVersion::Base,
-                Some(redeem.as_ref()), // Pass redeem script for sighash
+                Some(redeem),     // Pass redeem script for sighash
                 Some(script_sig), // Use same script_sig for legacy sighash pattern (e.g. P2PKH inside P2SH)
                 None,             // taproot_annex_hash
                 None,             // tapscript_validation_weight
@@ -5800,9 +5796,9 @@ fn execute_opcode(
             if stack.len() >= 6 {
                 // Remove from bottom-most of the pair first (index 0 = 6th from top).
                 let sixth = stack.remove(stack.len() - 6); // a
-                                                           // After first remove the stack shrank; 5th from original top is now at index 0.
+                // After first remove the stack shrank; 5th from original top is now at index 0.
                 let fifth = stack.remove(stack.len() - 5); // b
-                                                           // Push in original order: sixth (a) below, fifth (b) on top.
+                // Push in original order: sixth (a) below, fifth (b) on top.
                 stack.push(sixth);
                 stack.push(fifth);
                 Ok(true)
@@ -6256,15 +6252,13 @@ fn parse_script_sig_push_only(script_sig: &[u8]) -> Option<Vec<StackElement>> {
         }
         if opcode == OP_1NEGATE || (OP_1..=OP_16).contains(&opcode) {
             // Numeric pushes. OP_RESERVED sits between OP_1NEGATE and OP_1 and is not one of them.
-            out.push(to_stack_element(&script_num_encode(script_num_from_opcode(
-                opcode,
-            ))));
+            out.push(to_stack_element(&script_num_encode(
+                script_num_from_opcode(opcode),
+            )));
             i += 1;
             continue;
         }
-        let Some((advance, data_start, data_end)) = parse_one_data_push(script_sig, i) else {
-            return None;
-        };
+        let (advance, data_start, data_end) = parse_one_data_push(script_sig, i)?;
         out.push(to_stack_element(&script_sig[data_start..data_end]));
         i += advance;
     }
@@ -6874,8 +6868,7 @@ fn eval_checksig_tapscript(
         if !success {
             return Ok(Some(false));
         }
-        let Some((sig_bytes, sighash_byte)) = parse_taproot_keypath_sig(signature_bytes)
-        else {
+        let Some((sig_bytes, sighash_byte)) = parse_taproot_keypath_sig(signature_bytes) else {
             return Ok(None);
         };
         let (tapscript, codesep_pos) = ctx
@@ -7027,7 +7020,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        calculate_transaction_sighash_single_input, SighashType,
+                        SighashType, calculate_transaction_sighash_single_input,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -7156,7 +7149,7 @@ fn execute_opcode_with_context_full(
                 } else {
                     // Legacy sighash for non-SegWit transactions
                     use crate::transaction_hash::{
-                        calculate_transaction_sighash_single_input, SighashType,
+                        SighashType, calculate_transaction_sighash_single_input,
                     };
                     let sighash_type = SighashType::from_byte(sighash_byte);
 
@@ -7222,11 +7215,7 @@ fn execute_opcode_with_context_full(
                     )?
                 };
 
-                if is_valid {
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
+                if is_valid { Ok(true) } else { Ok(false) }
             } else {
                 Ok(false)
             }
@@ -7360,31 +7349,30 @@ fn execute_opcode_with_context_full(
 
             // FindAndDelete: Remove ALL signatures from scriptCode BEFORE any sighash computation
             // Consensus rule for OP_CHECKMULTISIG (legacy only, not SegWit)
-            let cleaned_script_for_multisig: std::borrow::Cow<[u8]> = if sigversion
-                == SigVersion::Base
-            {
-                let base_script = match (
-                    redeem_script_for_sighash,
-                    prevout_script_pubkeys.get(input_index),
-                ) {
-                    (Some(redeem), Some(prevout)) if redeem == *prevout => *prevout,
-                    (Some(redeem), _) => redeem,
-                    (None, Some(prevout)) => *prevout,
-                    (None, None) => &[],
+            let cleaned_script_for_multisig: std::borrow::Cow<[u8]> =
+                if sigversion == SigVersion::Base {
+                    let base_script = match (
+                        redeem_script_for_sighash,
+                        prevout_script_pubkeys.get(input_index),
+                    ) {
+                        (Some(redeem), Some(prevout)) if redeem == *prevout => *prevout,
+                        (Some(redeem), _) => redeem,
+                        (None, Some(prevout)) => *prevout,
+                        (None, None) => &[],
+                    };
+                    multisig_script_code(base_script, &signatures)
+                } else {
+                    // For SegWit, no FindAndDelete needed
+                    std::borrow::Cow::Borrowed(redeem_script_for_sighash.unwrap_or_else(|| {
+                        prevout_script_pubkeys
+                            .get(input_index)
+                            .copied()
+                            .unwrap_or(&[])
+                    }))
                 };
-                multisig_script_code(base_script, &signatures)
-            } else {
-                // For SegWit, no FindAndDelete needed
-                std::borrow::Cow::Borrowed(redeem_script_for_sighash.unwrap_or_else(|| {
-                    prevout_script_pubkeys
-                        .get(input_index)
-                        .copied()
-                        .unwrap_or(&[])
-                }))
-            };
 
             use crate::transaction_hash::{
-                calculate_transaction_sighash_single_input, SighashType,
+                SighashType, calculate_transaction_sighash_single_input,
             };
 
             // Batch path: when n*m >= 4, precompute sighashes once per sig and batch-verify all (pubkey, sig) pairs.
@@ -8182,7 +8170,7 @@ pub fn reset_benchmarking_state() {
     clear_all_caches();
     clear_stack_pool();
     disable_caching(false); // Re-enable caching by default
-                            // Also clear sighash templates (currently no-op as templates aren't populated yet)
+    // Also clear sighash templates (currently no-op as templates aren't populated yet)
     #[cfg(feature = "benchmarking")]
     crate::transaction_hash::clear_sighash_templates();
 }
@@ -8296,23 +8284,27 @@ mod tests {
         assert_eq!(stack[0].as_slice(), &[1]);
 
         let mut stack = Vec::new();
-        assert!(eval_script(
-            &[0x00, 0x01, 0x02, 0xac, 0x82],
-            &mut stack,
-            0,
-            SigVersion::Base
-        )
-        .unwrap());
+        assert!(
+            eval_script(
+                &[0x00, 0x01, 0x02, 0xac, 0x82],
+                &mut stack,
+                0,
+                SigVersion::Base
+            )
+            .unwrap()
+        );
         assert!(stack.last().unwrap().is_empty());
 
         let mut stack = Vec::new();
-        assert!(eval_script(
-            &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
-            &mut stack,
-            0,
-            SigVersion::Base
-        )
-        .unwrap());
+        assert!(
+            eval_script(
+                &[0x00, 0x00, 0x51, 0x00, 0x51, 0xae, 0x82],
+                &mut stack,
+                0,
+                SigVersion::Base
+            )
+            .unwrap()
+        );
         assert!(stack.last().unwrap().is_empty());
     }
 
@@ -9528,7 +9520,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn p2pk_fast_path_does_not_accept_a_push_that_does_not_fit() {
-        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9590,7 +9582,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn raw_key_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9654,7 +9646,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn reserved_opcode_multisig_is_not_accepted_by_the_fast_path() {
-        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();
@@ -9769,7 +9761,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn hybrid_pubkey_is_accepted_without_strictenc() {
-        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         const PUBKEY_UNCOMPRESSED: u8 = 0x04;
@@ -9920,7 +9912,7 @@ mod tests {
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     #[test]
     fn nullfail_waits_until_the_multisig_fails() {
-        use crate::transaction_hash::{calculate_transaction_sighash_single_input, SighashType};
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
         let secp = Secp256k1::new();

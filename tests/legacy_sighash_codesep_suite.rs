@@ -183,10 +183,7 @@ fn test_long_script_code_strips_codeseparator() {
     // 0xab inside a push of a script that is at least 253 bytes is payload.
     let mut push_ab = vec![0x4c, 253];
     push_ab.extend(std::iter::repeat(0xab).take(253));
-    assert_eq!(
-        serialize_script_code_for_legacy_sighash(&push_ab),
-        push_ab
-    );
+    assert_eq!(serialize_script_code_for_legacy_sighash(&push_ab), push_ab);
     let mut push_ac = push_ab.clone();
     push_ac[2] = 0xac;
     assert_ne!(sighash_all(&tx, 0, &push_ab), sighash_all(&tx, 0, &push_ac));

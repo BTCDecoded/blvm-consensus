@@ -8,7 +8,10 @@ fn sighash_json_matches_the_core_rows() {
     let path = "tests/test_data/core_vectors/transactions/sighash.json";
     let text = std::fs::read_to_string(path).expect("sighash.json");
     let rows: Vec<serde_json::Value> = serde_json::from_str(&text).expect("json");
-    let data: Vec<&serde_json::Value> = rows.iter().filter(|row| row.as_array().is_some_and(|a| a.len() == 5)).collect();
+    let data: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|row| row.as_array().is_some_and(|a| a.len() == 5))
+        .collect();
     assert!(data.len() >= 500, "sighash.json data rows {}", data.len());
     for row in data {
         let fields = row.as_array().unwrap();
@@ -21,6 +24,10 @@ fn sighash_json_matches_the_core_rows() {
         let got = legacy_sighash_for_vector(&tx, input_index, &script, hash_type).unwrap();
         let mut reversed = got;
         reversed.reverse();
-        assert_eq!(hex::encode(reversed), expected, "input {input_index} type {hash_type}");
+        assert_eq!(
+            hex::encode(reversed),
+            expected,
+            "input {input_index} type {hash_type}"
+        );
     }
 }

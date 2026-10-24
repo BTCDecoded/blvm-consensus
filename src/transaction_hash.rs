@@ -1324,7 +1324,10 @@ fn legacy_all_from_prefix_midstate(
     let input = &tx.inputs[input_index];
     tmp.extend_from_slice(&input.prevout.hash);
     tmp.extend_from_slice(&input.prevout.index.to_le_bytes());
-    let code = script_code.unwrap_or(prevout_script_pubkeys[input_index]);
+    let code = match script_code {
+        Some(code) => code,
+        None => prevout_script_pubkeys[input_index],
+    };
     write_script_code_for_sighash(&mut tmp, code);
     tmp.extend_from_slice(&(input.sequence as u32).to_le_bytes());
     for later in &tx.inputs[input_index + 1..] {
@@ -1448,7 +1451,10 @@ fn build_preimage_and_hash(
             sighash_byte,
         );
         #[cfg(test)]
-        assert_eq!(prefixed, result, "prefix midstate diverged from the preimage hash");
+        assert_eq!(
+            prefixed, result,
+            "prefix midstate diverged from the preimage hash"
+        );
         result = prefixed;
     }
     (Ok(result), ())
