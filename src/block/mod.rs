@@ -351,6 +351,9 @@ pub struct BlockValidationContext {
     pub sequence_prev_mtp: Option<SequencePrevMtp>,
     /// Ancestor bits and timestamps for the required-work check. `None` skips it.
     pub difficulty_ancestor: Option<DifficultyAncestor>,
+    /// Ancestry of the assume-valid block on the header chain. `None` means no block
+    /// skips script checks.
+    pub assume_valid_ancestor: Option<AssumeValidAncestor>,
 }
 
 /// Median time of one ancestor block, keyed by that block's height.
@@ -361,6 +364,13 @@ pub type SequencePrevMtp = std::sync::Arc<dyn Fn(u64) -> Option<u64> + Send + Sy
 /// When set on [`BlockValidationContext`], connect requires the header's bits
 /// to equal [`crate::pow::next_required_bits`]. `None` skips that check.
 pub type DifficultyAncestor = std::sync::Arc<dyn Fn(u64) -> Option<(u64, u64)> + Send + Sync>;
+
+/// Hash at `height` of the assume-valid block's ancestry on the best header chain, or
+/// `None` when the assume-valid block is not on that chain (Core: `GetAncestor(height)`).
+///
+/// A block skips script checks only when it is that ancestor (and below the assume-valid
+/// height with enough chain work). Anything else is fully validated.
+pub type AssumeValidAncestor = std::sync::Arc<dyn Fn(u64) -> Option<Hash> + Send + Sync>;
 
 impl BlockValidationContext {
     /// Build context from the same inputs as `connect_block_ibd` (for migration).
@@ -386,6 +396,7 @@ impl BlockValidationContext {
             ibd_block_outputs: None,
             sequence_prev_mtp: None,
             difficulty_ancestor: None,
+            assume_valid_ancestor: None,
         }
     }
 
@@ -407,6 +418,7 @@ impl BlockValidationContext {
             ibd_block_outputs: None,
             sequence_prev_mtp: None,
             difficulty_ancestor: None,
+            assume_valid_ancestor: None,
         }
     }
 

@@ -3467,24 +3467,9 @@ pub(crate) fn connect_block_inner<'a>(
     // tx_ids already computed above (before BIP30) for #21/#2
 
     // Compute block hash once — reused below by get_block_script_verify_flags_core and the
-    // assume_valid_hash ancestry check. Hoisted here to avoid a second serialize+hash256 at
-    // the exact assume_valid_height when both paths would otherwise run independently.
+    // assume-valid ancestry check.
     let serialized_header = crate::serialization::block::serialize_block_header(&block.header);
     let block_hash: Hash = crate::crypto::OptimizedSha256::new().hash256(&serialized_header);
-
-    // Hash-based ancestry verification: when assume_valid_hash is set and we're at
-    // the assume-valid height, the block hash must match (reject otherwise).
-    if let Some(expected_hash) = crate::config::get_assume_valid_hash() {
-        if height == crate::block::get_assume_valid_height() && block_hash != expected_hash {
-            return invalid_block_result(
-                utxo_set,
-                &[],
-                format!(
-                    "Assume-valid block hash mismatch at height {height}: expected {expected_hash:?}, got {block_hash:?}",
-                ),
-            );
-        }
-    }
 
     if let Err(msg) =
         enforce_relative_locks(block, height, tx_ids, &utxo_set, ibd_utxo_lookup, context)
@@ -3506,9 +3491,16 @@ pub(crate) fn connect_block_inner<'a>(
         .map(|cw| cw >= min_chain_work)
         .unwrap_or(false);
     #[cfg(feature = "production")]
+    // Core semantics: skip only for an ancestor of the assume-valid block on the header
+    // chain. A block that is not one (a competing chain, or the assume-valid block not yet
+    // known) is fully validated, never rejected for not matching.
     let skip_signatures = height < crate::block::get_assume_valid_height()
         && chainwork_ok
-        && crate::config::get_assume_valid_hash().is_some();
+        && crate::config::get_assume_valid_hash().is_some()
+        && context
+            .assume_valid_ancestor
+            .as_ref()
+            .is_some_and(|ancestor| ancestor(height) == Some(block_hash));
 
     #[cfg(not(feature = "production"))]
     let skip_signatures = false;
