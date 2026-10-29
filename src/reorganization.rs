@@ -321,9 +321,10 @@ pub fn reorganize_chain_with_witnesses(
         let (validation_result, new_utxo_set, undo_log) =
             connect_block(block, &witnesses, utxo_set, new_height, &context)?;
 
-        if !matches!(validation_result, ValidationResult::Valid) {
+        if let ValidationResult::Invalid(reason) = validation_result {
             return Err(crate::error::ConsensusError::ConsensusRuleViolation(
-                format!("Invalid block at height {new_height} during reorganization").into(),
+                format!("Invalid block at height {new_height} during reorganization: {reason}")
+                    .into(),
             ));
         }
 
@@ -688,6 +689,58 @@ fn disconnect_block(
     }
 
     Ok(utxo_set)
+}
+
+/// Undo log a connect would have stored, rebuilt from the block and its spent outputs.
+///
+/// Entry order matches `connect_block`: spends then new outputs, then reversed so
+/// disconnect walks the most recent change first. A missing prevout is an error.
+/// An empty log is not a substitute for a block that spent or created coins.
+pub fn undo_log_from_connected_block(
+    block: &Block,
+    height: Natural,
+    mut lookup_prevout: impl FnMut(&OutPoint) -> Result<UTXO>,
+) -> Result<BlockUndoLog> {
+    use crate::block::calculate_tx_id;
+    use crate::transaction::is_coinbase;
+
+    if block.transactions.is_empty() {
+        return Err(crate::error::ConsensusError::BlockValidation(
+            "Block must have at least one transaction".into(),
+        ));
+    }
+    let mut entries = Vec::new();
+    for tx in block.transactions.iter() {
+        let tx_id = calculate_tx_id(tx);
+        if !is_coinbase(tx) {
+            for input in tx.inputs.iter() {
+                let previous = lookup_prevout(&input.prevout)?;
+                entries.push(UndoEntry {
+                    outpoint: input.prevout,
+                    previous_utxo: Some(std::sync::Arc::new(previous)),
+                    new_utxo: None,
+                });
+            }
+        }
+        for (index, output) in tx.outputs.iter().enumerate() {
+            let created = UTXO {
+                value: output.value,
+                script_pubkey: output.script_pubkey.as_slice().into(),
+                height,
+                is_coinbase: is_coinbase(tx),
+            };
+            entries.push(UndoEntry {
+                outpoint: OutPoint {
+                    hash: tx_id,
+                    index: index as u32,
+                },
+                previous_utxo: None,
+                new_utxo: Some(std::sync::Arc::new(created)),
+            });
+        }
+    }
+    entries.reverse();
+    Ok(BlockUndoLog { entries })
 }
 
 /// Check if reorganization is beneficial
@@ -1658,5 +1711,165 @@ mod tests {
     /// Create a test block at height 0 (backward-compatible default).
     fn create_test_block() -> Block {
         create_test_block_at_height(0)
+    }
+}
+
+#[cfg(test)]
+mod undo_rebuild_tests {
+    use super::*;
+    use crate::block::calculate_tx_id;
+    use crate::transaction::is_coinbase;
+    use std::sync::Arc;
+
+    fn coinbase_with_value(value: i64) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0xffffffff,
+                },
+                script_sig: vec![0x04].into(),
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value,
+                script_pubkey: vec![0x51],
+            }]
+            .into(),
+            lock_time: 0,
+        }
+    }
+
+    #[test]
+    fn rebuilt_undo_drops_created_coins_and_restores_the_spend() {
+        let parent_tx = coinbase_with_value(50);
+        let parent_id = calculate_tx_id(&parent_tx);
+        let spent = OutPoint {
+            hash: parent_id,
+            index: 0,
+        };
+        let previous = UTXO {
+            value: 50,
+            script_pubkey: vec![0x51].into(),
+            height: 4,
+            is_coinbase: true,
+        };
+        let spender = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: spent,
+                script_sig: vec![].into(),
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 40,
+                script_pubkey: vec![0x52],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let block = Block {
+            header: BlockHeader {
+                version: 1,
+                prev_block_hash: [1; 32],
+                merkle_root: [2; 32],
+                timestamp: 1,
+                bits: 0x207fffff,
+                nonce: 0,
+            },
+            transactions: vec![coinbase_with_value(10), spender].into_boxed_slice(),
+        };
+        let undo = undo_log_from_connected_block(&block, 5, |outpoint| {
+            if *outpoint == spent {
+                Ok(previous.clone())
+            } else {
+                Err(crate::error::ConsensusError::BlockValidation(
+                    "missing prevout".into(),
+                ))
+            }
+        })
+        .unwrap();
+
+        let coinbase_id = calculate_tx_id(&block.transactions[0]);
+        let spend_id = calculate_tx_id(&block.transactions[1]);
+        let mut set = UtxoSet::default();
+        set.insert(
+            OutPoint {
+                hash: coinbase_id,
+                index: 0,
+            },
+            Arc::new(UTXO {
+                value: 10,
+                script_pubkey: vec![0x51].into(),
+                height: 5,
+                is_coinbase: true,
+            }),
+        );
+        set.insert(
+            OutPoint {
+                hash: spend_id,
+                index: 0,
+            },
+            Arc::new(UTXO {
+                value: 40,
+                script_pubkey: vec![0x52].into(),
+                height: 5,
+                is_coinbase: false,
+            }),
+        );
+
+        let restored = disconnect_block(&block, &undo, set, 5).unwrap();
+        assert!(restored.contains_key(&spent));
+        assert_eq!(restored.get(&spent).unwrap().value, 50);
+        assert_eq!(restored.get(&spent).unwrap().height, 4);
+        assert!(is_coinbase(&block.transactions[0]));
+        assert!(!restored.contains_key(&OutPoint {
+            hash: coinbase_id,
+            index: 0,
+        }));
+        assert!(!restored.contains_key(&OutPoint {
+            hash: spend_id,
+            index: 0,
+        }));
+    }
+
+    #[test]
+    fn rebuild_refuses_a_spend_whose_output_is_unknown() {
+        let spender = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [9; 32],
+                    index: 1,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        };
+        let block = Block {
+            header: BlockHeader {
+                version: 1,
+                prev_block_hash: [1; 32],
+                merkle_root: [2; 32],
+                timestamp: 1,
+                bits: 0x207fffff,
+                nonce: 0,
+            },
+            transactions: vec![spender].into_boxed_slice(),
+        };
+        let err = undo_log_from_connected_block(&block, 5, |_| {
+            Err(crate::error::ConsensusError::BlockValidation(
+                "missing prevout".into(),
+            ))
+        })
+        .unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("missing prevout"), "{text}");
     }
 }
