@@ -476,6 +476,17 @@ mod tests {
     }
 
     #[test]
+    fn subsidy_matches_the_shared_schedule() {
+        // These are the integer-shift values Bitcoin Core and the Orange Paper
+        // both return. A second model agrees only when it returns the same ones.
+        assert_eq!(get_block_subsidy(0), 5_000_000_000);
+        assert_eq!(get_block_subsidy(209_999), 5_000_000_000);
+        assert_eq!(get_block_subsidy(210_000), 2_500_000_000);
+        assert_eq!(get_block_subsidy(33 * 210_000), 0);
+        assert_eq!(get_block_subsidy(64 * 210_000), 0);
+    }
+
+    #[test]
     fn total_supply_fast_matches_naive_reference() {
         for end in [
             0u64,

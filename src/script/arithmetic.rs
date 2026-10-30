@@ -214,3 +214,23 @@ pub(crate) fn op_within(stack: &mut Vec<StackElement>) -> Result<bool> {
     )));
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn op_add_decodes_script_numbers() {
+        let mut stack = vec![to_stack_element(&[2]), to_stack_element(&[3])];
+        assert!(op_add(&mut stack).unwrap());
+        assert_eq!(&stack[0][..], &[5]);
+
+        // 0x82 is script-number -2. Pop order is a = 3, b = -2, so b + a = 1.
+        let mut stack = vec![to_stack_element(&[0x82]), to_stack_element(&[3])];
+        assert!(op_add(&mut stack).unwrap());
+        assert_eq!(&stack[0][..], &[1]);
+
+        let mut empty = Vec::new();
+        assert!(!op_add(&mut empty).unwrap());
+    }
+}
