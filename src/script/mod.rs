@@ -1710,17 +1710,8 @@ fn try_verify_p2sh_multisig_fast_path(
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     let height = block_height.unwrap_or(0);
-    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
-        let activation = match network {
-            crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
-            crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest
-            | crate::types::Network::Signet
-            | crate::types::Network::Testnet4 => 0,
-        };
-        if height >= activation && !dummy.is_empty() {
-            return Some(Ok(false));
-        }
+    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+        return Some(Ok(false));
     }
 
     let cleaned = multisig_script_code(redeem, &signatures);
@@ -1937,17 +1928,8 @@ fn try_verify_bare_multisig_fast_path(
 
     const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     let height = block_height.unwrap_or(0);
-    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
-        let activation = match network {
-            crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
-            crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-            crate::types::Network::Regtest
-            | crate::types::Network::Signet
-            | crate::types::Network::Testnet4 => 0,
-        };
-        if height >= activation && !dummy.is_empty() {
-            return Some(Ok(false));
-        }
+    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+        return Some(Ok(false));
     }
 
     let cleaned = multisig_script_code(script_pubkey, &signatures);
@@ -3140,17 +3122,8 @@ pub(crate) fn try_verify_p2wsh_fast_path(
 
             const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
             let height = block_height.unwrap_or(0);
-            if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 {
-                let activation = match network {
-                    crate::types::Network::Mainnet => crate::constants::BIP147_ACTIVATION_MAINNET,
-                    crate::types::Network::Testnet => crate::constants::BIP147_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest
-                    | crate::types::Network::Signet
-                    | crate::types::Network::Testnet4 => 0,
-                };
-                if height >= activation && !dummy.is_empty() {
-                    return Some(Ok(false));
-                }
+            if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+                return Some(Ok(false));
             }
 
             // WitnessV0 (BIP143): scriptCode is the witness script; no FindAndDelete.
@@ -7306,41 +7279,18 @@ fn execute_opcode_with_context_full(
                 signatures.push(stack.pop().unwrap());
             }
 
-            // Pop dummy element - this is the FIRST element consumed (last remaining on stack)
-            // BIP147: Check NULLDUMMY if flag is set (SCRIPT_VERIFY_NULLDUMMY = 0x10)
+            // The extra element must be zero-length when NULLDUMMY is set.
+            // OP_0 pushes that. A one-byte 0x00 has length 1 and is rejected.
+            // The flag is the whole rule.
             let dummy = stack.pop().unwrap();
-            if flags & 0x10 != 0 {
-                let height = block_height.unwrap_or(0);
-                // Convert network type for BIP147
-                use crate::bip_validation::Bip147Network;
-                let bip147_network = match network {
-                    crate::types::Network::Mainnet => Bip147Network::Mainnet,
-                    crate::types::Network::Testnet => Bip147Network::Testnet,
-                    crate::types::Network::Regtest
-                    | crate::types::Network::Signet
-                    | crate::types::Network::Testnet4 => Bip147Network::Regtest,
-                };
-
-                // NULLDUMMY: the extra element must be zero-length. OP_0 pushes that.
-                // A one-byte 0x00 has length 1 and is rejected.
-                use crate::constants::{BIP147_ACTIVATION_MAINNET, BIP147_ACTIVATION_TESTNET};
-
-                let bip147_active = height
-                    >= match bip147_network {
-                        Bip147Network::Mainnet => BIP147_ACTIVATION_MAINNET,
-                        Bip147Network::Testnet => BIP147_ACTIVATION_TESTNET,
-                        Bip147Network::Regtest => 0,
-                    };
-
-                if bip147_active && !dummy.is_empty() {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::SigNullDummy,
-                        message: format!(
-                            "OP_CHECKMULTISIG: dummy element {dummy:?} violates BIP147 NULLDUMMY (must be zero-length)"
-                        )
-                        .into(),
-                    });
-                }
+            if (flags & flags::SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::SigNullDummy,
+                    message: format!(
+                        "OP_CHECKMULTISIG: dummy element {dummy:?} violates BIP147 NULLDUMMY (must be zero-length)"
+                    )
+                    .into(),
+                });
             }
 
             // Verify signatures against public keys

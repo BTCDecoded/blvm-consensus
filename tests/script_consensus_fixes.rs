@@ -613,7 +613,8 @@ fn nulldummy_rejects_one_byte_zero() {
     let one_byte = vec![0x01, 0x00, OP_0, OP_0, OP_CHECKMULTISIG];
     let tx = one_input_tx(vec![]);
     assert!(!verify(&tx, &one_byte, None, flags, 0, Some(height)));
-    assert!(verify(&tx, &one_byte, None, flags, 0, Some(height - 1)));
+    assert!(!verify(&tx, &one_byte, None, flags, 0, Some(height - 1)));
+    assert!(verify(&tx, &one_byte, None, 0, 0, Some(height - 1)));
 }
 
 #[test]
@@ -651,11 +652,20 @@ fn p2wsh_nulldummy_rejects_one_byte_zero() {
         Some(height),
         false,
     ));
-    assert!(verify_at(
+    assert!(!verify_at(
         &tx,
         &spk,
         Some(&witness),
         flags,
+        10_000,
+        Some(height - 1),
+        false,
+    ));
+    assert!(verify_at(
+        &tx,
+        &spk,
+        Some(&witness),
+        SCRIPT_VERIFY_WITNESS,
         10_000,
         Some(height - 1),
         false,

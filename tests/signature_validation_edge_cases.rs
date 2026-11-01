@@ -107,22 +107,28 @@ fn test_null_dummy_enforcement() {
     let empty_dummy = vec![OP_0, OP_0, OP_0, OP_CHECKMULTISIG];
     let one_byte_dummy = vec![0x01, 0x00, OP_0, OP_0, OP_CHECKMULTISIG];
     assert_eq!(
-        nulldummy_at(&empty_dummy, height).expect("empty dummy"),
+        nulldummy_at(&empty_dummy, height, SCRIPT_VERIFY_NULLDUMMY).expect("empty dummy"),
         true
     );
-    match nulldummy_at(&one_byte_dummy, height) {
-        Err(ConsensusError::ScriptErrorWithCode { code, .. }) => {
-            assert_eq!(code, ScriptErrorCode::SigNullDummy);
+    for height in [height, height - 1] {
+        match nulldummy_at(&one_byte_dummy, height, SCRIPT_VERIFY_NULLDUMMY) {
+            Err(ConsensusError::ScriptErrorWithCode { code, .. }) => {
+                assert_eq!(code, ScriptErrorCode::SigNullDummy);
+            }
+            other => panic!("one-byte dummy at {height} must be SigNullDummy, got {other:?}"),
         }
-        other => panic!("one-byte dummy must be SigNullDummy, got {other:?}"),
     }
     assert_eq!(
-        nulldummy_at(&one_byte_dummy, height - 1).expect("before activation"),
+        nulldummy_at(&one_byte_dummy, height - 1, 0).expect("flag clear"),
         true
     );
 }
 
-fn nulldummy_at(script_pubkey: &[u8], height: u64) -> blvm_consensus::error::Result<bool> {
+fn nulldummy_at(
+    script_pubkey: &[u8],
+    height: u64,
+    flags: u32,
+) -> blvm_consensus::error::Result<bool> {
     let tx = Transaction {
         version: 2,
         inputs: vec![TransactionInput {
@@ -148,7 +154,7 @@ fn nulldummy_at(script_pubkey: &[u8], height: u64) -> blvm_consensus::error::Res
         &tx.inputs[0].script_sig,
         script_pubkey,
         None,
-        SCRIPT_VERIFY_NULLDUMMY,
+        flags,
         &tx,
         0,
         &values,
