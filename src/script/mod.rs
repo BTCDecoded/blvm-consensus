@@ -599,6 +599,106 @@ fn push_encoding_is_minimal(opcode: u8, data: &[u8]) -> bool {
     true
 }
 
+/// Pop an executing `OP_IF` / `OP_NOTIF` condition and enforce MINIMALIF.
+///
+/// The caller builds the `ControlBlock` and, in the context interpreter, advances `i`.
+fn pop_if_condition(
+    stack: &mut Vec<StackElement>,
+    flags: u32,
+    sigversion: SigVersion,
+    minimal_message: &'static str,
+) -> Result<bool> {
+    let condition_bytes = stack.pop().unwrap();
+    let condition = cast_to_bool(&condition_bytes);
+    let enforce_minimal_if = sigversion == SigVersion::Tapscript
+        || (sigversion == SigVersion::WitnessV0 && flags & flags::SCRIPT_VERIFY_MINIMALIF != 0);
+    if enforce_minimal_if && !control_flow::is_minimal_if_condition(&condition_bytes) {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::MinimalIf,
+            message: minimal_message.into(),
+        });
+    }
+    Ok(condition)
+}
+
+/// Decode one data push and, unless `in_false_branch`, put it on `stack`.
+///
+/// `Ok(None)` is a failed script (truncated push or non-minimal encoding).
+/// A push larger than [`MAX_SCRIPT_ELEMENT_SIZE`] is an error.
+fn apply_data_push(
+    script: &[u8],
+    i: usize,
+    opcode: u8,
+    stack: &mut Vec<StackElement>,
+    flags: u32,
+    in_false_branch: bool,
+) -> Result<Option<usize>> {
+    let (data, advance) = if opcode <= 0x4b {
+        let len = opcode as usize;
+        if i + 1 + len > script.len() {
+            return Ok(None);
+        }
+        (&script[i + 1..i + 1 + len], 1 + len)
+    } else if opcode == OP_PUSHDATA1 {
+        if i + 1 >= script.len() {
+            return Ok(None);
+        }
+        let len = script[i + 1] as usize;
+        if i + 2 + len > script.len() {
+            return Ok(None);
+        }
+        (&script[i + 2..i + 2 + len], 2 + len)
+    } else if opcode == OP_PUSHDATA2 {
+        if i + 2 >= script.len() {
+            return Ok(None);
+        }
+        let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
+        if i + 3 + len > script.len() {
+            return Ok(None);
+        }
+        (&script[i + 3..i + 3 + len], 3 + len)
+    } else {
+        if i + 4 >= script.len() {
+            return Ok(None);
+        }
+        let len = u32::from_le_bytes([
+            script[i + 1],
+            script[i + 2],
+            script[i + 3],
+            script[i + 4],
+        ]) as usize;
+        let data_start = i.saturating_add(5);
+        let data_end = data_start.saturating_add(len);
+        let advance = 5usize.saturating_add(len);
+        if advance < 5 || data_end > script.len() || data_end < data_start {
+            return Ok(None);
+        }
+        (&script[data_start..data_end], advance)
+    };
+
+    if data.len() > MAX_SCRIPT_ELEMENT_SIZE {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::PushSize,
+            message: format!(
+                "Push data size {} exceeds maximum {}",
+                data.len(),
+                MAX_SCRIPT_ELEMENT_SIZE
+            )
+            .into(),
+        });
+    }
+    if !in_false_branch
+        && (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+        && !push_encoding_is_minimal(opcode, data)
+    {
+        return Ok(None);
+    }
+    if !in_false_branch {
+        stack.push(to_stack_element(data));
+    }
+    Ok(Some(advance))
+}
+
 fn eval_script_inner(
     script: &[u8],
     stack: &mut Vec<StackElement>,
@@ -647,69 +747,11 @@ fn eval_script_inner(
 
         // Handle push opcodes with embedded data (0x01-0x4b direct, OP_PUSHDATA1/2/4).
         if (0x01..=OP_PUSHDATA4).contains(&opcode) {
-            let (data, advance) = if opcode <= 0x4b {
-                let len = opcode as usize;
-                if i + 1 + len > script.len() {
-                    return Ok(false);
-                }
-                (&script[i + 1..i + 1 + len], 1 + len)
-            } else if opcode == OP_PUSHDATA1 {
-                if i + 1 >= script.len() {
-                    return Ok(false);
-                }
-                let len = script[i + 1] as usize;
-                if i + 2 + len > script.len() {
-                    return Ok(false);
-                }
-                (&script[i + 2..i + 2 + len], 2 + len)
-            } else if opcode == OP_PUSHDATA2 {
-                if i + 2 >= script.len() {
-                    return Ok(false);
-                }
-                let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
-                if i + 3 + len > script.len() {
-                    return Ok(false);
-                }
-                (&script[i + 3..i + 3 + len], 3 + len)
-            } else {
-                if i + 4 >= script.len() {
-                    return Ok(false);
-                }
-                let len = u32::from_le_bytes([
-                    script[i + 1],
-                    script[i + 2],
-                    script[i + 3],
-                    script[i + 4],
-                ]) as usize;
-                let data_start = i.saturating_add(5);
-                let data_end = data_start.saturating_add(len);
-                let advance = 5usize.saturating_add(len);
-                if advance < 5 || data_end > script.len() || data_end < data_start {
-                    return Ok(false);
-                }
-                (&script[data_start..data_end], advance)
-            };
-
-            if data.len() > MAX_SCRIPT_ELEMENT_SIZE {
-                return Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::PushSize,
-                    message: format!(
-                        "Push data size {} exceeds maximum {}",
-                        data.len(),
-                        MAX_SCRIPT_ELEMENT_SIZE
-                    )
-                    .into(),
-                });
-            }
-            if !in_false_branch
-                && (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
-                && !push_encoding_is_minimal(opcode, data)
-            {
+            let Some(advance) =
+                apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
+            else {
                 return Ok(false);
-            }
-            if !in_false_branch {
-                stack.push(to_stack_element(data));
-            }
+            };
             i += advance;
             continue;
         }
@@ -725,22 +767,12 @@ fn eval_script_inner(
                         message: "OP_IF: empty stack".into(),
                     });
                 } else {
-                    let condition_bytes = stack.pop().unwrap();
-                    let condition = cast_to_bool(&condition_bytes);
-
-                    const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                    let enforce_minimal_if = sigversion == SigVersion::Tapscript
-                        || (sigversion == SigVersion::WitnessV0
-                            && flags & SCRIPT_VERIFY_MINIMALIF != 0);
-                    if enforce_minimal_if
-                        && !control_flow::is_minimal_if_condition(&condition_bytes)
-                    {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_IF condition must be minimally encoded".into(),
-                        });
-                    }
-
+                    let condition = pop_if_condition(
+                        stack,
+                        flags,
+                        sigversion,
+                        "OP_IF condition must be minimally encoded",
+                    )?;
                     control_stack.push(control_flow::ControlBlock::If {
                         executing: condition,
                     });
@@ -756,22 +788,12 @@ fn eval_script_inner(
                         message: "OP_NOTIF: empty stack".into(),
                     });
                 } else {
-                    let condition_bytes = stack.pop().unwrap();
-                    let condition = cast_to_bool(&condition_bytes);
-
-                    const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                    let enforce_minimal_if = sigversion == SigVersion::Tapscript
-                        || (sigversion == SigVersion::WitnessV0
-                            && flags & SCRIPT_VERIFY_MINIMALIF != 0);
-                    if enforce_minimal_if
-                        && !control_flow::is_minimal_if_condition(&condition_bytes)
-                    {
-                        return Err(ConsensusError::ScriptErrorWithCode {
-                            code: ScriptErrorCode::MinimalIf,
-                            message: "OP_NOTIF condition must be minimally encoded".into(),
-                        });
-                    }
-
+                    let condition = pop_if_condition(
+                        stack,
+                        flags,
+                        sigversion,
+                        "OP_NOTIF condition must be minimally encoded",
+                    )?;
                     control_stack.push(control_flow::ControlBlock::NotIf {
                         executing: !condition,
                     });
@@ -1708,9 +1730,8 @@ fn try_verify_p2sh_multisig_fast_path(
         return Some(Ok(false));
     };
 
-    const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     let height = block_height.unwrap_or(0);
-    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+    if (flags & flags::SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
         return Some(Ok(false));
     }
 
@@ -1926,9 +1947,8 @@ fn try_verify_bare_multisig_fast_path(
         return Some(Ok(false));
     };
 
-    const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
     let height = block_height.unwrap_or(0);
-    if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+    if (flags & flags::SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
         return Some(Ok(false));
     }
 
@@ -2222,8 +2242,7 @@ fn try_verify_p2sh_fast_path(
         usize,
     )>,
 ) -> Option<Result<bool>> {
-    const SCRIPT_VERIFY_P2SH: u32 = 0x01;
-    if (flags & SCRIPT_VERIFY_P2SH) == 0 {
+    if (flags & flags::SCRIPT_VERIFY_P2SH) == 0 {
         return None;
     }
     // P2SH scriptPubKey: 23 bytes = OP_HASH160 PUSH_20_BYTES <20 bytes> OP_EQUAL
@@ -2405,12 +2424,107 @@ fn try_verify_p2sh_fast_path(
         sighash_cache,
     );
     // Base eval returns Ok(true) without looking at the stack. VerifyScript
-    // still requires a truthy top, so a redeem of OP_0 fails.
+    // still requires a truthy top, so a redeem of OP_0 fails. A clean stack
+    // is one truthy item, and only when that policy flag is set.
     let result = match result {
-        Ok(true) => Ok(!stack.is_empty() && cast_to_bool(stack.last().expect("redeem stack"))),
+        Ok(true) => {
+            let top_true =
+                !stack.is_empty() && cast_to_bool(stack.last().expect("redeem stack"));
+            let ok = if flags & flags::SCRIPT_VERIFY_CLEANSTACK != 0 {
+                stack.len() == 1 && top_true
+            } else {
+                top_true
+            };
+            Ok(ok)
+        }
         other => other,
     };
     Some(result)
+}
+
+/// DER, BIP66, strict encoding, optional SoA collect, then witness-v0 ECDSA.
+///
+/// Default-on SoA collect; set `BLVM_P2WPKH_SOA=0` to disable. A deferred GPU
+/// path false-rejected mainnet block 497110 tx 330, so the env gate stays.
+#[cfg(feature = "production")]
+fn finish_p2wpkh_ecdsa(
+    signature_bytes: &[u8],
+    pubkey_bytes: &[u8],
+    sighash: &[u8; 32],
+    flags: u32,
+    height: u64,
+    network: crate::types::Network,
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))] ecdsa_collect: Option<(
+        &crate::ecdsa_batch::EcdsaSignatureCollector,
+        usize,
+    )>,
+) -> Result<bool> {
+    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
+    let strict_der = flags & 0x04 != 0;
+    let enforce_low_s = flags & 0x08 != 0;
+    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+
+    if strict_der
+        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
+            .unwrap_or(false)
+    {
+        return Ok(false);
+    }
+
+    if flags & 0x02 != 0 {
+        let sighash_base = sighash_byte & !0x80;
+        if !(0x01..=0x03).contains(&sighash_base) {
+            return Ok(false);
+        }
+        match pubkey_bytes.len() {
+            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
+            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
+            33 | 65 => {}
+            _ => return Ok(false),
+        }
+    }
+
+    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+    if let Some((collector, global_idx)) = ecdsa_collect {
+        if std::env::var_os("BLVM_P2WPKH_SOA").is_none_or(|v| v != "0") {
+            let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
+                der_sig,
+                strict_der,
+                enforce_low_s,
+            ) {
+                Some(c) => c,
+                None => return Ok(false),
+            };
+            let pk33 = match pubkey_bytes.len() {
+                33 => {
+                    let mut a = [0u8; 33];
+                    a.copy_from_slice(pubkey_bytes);
+                    a
+                }
+                65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
+                    Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
+                    None => return Ok(false),
+                },
+                _ => return Ok(false),
+            };
+            collector.collect_with_index(global_idx, sighash, &pk33, &compact);
+            return Ok(true);
+        }
+    }
+
+    Ok(signature::with_secp_context(|secp| {
+        signature::verify_signature(
+            secp,
+            pubkey_bytes,
+            signature_bytes,
+            sighash,
+            flags,
+            height,
+            network,
+            SigVersion::WitnessV0,
+        )
+    })
+    .unwrap_or(false))
 }
 
 /// Native P2WPKH inline verify (BIP143). Caller must gate scriptPubKey / witness shape.
@@ -2472,73 +2586,16 @@ pub fn verify_p2wpkh_inline(
         )?
     };
 
-    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
-    let strict_der = flags & 0x04 != 0;
-    let enforce_low_s = flags & 0x08 != 0;
-
-    if strict_der
-        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
-            .unwrap_or(false)
-    {
-        return Ok(false);
-    }
-
-    if flags & 0x02 != 0 {
-        let sighash_base = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
-
-    // P2WPKH SoA collect disabled: deferred GPU path false-rejected mainnet @497110 tx330.
-    // Default-on SoA collect; set BLVM_P2WPKH_SOA=0 to disable (bisect).
-    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-    if let Some((collector, global_idx)) = ecdsa_collect {
-        if std::env::var_os("BLVM_P2WPKH_SOA").is_none_or(|v| v != "0") {
-            let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
-                der_sig,
-                strict_der,
-                enforce_low_s,
-            ) {
-                Some(c) => c,
-                None => return Ok(false),
-            };
-            let pk33 = match pubkey_bytes.len() {
-                33 => {
-                    let mut a = [0u8; 33];
-                    a.copy_from_slice(pubkey_bytes);
-                    a
-                }
-                65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
-                    Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
-                    None => return Ok(false),
-                },
-                _ => return Ok(false),
-            };
-            collector.collect_with_index(global_idx, &sighash, &pk33, &compact);
-            return Ok(true);
-        }
-    }
-
-    Ok(signature::with_secp_context(|secp| {
-        signature::verify_signature(
-            secp,
-            pubkey_bytes,
-            signature_bytes,
-            &sighash,
-            flags,
-            height,
-            network,
-            SigVersion::WitnessV0,
-        )
-    })
-    .unwrap_or(false))
+    finish_p2wpkh_ecdsa(
+        signature_bytes,
+        pubkey_bytes,
+        &sighash,
+        flags,
+        height,
+        network,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        ecdsa_collect,
+    )
 }
 
 /// The script is one data push. Numeric opcodes are not this pattern.
@@ -2614,72 +2671,16 @@ pub fn verify_p2wpkh_in_p2sh_inline(
         precomputed_bip143,
     )?;
 
-    let der_sig = &signature_bytes[..signature_bytes.len() - 1];
-    let strict_der = flags & 0x04 != 0;
-    let enforce_low_s = flags & 0x08 != 0;
-
-    if strict_der
-        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)
-            .unwrap_or(false)
-    {
-        return Ok(false);
-    }
-
-    if flags & 0x02 != 0 {
-        let sighash_base = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
-
-    // Nested P2WPKH SoA: same gate as native (BLVM_P2WPKH_SOA=0 disables).
-    #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
-    if let Some((collector, global_idx)) = ecdsa_collect {
-        if std::env::var_os("BLVM_P2WPKH_SOA").is_none_or(|v| v != "0") {
-            let compact = match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(
-                der_sig,
-                strict_der,
-                enforce_low_s,
-            ) {
-                Some(c) => c,
-                None => return Ok(false),
-            };
-            let pk33 = match pubkey_bytes.len() {
-                33 => {
-                    let mut a = [0u8; 33];
-                    a.copy_from_slice(pubkey_bytes);
-                    a
-                }
-                65 => match blvm_secp256k1::ecdsa::ge_from_pubkey_bytes(pubkey_bytes) {
-                    Some(ge) => blvm_secp256k1::ecdsa::ge_to_compressed(&ge),
-                    None => return Ok(false),
-                },
-                _ => return Ok(false),
-            };
-            collector.collect_with_index(global_idx, &sighash, &pk33, &compact);
-            return Ok(true);
-        }
-    }
-
-    Ok(signature::with_secp_context(|secp| {
-        signature::verify_signature(
-            secp,
-            pubkey_bytes,
-            signature_bytes,
-            &sighash,
-            flags,
-            height,
-            network,
-            SigVersion::WitnessV0,
-        )
-    })
-    .unwrap_or(false))
+    finish_p2wpkh_ecdsa(
+        signature_bytes,
+        pubkey_bytes,
+        &sighash,
+        flags,
+        height,
+        network,
+        #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
+        ecdsa_collect,
+    )
 }
 
 /// P2WPKH fast-path (SegWit P2PKH). ScriptPubKey OP_0 <20-byte-hash>, witness [sig, pubkey].
@@ -2761,8 +2762,7 @@ fn try_verify_p2wpkh_in_p2sh_fast_path(
     if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS == 0 {
         return None;
     }
-    const SCRIPT_VERIFY_P2SH: u32 = 0x01;
-    if (flags & SCRIPT_VERIFY_P2SH) == 0 {
+    if (flags & flags::SCRIPT_VERIFY_P2SH) == 0 {
         return None;
     }
     if script_pubkey.len() != 23
@@ -2890,8 +2890,7 @@ pub(crate) fn try_verify_p2wsh_in_p2sh_fast_path(
     if flags & crate::script::flags::SCRIPT_VERIFY_WITNESS == 0 {
         return None;
     }
-    const SCRIPT_VERIFY_P2SH: u32 = 0x01;
-    if (flags & SCRIPT_VERIFY_P2SH) == 0 {
+    if (flags & flags::SCRIPT_VERIFY_P2SH) == 0 {
         return None;
     }
     if script_pubkey.len() != 23
@@ -3120,9 +3119,8 @@ pub(crate) fn try_verify_p2wsh_fast_path(
                 return Some(Ok(false));
             };
 
-            const SCRIPT_VERIFY_NULLDUMMY: u32 = 0x10;
             let height = block_height.unwrap_or(0);
-            if (flags & SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
+            if (flags & flags::SCRIPT_VERIFY_NULLDUMMY) != 0 && !dummy.is_empty() {
                 return Some(Ok(false));
             }
 
@@ -3789,8 +3787,7 @@ pub fn verify_script_with_context_full(
     // P2SH handling: If SCRIPT_VERIFY_P2SH flag is set and scriptPubkey is P2SH format,
     // we need to check scriptSig push-only BEFORE executing it
     // P2SH scriptPubkey format: OP_HASH160 <20-byte-hash> OP_EQUAL
-    const SCRIPT_VERIFY_P2SH: u32 = 0x01;
-    let is_p2sh = (flags & SCRIPT_VERIFY_P2SH) != 0
+    let is_p2sh = (flags & flags::SCRIPT_VERIFY_P2SH) != 0
         && script_pubkey.len() == 23  // OP_HASH160 (1) + push 20 (1) + 20 bytes + OP_EQUAL (1) = 23
         && script_pubkey[0] == OP_HASH160   // OP_HASH160
         && script_pubkey[1] == PUSH_20_BYTES   // push 20 bytes
@@ -4046,10 +4043,8 @@ pub fn verify_script_with_context_full(
     let is_direct_witness_program = witness_flag
         && redeem_script.is_none()
         && !is_taproot
-        && script_pubkey.len() >= 3
-        && script_pubkey[0] == OP_0
-        && ((script_pubkey[1] == PUSH_20_BYTES && script_pubkey.len() == 22)
-            || (script_pubkey[1] == PUSH_32_BYTES && script_pubkey.len() == 34));
+        && crate::witness::is_standard_witness_program(script_pubkey)
+        && script_pubkey[0] == OP_0;
 
     if is_direct_witness_program {
         // scriptPubKey execution leaves the program on top. A false program
@@ -4312,10 +4307,8 @@ pub fn verify_script_with_context_full(
         // Witness program format: OP_0 (0x00) + push opcode + program bytes
         // P2WPKH: [OP_0, PUSH_20_BYTES, <20 bytes>] = 22 bytes total
         // P2WSH: [OP_0, PUSH_32_BYTES, <32 bytes>] = 34 bytes total
-        let is_witness_program = redeem.len() >= 3
-            && redeem[0] == OP_0  // OP_0 (witness version 0)
-            && ((redeem[1] == PUSH_20_BYTES && redeem.len() == 22)  // P2WPKH: push 20 bytes, total 22
-                || (redeem[1] == PUSH_32_BYTES && redeem.len() == 34)); // P2WSH: push 32 bytes, total 34
+        let is_witness_program = crate::witness::is_standard_witness_program(redeem)
+            && redeem[0] == OP_0;
 
         if witness_flag && crate::witness::is_invalid_v0_witness_program(redeem) {
             return Ok(false);
@@ -4540,9 +4533,7 @@ pub fn verify_script_with_context_full(
     // This is only a consensus rule for witness scripts (handled above in witness paths).
     // For legacy scripts in block validation, only the top stack element is checked
     // to be truthy (non-empty and non-zero). CLEANSTACK for legacy is mempool policy only.
-    const SCRIPT_VERIFY_CLEANSTACK: u32 = 0x100;
-
-    let final_result = if (flags & SCRIPT_VERIFY_CLEANSTACK) != 0 {
+    let final_result = if (flags & flags::SCRIPT_VERIFY_CLEANSTACK) != 0 {
         // CLEANSTACK: exactly one element, must be truthy
         stack.len() == 1 && cast_to_bool(&stack[0])
     } else {
@@ -4744,75 +4735,11 @@ fn eval_script_with_context_full_inner(
 
         // Handle push opcodes (0x01-0x4b: direct push, OP_PUSHDATA1/2/4)
         if (0x01..=OP_PUSHDATA4).contains(&opcode) {
-            let (data, advance) = if opcode <= 0x4b {
-                // Direct push: opcode is the length (1-75 bytes)
-                let len = opcode as usize;
-                if i + 1 + len > script.len() {
-                    return Ok(false); // Script truncated
-                }
-                (&script[i + 1..i + 1 + len], 1 + len)
-            } else if opcode == OP_PUSHDATA1 {
-                // OP_PUSHDATA1: next byte is length
-                if i + 1 >= script.len() {
-                    return Ok(false);
-                }
-                let len = script[i + 1] as usize;
-                if i + 2 + len > script.len() {
-                    return Ok(false);
-                }
-                (&script[i + 2..i + 2 + len], 2 + len)
-            } else if opcode == OP_PUSHDATA2 {
-                // OP_PUSHDATA2: next 2 bytes (little-endian) are length
-                if i + 2 >= script.len() {
-                    return Ok(false);
-                }
-                let len = u16::from_le_bytes([script[i + 1], script[i + 2]]) as usize;
-                if i + 3 + len > script.len() {
-                    return Ok(false);
-                }
-                (&script[i + 3..i + 3 + len], 3 + len)
-            } else {
-                // OP_PUSHDATA4: next 4 bytes (little-endian) are length
-                // Use saturating arithmetic to avoid overflow on 32-bit platforms
-                if i + 4 >= script.len() {
-                    return Ok(false);
-                }
-                let len = u32::from_le_bytes([
-                    script[i + 1],
-                    script[i + 2],
-                    script[i + 3],
-                    script[i + 4],
-                ]) as usize;
-                let data_start = i.saturating_add(5);
-                let data_end = data_start.saturating_add(len);
-                let advance = 5usize.saturating_add(len);
-                if advance < 5 || data_end > script.len() || data_end < data_start {
-                    return Ok(false); // Overflow or out-of-bounds
-                }
-                (&script[data_start..data_end], advance)
-            };
-
-            if data.len() > MAX_SCRIPT_ELEMENT_SIZE {
-                return Err(ConsensusError::ScriptErrorWithCode {
-                    code: ScriptErrorCode::PushSize,
-                    message: format!(
-                        "Push data size {} exceeds maximum {}",
-                        data.len(),
-                        MAX_SCRIPT_ELEMENT_SIZE
-                    )
-                    .into(),
-                });
-            }
-            if !in_false_branch
-                && (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
-                && !push_encoding_is_minimal(opcode, data)
-            {
+            let Some(advance) =
+                apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
+            else {
                 return Ok(false);
-            }
-            // Only push data if not in a non-executing branch
-            if !in_false_branch {
-                stack.push(to_stack_element(data));
-            }
+            };
             i += advance;
             continue;
         }
@@ -5016,20 +4943,12 @@ fn eval_script_with_context_full_inner(
                         message: "OP_IF: empty stack".into(),
                     });
                 }
-                let condition_bytes = stack.pop().unwrap();
-                let condition = cast_to_bool(&condition_bytes);
-
-                const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                let enforce_minimal_if = sigversion == SigVersion::Tapscript
-                    || (sigversion == SigVersion::WitnessV0
-                        && flags & SCRIPT_VERIFY_MINIMALIF != 0);
-                if enforce_minimal_if && !control_flow::is_minimal_if_condition(&condition_bytes) {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::MinimalIf,
-                        message: "OP_IF condition must be minimally encoded".into(),
-                    });
-                }
-
+                let condition = pop_if_condition(
+                    stack,
+                    flags,
+                    sigversion,
+                    "OP_IF condition must be minimally encoded",
+                )?;
                 control_stack.push(control_flow::ControlBlock::If {
                     executing: condition,
                 });
@@ -5048,20 +4967,12 @@ fn eval_script_with_context_full_inner(
                         message: "OP_NOTIF: empty stack".into(),
                     });
                 }
-                let condition_bytes = stack.pop().unwrap();
-                let condition = cast_to_bool(&condition_bytes);
-
-                const SCRIPT_VERIFY_MINIMALIF: u32 = 0x2000;
-                let enforce_minimal_if = sigversion == SigVersion::Tapscript
-                    || (sigversion == SigVersion::WitnessV0
-                        && flags & SCRIPT_VERIFY_MINIMALIF != 0);
-                if enforce_minimal_if && !control_flow::is_minimal_if_condition(&condition_bytes) {
-                    return Err(ConsensusError::ScriptErrorWithCode {
-                        code: ScriptErrorCode::MinimalIf,
-                        message: "OP_NOTIF condition must be minimally encoded".into(),
-                    });
-                }
-
+                let condition = pop_if_condition(
+                    stack,
+                    flags,
+                    sigversion,
+                    "OP_NOTIF condition must be minimally encoded",
+                )?;
                 control_stack.push(control_flow::ControlBlock::NotIf {
                     executing: !condition,
                 });
@@ -5123,8 +5034,17 @@ fn eval_script_with_context_full_inner(
                 }
                 stack.push(altstack.pop().unwrap());
             }
-            // OP_CODESEPARATOR - update sighash script code start position
+            // OP_CODESEPARATOR - update sighash script code start position.
+            // Standardness rejects it in a non-segwit script, including an unexecuted branch.
             OP_CODESEPARATOR => {
+                if sigversion == SigVersion::Base
+                    && flags & crate::script::flags::SCRIPT_VERIFY_CONST_SCRIPTCODE != 0
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::BadOpcode,
+                        message: "OP_CODESEPARATOR is non-standard in a non-segwit script".into(),
+                    });
+                }
                 if in_false_branch {
                     i += 1;
                     continue;
@@ -5410,6 +5330,44 @@ fn upgradable_nop(flags: u32) -> Result<bool> {
     Ok(true)
 }
 
+/// Pop the CHECKMULTISIG stack (n pubkeys, m signatures, dummy) without verifying.
+/// `None` is a script failure. The caller decides the 0-of-n result.
+fn pop_nocheck_multisig(stack: &mut Vec<StackElement>) -> Option<usize> {
+    if stack.is_empty() {
+        return None;
+    }
+    let n_bytes = stack.pop().unwrap();
+    let n = match script_num_decode(&n_bytes, 4) {
+        Ok(v) if (0..=20).contains(&v) => v as usize,
+        _ => return None,
+    };
+    if stack.len() < n {
+        return None;
+    }
+    for _ in 0..n {
+        stack.pop();
+    }
+    if stack.is_empty() {
+        return None;
+    }
+    let m_bytes = stack.pop().unwrap();
+    let m = match script_num_decode(&m_bytes, 4) {
+        Ok(v) if v >= 0 && v as usize <= n => v as usize,
+        _ => return None,
+    };
+    if stack.len() < m {
+        return None;
+    }
+    for _ in 0..m {
+        stack.pop();
+    }
+    if stack.is_empty() {
+        return None;
+    }
+    stack.pop();
+    Some(m)
+}
+
 /// Execute a single opcode (currently ignores sigversion; accepts it for future compatibility)
 #[cfg_attr(feature = "production", inline(always))]
 fn execute_opcode(
@@ -5533,8 +5491,7 @@ fn execute_opcode(
         // When SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY flag is not set, behaves as NOP (BIP65 rule).
         // With the flag set but no tx context, fails. Use verify_script_with_context for full CLTV.
         OP_CHECKLOCKTIMEVERIFY => {
-            const SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY: u32 = 0x200;
-            if (flags & SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
+            if (flags & flags::SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
                 Ok(true)
             } else {
                 Ok(false)
@@ -5545,8 +5502,7 @@ fn execute_opcode(
         // When SCRIPT_VERIFY_CHECKSEQUENCEVERIFY flag is not set, behaves as NOP (BIP112 rule).
         // With the flag set but no tx context, fails. Use verify_script_with_context for full CSV.
         OP_CHECKSEQUENCEVERIFY => {
-            const SCRIPT_VERIFY_CHECKSEQUENCEVERIFY: u32 = 0x400;
-            if (flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY) == 0 {
+            if (flags & flags::SCRIPT_VERIFY_CHECKSEQUENCEVERIFY) == 0 {
                 Ok(true)
             } else {
                 Ok(false)
@@ -5957,39 +5913,9 @@ fn execute_opcode(
         // (no signatures to verify). Vectors requiring real ECDSA verification need
         // verify_script_with_context_full.
         OP_CHECKMULTISIG => {
-            if stack.is_empty() {
+            let Some(m) = pop_nocheck_multisig(stack) else {
                 return Ok(false);
-            }
-            let n_bytes = stack.pop().unwrap();
-            let n = match script_num_decode(&n_bytes, 4) {
-                Ok(v) if (0..=20).contains(&v) => v as usize,
-                _ => return Ok(false),
             };
-            if stack.len() < n {
-                return Ok(false);
-            }
-            for _ in 0..n {
-                stack.pop();
-            }
-            if stack.is_empty() {
-                return Ok(false);
-            }
-            let m_bytes = stack.pop().unwrap();
-            let m = match script_num_decode(&m_bytes, 4) {
-                Ok(v) if v >= 0 && v as usize <= n => v as usize,
-                _ => return Ok(false),
-            };
-            if stack.len() < m {
-                return Ok(false);
-            }
-            for _ in 0..m {
-                stack.pop();
-            }
-            // Pop the mandatory dummy element (Bitcoin off-by-one quirk)
-            if stack.is_empty() {
-                return Ok(false);
-            }
-            stack.pop();
             // Without tx context only 0-sig multisig can succeed
             stack.push(to_stack_element(script_bool_bytes(m == 0)));
             Ok(true)
@@ -5997,39 +5923,9 @@ fn execute_opcode(
 
         // OP_CHECKMULTISIGVERIFY - CHECKMULTISIG then VERIFY
         OP_CHECKMULTISIGVERIFY => {
-            if stack.is_empty() {
+            let Some(m) = pop_nocheck_multisig(stack) else {
                 return Ok(false);
-            }
-            let n_bytes = stack.pop().unwrap();
-            let n = match script_num_decode(&n_bytes, 4) {
-                Ok(v) if (0..=20).contains(&v) => v as usize,
-                _ => return Ok(false),
             };
-            if stack.len() < n {
-                return Ok(false);
-            }
-            for _ in 0..n {
-                stack.pop();
-            }
-            if stack.is_empty() {
-                return Ok(false);
-            }
-            let m_bytes = stack.pop().unwrap();
-            let m = match script_num_decode(&m_bytes, 4) {
-                Ok(v) if v >= 0 && v as usize <= n => v as usize,
-                _ => return Ok(false),
-            };
-            if stack.len() < m {
-                return Ok(false);
-            }
-            for _ in 0..m {
-                stack.pop();
-            }
-            if stack.is_empty() {
-                return Ok(false);
-            }
-            stack.pop();
-            // Verify: succeed only if m == 0
             Ok(m == 0)
         }
 
@@ -6904,6 +6800,123 @@ fn eval_checksig_tapscript(
     Ok(Some(success))
 }
 
+/// ECDSA CHECKSIG shared by `OP_CHECKSIG` and `OP_CHECKSIGVERIFY`.
+///
+/// Returns whether the signature is valid. The caller applies the empty-signature
+/// policy, NULLFAIL, and the stack result. `redeem_script_for_sighash` is the
+/// effective script code for this opcode, which can differ from `ctx`.
+#[cfg_attr(feature = "production", inline(always))]
+fn eval_checksig_ecdsa(
+    ctx: &context::ScriptContext<'_>,
+    flags: u32,
+    signature_bytes: &[u8],
+    pubkey_bytes: &[u8],
+    redeem_script_for_sighash: Option<&[u8]>,
+) -> Result<bool> {
+    let tx = ctx.tx;
+    let input_index = ctx.input_index;
+    let prevout_values = ctx.prevout_values;
+    let prevout_script_pubkeys = ctx.prevout_script_pubkeys;
+    let block_height = ctx.block_height;
+    let network = ctx.network;
+    let sigversion = ctx.sigversion;
+    let precomputed_bip143 = ctx.precomputed_bip143;
+    #[cfg(feature = "production")]
+    let sighash_cache = ctx.sighash_cache;
+
+    let sig_len = signature_bytes.len();
+    let sighash_byte = signature_bytes[sig_len - 1];
+    let _der_sig = &signature_bytes[..sig_len - 1];
+
+    let sighash = if sigversion == SigVersion::WitnessV0 {
+        let amount = prevout_values.get(input_index).copied().unwrap_or(0);
+        let script_code = redeem_script_for_sighash.unwrap_or_else(|| {
+            prevout_script_pubkeys
+                .get(input_index)
+                .copied()
+                .unwrap_or(&[])
+        });
+        crate::transaction_hash::calculate_bip143_sighash(
+            tx,
+            input_index,
+            script_code,
+            amount,
+            sighash_byte,
+            precomputed_bip143,
+        )?
+    } else {
+        use crate::transaction_hash::{
+            SighashType, calculate_transaction_sighash_single_input,
+        };
+        let sighash_type = SighashType::from_byte(sighash_byte);
+        let sig = signature_bytes;
+        let base_script = match (
+            redeem_script_for_sighash,
+            prevout_script_pubkeys.get(input_index),
+        ) {
+            (Some(redeem), Some(prevout)) if redeem == *prevout => *prevout,
+            (Some(redeem), _) => redeem,
+            (None, Some(prevout)) => *prevout,
+            (None, None) => &[],
+        };
+        let cleaned = if sig.len().saturating_add(1) > base_script.len() {
+            std::borrow::Cow::Borrowed(base_script)
+        } else {
+            with_push_pattern(sig, |pattern| find_and_delete(base_script, pattern))
+        };
+        // Standardness only. Block connect does not set this flag. A witness
+        // script may still contain the signature; this branch is non-segwit.
+        if sigversion == SigVersion::Base
+            && flags & crate::script::flags::SCRIPT_VERIFY_CONST_SCRIPTCODE != 0
+            && matches!(cleaned, std::borrow::Cow::Owned(_))
+        {
+            return Err(ConsensusError::ScriptErrorWithCode {
+                code: ScriptErrorCode::SigFindAndDelete,
+                message: "signature is in the non-segwit script code".into(),
+            });
+        }
+        calculate_transaction_sighash_single_input(
+            tx,
+            input_index,
+            cleaned.as_ref(),
+            prevout_values[input_index],
+            sighash_type,
+            #[cfg(feature = "production")]
+            sighash_cache,
+        )?
+    };
+
+    let height = block_height.unwrap_or(0);
+    #[cfg(feature = "production")]
+    let is_valid = signature::with_secp_context(|secp| {
+        signature::verify_signature(
+            secp,
+            pubkey_bytes,
+            signature_bytes,
+            &sighash,
+            flags,
+            height,
+            network,
+            sigversion,
+        )
+    })?;
+    #[cfg(not(feature = "production"))]
+    let is_valid = {
+        let secp = signature::new_secp();
+        signature::verify_signature(
+            &secp,
+            pubkey_bytes,
+            signature_bytes,
+            &sighash,
+            flags,
+            height,
+            network,
+            sigversion,
+        )?
+    };
+    Ok(is_valid)
+}
+
 /// Execute a single opcode with full context including block height, median time-past, and network
 #[cfg_attr(feature = "production", inline(always))]
 fn execute_opcode_with_context_full(
@@ -6954,113 +6967,49 @@ fn execute_opcode_with_context_full(
                     };
                 }
 
-                // Empty signature always fails but is valid script execution
+                // Empty signature always fails but is valid script execution.
+                // The public key is still checked: a hybrid key, and an uncompressed
+                // witness v0 key, fail the script before the false result can be dropped.
                 if signature_bytes.is_empty() {
+                    let compressed_or_uncompressed = matches!(
+                        (pubkey_bytes.first(), pubkey_bytes.len()),
+                        (Some(0x04), 65) | (Some(0x02 | 0x03), 33)
+                    );
+                    if flags & flags::SCRIPT_VERIFY_STRICTENC != 0 && !compressed_or_uncompressed {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::PubkeyType,
+                            message: "public key must be compressed or uncompressed".into(),
+                        });
+                    }
+                    if sigversion == SigVersion::WitnessV0
+                        && flags & flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE != 0
+                        && !(pubkey_bytes.len() == 33
+                            && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
+                    {
+                        return Err(ConsensusError::ScriptErrorWithCode {
+                            code: ScriptErrorCode::WitnessPubkeyType,
+                            message: "witness v0 pubkey must be compressed".into(),
+                        });
+                    }
                     stack.push(to_stack_element(&[]));
                     return Ok(true);
                 }
 
-                // Extract sighash type from last byte of signature
-                // Bitcoin signature format: <DER signature><sighash_type>
-                // OPTIMIZATION: Cache length to avoid repeated computation
-                let sig_len = signature_bytes.len();
-                let sighash_byte = signature_bytes[sig_len - 1];
-                let _der_sig = &signature_bytes[..sig_len - 1];
+                let is_valid = eval_checksig_ecdsa(
+                    ctx,
+                    flags,
+                    &signature_bytes,
+                    &pubkey_bytes,
+                    redeem_script_for_sighash,
+                )?;
 
-                // Calculate sighash - use BIP143 for SegWit, legacy for others
-                // BIP143 OPTIMIZATION: For SegWit, hashPrevouts/hashSequence/hashOutputs
-                // are computed once per transaction, not once per input.
-                let sighash = if sigversion == SigVersion::WitnessV0 {
-                    // BIP143 sighash for SegWit v0 (P2WPKH, P2WSH)
-                    let amount = prevout_values.get(input_index).copied().unwrap_or(0);
-
-                    // scriptCode for BIP143: the witnessScript or P2PKH equivalent
-                    let script_code = redeem_script_for_sighash.unwrap_or_else(|| {
-                        prevout_script_pubkeys
-                            .get(input_index)
-                            .copied()
-                            .unwrap_or(&[])
+                if !is_valid && flags & flags::SCRIPT_VERIFY_NULLFAIL != 0 {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::SigNullFail,
+                        message: "OP_CHECKSIG: non-null signature must not fail under NULLFAIL"
+                            .into(),
                     });
-
-                    crate::transaction_hash::calculate_bip143_sighash(
-                        tx,
-                        input_index,
-                        script_code,
-                        amount,
-                        sighash_byte,
-                        precomputed_bip143,
-                    )?
-                } else {
-                    // Legacy sighash for non-SegWit transactions
-                    use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
-                    };
-                    let sighash_type = SighashType::from_byte(sighash_byte);
-
-                    // FindAndDelete: remove the *current* signature's push encoding from scriptCode.
-                    // Must not use only the first scriptSig push — P2SH inputs may contain multiple
-                    // signatures before the redeem script, each checked with its own sighash.
-                    let sig = signature_bytes.as_ref();
-
-                    let base_script = match (
-                        redeem_script_for_sighash,
-                        prevout_script_pubkeys.get(input_index),
-                    ) {
-                        (Some(redeem), Some(prevout)) if redeem == *prevout => *prevout,
-                        (Some(redeem), _) => redeem,
-                        (None, Some(prevout)) => *prevout,
-                        (None, None) => &[],
-                    };
-                    let cleaned = if sig.len().saturating_add(1) > base_script.len() {
-                        std::borrow::Cow::Borrowed(base_script)
-                    } else {
-                        with_push_pattern(sig, |pattern| find_and_delete(base_script, pattern))
-                    };
-
-                    calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        cleaned.as_ref(),
-                        prevout_values[input_index],
-                        sighash_type,
-                        #[cfg(feature = "production")]
-                        sighash_cache,
-                    )?
-                };
-
-                // Verify signature with real transaction hash
-                // CRITICAL FIX: Pass full signature (with sighash byte) to verify_signature
-                // IsValidSignatureEncoding expects signature WITH sighash byte
-                let height = block_height.unwrap_or(0);
-                #[cfg(feature = "production")]
-                let is_valid = signature::with_secp_context(|secp| {
-                    signature::verify_signature(
-                        secp,
-                        &pubkey_bytes,
-                        &signature_bytes, // Pass full signature WITH sighash byte
-                        &sighash,
-                        flags,
-                        height,
-                        network,
-                        sigversion,
-                    )
-                })?;
-
-                #[cfg(not(feature = "production"))]
-                let is_valid = {
-                    let secp = signature::new_secp();
-                    signature::verify_signature(
-                        &secp,
-                        &pubkey_bytes,
-                        &signature_bytes, // Pass full signature WITH sighash byte
-                        &sighash,
-                        flags,
-                        height,
-                        network,
-                        sigversion,
-                    )?
-                };
-
+                }
                 stack.push(to_stack_element(script_bool_bytes(is_valid)));
                 Ok(true)
             } else {
@@ -7091,104 +7040,14 @@ fn execute_opcode_with_context_full(
                     return Ok(false);
                 }
 
-                // Legacy / SegWit v0: ECDSA path
-                // Extract sighash type from last byte of signature
-                let sig_len = signature_bytes.len();
-                let sighash_byte = signature_bytes[sig_len - 1];
-                let _der_sig = &signature_bytes[..sig_len - 1];
-
-                // Calculate sighash - use BIP143 for SegWit, legacy for others
-                // BIP143 OPTIMIZATION: For SegWit, hashPrevouts/hashSequence/hashOutputs
-                // are computed once per transaction, not once per input.
-                let sighash = if sigversion == SigVersion::WitnessV0 {
-                    // BIP143 sighash for SegWit v0 (P2WPKH, P2WSH)
-                    let amount = prevout_values.get(input_index).copied().unwrap_or(0);
-
-                    let script_code = redeem_script_for_sighash.unwrap_or_else(|| {
-                        prevout_script_pubkeys
-                            .get(input_index)
-                            .copied()
-                            .unwrap_or(&[])
-                    });
-
-                    crate::transaction_hash::calculate_bip143_sighash(
-                        tx,
-                        input_index,
-                        script_code,
-                        amount,
-                        sighash_byte,
-                        precomputed_bip143,
-                    )?
-                } else {
-                    // Legacy sighash for non-SegWit transactions
-                    use crate::transaction_hash::{
-                        SighashType, calculate_transaction_sighash_single_input,
-                    };
-                    let sighash_type = SighashType::from_byte(sighash_byte);
-
-                    // FindAndDelete: remove the signature under verification (not first scriptSig push).
-                    let sig = signature_bytes.as_ref();
-
-                    let base_script = match (
-                        redeem_script_for_sighash,
-                        prevout_script_pubkeys.get(input_index),
-                    ) {
-                        (Some(redeem), Some(prevout)) if redeem == *prevout => *prevout,
-                        (Some(redeem), _) => redeem,
-                        (None, Some(prevout)) => *prevout,
-                        (None, None) => &[],
-                    };
-                    let cleaned = if sig.len().saturating_add(1) > base_script.len() {
-                        std::borrow::Cow::Borrowed(base_script)
-                    } else {
-                        with_push_pattern(sig, |pattern| find_and_delete(base_script, pattern))
-                    };
-
-                    calculate_transaction_sighash_single_input(
-                        tx,
-                        input_index,
-                        cleaned.as_ref(),
-                        prevout_values[input_index],
-                        sighash_type,
-                        #[cfg(feature = "production")]
-                        sighash_cache,
-                    )?
-                };
-
-                // Verify signature with real transaction hash
-                // CRITICAL FIX: Pass full signature (with sighash byte) to verify_signature
-                // IsValidSignatureEncoding expects signature WITH sighash byte
-                let height = block_height.unwrap_or(0);
-                #[cfg(feature = "production")]
-                let is_valid = signature::with_secp_context(|secp| {
-                    signature::verify_signature(
-                        secp,
-                        &pubkey_bytes,
-                        &signature_bytes, // Pass full signature WITH sighash byte
-                        &sighash,
-                        flags,
-                        height,
-                        network,
-                        sigversion,
-                    )
-                })?;
-
-                #[cfg(not(feature = "production"))]
-                let is_valid = {
-                    let secp = signature::new_secp();
-                    signature::verify_signature(
-                        &secp,
-                        &pubkey_bytes,
-                        &signature_bytes, // Pass full signature WITH sighash byte
-                        &sighash,
-                        flags,
-                        height,
-                        network,
-                        sigversion,
-                    )?
-                };
-
-                if is_valid { Ok(true) } else { Ok(false) }
+                let is_valid = eval_checksig_ecdsa(
+                    ctx,
+                    flags,
+                    &signature_bytes,
+                    &pubkey_bytes,
+                    redeem_script_for_sighash,
+                )?;
+                Ok(is_valid)
             } else {
                 Ok(false)
             }
@@ -7320,6 +7179,17 @@ fn execute_opcode_with_context_full(
                             .unwrap_or(&[])
                     }))
                 };
+            // Standardness only. Block connect does not set this flag. A witness
+            // script may still contain the signature; Owned means a non-segwit removal.
+            if sigversion == SigVersion::Base
+                && flags & crate::script::flags::SCRIPT_VERIFY_CONST_SCRIPTCODE != 0
+                && matches!(cleaned_script_for_multisig, std::borrow::Cow::Owned(_))
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::SigFindAndDelete,
+                    message: "signature is in the non-segwit script code".into(),
+                });
+            }
 
             use crate::transaction_hash::{
                 SighashType, calculate_transaction_sighash_single_input,
@@ -7640,8 +7510,7 @@ fn execute_opcode_with_context_full(
         // CLTV does NOT pop the stack — it only reads the top element (NOP-type opcode)
         OP_CHECKLOCKTIMEVERIFY => {
             // If CLTV flag is not enabled, behave as NOP (treat as NOP2)
-            const SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY: u32 = 0x200;
-            if (flags & SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
+            if (flags & flags::SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY) == 0 {
                 return Ok(true);
             }
 
@@ -7720,8 +7589,7 @@ fn execute_opcode_with_context_full(
             use crate::locktime::{check_bip112, decode_locktime_value, is_sequence_disabled};
 
             // If CSV flag is not enabled, behave as NOP (treat as NOP3)
-            const SCRIPT_VERIFY_CHECKSEQUENCEVERIFY: u32 = 0x400;
-            if (flags & SCRIPT_VERIFY_CHECKSEQUENCEVERIFY) == 0 {
+            if (flags & flags::SCRIPT_VERIFY_CHECKSEQUENCEVERIFY) == 0 {
                 return Ok(true);
             }
 

@@ -546,24 +546,6 @@ fn update_varint(hasher: &mut sha2::Sha256, value: u64) {
     }
 }
 
-/// Write varint to a byte buffer.
-#[cfg(feature = "production")]
-#[inline]
-fn push_varint(buf: &mut Vec<u8>, value: u64) {
-    if value < 0xfd {
-        buf.push(value as u8);
-    } else if value <= 0xffff {
-        buf.push(0xfd);
-        buf.extend_from_slice(&(value as u16).to_le_bytes());
-    } else if value <= 0xffffffff {
-        buf.push(0xfe);
-        buf.extend_from_slice(&(value as u32).to_le_bytes());
-    } else {
-        buf.push(0xff);
-        buf.extend_from_slice(&value.to_le_bytes());
-    }
-}
-
 /// Compute legacy sighash by pre-serializing the full preimage into a thread-local buffer,
 /// then hashing in one pass. Reduces function call overhead vs streaming h.update() calls.
 #[cfg(feature = "production")]
@@ -600,7 +582,7 @@ pub fn compute_legacy_sighash_buffered(
         buf.extend_from_slice(&(tx.version as u32).to_le_bytes());
 
         let n_inputs = if anyone_can_pay { 1 } else { tx.inputs.len() };
-        push_varint(&mut buf, n_inputs as u64);
+        write_varint_to_vec(&mut buf, n_inputs as u64);
 
         for i in 0..n_inputs {
             let actual_i = if anyone_can_pay { input_index } else { i };
@@ -609,7 +591,7 @@ pub fn compute_legacy_sighash_buffered(
             buf.extend_from_slice(&input.prevout.index.to_le_bytes());
 
             if actual_i == input_index {
-                push_varint(&mut buf, script_code.len() as u64);
+                write_varint_to_vec(&mut buf, script_code.len() as u64);
                 buf.extend_from_slice(script_code);
             } else {
                 buf.push(0u8);
@@ -629,7 +611,7 @@ pub fn compute_legacy_sighash_buffered(
         } else {
             tx.outputs.len()
         };
-        push_varint(&mut buf, n_outputs as u64);
+        write_varint_to_vec(&mut buf, n_outputs as u64);
 
         for i in 0..n_outputs {
             if hash_single && i != input_index {
@@ -638,7 +620,7 @@ pub fn compute_legacy_sighash_buffered(
             } else {
                 let output = &tx.outputs[i];
                 buf.extend_from_slice(&output.value.to_le_bytes());
-                push_varint(&mut buf, output.script_pubkey.len() as u64);
+                write_varint_to_vec(&mut buf, output.script_pubkey.len() as u64);
                 buf.extend_from_slice(&output.script_pubkey);
             }
         }

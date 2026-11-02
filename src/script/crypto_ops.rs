@@ -14,7 +14,7 @@ use super::SigVersion;
 use super::signature;
 use super::stack::{StackElement, to_stack_element};
 
-const SCRIPT_VERIFY_NULLFAIL: u32 = 0x4000;
+use super::flags::SCRIPT_VERIFY_NULLFAIL;
 
 /// Check if hash caching is disabled (delegates to script mod).
 #[cfg(feature = "production")]

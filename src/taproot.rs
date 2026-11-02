@@ -410,6 +410,99 @@ fn bip341_precompute(
     })
 }
 
+/// BIP341 signature message through `SIGHASH_SINGLE`.
+///
+/// `spend_type` is `0x00`/`0x01` on the key path and `0x02`/`0x03` on the script path.
+/// `anyone_label` is only the out-of-range text. The key-path prevout-length check
+/// stays in `compute_taproot_signature_hash`.
+fn append_bip341_sigmsg(
+    tx: &Transaction,
+    input_index: usize,
+    prevout_values: &[i64],
+    prevout_script_pubkeys: &[&[u8]],
+    sighash_type: u8,
+    spend_type: u8,
+    annex_hash: Option<&Hash>,
+    capacity: usize,
+    anyone_label: &str,
+) -> Result<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+
+    let input_type = sighash_type & 0x80;
+    let output_type = if sighash_type == 0x00 {
+        0x01
+    } else {
+        sighash_type & 0x03
+    };
+
+    let hashes = bip341_precompute(tx, prevout_values, prevout_script_pubkeys);
+    let mut sigmsg = Vec::with_capacity(capacity);
+
+    // epoch
+    sigmsg.push(0x00u8);
+    // hash_type
+    sigmsg.push(sighash_type);
+    // nVersion
+    sigmsg.extend_from_slice(&(tx.version as u32).to_le_bytes());
+    // nLockTime
+    sigmsg.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
+
+    if input_type != 0x80 {
+        sigmsg.extend_from_slice(&hashes.sha_prevouts);
+        sigmsg.extend_from_slice(&hashes.sha_amounts);
+        sigmsg.extend_from_slice(&hashes.sha_scriptpubkeys);
+        sigmsg.extend_from_slice(&hashes.sha_sequences);
+    }
+    if output_type == 0x01 {
+        sigmsg.extend_from_slice(&hashes.sha_outputs);
+    }
+
+    sigmsg.push(spend_type);
+
+    if input_type == 0x80 {
+        let input = tx.inputs.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature("input_index out of range".into())
+        })?;
+        sigmsg.extend_from_slice(&input.prevout.hash);
+        sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
+        let amount = *prevout_values.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                format!("prevout_values index out of range for {anyone_label}").into(),
+            )
+        })? as u64;
+        sigmsg.extend_from_slice(&amount.to_le_bytes());
+        let spk = *prevout_script_pubkeys.get(input_index).ok_or_else(|| {
+            crate::error::ConsensusError::InvalidSignature(
+                format!("prevout_script_pubkeys index out of range for {anyone_label}").into(),
+            )
+        })?;
+        sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
+        sigmsg.extend_from_slice(spk);
+        sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
+    } else {
+        sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
+    }
+
+    if let Some(h) = annex_hash {
+        sigmsg.extend_from_slice(h);
+    }
+
+    if output_type == 0x03 {
+        let Some(output) = tx.outputs.get(input_index) else {
+            return Err(crate::error::ConsensusError::InvalidSignature(
+                "SIGHASH_SINGLE has no corresponding output".into(),
+            ));
+        };
+        let mut out_data = Vec::new();
+        out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
+        out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
+        out_data.extend_from_slice(&output.script_pubkey);
+        sigmsg.extend_from_slice(&Sha256::digest(&out_data));
+    }
+
+    Ok(sigmsg)
+}
+
 /// Compute Taproot key-path signature hash following BIP341.
 ///
 /// SigMsg = epoch(1) || hash_type(1) || nVersion(4) || nLockTime(4)
@@ -429,8 +522,6 @@ pub fn compute_taproot_signature_hash(
     sighash_type: u8,
     annex_hash: Option<&Hash>,
 ) -> Result<Hash> {
-    use sha2::{Digest, Sha256};
-
     // Reject invalid sighash types (BIP341 §Common signature message)
     // Valid: 0x00 (DEFAULT/ALL), 0x01–0x03, 0x81–0x83.
     if !(sighash_type <= 0x03 || (0x81..=0x83).contains(&sighash_type)) {
@@ -449,87 +540,19 @@ pub fn compute_taproot_signature_hash(
         ));
     }
 
-    let input_type = sighash_type & 0x80; // ANYONECANPAY bit
-    let output_type = if sighash_type == 0x00 {
-        0x01
-    } else {
-        sighash_type & 0x03
-    }; // DEFAULT → ALL
-
-    let hashes = bip341_precompute(tx, prevout_values, prevout_script_pubkeys);
-
-    let mut sigmsg = Vec::with_capacity(180);
-
-    // epoch
-    sigmsg.push(0x00u8);
-    // hash_type
-    sigmsg.push(sighash_type);
-    // nVersion
-    sigmsg.extend_from_slice(&(tx.version as u32).to_le_bytes());
-    // nLockTime
-    sigmsg.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
-
-    if input_type != 0x80 {
-        // not ANYONECANPAY: include all-input hash commitments
-        sigmsg.extend_from_slice(&hashes.sha_prevouts);
-        sigmsg.extend_from_slice(&hashes.sha_amounts);
-        sigmsg.extend_from_slice(&hashes.sha_scriptpubkeys);
-        sigmsg.extend_from_slice(&hashes.sha_sequences);
-    }
-    if output_type == 0x01 {
-        // SIGHASH_ALL: include all-output hash
-        sigmsg.extend_from_slice(&hashes.sha_outputs);
-    }
-
     // spend_type: ext_flag=0 (key path), annex_present in low bit (BIP341)
     let spend_type = if annex_hash.is_some() { 0x01u8 } else { 0x00u8 };
-    sigmsg.push(spend_type);
-
-    if input_type == 0x80 {
-        // ANYONECANPAY: include this input's outpoint + amount + scriptpubkey + sequence
-        let input = tx.inputs.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature("input_index out of range".into())
-        })?;
-        sigmsg.extend_from_slice(&input.prevout.hash);
-        sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
-        // prevout slice length was validated at function entry; indexing is safe here.
-        let amount = *prevout_values.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature(
-                "prevout_values index out of range for ANYONECANPAY".into(),
-            )
-        })? as u64;
-        sigmsg.extend_from_slice(&amount.to_le_bytes());
-        let spk = *prevout_script_pubkeys.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature(
-                "prevout_script_pubkeys index out of range for ANYONECANPAY".into(),
-            )
-        })?;
-        sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
-        sigmsg.extend_from_slice(spk);
-        sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
-    } else {
-        // include input_index
-        sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
-    }
-
-    if let Some(h) = annex_hash {
-        sigmsg.extend_from_slice(h);
-    }
-
-    if output_type == 0x03 {
-        // SIGHASH_SINGLE: no corresponding output fails the signature check.
-        let Some(output) = tx.outputs.get(input_index) else {
-            return Err(crate::error::ConsensusError::InvalidSignature(
-                "SIGHASH_SINGLE has no corresponding output".into(),
-            ));
-        };
-        let mut out_data = Vec::new();
-        out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
-        out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
-        out_data.extend_from_slice(&output.script_pubkey);
-        sigmsg.extend_from_slice(&Sha256::digest(&out_data));
-    }
-
+    let sigmsg = append_bip341_sigmsg(
+        tx,
+        input_index,
+        prevout_values,
+        prevout_script_pubkeys,
+        sighash_type,
+        spend_type,
+        annex_hash,
+        180,
+        "ANYONECANPAY",
+    )?;
     Ok(crate::secp256k1_backend::tap_sighash_hash(&sigmsg))
 }
 
@@ -549,89 +572,25 @@ pub fn compute_tapscript_signature_hash(
     sighash_type: u8,
     annex_hash: Option<&Hash>,
 ) -> Result<Hash> {
-    use sha2::{Digest, Sha256};
-
     if !(sighash_type <= 0x03 || (0x81..=0x83).contains(&sighash_type)) {
         return Err(crate::error::ConsensusError::InvalidSignature(
             "Invalid Tapscript sighash type".into(),
         ));
     }
 
-    let input_type = sighash_type & 0x80;
-    let output_type = if sighash_type == 0x00 {
-        0x01
-    } else {
-        sighash_type & 0x03
-    };
-
-    let hashes = bip341_precompute(tx, prevout_values, prevout_script_pubkeys);
-
-    let mut sigmsg = Vec::with_capacity(250);
-
-    // epoch
-    sigmsg.push(0x00u8);
-    // hash_type
-    sigmsg.push(sighash_type);
-    // nVersion
-    sigmsg.extend_from_slice(&(tx.version as u32).to_le_bytes());
-    // nLockTime
-    sigmsg.extend_from_slice(&(tx.lock_time as u32).to_le_bytes());
-
-    if input_type != 0x80 {
-        sigmsg.extend_from_slice(&hashes.sha_prevouts);
-        sigmsg.extend_from_slice(&hashes.sha_amounts);
-        sigmsg.extend_from_slice(&hashes.sha_scriptpubkeys);
-        sigmsg.extend_from_slice(&hashes.sha_sequences);
-    }
-    if output_type == 0x01 {
-        sigmsg.extend_from_slice(&hashes.sha_outputs);
-    }
-
     // spend_type: ext_flag=1 (script path); annex_present in low bit (BIP341)
     let spend_type = if annex_hash.is_some() { 0x03u8 } else { 0x02u8 };
-    sigmsg.push(spend_type);
-
-    if input_type == 0x80 {
-        let input = tx.inputs.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature("input_index out of range".into())
-        })?;
-        sigmsg.extend_from_slice(&input.prevout.hash);
-        sigmsg.extend_from_slice(&input.prevout.index.to_le_bytes());
-        let amount = *prevout_values.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature(
-                "prevout_values index out of range for script-path ANYONECANPAY".into(),
-            )
-        })? as u64;
-        sigmsg.extend_from_slice(&amount.to_le_bytes());
-        let spk = *prevout_script_pubkeys.get(input_index).ok_or_else(|| {
-            crate::error::ConsensusError::InvalidSignature(
-                "prevout_script_pubkeys index out of range for script-path ANYONECANPAY".into(),
-            )
-        })?;
-        sigmsg.extend_from_slice(&encode_varint(spk.len() as u64));
-        sigmsg.extend_from_slice(spk);
-        sigmsg.extend_from_slice(&(input.sequence as u32).to_le_bytes());
-    } else {
-        sigmsg.extend_from_slice(&(input_index as u32).to_le_bytes());
-    }
-
-    if let Some(h) = annex_hash {
-        sigmsg.extend_from_slice(h);
-    }
-
-    if output_type == 0x03 {
-        // SIGHASH_SINGLE: no corresponding output fails the signature check.
-        let Some(output) = tx.outputs.get(input_index) else {
-            return Err(crate::error::ConsensusError::InvalidSignature(
-                "SIGHASH_SINGLE has no corresponding output".into(),
-            ));
-        };
-        let mut out_data = Vec::new();
-        out_data.extend_from_slice(&(output.value as u64).to_le_bytes());
-        out_data.extend_from_slice(&encode_varint(output.script_pubkey.len() as u64));
-        out_data.extend_from_slice(&output.script_pubkey);
-        sigmsg.extend_from_slice(&Sha256::digest(&out_data));
-    }
+    let mut sigmsg = append_bip341_sigmsg(
+        tx,
+        input_index,
+        prevout_values,
+        prevout_script_pubkeys,
+        sighash_type,
+        spend_type,
+        annex_hash,
+        250,
+        "script-path ANYONECANPAY",
+    )?;
 
     // BIP342 extension: tapleaf_hash || key_version(0x00) || codesep_pos
     let tapleaf_hash = crate::secp256k1_backend::tap_leaf_hash(leaf_version, tapscript);

@@ -109,8 +109,7 @@ pub(crate) fn verify_signature(
         }
     }
 
-    const SCRIPT_VERIFY_WITNESS_PUBKEYTYPE: u32 = 0x8000;
-    if (flags & SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0
+    if (flags & super::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0
         && sigversion == SigVersion::WitnessV0
         && !(pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03))
     {
