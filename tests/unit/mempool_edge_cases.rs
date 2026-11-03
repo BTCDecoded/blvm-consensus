@@ -1,6 +1,6 @@
 //! Property tests for mempool validation edge cases.
 
-use blvm_consensus::constants::{MAX_SCRIPT_SIZE, MIN_RELAY_FEE, SEQUENCE_RBF};
+use blvm_consensus::constants::{MAX_SCRIPT_SIZE, SEQUENCE_RBF};
 use blvm_consensus::economic::calculate_fee;
 use blvm_consensus::mempool::{
     self, MempoolResult, has_conflict_with_tx, is_standard_tx, replacement_checks,
@@ -125,7 +125,8 @@ proptest! {
         let existing = spend_tx(prev_a, input_value - existing_fee, sequence, vec![0x51]);
         let new_tx = spend_tx(prev_b, input_value - new_fee, 0xffff_ffff, vec![0x52]);
         let accepted = replacement_checks(&new_tx, &existing, &utxo_set, &mempool::Mempool::new()).unwrap();
-        let expected = signals && share && new_fee > existing_fee + MIN_RELAY_FEE;
+        let bump = mempool::incremental_relay_bump_for(&new_tx);
+        let expected = signals && share && new_fee > existing_fee && new_fee >= existing_fee + bump;
         prop_assert_eq!(accepted, expected);
     }
 }

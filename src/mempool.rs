@@ -304,12 +304,9 @@ pub fn is_standard_tx(tx: &Transaction) -> Result<bool> {
 ///
 /// Check if new transaction can replace existing one (BIP125 RBF rules).
 ///
-/// According to BIP125 and Orange Paper Section 9.3, replacement is allowed if:
-/// 1. Existing transaction signals RBF (nSequence < 0xfffffffe)
-/// 2. New transaction has higher fee rate: FeeRate(tx_2) > FeeRate(tx_1)
-/// 3. New transaction pays absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
-/// 4. New transaction conflicts with existing: tx_2 spends at least one input from tx_1
-/// 5. No new unconfirmed dependencies: All inputs of tx_2 are confirmed or from tx_1
+/// Replacement is allowed when the new transaction pays more than the one it
+/// spends, pays for its own relay, conflicts with that transaction, and adds no
+/// new unconfirmed inputs. A final sequence does not block it.
 pub fn replacement_checks(
     new_tx: &Transaction,
     existing_tx: &Transaction,
@@ -364,13 +361,7 @@ pub fn replacement_checks_with_witness(
         ));
     }
 
-    // 1. Check RBF signaling - existing transaction must signal RBF
-    // Note: new_tx doesn't need to signal RBF per BIP125, only existing_tx does
-    if !signals_rbf(existing_tx) {
-        return Ok(false);
-    }
-
-    // 2. Check fee rate: FeeRate(tx_2) > FeeRate(tx_1)
+    // Check fee rate: FeeRate(tx_2) > FeeRate(tx_1)
     // Missing prevouts → reject replacement (fail-closed; not a soft Ok fee).
     let new_fee = match calculate_fee(new_tx, utxo_set) {
         Ok(f) => f,
@@ -419,8 +410,9 @@ pub fn replacement_checks_with_witness(
         return Ok(false);
     }
 
-    // 3. Check absolute fee bump: Fee(tx_2) > Fee(tx_1) + MIN_RELAY_FEE
-    if new_fee <= existing_fee + MIN_RELAY_FEE {
+    // The replacement pays for its own relay: 100 sat/kvB across its virtual size, rounded up.
+    let bandwidth = incremental_relay_bump(new_tx_size as u64);
+    if new_fee < existing_fee + bandwidth {
         return Ok(false);
     }
 
@@ -1043,6 +1035,18 @@ fn witnessed_vsize(tx: &Transaction, stacks: Option<&[Witness]>, mempool: &Mempo
     calculate_transaction_size_vbytes(tx, stacks)
 }
 
+/// Extra satoshis a replacement must pay for `vsize` virtual bytes.
+///
+/// The rate is 100 satoshis per kilovirtualbyte, rounded up.
+pub fn incremental_relay_bump(vsize: u64) -> i64 {
+    i64::try_from((100u128).saturating_mul(u128::from(vsize)).div_ceil(1000)).unwrap_or(i64::MAX)
+}
+
+/// [`incremental_relay_bump`] for a transaction with no witness stacks.
+pub fn incremental_relay_bump_for(tx: &Transaction) -> i64 {
+    incremental_relay_bump(calculate_transaction_size_vbytes(tx, None) as u64)
+}
+
 /// Check if new transaction conflicts with existing transaction
 ///
 /// A conflict exists if new_tx spends at least one input from existing_tx.
@@ -1478,11 +1482,11 @@ mod tests {
         let utxo_set = create_test_utxo_set();
         let mempool = Mempool::new();
 
-        let new_tx = create_valid_transaction();
-        let existing_tx = create_valid_transaction(); // No RBF signal
+        let existing_tx = create_valid_transaction();
+        let mut new_tx = existing_tx.clone();
+        new_tx.outputs[0].value -= 1_001;
 
-        // Should fail: existing transaction doesn't signal RBF
-        assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
+        assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
 
     #[test]
@@ -1657,18 +1661,15 @@ mod tests {
 
         // Existing transaction
         let mut existing_tx = create_valid_transaction();
-        existing_tx.inputs[0].sequence = SEQUENCE_RBF as u64;
+        existing_tx.inputs[0].sequence = (SEQUENCE_RBF as u64) - 1;
         existing_tx.outputs[0].value = 9500; // Fee = 500 sats
 
-        // New transaction with exactly MIN_RELAY_FEE bump (not enough, need >)
+        let bump = incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        new_tx.outputs[0].value = 8500; // Fee = 1500 sats (1500 > 500 + 1000 = 1500? No, need >)
+        new_tx.outputs[0].value = 10_000 - (500 + bump - 1);
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
-
-        // New transaction with sufficient bump
-        // Fee = 1501 sats (1501 > 500 + 1000 = 1500)
-        // Conflict detection and fee rate validation are handled by accept_to_memory_pool
-        new_tx.outputs[0].value = 8499;
+        new_tx.outputs[0].value = 10_000 - (500 + bump);
+        assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
 
     #[test]

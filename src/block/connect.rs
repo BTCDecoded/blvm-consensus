@@ -31,6 +31,17 @@ use super::{
     script_cache::get_block_script_verify_flags_core,
 };
 
+/// Script checks skip only below the assume-valid height, with chainwork high enough,
+/// and a hash set. Height alone does not skip. The hash is compared at that height, not at genesis.
+pub(crate) fn assume_valid_skips_signatures(
+    height: u64,
+    assume_valid_height: u64,
+    chainwork_ok: bool,
+    assume_valid_hash_set: bool,
+) -> bool {
+    height < assume_valid_height && chainwork_ok && assume_valid_hash_set
+}
+
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
 #[cfg(feature = "production")]
 #[inline]
@@ -637,14 +648,12 @@ fn validate_production_transactions<'a, 'b>(
         #[cfg(all(feature = "production", feature = "profile"))]
         let mut script_checks_queued_count: usize = 0;
 
-        // Structure validation: skip only on trusted assume-valid IBD replay (REV-C-43).
-        // Non-IBD paths and recent IBD blocks still validate transaction structure.
+        // Assume-valid skips script execution below. Transaction structure still runs.
+        // A duplicate prevout is rejected here (CVE-2018-17144).
         #[cfg(feature = "profile")]
         let structure_start = std::time::Instant::now();
         let mut valid_tx_indices = Vec::with_capacity(block.transactions.len());
-        if ibd_mode && skip_signatures {
-            valid_tx_indices.extend(0..block.transactions.len());
-        } else {
+        {
             let tx_structure_results: Vec<(usize, Result<ValidationResult>)> = {
                 if block.transactions.len() < 500 {
                     block
@@ -840,9 +849,37 @@ fn validate_production_transactions<'a, 'b>(
                         };
                         (ValidationResult::Valid, 0, (0, 0), (0, 0))
                     } else if skip_signatures {
-                        // Fast path under assume-valid: skip sigop counting (network already
-                        // verified the limit); fee check still needed for coinbase subsidy
-                        // validation at the block level.
+                        // Scripts are skipped. Signature-operation cost is not.
+                        match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
+                            tx, &overlay, wits_i, tx_flags_i,
+                        ) {
+                            Ok(cost) => {
+                                total_sigop_cost = match total_sigop_cost.checked_add(cost) {
+                                    Some(v) => v,
+                                    None => {
+                                        early_return = Some(Err(ConsensusError::BlockValidation(
+                                            "Sigop cost overflow".into(),
+                                        )));
+                                        break;
+                                    }
+                                };
+                            }
+                            Err(e) => {
+                                early_return = Some(Err(e));
+                                break;
+                            }
+                        }
+                        if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
+                            bip54_active,
+                            tx,
+                            &overlay,
+                            wits_i,
+                            tx_flags_i,
+                        )? {
+                            early_return =
+                                Some(Ok(ConnectQueueEarlyExit::Invalid(msg.to_string())));
+                            break;
+                        }
                         utxo_data_reusable.clear();
                         utxo_data_reusable.reserve(tx.inputs.len());
                         let mut utxo_missing: Option<(usize, crate::types::OutPoint)> = None;
@@ -872,10 +909,6 @@ fn validate_production_transactions<'a, 'b>(
                             ))));
                             break;
                         }
-                        // Sigop counting skipped: assume-valid guarantees network consensus
-                        // already accepted this block's sigop cost as valid. total_sigop_cost
-                        // stays 0 and trivially passes the MAX_BLOCK_SIGOPS_COST check below.
-                        // N4: also skip BIP54 per-tx sigop under skip_signatures (same trust).
                         let (input_valid, fee) =
                             match crate::transaction::check_tx_inputs_with_owned_data(
                                 tx,
@@ -3492,7 +3525,8 @@ pub(crate) fn connect_block_inner<'a>(
         return invalid_block_result(utxo_set, tx_ids, msg);
     }
 
-    // Assume-valid: skip signature/script verification for blocks below the configured height.
+    // Assume-valid: skip signature/script verification for blocks below the configured height
+    // only when a hash is set. Height alone does not skip.
     // Assume-valid: skip deep signature checks when height is below the assumed
     // block AND chain work is sufficient (nMinimumChainWork). BLVM does not apply a
     // two-week age check; we dropped that guard to keep parity and avoid inconsistency with
@@ -3506,9 +3540,12 @@ pub(crate) fn connect_block_inner<'a>(
         .map(|cw| cw >= min_chain_work)
         .unwrap_or(false);
     #[cfg(feature = "production")]
-    let skip_signatures = height < crate::block::get_assume_valid_height()
-        && chainwork_ok
-        && crate::config::get_assume_valid_hash().is_some();
+    let skip_signatures = assume_valid_skips_signatures(
+        height,
+        crate::block::get_assume_valid_height(),
+        chainwork_ok,
+        crate::config::get_assume_valid_hash().is_some(),
+    );
 
     #[cfg(not(feature = "production"))]
     let skip_signatures = false;
@@ -3527,13 +3564,9 @@ pub(crate) fn connect_block_inner<'a>(
 
     // Pre-compute block script verify flags (Orange Paper §5.2.6): one mask for all txs.
     // block_hash is already computed above (hoisted to eliminate duplicate at assume_valid_height).
-    // Under assume-valid (`skip_signatures=true`) no script verification is performed, so we skip
-    // the table lookup entirely — the value is unused in that path.
-    let block_script_verify_flags = if skip_signatures {
-        0u32
-    } else {
-        get_block_script_verify_flags_core(&block_hash, height, context, context.network)
-    };
+    // Assume-valid skips script execution. Signature-operation accounting still uses this mask.
+    let block_script_verify_flags =
+        get_block_script_verify_flags_core(&block_hash, height, context, context.network);
 
     // Cache fork activation at block level — avoids per-tx table lookup
     let segwit_active = context.is_fork_active(ForkId::SegWit, height);
@@ -3909,15 +3942,14 @@ pub(crate) fn connect_block_inner<'a>(
 
         // Witness bytes are only valid with a matching coinbase commitment after SegWit
         // activation. A commitment output still requires one 32-byte reserved value when
-        // every other stack is empty. Assume-valid IBD replay skips this, as it skips the
-        // merkle-mutation check.
+        // every other stack is empty. Assume-valid does not skip this check.
         let any_witness = witnesses
             .iter()
             .any(|tx_w| tx_w.iter().any(|stack| !stack.is_empty()));
         if any_witness && !segwit_active {
             return invalid_block_result(utxo_set, tx_ids, "unexpected witness data");
         }
-        if segwit_active && !(ibd_mode && skip_signatures) {
+        if segwit_active {
             let has_commitment =
                 crate::segwit::last_witness_commitment_in_coinbase_outputs(&coinbase.outputs)
                     .is_some();
@@ -4426,5 +4458,32 @@ mod sighash_batch_ibd_tests {
         let expect: [u8; 20] =
             ripemd::Ripemd160::digest(crate::crypto::OptimizedSha256::new().hash(pk)).into();
         assert_eq!(pre, expect);
+    }
+}
+
+#[cfg(test)]
+mod assume_valid_skip_tests {
+    use super::assume_valid_skips_signatures;
+
+    #[test]
+    fn height_without_hash_does_not_skip() {
+        assert!(!assume_valid_skips_signatures(100, 912_683, true, false));
+    }
+
+    #[test]
+    fn height_and_hash_below_the_point_skips() {
+        assert!(assume_valid_skips_signatures(100, 912_683, true, true));
+    }
+
+    #[test]
+    fn hash_is_not_compared_at_genesis_when_height_is_seeded() {
+        let assume_valid_height = 912_683_u64;
+        assert_ne!(0, assume_valid_height);
+        assert!(!assume_valid_skips_signatures(
+            0,
+            assume_valid_height,
+            true,
+            false
+        ));
     }
 }
