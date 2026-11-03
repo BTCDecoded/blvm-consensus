@@ -1483,8 +1483,10 @@ mod tests {
         let mempool = Mempool::new();
 
         let existing_tx = create_valid_transaction();
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        new_tx.outputs[0].value -= 1_001;
+        new_tx.outputs[0].value -= bump;
 
         assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
@@ -1549,18 +1551,17 @@ mod tests {
         existing_tx.inputs[0].sequence = SEQUENCE_RBF as u64;
         existing_tx.outputs[0].value = 9000; // Fee = 1000 sats
 
-        // New transaction with higher fee rate but insufficient absolute fee bump
-        // Fee must be > 1000 + 1000 = 2000, so need > 2000
+        // New transaction with a higher fee rate but one satoshi short of paying
+        // the incremental relay fee on its own size.
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        new_tx.outputs[0].value = 8001; // Fee = 1999 sats (insufficient)
-
-        // Should fail: absolute fee not high enough (requirement #3)
+        new_tx.outputs[0].value = 9000 - (bump - 1);
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
 
-        // Now with sufficient fee
-        new_tx.outputs[0].value = 7999; // Fee = 2001 sats (sufficient)
-        // Should still fail on other checks (conflict, etc.), but fee check passes
-        // For full test, need to ensure conflict exists
+        // Paying the full bump is enough.
+        new_tx.outputs[0].value = 9000 - bump;
+        assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
 
     // ============================================================================
@@ -1664,7 +1665,8 @@ mod tests {
         existing_tx.inputs[0].sequence = (SEQUENCE_RBF as u64) - 1;
         existing_tx.outputs[0].value = 9500; // Fee = 500 sats
 
-        let bump = incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 10_000 - (500 + bump - 1);
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
