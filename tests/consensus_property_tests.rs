@@ -1318,7 +1318,8 @@ proptest! {
         )
         .unwrap();
         // Equal virtual size, so the higher fee is the higher fee rate.
-        prop_assert_eq!(accepted, new_fee > existing_fee + MIN_RELAY_FEE);
+        let bump = blvm_consensus::mempool::incremental_relay_bump_for(&tx(new_fee));
+        prop_assert_eq!(accepted, new_fee > existing_fee && new_fee >= existing_fee + bump);
     }
 
     /// Invariant: Mempool size is bounded

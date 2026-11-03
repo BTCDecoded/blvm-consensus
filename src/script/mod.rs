@@ -4012,6 +4012,11 @@ pub fn verify_script_with_context_full(
         if !witness_flag {
             return Ok(false);
         }
+        // Native pay-to-anchor is standard with an empty witness. A wrapped
+        // anchor stays on the discourage path below.
+        if crate::witness::is_pay_to_anchor(script_pubkey) {
+            return Ok(true);
+        }
         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0 {
             return Ok(false);
         }
@@ -5562,6 +5567,14 @@ fn execute_opcode(
         // OP_PICK - copy nth stack item to top
         OP_PICK => {
             if let Some(n_bytes) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&n_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_PICK: non-minimal script number".into(),
+                    });
+                }
                 // Use script_num_decode to properly handle CScriptNum encoding
                 // (empty [] = 0, [0x00] = 0, [0x01] = 1, etc.)
                 let n_val = script_num_decode(&n_bytes, 4)?;
@@ -5592,6 +5605,14 @@ fn execute_opcode(
         // OP_ROLL - move nth stack item to top
         OP_ROLL => {
             if let Some(n_bytes) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&n_bytes)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_ROLL: non-minimal script number".into(),
+                    });
+                }
                 // Use script_num_decode to properly handle CScriptNum encoding
                 // (empty [] = 0, which is a valid no-op roll)
                 let n_val = script_num_decode(&n_bytes, 4)?;
@@ -5782,6 +5803,14 @@ fn execute_opcode(
         // OP_1SUB - decrement top by 1
         OP_1SUB => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_1SUB: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(a - 1)));
                 Ok(true)
@@ -5802,6 +5831,14 @@ fn execute_opcode(
         // OP_NEGATE - negate top
         OP_NEGATE => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_NEGATE: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(-a)));
                 Ok(true)
@@ -5812,6 +5849,14 @@ fn execute_opcode(
         // OP_ABS - absolute value
         OP_ABS => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_ABS: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(a.abs())));
                 Ok(true)
@@ -5822,6 +5867,14 @@ fn execute_opcode(
         // OP_NOT - logical NOT: 0 → 1, nonzero → 0
         OP_NOT => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_NOT: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(if a == 0 {
                     1
@@ -5836,6 +5889,14 @@ fn execute_opcode(
         // OP_0NOTEQUAL - 0 → 0, nonzero → 1
         OP_0NOTEQUAL => {
             if let Some(item) = stack.pop() {
+                if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                    && !script_num_is_minimally_encoded(&item)
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_0NOTEQUAL: non-minimal script number".into(),
+                    });
+                }
                 let a = script_num_decode(&item, 4)?;
                 stack.push(to_stack_element(&script_num_encode(if a != 0 {
                     1
@@ -5847,25 +5908,208 @@ fn execute_opcode(
                 Ok(false)
             }
         }
-        OP_ADD => arithmetic::op_add(stack),
-        OP_SUB => arithmetic::op_sub(stack),
+        OP_ADD => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_ADD: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_add(stack)
+        }
+        OP_SUB => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_SUB: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_sub(stack)
+        }
         OP_MUL => arithmetic::op_mul_disabled(),
         OP_DIV => arithmetic::op_div_disabled(),
         OP_MOD => arithmetic::op_mod_disabled(),
         OP_LSHIFT => arithmetic::op_lshift_disabled(),
         OP_RSHIFT => arithmetic::op_rshift_disabled(),
-        OP_BOOLAND => arithmetic::op_booland(stack),
-        OP_BOOLOR => arithmetic::op_boolor(stack),
-        OP_NUMEQUAL => arithmetic::op_numequal(stack),
-        OP_NUMEQUALVERIFY => arithmetic::op_numequalverify(stack),
-        OP_NUMNOTEQUAL => arithmetic::op_numnotequal(stack),
-        OP_LESSTHAN => arithmetic::op_lessthan(stack),
-        OP_GREATERTHAN => arithmetic::op_greaterthan(stack),
-        OP_LESSTHANOREQUAL => arithmetic::op_lessthanorequal(stack),
-        OP_GREATERTHANOREQUAL => arithmetic::op_greaterthanorequal(stack),
-        OP_MIN => arithmetic::op_min(stack),
-        OP_MAX => arithmetic::op_max(stack),
-        OP_WITHIN => arithmetic::op_within(stack),
+        OP_BOOLAND => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_BOOLAND: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_booland(stack)
+        }
+        OP_BOOLOR => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_BOOLOR: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_boolor(stack)
+        }
+        OP_NUMEQUAL => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_NUMEQUAL: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_numequal(stack)
+        }
+        OP_NUMEQUALVERIFY => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_NUMEQUALVERIFY: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_numequalverify(stack)
+        }
+        OP_NUMNOTEQUAL => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_NUMNOTEQUAL: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_numnotequal(stack)
+        }
+        OP_LESSTHAN => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_LESSTHAN: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_lessthan(stack)
+        }
+        OP_GREATERTHAN => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_GREATERTHAN: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_greaterthan(stack)
+        }
+        OP_LESSTHANOREQUAL => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_LESSTHANOREQUAL: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_lessthanorequal(stack)
+        }
+        OP_GREATERTHANOREQUAL => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_GREATERTHANOREQUAL: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_greaterthanorequal(stack)
+        }
+        OP_MIN => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_MIN: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_min(stack)
+        }
+        OP_MAX => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 2 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_MAX: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_max(stack)
+        }
+        OP_WITHIN => {
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0 && stack.len() >= 3 {
+                let len = stack.len();
+                if !script_num_is_minimally_encoded(&stack[len - 1])
+                    || !script_num_is_minimally_encoded(&stack[len - 2])
+                    || !script_num_is_minimally_encoded(&stack[len - 3])
+                {
+                    return Err(ConsensusError::ScriptErrorWithCode {
+                        code: ScriptErrorCode::MinimalData,
+                        message: "OP_WITHIN: non-minimal script number".into(),
+                    });
+                }
+            }
+            arithmetic::op_within(stack)
+        }
 
         // OP_CODESEPARATOR - marks position for sighash (no-op in execute_opcode)
         OP_CODESEPARATOR => Ok(true),
@@ -7062,6 +7306,14 @@ fn execute_opcode_with_context_full(
             let pubkey_bytes = stack.pop().unwrap();
             let n_bytes = stack.pop().unwrap();
             let signature_bytes = stack.pop().unwrap();
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !script_num_is_minimally_encoded(&n_bytes)
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::MinimalData,
+                    message: "OP_CHECKSIGADD: non-minimal script number".into(),
+                });
+            }
             let n = script_num_decode(&n_bytes, 4)?;
 
             match eval_checksig_tapscript(ctx, flags, &signature_bytes, &pubkey_bytes)? {
@@ -7087,6 +7339,14 @@ fn execute_opcode_with_context_full(
 
             // Pop n (number of public keys) — must be decoded as CScriptNum (BIP62)
             let n_bytes = stack.pop().unwrap();
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !script_num_is_minimally_encoded(&n_bytes)
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::MinimalData,
+                    message: "OP_CHECKMULTISIG: non-minimal key count".into(),
+                });
+            }
             let n_raw = script_num_decode(&n_bytes, 4).map_err(|_| {
                 ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::InvalidStackOperation,
@@ -7109,6 +7369,14 @@ fn execute_opcode_with_context_full(
 
             // Pop m (number of required signatures) — must be decoded as CScriptNum (BIP62)
             let m_bytes = stack.pop().unwrap();
+            if (flags & crate::script::flags::SCRIPT_VERIFY_MINIMALDATA) != 0
+                && !script_num_is_minimally_encoded(&m_bytes)
+            {
+                return Err(ConsensusError::ScriptErrorWithCode {
+                    code: ScriptErrorCode::MinimalData,
+                    message: "OP_CHECKMULTISIG: non-minimal script number".into(),
+                });
+            }
             let m_raw = script_num_decode(&m_bytes, 4).map_err(|_| {
                 ConsensusError::ScriptErrorWithCode {
                     code: ScriptErrorCode::InvalidStackOperation,

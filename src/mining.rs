@@ -148,11 +148,13 @@ pub fn create_new_block_with_time(
     let mut running_weight = header_weight
         .saturating_add(coinbase_weight)
         .saturating_add(WITNESS_COMMITMENT_RESERVE);
+    // Block sigop cost counts witness programs. P2SH is 0x01. Witness is 0x800.
+    const BLOCK_SIGOP_FLAGS: u32 = 0x01 | 0x800;
     let mut running_sigops = crate::sigop::get_transaction_sigop_cost_with_witness_slices(
         &coinbase_tx,
         utxo_set,
         None,
-        0x01,
+        BLOCK_SIGOP_FLAGS,
     )
     .unwrap_or(0);
     let max_weight = crate::constants::MAX_BLOCK_WEIGHT as u64;
@@ -160,81 +162,91 @@ pub fn create_new_block_with_time(
 
     // 2. Select transactions from mempool with proper validation.
     // Outputs of a selected transaction are spendable by a later one in this template.
+    // A child that sorts ahead of its parent is tried again after that parent is selected.
     let mut selected_txs = Vec::new();
     let mut temp_mempool = Mempool::new();
     let mut available = utxo_set.clone();
+    let mut waiting: Vec<usize> = (0..mempool_txs.len()).collect();
 
-    for (idx, tx) in mempool_txs.iter().enumerate() {
-        // First check basic transaction structure
-        if check_transaction(tx)? != ValidationResult::Valid {
-            continue;
-        }
-
-        let time_context = Some(TimeContext {
-            network_time: block_time,
-            median_time_past,
-        });
-        let tx_witnesses = mempool_witnesses
-            .and_then(|all| all.get(idx))
-            .and_then(|w| w.as_deref());
-        match accept_to_memory_pool(
-            tx,
-            tx_witnesses,
-            &available,
-            &temp_mempool,
-            height,
-            time_context,
-            network,
-            None,
-        )? {
-            MempoolResult::Accepted => {
-                let tx_weight =
-                    match crate::segwit::transaction_weight_from_stacks(tx, tx_witnesses) {
-                        Ok(weight) => weight,
-                        Err(_) => continue,
-                    };
-                let tx_sigops = match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
-                    tx,
-                    &available,
-                    tx_witnesses,
-                    0x01,
-                ) {
-                    Ok(cost) => cost,
-                    Err(_) => continue,
-                };
-                if running_weight.saturating_add(tx_weight) > max_weight
-                    || running_sigops.saturating_add(tx_sigops) > max_sigops
-                {
-                    continue;
-                }
-                running_weight = running_weight.saturating_add(tx_weight);
-                running_sigops = running_sigops.saturating_add(tx_sigops);
-                temp_mempool.insert_transaction_with_witness(tx, tx_witnesses);
-                let txid = crate::block::calculate_tx_id(tx);
-                for (index, output) in tx.outputs.iter().enumerate() {
-                    available.insert(
-                        OutPoint {
-                            hash: txid,
-                            index: index as u32,
-                        },
-                        std::sync::Arc::new(UTXO {
-                            value: output.value,
-                            script_pubkey: output.script_pubkey.clone().into(),
-                            height,
-                            is_coinbase: false,
-                        }),
-                    );
-                }
-                selected_txs.push(tx.clone());
-            }
-            MempoolResult::Rejected(_reason) => {
-                // Transaction is invalid, skip it
-                // In test mode, log the reason for debugging
-                #[cfg(test)]
-                eprintln!("Transaction rejected: {_reason}");
+    while !waiting.is_empty() {
+        let mut still_waiting = Vec::new();
+        let selected_before = selected_txs.len();
+        for idx in waiting {
+            let tx = &mempool_txs[idx];
+            if check_transaction(tx)? != ValidationResult::Valid {
                 continue;
             }
+
+            let time_context = Some(TimeContext {
+                network_time: block_time,
+                median_time_past,
+            });
+            let tx_witnesses = mempool_witnesses
+                .and_then(|all| all.get(idx))
+                .and_then(|w| w.as_deref());
+            match accept_to_memory_pool(
+                tx,
+                tx_witnesses,
+                &available,
+                &temp_mempool,
+                height,
+                time_context,
+                network,
+                None,
+            )? {
+                MempoolResult::Accepted => {
+                    let tx_weight =
+                        match crate::segwit::transaction_weight_from_stacks(tx, tx_witnesses) {
+                            Ok(weight) => weight,
+                            Err(_) => continue,
+                        };
+                    let tx_sigops =
+                        match crate::sigop::get_transaction_sigop_cost_with_witness_slices(
+                            tx,
+                            &available,
+                            tx_witnesses,
+                            BLOCK_SIGOP_FLAGS,
+                        ) {
+                            Ok(cost) => cost,
+                            Err(_) => continue,
+                        };
+                    if running_weight.saturating_add(tx_weight) > max_weight
+                        || running_sigops.saturating_add(tx_sigops) > max_sigops
+                    {
+                        continue;
+                    }
+                    running_weight = running_weight.saturating_add(tx_weight);
+                    running_sigops = running_sigops.saturating_add(tx_sigops);
+                    temp_mempool.insert_transaction_with_witness(tx, tx_witnesses);
+                    let txid = crate::block::calculate_tx_id(tx);
+                    for (index, output) in tx.outputs.iter().enumerate() {
+                        available.insert(
+                            OutPoint {
+                                hash: txid,
+                                index: index as u32,
+                            },
+                            std::sync::Arc::new(UTXO {
+                                value: output.value,
+                                script_pubkey: output.script_pubkey.clone().into(),
+                                height,
+                                is_coinbase: false,
+                            }),
+                        );
+                    }
+                    selected_txs.push(tx.clone());
+                }
+                MempoolResult::Rejected(_reason) => {
+                    // The parent may appear later in this fee order.
+                    #[cfg(test)]
+                    eprintln!("Transaction rejected: {_reason}");
+                    still_waiting.push(idx);
+                }
+            }
         }
+        if selected_txs.len() == selected_before {
+            break;
+        }
+        waiting = still_waiting;
     }
 
     // 3. Build transaction list (coinbase first)

@@ -156,6 +156,12 @@ pub fn is_upgradable_witness_program(script: &[u8]) -> bool {
     true
 }
 
+/// Pay-to-anchor: `OP_1 PUSH2 0x4e73`. An empty witness spend is standard.
+#[inline]
+pub fn is_pay_to_anchor(script: &[u8]) -> bool {
+    script.len() == 4 && script[0] == OP_1 && script[1] == 0x02 && script[2] == 0x4e && script[3] == 0x73
+}
+
 /// Version-0 witness program whose payload is not 20 or 32 bytes.
 ///
 /// When witness verification is active this spend fails. With the flag clear the
