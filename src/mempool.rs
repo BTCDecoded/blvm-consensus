@@ -1664,7 +1664,8 @@ mod tests {
         existing_tx.inputs[0].sequence = (SEQUENCE_RBF as u64) - 1;
         existing_tx.outputs[0].value = 9500; // Fee = 500 sats
 
-        let bump = incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 10_000 - (500 + bump - 1);
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());

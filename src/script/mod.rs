@@ -661,12 +661,8 @@ fn apply_data_push(
         if i + 4 >= script.len() {
             return Ok(None);
         }
-        let len = u32::from_le_bytes([
-            script[i + 1],
-            script[i + 2],
-            script[i + 3],
-            script[i + 4],
-        ]) as usize;
+        let len = u32::from_le_bytes([script[i + 1], script[i + 2], script[i + 3], script[i + 4]])
+            as usize;
         let data_start = i.saturating_add(5);
         let data_end = data_start.saturating_add(len);
         let advance = 5usize.saturating_add(len);
@@ -747,8 +743,7 @@ fn eval_script_inner(
 
         // Handle push opcodes with embedded data (0x01-0x4b direct, OP_PUSHDATA1/2/4).
         if (0x01..=OP_PUSHDATA4).contains(&opcode) {
-            let Some(advance) =
-                apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
+            let Some(advance) = apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
             else {
                 return Ok(false);
             };
@@ -2428,8 +2423,7 @@ fn try_verify_p2sh_fast_path(
     // is one truthy item, and only when that policy flag is set.
     let result = match result {
         Ok(true) => {
-            let top_true =
-                !stack.is_empty() && cast_to_bool(stack.last().expect("redeem stack"));
+            let top_true = !stack.is_empty() && cast_to_bool(stack.last().expect("redeem stack"));
             let ok = if flags & flags::SCRIPT_VERIFY_CLEANSTACK != 0 {
                 stack.len() == 1 && top_true
             } else {
@@ -4312,8 +4306,8 @@ pub fn verify_script_with_context_full(
         // Witness program format: OP_0 (0x00) + push opcode + program bytes
         // P2WPKH: [OP_0, PUSH_20_BYTES, <20 bytes>] = 22 bytes total
         // P2WSH: [OP_0, PUSH_32_BYTES, <32 bytes>] = 34 bytes total
-        let is_witness_program = crate::witness::is_standard_witness_program(redeem)
-            && redeem[0] == OP_0;
+        let is_witness_program =
+            crate::witness::is_standard_witness_program(redeem) && redeem[0] == OP_0;
 
         if witness_flag && crate::witness::is_invalid_v0_witness_program(redeem) {
             return Ok(false);
@@ -4740,8 +4734,7 @@ fn eval_script_with_context_full_inner(
 
         // Handle push opcodes (0x01-0x4b: direct push, OP_PUSHDATA1/2/4)
         if (0x01..=OP_PUSHDATA4).contains(&opcode) {
-            let Some(advance) =
-                apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
+            let Some(advance) = apply_data_push(script, i, opcode, stack, flags, in_false_branch)?
             else {
                 return Ok(false);
             };
@@ -7089,9 +7082,7 @@ fn eval_checksig_ecdsa(
             precomputed_bip143,
         )?
     } else {
-        use crate::transaction_hash::{
-            SighashType, calculate_transaction_sighash_single_input,
-        };
+        use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
         let sighash_type = SighashType::from_byte(sighash_byte);
         let sig = signature_bytes;
         let base_script = match (
