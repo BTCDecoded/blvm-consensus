@@ -105,12 +105,13 @@ fn test_signals_rbf_and_conflict() {
 }
 
 #[test]
-fn test_replacement_checks_rejects_non_rbf_existing() {
+fn test_replacement_checks_prices_a_non_signaling_original() {
     let (set, _) = create_test_utxo(10_000);
     let existing = create_test_tx(8_000, Some(0xffffffff), None, None);
     let replacement = create_rbf_tx(0xfffffffe);
     let pool = Mempool::new();
-    assert!(!replacement_checks(&replacement, &existing, &set, &pool).unwrap());
+    assert!(!signals_rbf(&existing));
+    assert!(replacement_checks(&replacement, &existing, &set, &pool).unwrap());
 }
 
 #[test]

@@ -355,10 +355,8 @@ pub fn replacement_checks_with_witness(
             "Existing transaction cannot be coinbase".to_string().into(),
         ));
     }
-    // BIP125: only an original that signals replacement can be replaced.
-    if !signals_rbf(existing_tx) {
-        return Ok(false);
-    }
+    // BIP125 opt-in is node policy (`RbfMode`). This helper prices the replacement.
+    // Bitcoin Core's default admits a non-signaling original when the fee rules pass.
     if utxo_set.len() > u32::MAX as usize {
         return Err(crate::error::ConsensusError::BlockValidation(
             format!("UTXO set size {} exceeds maximum", utxo_set.len()).into(),
@@ -1490,7 +1488,8 @@ mod tests {
         let mut new_tx = existing_tx.clone();
         new_tx.outputs[0].value = 500;
 
-        assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
+        assert!(!signals_rbf(&existing_tx));
+        assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
 
     #[test]
