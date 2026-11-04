@@ -355,6 +355,10 @@ pub fn replacement_checks_with_witness(
             "Existing transaction cannot be coinbase".to_string().into(),
         ));
     }
+    // BIP125: only an original that signals replacement can be replaced.
+    if !signals_rbf(existing_tx) {
+        return Ok(false);
+    }
     if utxo_set.len() > u32::MAX as usize {
         return Err(crate::error::ConsensusError::BlockValidation(
             format!("UTXO set size {} exceeds maximum", utxo_set.len()).into(),
@@ -1483,13 +1487,10 @@ mod tests {
         let mempool = Mempool::new();
 
         let existing_tx = create_valid_transaction();
-        let bump =
-            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        // The dummy output is 1,000 sats. The fee has to rise by the relay bump.
-        new_tx.outputs[0].value = 10_000 - (9_000 + bump);
+        new_tx.outputs[0].value = 500;
 
-        assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
+        assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
 
     #[test]
@@ -1547,9 +1548,9 @@ mod tests {
         let utxo_set = create_test_utxo_set();
         let mempool = Mempool::new();
 
-        // Existing transaction
+        // Existing transaction. Sequence is one below SEQUENCE_RBF, so it signals.
         let mut existing_tx = create_valid_transaction();
-        existing_tx.inputs[0].sequence = SEQUENCE_RBF as u64;
+        existing_tx.inputs[0].sequence = (SEQUENCE_RBF as u64) - 1;
         existing_tx.outputs[0].value = 9000; // Fee = 1000 sats
 
         // One sat short of the 100 sat/kvB relay bump. The fee rate is higher.
