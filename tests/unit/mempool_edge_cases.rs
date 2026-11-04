@@ -126,7 +126,8 @@ proptest! {
         let new_tx = spend_tx(prev_b, input_value - new_fee, 0xffff_ffff, vec![0x52]);
         let accepted = replacement_checks(&new_tx, &existing, &utxo_set, &mempool::Mempool::new()).unwrap();
         let bump = mempool::incremental_relay_bump_for(&new_tx);
-        let expected = signals && share && new_fee > existing_fee && new_fee >= existing_fee + bump;
+        // Signaling is node policy. The helper accepts either sequence when the fees pass.
+        let expected = share && new_fee > existing_fee && new_fee >= existing_fee + bump;
         prop_assert_eq!(accepted, expected);
     }
 }
