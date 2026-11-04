@@ -289,6 +289,9 @@ jobs:
             echo "❌ No spec found at ../blvm-spec"
             exit 1
           fi
+          # cargo install stores the tool in the registry. spec_checkout() looks
+          # next to that source unless BLVM_SPEC_DIR points at the runner checkout.
+          export BLVM_SPEC_DIR="$(cd ../blvm-spec && pwd)"
           DRIFT_ARGS="$SPEC_ARGS --scoped-unparseables"
           if cargo-spec-lock check-drift --help 2>&1 | grep -Fq -- '--scoped-formulas'; then
             DRIFT_ARGS="$DRIFT_ARGS --scoped-formulas"

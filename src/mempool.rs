@@ -1483,8 +1483,11 @@ mod tests {
         let mempool = Mempool::new();
 
         let existing_tx = create_valid_transaction();
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        new_tx.outputs[0].value -= 1_001;
+        // The dummy output is 1,000 sats. The fee has to rise by the relay bump.
+        new_tx.outputs[0].value = 10_000 - (9_000 + bump);
 
         assert!(replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
     }
@@ -1549,18 +1552,13 @@ mod tests {
         existing_tx.inputs[0].sequence = SEQUENCE_RBF as u64;
         existing_tx.outputs[0].value = 9000; // Fee = 1000 sats
 
-        // New transaction with higher fee rate but insufficient absolute fee bump
-        // Fee must be > 1000 + 1000 = 2000, so need > 2000
+        // One sat short of the 100 sat/kvB relay bump. The fee rate is higher.
+        let bump =
+            incremental_relay_bump(calculate_transaction_size_vbytes(&existing_tx, None) as u64);
         let mut new_tx = existing_tx.clone();
-        new_tx.outputs[0].value = 8001; // Fee = 1999 sats (insufficient)
+        new_tx.outputs[0].value = 10_000 - (1_000 + bump - 1);
 
-        // Should fail: absolute fee not high enough (requirement #3)
         assert!(!replacement_checks(&new_tx, &existing_tx, &utxo_set, &mempool).unwrap());
-
-        // Now with sufficient fee
-        new_tx.outputs[0].value = 7999; // Fee = 2001 sats (sufficient)
-        // Should still fail on other checks (conflict, etc.), but fee check passes
-        // For full test, need to ensure conflict exists
     }
 
     // ============================================================================
