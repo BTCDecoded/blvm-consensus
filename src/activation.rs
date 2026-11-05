@@ -132,13 +132,10 @@ impl ForkActivationTable {
             Network::Regtest => (
                 BIP30_DEACTIVATION_REGTEST,
                 BIP16_P2SH_ACTIVATION_REGTEST,
-                // Core buries BIP34, BIP66, BIP65, and CSV at height 1. The
-                // published primitive constants still say 0, which rejects the
-                // version-1 genesis.
-                1,
-                1,
-                1,
-                1,
+                BIP34_ACTIVATION_REGTEST,
+                BIP66_ACTIVATION_REGTEST,
+                BIP65_ACTIVATION_REGTEST,
+                BIP112_CSV_ACTIVATION_REGTEST,
                 0,
                 0,
                 0,
@@ -248,7 +245,10 @@ mod tests {
         assert_eq!(table.bip65, 1);
         assert_eq!(table.bip112, 1);
         for fork in [ForkId::Bip34, ForkId::Bip66, ForkId::Bip65, ForkId::Bip112] {
-            assert!(!table.is_fork_active(fork, 0), "{fork:?} must not apply to genesis");
+            assert!(
+                !table.is_fork_active(fork, 0),
+                "{fork:?} must not apply to genesis"
+            );
             assert!(table.is_fork_active(fork, 1), "{fork:?} starts at height 1");
         }
     }

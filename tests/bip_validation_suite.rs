@@ -525,7 +525,11 @@ fn test_check_bip34_requires_minimal_height_push() {
 
     let mut pushed_zero = coinbase_at_height(0);
     pushed_zero.inputs[0].script_sig = vec![0x01, 0x00].into();
-    assert!(!check_bip34(&block_with_coinbase(pushed_zero), 0, &ctx).unwrap());
+    // Regtest BIP34 starts at height 1, so genesis is not checked. The encoding
+    // rule still rejects a pushed zero wherever the fork is active.
+    let mut active_at_genesis = ctx;
+    active_at_genesis.activation.bip34 = 0;
+    assert!(!check_bip34(&block_with_coinbase(pushed_zero), 0, &active_at_genesis).unwrap());
 }
 
 #[test]
