@@ -98,14 +98,15 @@ cargo test --test orange_paper_property_tests
 
 ### Verification status
 
-A function is proved when a deliberate break in its code makes the Z3 check fail. A green `cargo spec-lock verify` run is not that proof.
+A function is proved when the check passes on the code as written and fails after a deliberate edit. A green `cargo spec-lock verify` run is not that proof.
 
-Two lists count different things. Do not add them.
+This pass proves **13** functions from the function body. Two edits of each body make the check fail:
 
-- [docs/VERIFICATION.md](docs/VERIFICATION.md) is the written list: **93** proved functions out of **224** tracked. `get_block_subsidy`, `check_proof_of_work`, `expand_target`, and `check_transaction` are on it. `should_reorganize`, `calculate_chain_work`, and `connect_block` are not.
-- `blvm-spec-lock` `docs/MUTATION_COVERAGE.md` is the list the tool writes: **34** functions, all proved. `connect_block` is on this list. `connect_block_inner` has no `#[spec_locked]` attribute.
+`sigop_count_push_opcode`, `is_pay_to_script_hash`, `validate_supply_limit`, `is_witness_empty`, `is_witness_version_opcode`, `validate_taproot_script`, `validate_segwit_witness_structure`, `tx_has_nonempty_input_witness`, `script_bool_bytes`, `is_version_zero_witness_program`, `validate_taproot_script_path_with_leaf_version`, `locktime_types_match`, `tx_requires_witness_script_flags`.
 
-The Orange Paper inventory (`blvm-spec-lock` `docs/sentence-inventory.tsv`) has 274 sentences. The subsidy theorem (6.1.2) is proved in Rust for the heights the tool checks and proved in Lean for every natural number. Sixteen sentences are Lean proofs of the specification only. Lean does not check the Rust code. The other 257 sentences are not proved yet.  
+`validate_supply_limit` returns `total_supply(height) <= MAX_MONEY`. A body that only returns `true` is not a proof.
+
+Older counts, not this pass: **93** of **224** in [docs/VERIFICATION.md](docs/VERIFICATION.md), **34** of **34** in `blvm-spec-lock` `docs/MUTATION_COVERAGE.md`, and **274** Orange Paper sentences. Of those sentences, the subsidy theorem (6.1.2) is proved in Rust and in Lean, 16 are Lean only, and 257 are not proved. Lean does not check the Rust.  
 
 ## BIP Implementation Status
 
@@ -197,7 +198,7 @@ cargo spec-lock verify --crate-path .
 
 ## Spec linkage
 
-Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. The written list is 93 proved functions out of 224, in [docs/VERIFICATION.md](docs/VERIFICATION.md). The tool's own list is 34 proved functions. The subsidy theorem (6.1.2) is the one Orange Paper sentence proved in both Rust and Lean. Witnesses in `spec_witnesses.rs` are not the production functions. `connect_block_inner` has no `#[spec_locked]` attribute.
+Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. This pass proves 13 functions from the function body. The older lists are 93 of 224 and 34 of 34, in [docs/VERIFICATION.md](docs/VERIFICATION.md). Witnesses in `spec_witnesses.rs` are not the production functions. `connect_block_inner` has no `#[spec_locked]` attribute.
 
 **Chain of trust**:
 ```

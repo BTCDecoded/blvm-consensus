@@ -106,7 +106,9 @@ A function is counted only when a semantic mutant of that function makes Z3 repo
 
 `checked_add`, `checked_sub`, and `checked_mul` are signed 64-bit bitvectors with an overflow predicate. A literal `<<` in `0..64` wraps at 64 bits. A variable `>>` / `<<` is a 64-bit shift. A typed parameter or a typed local `+`, `-`, or `*` uses that width, including `u128` and `i128`, and wraps. `wrapping_add`, `wrapping_sub`, and `wrapping_mul` are that wrap. `saturating_mul` clamps at the operand's width. A `&[u8]` index is a byte. An addition with no type and no suffix stays unbounded `Int`. SHA-256 compression and the secp256k1 group law stay named assumptions; the genesis header hash and the subsidy schedule are the checked vectors for those seams. A btc-lean proof is a proof of the Lean model; `subsidy_matches_the_shared_schedule` is the Rust side of that vector. `checked_map_bvadd_overflows_at_i64_max` is SAT at `x = i64::MAX` because `x + 1` overflows. That query stays SAT.
 
-The list the tool writes is `blvm-spec-lock/docs/MUTATION_COVERAGE.md`: 34 functions, all proved. That is not the 93 / 224 count above. `connect_block` is on the tool's list and not in the 93.
+The list the tool writes is `blvm-spec-lock/docs/MUTATION_COVERAGE.md`: 34 functions, all proved. That is not the 93 / 224 count above.
+
+This pass proves 13 functions from the function body. The check passes on the code as written, and two edits of the body make it fail: `sigop_count_push_opcode`, `is_pay_to_script_hash`, `validate_supply_limit`, `is_witness_empty`, `is_witness_version_opcode`, `validate_taproot_script`, `validate_segwit_witness_structure`, `tx_has_nonempty_input_witness`, `script_bool_bytes`, `is_version_zero_witness_program`, `validate_taproot_script_path_with_leaf_version`, `locktime_types_match`, and `tx_requires_witness_script_flags`. `validate_supply_limit` returns `total_supply(height) <= MAX_MONEY`. A body that only returns `true` is not a proof.
 
 The Orange Paper inventory is `blvm-spec-lock/docs/sentence-inventory.tsv`: 274 sentences. The subsidy theorem (6.1.2) is proved in Rust for the heights the tool checks and proved in Lean for every natural number. Sixteen sentences are Lean proofs of the specification only. Lean does not check the Rust code. The other 257 sentences are not proved yet.
 
@@ -242,7 +244,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 
 **Purpose**: Z3-based formal verification against Orange Paper specifications
 **Usage**: `cargo spec-lock verify --crate-path .`
-**Coverage**: Z3 on annotated functions. The written list above is 93 proved functions out of 224. The tool's own list is 34 proved functions. A green verify job is not either list.
+**Coverage**: Z3 on annotated functions. This pass proves 13 functions from the function body. The written list above is 93 of 224. The tool's own list is 34 of 34. A green verify job is not any of these counts.
 **Traceability**: Links implementation to Orange Paper sections
 
 **Example:**
