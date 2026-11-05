@@ -14,7 +14,7 @@ This document explains how `blvm-consensus` resolves the `blvm-spec-lock` depend
 
 ## `cargo-spec-lock` CLI (verification)
 
-Formal verification runs **`cargo-spec-lock verify`** (Z3-backed when built with `--features z3`).
+The consensus verify job runs **`cargo-spec-lock verify`** (Z3 on the Rust when built with `--features z3`). Lean checks the Orange Paper model in the spec-lock `lean-evidence` workflow (`verify --require-lean` on `blvm-spec/lean`). That workflow does not check the Rust.
 
 Consumer CI runs **`check-drift`** then **`cargo-spec-lock verify`** with **`--spec-path`** — **merged `F_*` registry** (static + optional Z3 SAT smoke) **before** **`#[spec_locked]`** Rust rows; nested **`formula_registry`** appears in **`spec_lock_*_verify.json`** (**`report_format` 1**); see **`blvm-spec-lock`** **`docs/VERIFY_JSON.md`** and **`schemas/verify_report_v1.json`**. Each consumer repo defines the exact **`Verify`**/`verify` job in its own **`.github/workflows/ci.yml`**; supplemental monorepo-only **`workflow_dispatch`** mirrors may exist under **`BTCDecoded/.github`** / umbrella checkouts (**not** substitutes for **`ci.yml`**).
 

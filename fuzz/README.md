@@ -2,7 +2,7 @@
 
 Coverage-guided fuzzing with **libFuzzer**. **Harness names** are defined in **`Cargo.toml`** (`[[bin]]`); do not trust READMEs for a full list.
 
-Narrative overview (timeless): [Fuzzing (BLVM docs)](https://docs.thebitcoincommons.org/development/fuzzing.html).
+Narrative overview (timeless): [Fuzzing (BLVM docs)](https://docs.btcdecoded.org/blvm/development/fuzzing.html).
 
 ## Production feature (`cfg(feature = "production")`)
 

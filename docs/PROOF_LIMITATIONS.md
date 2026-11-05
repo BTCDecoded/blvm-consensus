@@ -4,7 +4,7 @@ This document describes formal verification coverage in `blvm-consensus` and how
 
 ## Overview
 
-blvm-consensus uses **blvm-spec-lock** (Z3-based) to verify functions against Orange Paper specifications. Spec-lock verifies specific functions and their contracts; property-based tests and integration tests cover larger inputs and edge cases.
+blvm-consensus uses **blvm-spec-lock** to check functions against Orange Paper specifications. Z3 checks the Rust. Lean checks that an Orange Paper sentence is a theorem of the model in `blvm-spec/lean/` and does not check the Rust. Property-based tests and integration tests cover larger inputs and edge cases.
 
 ## Verification Coverage
 

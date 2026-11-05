@@ -114,7 +114,7 @@ The Orange Paper inventory is `blvm-spec-lock/docs/sentence-inventory.tsv`: 274 
 
 ## Overview
 
-Implements checks for Bitcoin consensus rules using mathematical specifications, Z3 on annotated functions, and property-based testing. The mutation-coverage section above is the coverage figure. The stack below is what CI runs, which is a wider check than that figure.
+Implements checks for Bitcoin consensus rules using mathematical specifications, Z3 on annotated Rust functions, Lean on the Orange Paper model, and property-based testing. Lean does not check the Rust. The mutation-coverage section above is the Rust coverage figure. The stack below is what the consensus verify job runs, which is the Z3 check, not the Lean check.
 
 ## Verification Stack
 
@@ -127,6 +127,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 
 ### Layer 2: Symbolic Verification (CI verify job)
 - **blvm-spec-lock**: Z3 on `#[spec_locked]` functions against the Orange Paper. A passing verify job is not the mutation gate above.
+- **Lean**: the spec-lock `lean-evidence` workflow checks that an Orange Paper sentence is a theorem of `blvm-spec/lean/`. It does not check the Rust. The subsidy theorem (6.1.2) is checked by both. Sixteen sentences are Lean proofs of the specification only.
 - **Mathematical specifications**: Orange Paper sections named on those attributes
 - **Traceability**: Annotated functions name an Orange Paper section. Witnesses in `spec_witnesses.rs` are not the production functions.
 
@@ -242,7 +243,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 
 ### blvm-spec-lock
 
-**Purpose**: Z3-based formal verification against Orange Paper specifications
+**Purpose**: Z3 checks annotated Rust functions against Orange Paper specifications. Lean checks the spec model in `blvm-spec/lean/` and does not check the Rust.
 **Usage**: `cargo spec-lock verify --crate-path .`
 **Coverage**: Z3 on annotated functions. This pass proves 13 functions from the function body. The written list above is 93 of 224. The tool's own list is 34 of 34. A green verify job is not any of these counts.
 **Traceability**: Links implementation to Orange Paper sections

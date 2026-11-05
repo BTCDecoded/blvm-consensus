@@ -72,7 +72,7 @@ Implements all major Bitcoin consensus functions from the Orange Paper:
 3. **Exact Version Pinning**: All consensus-critical dependencies pinned to exact versions
 4. **Comprehensive Testing**: Extensive test coverage with integration tests
 5. **No Consensus Rule Interpretation**: Only mathematical implementation
-6. **Spec-lock**: `#[spec_locked]` functions are Z3-checked. The current figures are in [docs/VERIFICATION.md](docs/VERIFICATION.md)
+6. **Spec-lock**: Z3 checks the Rust on `#[spec_locked]` functions. Lean checks the Orange Paper model in `blvm-spec/lean/` and does not check the Rust. The figures are in [docs/VERIFICATION.md](docs/VERIFICATION.md)
 
 See [docs/VERIFICATION.md](docs/VERIFICATION.md) for detailed verification documentation.
 
@@ -198,7 +198,7 @@ cargo spec-lock verify --crate-path .
 
 ## Spec linkage
 
-Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. This pass proves 13 functions from the function body. The older lists are 93 of 224 and 34 of 34, in [docs/VERIFICATION.md](docs/VERIFICATION.md). Witnesses in `spec_witnesses.rs` are not the production functions. `connect_block_inner` has no `#[spec_locked]` attribute.
+Annotated functions carry `#[spec_locked]` and name an Orange Paper section. The consensus verify job runs Z3 on those annotations. Lean checks the Orange Paper model in a separate spec-lock workflow and does not check the Rust. The subsidy theorem (6.1.2) is checked both ways. This pass proves 13 functions from the function body. The older lists are 93 of 224 and 34 of 34, in [docs/VERIFICATION.md](docs/VERIFICATION.md). Witnesses in `spec_witnesses.rs` are not the production functions. `connect_block_inner` has no `#[spec_locked]` attribute.
 
 **Chain of trust**:
 ```
@@ -230,7 +230,7 @@ An annotated function names one of those sections. That name is not a proof that
 
 Checks on this crate:
 
-- **Spec-lock**: Z3 on `#[spec_locked]` functions. A passing verify job is not the mutation gate in [docs/VERIFICATION.md](docs/VERIFICATION.md).
+- **Spec-lock**: Z3 on the Rust annotations. Lean on the Orange Paper model. The consensus verify job is the Z3 job. A passing verify job is not the mutation gate in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 - **Property testing**: randomized tests under `tests/`, including `consensus_property_tests`.
 - **CI**: the verify job runs unless the commit message contains `[skip ci]` or `[skip_verify]`, or a workflow dispatch sets `skip_tests`. OpenTimestamps is designed to stamp the verify artifacts later. It is not a step in `.github/workflows/ci.yml` today.
 
