@@ -1,10 +1,10 @@
-# Bitcoin Commons: Consensus Implementation
+# BLVM consensus
 
 Orange Paper–aligned Bitcoin consensus in Rust: deterministic validation, **`#[spec_locked]`** checks with **blvm-spec-lock**, and broad coverage (unit, integration, property, fuzz).
 
 **Crate:** [`blvm-consensus`](https://crates.io/crates/blvm-consensus) · [docs.rs](https://docs.rs/blvm-consensus)
 
-> **Documentation:** [docs.thebitcoincommons.org](https://docs.thebitcoincommons.org/) · Sources: [blvm-docs](https://github.com/BTCDecoded/blvm-docs).  
+> **Documentation:** [docs.btcdecoded.org/blvm](https://docs.btcdecoded.org/blvm/) · Sources: [blvm-docs](https://github.com/BTCDecoded/blvm-docs).  
 > **Ecosystem status:** [SYSTEM_STATUS.md](https://github.com/BTCDecoded/.github/blob/main/SYSTEM_STATUS.md) (BTCDecoded org).
 
 [![crates.io](https://img.shields.io/crates/v/blvm-consensus.svg)](https://crates.io/crates/blvm-consensus)
@@ -16,7 +16,7 @@ Orange Paper–aligned Bitcoin consensus in Rust: deterministic validation, **`#
 
 ## Architecture Position
 
-Tier 2 of the 6-tier Bitcoin Commons architecture (BLVM technology stack):
+Tier 2 of the BLVM stack. Bitcoin Commons is the specification and the governance model. BLVM is one implementation of that spec.
 
 ```
 1. blvm-spec (Orange Paper - mathematical foundation)
@@ -72,7 +72,7 @@ Implements all major Bitcoin consensus functions from the Orange Paper:
 3. **Exact Version Pinning**: All consensus-critical dependencies pinned to exact versions
 4. **Comprehensive Testing**: Extensive test coverage with integration tests
 5. **No Consensus Rule Interpretation**: Only mathematical implementation
-6. **Formal Verification**: blvm-spec-lock formal verification and property-based testing ensure correctness
+6. **Spec-lock**: `#[spec_locked]` functions are Z3-checked. The current figures are in [docs/VERIFICATION.md](docs/VERIFICATION.md)
 
 See [docs/VERIFICATION.md](docs/VERIFICATION.md) for detailed verification documentation.
 
@@ -96,13 +96,16 @@ cargo test --test consensus_property_tests
 cargo test --test orange_paper_property_tests
 ```
 
-### Verification Status
+### Verification status
 
-**Chain Selection**: `should_reorganize`, `calculate_chain_work` verified  
-**Block Subsidy**: `get_block_subsidy` halving schedule verified  
-**Proof of Work**: `check_proof_of_work`, target expansion verified  
-**Transaction Validation**: `check_transaction` structure rules verified  
-**Block Connection**: `connect_block` UTXO consistency verified  
+A function is proved when a deliberate break in its code makes the Z3 check fail. A green `cargo spec-lock verify` run is not that proof.
+
+Two lists count different things. Do not add them.
+
+- [docs/VERIFICATION.md](docs/VERIFICATION.md) is the written list: **93** proved functions out of **224** tracked. `get_block_subsidy`, `check_proof_of_work`, `expand_target`, and `check_transaction` are on it. `should_reorganize`, `calculate_chain_work`, and `connect_block` are not.
+- `blvm-spec-lock` `docs/MUTATION_COVERAGE.md` is the list the tool writes: **34** functions, all proved. `connect_block` is on this list. `connect_block_inner` has no `#[spec_locked]` attribute.
+
+The Orange Paper inventory (`blvm-spec-lock` `docs/sentence-inventory.tsv`) has 274 sentences. The subsidy theorem (6.1.2) is proved in Rust for the heights the tool checks and proved in Lean for every natural number. Sixteen sentences are Lean proofs of the specification only. Lean does not check the Rust code. The other 257 sentences are not proved yet.  
 
 ## BIP Implementation Status
 
@@ -194,7 +197,7 @@ cargo spec-lock verify --crate-path .
 
 ## Spec linkage
 
-Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. Three functions are mutation-validated: `check_transaction`, `is_strict_der`, and `merkle_tree_from_hashes`. The other anchors are not formally verified by that gate. Witnesses in `spec_witnesses.rs` are not the production functions. The inner connect path has no `#[spec_locked]` attribute. Counts, skip flags, and the command list are in [docs/VERIFICATION.md](docs/VERIFICATION.md).
+Annotated functions carry `#[spec_locked]` and name an Orange Paper section. CI runs Z3 on those annotations. The written list is 93 proved functions out of 224, in [docs/VERIFICATION.md](docs/VERIFICATION.md). The tool's own list is 34 proved functions. The subsidy theorem (6.1.2) is the one Orange Paper sentence proved in both Rust and Lean. Witnesses in `spec_witnesses.rs` are not the production functions. `connect_block_inner` has no `#[spec_locked]` attribute.
 
 **Chain of trust**:
 ```
@@ -205,7 +208,7 @@ Orange Paper (spec) → #[spec_locked] on the functions that carry it → implem
 - **Spec-lock** on `#[spec_locked]` functions against the Orange Paper
 - **Property tests**, integration tests, and optional Bolero-backed tests
 - **Runtime assertions** on selected paths (see feature flags and [PROOF_LIMITATIONS.md](docs/PROOF_LIMITATIONS.md))
-- **Coverage-guided fuzzing** ([Fuzzing (BLVM docs)](https://docs.thebitcoincommons.org/development/fuzzing.html); harnesses under `fuzz/`)
+- **Coverage-guided fuzzing** ([Fuzzing (BLVM docs)](https://docs.btcdecoded.org/blvm/development/fuzzing.html); harnesses under `fuzz/`)
 
 ## Orange Paper sections
 
@@ -228,7 +231,7 @@ Checks on this crate:
 
 - **Spec-lock**: Z3 on `#[spec_locked]` functions. A passing verify job is not the mutation gate in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 - **Property testing**: randomized tests under `tests/`, including `consensus_property_tests`.
-- **CI**: the verify job runs unless the commit message contains `[skip ci]` or `[skip_verify]`, or a workflow dispatch sets `skip_tests`. OpenTimestamps is not a step in `.github/workflows/ci.yml`.
+- **CI**: the verify job runs unless the commit message contains `[skip ci]` or `[skip_verify]`, or a workflow dispatch sets `skip_tests`. OpenTimestamps is designed to stamp the verify artifacts later. It is not a step in `.github/workflows/ci.yml` today.
 
 See [SECURITY.md](SECURITY.md) for security policies and [BTCDecoded Security Policy](https://github.com/BTCDecoded/.github/blob/main/SECURITY.md) for organization-wide guidelines.
 
