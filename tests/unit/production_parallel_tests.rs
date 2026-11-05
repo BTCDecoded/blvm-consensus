@@ -178,16 +178,17 @@ mod tests {
         let block = block_with_coinbase_and_tx(tx);
         let witnesses = witnesses_for_block(&block);
         let ctx = BlockValidationContext::for_network(Network::Regtest);
-        let result = connect_block(
+        let (result, _, _) = connect_block(
             &block,
             witnesses.as_slice(),
             create_multi_input_utxo_set(),
             0,
             &ctx,
-        );
+        )
+        .expect("a rejected script is an invalid block, not an internal error");
         assert!(
-            result.is_err(),
-            "Invalid script must fail block connect: {result:?}"
+            matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("Invalid script")),
+            "over-long script must be rejected: {result:?}"
         );
     }
 
