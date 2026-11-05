@@ -21,6 +21,13 @@ const SEQUENCE_LOCKTIME_GRANULARITY: u32 = 9; // 2^9 = 512 seconds
 /// Must be set in script verification flags to enforce sequence locks.
 pub const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 
+/// Bitcoin stores `nVersion` as a signed 32-bit value. The high bit makes
+/// `0xffffffff` into −1, which does not enable BIP68 or `OP_CHECKSEQUENCEVERIFY`.
+#[inline]
+pub fn version_enforces_relative_lock(version: u64) -> bool {
+    (version as u32) as i32 >= 2
+}
+
 /// Calculate sequence locks for a transaction (BIP68)
 ///
 /// Computes the minimum block height and time that must be reached
@@ -68,7 +75,8 @@ pub fn calculate_sequence_locks(
     let mut min_time: i64 = -1;
 
     // BIP68 is only enforced for version 2+ transactions and when flag is set
-    let enforce_bip68 = tx.version >= 2 && (flags & LOCKTIME_VERIFY_SEQUENCE) != 0;
+    let enforce_bip68 =
+        version_enforces_relative_lock(tx.version) && (flags & LOCKTIME_VERIFY_SEQUENCE) != 0;
 
     if !enforce_bip68 {
         return Ok((min_height, min_time));
@@ -299,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn high_bit_version_enforces_sequence_locks() {
+    fn high_bit_version_does_not_enforce_sequence_locks() {
         fn locks(version: u64) -> (i64, i64) {
             let tx = Transaction {
                 version,
@@ -318,9 +326,10 @@ mod tests {
             calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[1000], None).unwrap()
         }
 
-        // Wire versions are unsigned. 0xffffffff and 0x80000000 are both >= 2.
-        assert_eq!(locks(0xffff_ffff), (1099, -1));
-        assert_eq!(locks(0x8000_0000), (1099, -1));
+        // The wire word is a signed int32. 0xffffffff is −1 and 0x80000000 is
+        // i32::MIN, so neither enables BIP68.
+        assert_eq!(locks(0xffff_ffff), (-1, -1));
+        assert_eq!(locks(0x8000_0000), (-1, -1));
         assert_eq!(locks(2), (1099, -1));
         assert_eq!(locks(1), (-1, -1));
         assert_eq!(locks(0), (-1, -1));
@@ -349,6 +358,35 @@ mod tests {
             err,
             crate::error::ConsensusError::ConsensusRuleViolation(_)
         ));
+    }
+
+    #[test]
+    fn version_below_two_does_not_apply_bip68() {
+        let mut tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0,
+                },
+                script_sig: vec![],
+                sequence: 10,
+            }]
+            .into(),
+            outputs: vec![].into(),
+            lock_time: 0,
+        };
+        let locked = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[100], None)
+            .expect("version 2");
+        assert_ne!(locked, (-1, -1));
+
+        // Wire version 0xffffffff is stored as u64 4294967295 and compares as i32 -1.
+        tx.version = 0xffff_ffff;
+        let unlocked = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[100], None)
+            .expect("0xffffffff");
+        assert_eq!(unlocked, (-1, -1));
+        assert!(!version_enforces_relative_lock(0x8000_0000));
+        assert!(version_enforces_relative_lock(2));
     }
 
     #[test]

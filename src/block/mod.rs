@@ -1556,12 +1556,6 @@ fn every_network_genesis_leaves_the_utxo_set_and_delta_empty() {
         assert!(undo_log.is_empty(), "{network:?}");
         match result {
             ValidationResult::Valid => assert_eq!(tx_ids.len(), 1, "{network:?}"),
-            ValidationResult::Invalid(msg) if network == Network::Regtest => {
-                assert!(
-                    msg.contains("BIP90"),
-                    "regtest genesis is version 1 and BIP65 is active at height 0: {msg}"
-                );
-            }
             other => panic!("{network:?} {other:?}"),
         }
     }

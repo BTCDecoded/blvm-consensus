@@ -9,7 +9,7 @@ use blvm_consensus::block::{
 };
 use blvm_consensus::constants::{
     BIP34_ACTIVATION_MAINNET, BIP54_MAX_SIGOPS_PER_TX, BIP65_ACTIVATION_MAINNET,
-    BIP66_ACTIVATION_MAINNET, MAX_BLOCK_SIGOPS_COST, MAX_MONEY,
+    BIP66_ACTIVATION_MAINNET, MAX_BLOCK_SIGOPS_COST, MAX_MONEY, MAX_SCRIPT_OPS,
 };
 use blvm_consensus::economic::get_block_subsidy;
 use blvm_consensus::mining::{calculate_merkle_root, compute_merkle_root_and_mutated};
@@ -764,6 +764,51 @@ fn test_connect_valid_spend_from_utxo() {
         "OP_1 spend block should connect: {result:?}"
     );
     assert!(!new_set.is_empty());
+}
+
+#[test]
+fn script_execution_error_rejects_the_block() {
+    let mut utxo_set = UtxoSet::default();
+    let prevout = OutPoint {
+        hash: [0x42; 32],
+        index: 0,
+    };
+    utxo_set.insert(
+        prevout,
+        Arc::new(UTXO {
+            value: 10_000,
+            script_pubkey: vec![OP_NOP; MAX_SCRIPT_OPS + 1].into(),
+            height: 0,
+            is_coinbase: false,
+        }),
+    );
+    let fee = 10_000 - 9_000;
+    let coinbase = coinbase_at_height(1, coinbase_value(1, fee));
+    let spend = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout,
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 9_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let mut block = block_with_txs(vec![coinbase, spend], 1_231_006_505);
+    match connect(&mut block, utxo_set, 1) {
+        Ok((ValidationResult::Invalid(message), _, _)) => {
+            assert!(
+                message.contains("Invalid script"),
+                "an op-count failure must be an invalid block, got {message}"
+            );
+        }
+        other => panic!("an op-count failure must reject the block, got {other:?}"),
+    }
 }
 
 #[test]

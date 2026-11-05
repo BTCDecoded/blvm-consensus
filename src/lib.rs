@@ -76,6 +76,16 @@ pub use constants::*;
 pub use error::ConsensusError;
 pub use types::*;
 
+/// A failed script rejects the block. Any other failure stays an error.
+pub(crate) fn script_err_as_false(error: ConsensusError) -> error::Result<bool> {
+    match error {
+        ConsensusError::ScriptExecution(_) | ConsensusError::ScriptErrorWithCode { .. } => {
+            Ok(false)
+        }
+        other => Err(other),
+    }
+}
+
 /// Orange Paper Section 4 symbols (C, H, M_MAX, etc.) — re-export from primitives constants.
 pub mod orange_paper_constants {
     pub use crate::constants::{C, H, L_ELEMENT, L_OPS, L_SCRIPT, L_STACK, M_MAX, R, S_MAX, W_MAX};

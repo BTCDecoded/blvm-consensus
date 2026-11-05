@@ -61,7 +61,6 @@ pub fn verify_schnorr_batch(
 
 pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
     use secp256k1::{Parity, Scalar, XOnlyPublicKey};
-    use sha2::{Digest, Sha256};
 
     let secp = Secp256k1::new();
     let internal_pk = match XOnlyPublicKey::from_slice(internal_pubkey) {
@@ -73,12 +72,11 @@ pub fn taproot_output_key(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Res
         }
     };
 
-    let mut tweak_data = Vec::new();
-    tweak_data.extend_from_slice(b"TapTweak");
-    tweak_data.extend_from_slice(internal_pubkey);
-    tweak_data.extend_from_slice(merkle_root);
-    let tweak_hash = Sha256::digest(&tweak_data);
-    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash.into()) {
+    let mut tweak_input = [0u8; 64];
+    tweak_input[..32].copy_from_slice(internal_pubkey);
+    tweak_input[32..].copy_from_slice(merkle_root);
+    let tweak_hash = bip341_tagged_hash(b"TapTweak", &tweak_input);
+    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash) {
         Ok(s) => s,
         Err(_) => {
             return Err(ConsensusError::InvalidSignature(
@@ -100,7 +98,6 @@ pub fn taproot_output_key_with_parity(
     merkle_root: &Hash,
 ) -> Result<([u8; 32], u8)> {
     use secp256k1::{Parity, Scalar, XOnlyPublicKey};
-    use sha2::{Digest, Sha256};
 
     let secp = Secp256k1::new();
     let internal_pk = match XOnlyPublicKey::from_slice(internal_pubkey) {
@@ -112,12 +109,11 @@ pub fn taproot_output_key_with_parity(
         }
     };
 
-    let mut tweak_data = Vec::new();
-    tweak_data.extend_from_slice(b"TapTweak");
-    tweak_data.extend_from_slice(internal_pubkey);
-    tweak_data.extend_from_slice(merkle_root);
-    let tweak_hash = Sha256::digest(&tweak_data);
-    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash.into()) {
+    let mut tweak_input = [0u8; 64];
+    tweak_input[..32].copy_from_slice(internal_pubkey);
+    tweak_input[32..].copy_from_slice(merkle_root);
+    let tweak_hash = bip341_tagged_hash(b"TapTweak", &tweak_input);
+    let tweak_scalar = match Scalar::from_be_bytes(tweak_hash) {
         Ok(s) => s,
         Err(_) => {
             return Err(ConsensusError::InvalidSignature(
@@ -169,6 +165,46 @@ pub fn tap_leaf_hash(leaf_version: u8, script: &[u8]) -> [u8; 32] {
     data.extend(compact_size_encode(script.len()));
     data.extend_from_slice(script);
     bip341_tagged_hash(b"TapLeaf", &data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::taproot_output_key;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn tap_tweak_uses_the_bip341_tagged_hash() {
+        let internal = [
+            0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+            0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8,
+            0x17, 0x98,
+        ];
+        let root = [0x22u8; 32];
+        let mut data = [0u8; 64];
+        data[..32].copy_from_slice(&internal);
+        data[32..].copy_from_slice(&root);
+
+        let tag = Sha256::digest(b"TapTweak");
+        let mut hasher = Sha256::new();
+        hasher.update(tag);
+        hasher.update(tag);
+        hasher.update(data);
+        let tagged: [u8; 32] = hasher.finalize().into();
+
+        let mut raw = Vec::new();
+        raw.extend_from_slice(b"TapTweak");
+        raw.extend_from_slice(&data);
+        let single = Sha256::digest(&raw);
+        assert_ne!(tagged.as_slice(), single.as_slice());
+
+        let output = taproot_output_key(&internal, &root).expect("tweak");
+        let secp = secp256k1::Secp256k1::new();
+        let internal_pk = secp256k1::XOnlyPublicKey::from_slice(&internal).unwrap();
+        let tweak = secp256k1::Scalar::from_be_bytes(tagged).unwrap();
+        let full = secp256k1::PublicKey::from_x_only_public_key(internal_pk, secp256k1::Parity::Even);
+        let tweaked = full.add_exp_tweak(&secp, &tweak).unwrap();
+        assert_eq!(output, tweaked.x_only_public_key().0.serialize());
+    }
 }
 
 pub fn tap_branch_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {

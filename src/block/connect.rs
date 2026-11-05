@@ -259,7 +259,7 @@ fn enforce_relative_locks(
 }
 
 fn tx_has_relative_lock(tx: &Transaction) -> bool {
-    if tx.version < 2 {
+    if !crate::sequence_locks::version_enforces_relative_lock(tx.version) {
         return false;
     }
     tx.inputs.iter().any(|input| {
@@ -1342,7 +1342,7 @@ fn validate_production_transactions<'a, 'b>(
                                     ))]
                                     collect,
                                 )
-                                .map(|v| (c.tx_ctx_idx, v))
+                                .or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v))
                                 .map_err(|e| {
                                     ConsensusError::BlockValidation(
                                         format!(
@@ -1415,7 +1415,7 @@ fn validate_production_transactions<'a, 'b>(
                                     ))]
                                     collect,
                                 )
-                                .map(|v| (c.tx_ctx_idx, v))
+                                .or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v))
                                 .map_err(|e| {
                                     ConsensusError::BlockValidation(
                                         format!(
@@ -1487,7 +1487,7 @@ fn validate_production_transactions<'a, 'b>(
                                             ))]
                                             collect,
                                         )
-                                        .map(|v| (c.tx_ctx_idx, v))
+                                        .or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v))
                                         .map_err(|e| {
                                             ConsensusError::BlockValidation(
                                                 format!(
@@ -1551,7 +1551,7 @@ fn validate_production_transactions<'a, 'b>(
                                         ))]
                                         collect,
                                     )
-                                    .map(|v| (c.tx_ctx_idx, v))
+                                    .or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v))
                                     .map_err(|e| {
                                         ConsensusError::BlockValidation(
                                             format!(
@@ -1643,7 +1643,7 @@ fn validate_production_transactions<'a, 'b>(
                                             crate::script_profile::note_arm_p2wsh(
                                                 _arm_t0.elapsed().as_nanos() as u64,
                                             );
-                                            return result.map(|v| (c.tx_ctx_idx, v)).map_err(
+                                            return result.or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v)).map_err(
                                                 |e| {
                                                     ConsensusError::BlockValidation(
                                                         format!(
@@ -1700,7 +1700,7 @@ fn validate_production_transactions<'a, 'b>(
                                     crate::script_profile::note_arm_p2sh_multisig(
                                         _arm_t0.elapsed().as_nanos() as u64,
                                     );
-                                    return result.map(|v| (c.tx_ctx_idx, v)).map_err(|e| {
+                                    return result.or_else(crate::script_err_as_false).map(|v| (c.tx_ctx_idx, v)).map_err(|e| {
                                         ConsensusError::BlockValidation(
                                             format!(
                                                 "P2SH-multisig tx {} input {}: {}",
@@ -1849,6 +1849,7 @@ fn validate_production_transactions<'a, 'b>(
                                             ))]
                                             collect,
                                         )
+                                        .or_else(crate::script_err_as_false)
                                         .map(|v| (c.tx_ctx_idx, v))
                                         .map_err(|e| {
                                             ConsensusError::BlockValidation(
@@ -1924,6 +1925,7 @@ fn validate_production_transactions<'a, 'b>(
                                                 ))]
                                                 collect,
                                             )
+                                            .or_else(crate::script_err_as_false)
                                             .map(|v| (c.tx_ctx_idx, v))
                                             .map_err(
                                                 |e| {
@@ -2009,6 +2011,7 @@ fn validate_production_transactions<'a, 'b>(
                                                     ))]
                                                     collect,
                                                 )
+                                                .or_else(crate::script_err_as_false)
                                                 .map(|v| (c.tx_ctx_idx, v))
                                                 .map_err(|e| {
                                                     ConsensusError::BlockValidation(
@@ -2081,6 +2084,7 @@ fn validate_production_transactions<'a, 'b>(
                                                 ))]
                                                 collect,
                                             )
+                                            .or_else(crate::script_err_as_false)
                                             .map(|v| (c.tx_ctx_idx, v))
                                             .map_err(
                                                 |e| {
@@ -2182,8 +2186,10 @@ fn validate_production_transactions<'a, 'b>(
                                                     _arm_t0.elapsed().as_nanos() as u64,
                                                 );
                                                 serial_results.push(
-                                                    result.map(|v| (c.tx_ctx_idx, v)).map_err(
-                                                        |e| {
+                                                    result
+                                                        .or_else(crate::script_err_as_false)
+                                                        .map(|v| (c.tx_ctx_idx, v))
+                                                        .map_err(|e| {
                                                             ConsensusError::BlockValidation(
                                                                 format!(
                                                                 "P2WSH-in-P2SH tx {} input {}: {}",
@@ -2191,8 +2197,7 @@ fn validate_production_transactions<'a, 'b>(
                                                             )
                                                                 .into(),
                                                             )
-                                                        },
-                                                    ),
+                                                        }),
                                                 );
                                                 continue;
                                             }
@@ -2237,15 +2242,18 @@ fn validate_production_transactions<'a, 'b>(
                                         )
                                     {
                                         serial_results.push(
-                                            result.map(|v| (c.tx_ctx_idx, v)).map_err(|e| {
-                                                ConsensusError::BlockValidation(
-                                                    format!(
-                                                        "P2SH-multisig tx {} input {}: {}",
-                                                        ctx.tx_index, c.input_idx, e
+                                            result
+                                                .or_else(crate::script_err_as_false)
+                                                .map(|v| (c.tx_ctx_idx, v))
+                                                .map_err(|e| {
+                                                    ConsensusError::BlockValidation(
+                                                        format!(
+                                                            "P2SH-multisig tx {} input {}: {}",
+                                                            ctx.tx_index, c.input_idx, e
+                                                        )
+                                                        .into(),
                                                     )
-                                                    .into(),
-                                                )
-                                            }),
+                                                }),
                                         );
                                         continue;
                                     }
@@ -2311,7 +2319,11 @@ fn validate_production_transactions<'a, 'b>(
                                         kind,
                                     );
                                 }
-                                serial_results.push(valid.map(|v| (c.tx_ctx_idx, v)));
+                                serial_results.push(
+                                    valid
+                                        .or_else(crate::script_err_as_false)
+                                        .map(|v| (c.tx_ctx_idx, v)),
+                                );
                             }
                             #[cfg(feature = "production")]
                             crate::ecdsa_timers::note_collect_ns(
@@ -3047,7 +3059,9 @@ fn validate_production_transactions<'a, 'b>(
                             None, // precomputed_p2pkh_hash
                             #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
                             None, // ecdsa_collect
-                        )? {
+                        )
+                        .or_else(crate::script_err_as_false)?
+                        {
                             return Ok(ProductionTxFlow::Stop(invalid_block_result(
                                 utxo_set,
                                 tx_ids,
@@ -3842,7 +3856,9 @@ pub(crate) fn connect_block_inner<'a>(
                             None, // precomputed_p2pkh_hash
                             #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
                             None, // ecdsa_collect
-                        )? {
+                        )
+                        .or_else(crate::script_err_as_false)?
+                        {
                             return invalid_block_result(
                                 utxo_set,
                                 tx_ids,

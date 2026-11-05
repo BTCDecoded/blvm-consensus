@@ -960,7 +960,7 @@ pub fn relative_lock_unsatisfied(
     use crate::sequence_locks::{LOCKTIME_VERIFY_SEQUENCE, sequence_locks};
     use crate::types::ForkId;
 
-    if tx.version < 2
+    if !crate::sequence_locks::version_enforces_relative_lock(tx.version)
         || !ForkActivationTable::from_network(network).is_fork_active(ForkId::Bip112, height)
     {
         return Ok(false);

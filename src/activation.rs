@@ -132,10 +132,13 @@ impl ForkActivationTable {
             Network::Regtest => (
                 BIP30_DEACTIVATION_REGTEST,
                 BIP16_P2SH_ACTIVATION_REGTEST,
-                BIP34_ACTIVATION_REGTEST,
-                BIP66_ACTIVATION_REGTEST,
-                0,
-                BIP112_CSV_ACTIVATION_REGTEST,
+                // Core buries BIP34, BIP66, BIP65, and CSV at height 1. The
+                // published primitive constants still say 0, which rejects the
+                // version-1 genesis.
+                1,
+                1,
+                1,
+                1,
                 0,
                 0,
                 0,
@@ -211,7 +214,7 @@ pub fn taproot_activation_height(network: Network) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Network;
+    use crate::types::{ForkId, Network};
 
     #[test]
     fn fork_table_testnet_matches_primitives() {
@@ -234,6 +237,19 @@ mod tests {
             let h = taproot_activation_height(net);
             let t = ForkActivationTable::from_network(net).taproot;
             assert_eq!(h, t, "{net:?}");
+        }
+    }
+
+    #[test]
+    fn regtest_buried_deployments_start_at_height_one() {
+        let table = ForkActivationTable::from_network(Network::Regtest);
+        assert_eq!(table.bip34, 1);
+        assert_eq!(table.bip66, 1);
+        assert_eq!(table.bip65, 1);
+        assert_eq!(table.bip112, 1);
+        for fork in [ForkId::Bip34, ForkId::Bip66, ForkId::Bip65, ForkId::Bip112] {
+            assert!(!table.is_fork_active(fork, 0), "{fork:?} must not apply to genesis");
+            assert!(table.is_fork_active(fork, 1), "{fork:?} starts at height 1");
         }
     }
 }

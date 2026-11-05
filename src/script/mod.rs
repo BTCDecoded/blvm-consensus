@@ -4642,11 +4642,20 @@ fn eval_script_with_context_full_inner(
     // script succeeds immediately. This must happen before any opcode is executed.
     // Reference: BIP342 Tapscript witness execution (ExecuteWitnessScript).
     if sigversion == SigVersion::Tapscript {
+        use crate::activation::IsForkActive;
         use crate::script::flags::SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS;
+        let csfs_active = cfg!(feature = "csfs")
+            && block_height.is_some_and(|height| {
+                crate::activation::ForkActivationTable::from_network(network)
+                    .is_fork_active(crate::types::ForkId::Csfs, height)
+            });
         let mut pc = 0usize;
         while pc < script.len() {
             let opcode = script[pc];
-            if is_op_success(opcode) {
+            // 0xcc stays OP_SUCCESS until the activation table says CSFS is on.
+            if is_op_success(opcode)
+                && !(csfs_active && opcode == crate::opcodes::OP_CHECKSIGFROMSTACK)
+            {
                 if flags & SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS != 0 {
                     return Err(ConsensusError::ScriptErrorWithCode {
                         code: ScriptErrorCode::BadOpcode,
@@ -7016,15 +7025,9 @@ fn eval_checksig_tapscript(
         };
         #[cfg(not(feature = "production"))]
         let is_valid = {
-            #[cfg(feature = "csfs")]
-            let x = {
-                use crate::bip348::verify_tapscript_schnorr_signature;
-                verify_tapscript_schnorr_signature(&sighash, pubkey_bytes, &sig_bytes, None)
-                    .unwrap_or(false)
-            };
-            #[cfg(not(feature = "csfs"))]
-            let x = false;
-            x
+            let mut pk = [0u8; 32];
+            pk.copy_from_slice(pubkey_bytes);
+            crate::secp256k1_backend::verify_schnorr(&sig_bytes, &sighash, &pk).unwrap_or(false)
         };
         if !is_valid {
             return Ok(None);
@@ -7891,7 +7894,7 @@ fn execute_opcode_with_context_full(
             if is_sequence_disabled(sequence_value) {
                 return Ok(true);
             }
-            if tx.version < 2 {
+            if !crate::sequence_locks::version_enforces_relative_lock(tx.version) {
                 return Ok(false);
             }
             if is_sequence_disabled(input_sequence) {
@@ -8015,10 +8018,6 @@ fn execute_opcode_with_context_full(
 
             #[cfg(feature = "csfs")]
             {
-                use crate::constants::{
-                    CSFS_ACTIVATION_MAINNET, CSFS_ACTIVATION_REGTEST, CSFS_ACTIVATION_TESTNET,
-                };
-
                 // BIP-348: Only available in Tapscript (leaf version 0xc0)
                 if sigversion != SigVersion::Tapscript {
                     return Err(ConsensusError::ScriptErrorWithCode {
@@ -8027,18 +8026,13 @@ fn execute_opcode_with_context_full(
                     });
                 }
 
-                // Check activation
-                let csfs_activation = match network {
-                    crate::types::Network::Mainnet => CSFS_ACTIVATION_MAINNET,
-                    crate::types::Network::Testnet => CSFS_ACTIVATION_TESTNET,
-                    crate::types::Network::Regtest | crate::types::Network::Signet => {
-                        CSFS_ACTIVATION_REGTEST
-                    }
-                    // Same sentinel as ForkActivationTable: not active on testnet4.
-                    crate::types::Network::Testnet4 => u64::MAX,
+                let csfs_active = {
+                    use crate::activation::IsForkActive;
+                    block_height.is_some_and(|height| {
+                        crate::activation::ForkActivationTable::from_network(network)
+                            .is_fork_active(crate::types::ForkId::Csfs, height)
+                    })
                 };
-
-                let csfs_active = block_height.map(|h| h >= csfs_activation).unwrap_or(false);
                 if !csfs_active {
                     if flags & flags::SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS != 0 {
                         return Err(ConsensusError::ScriptErrorWithCode {
@@ -8323,6 +8317,156 @@ mod tests {
         for (header, leftover) in [(0x4cu8, 0x50u8), (0x4d, 0x50), (0x4e, 0x50), (0x4e, 0x7e)] {
             assert!(!eval(&[header, leftover]).unwrap(), "header {header:#x}");
         }
+    }
+
+    fn eval_tapscript(
+        script: &[u8],
+        network: crate::types::Network,
+        block_height: Option<u64>,
+    ) -> Result<bool> {
+        use crate::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0u8; 32],
+                    index: 0,
+                },
+                sequence: 0xffff_ffff,
+                script_sig: vec![],
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let mut stack = Vec::new();
+        eval_script_with_context_full(
+            script,
+            &mut stack,
+            0,
+            &tx,
+            0,
+            &[0],
+            &[&[]],
+            block_height,
+            None,
+            network,
+            SigVersion::Tapscript,
+            None,
+            None,
+            None,
+            Some(0),
+            #[cfg(feature = "production")]
+            None,
+            None,
+            #[cfg(feature = "production")]
+            None,
+        )
+    }
+
+    #[test]
+    fn mainnet_checksigfromstack_is_op_success() {
+        let result = eval_tapscript(&[OP_CHECKSIGFROMSTACK], Network::Mainnet, Some(800_000));
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[cfg(feature = "csfs")]
+    #[test]
+    fn active_csfs_is_not_an_immediate_success() {
+        let mainnet = eval_tapscript(&[OP_CHECKSIGFROMSTACK], Network::Mainnet, Some(0));
+        assert_eq!(mainnet.unwrap(), true);
+        let regtest = eval_tapscript(&[OP_CHECKSIGFROMSTACK], Network::Regtest, Some(0));
+        assert!(
+            !matches!(regtest, Ok(true)),
+            "regtest CSFS must run the opcode, got {regtest:?}"
+        );
+    }
+
+    #[cfg(not(feature = "production"))]
+    #[test]
+    fn nonproduction_tapscript_schnorr_spend_is_accepted() {
+        use crate::taproot::{
+            TAPROOT_LEAF_VERSION_TAPSCRIPT, compute_script_merkle_root,
+            compute_tapscript_signature_hash,
+        };
+        use crate::types::{OutPoint, Transaction, TransactionInput, TransactionOutput};
+        use secp256k1::{Keypair, Message, Secp256k1, SecretKey};
+
+        let secp = Secp256k1::new();
+        let secret = SecretKey::from_slice(&[0x42; 32]).expect("secret");
+        let keypair = Keypair::from_secret_key(&secp, &secret);
+        let leaf_pk = keypair.x_only_public_key().0.serialize();
+        let mut tapscript = vec![0x20];
+        tapscript.extend_from_slice(&leaf_pk);
+        tapscript.push(OP_CHECKSIG);
+        let internal = [
+            0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
+            0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b,
+            0x16, 0xf8, 0x17, 0x98,
+        ];
+        let root = compute_script_merkle_root(&tapscript, &[], TAPROOT_LEAF_VERSION_TAPSCRIPT)
+            .expect("root");
+        let (output_key, parity) =
+            crate::secp256k1_backend::taproot_output_key_with_parity(&internal, &root)
+                .expect("tweak");
+        let mut script_pubkey = vec![0x51, 0x20];
+        script_pubkey.extend_from_slice(&output_key);
+        let mut control = vec![TAPROOT_LEAF_VERSION_TAPSCRIPT | parity];
+        control.extend_from_slice(&internal);
+        let prevout_value = 10_000i64;
+        let tx = Transaction {
+            version: 2,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0x71; 32],
+                    index: 0,
+                },
+                script_sig: vec![].into(),
+                sequence: 0xffff_ffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 9_000,
+                script_pubkey: vec![0x51].into(),
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let sighash = compute_tapscript_signature_hash(
+            &tx,
+            0,
+            &[prevout_value],
+            &[script_pubkey.as_slice()],
+            &tapscript,
+            TAPROOT_LEAF_VERSION_TAPSCRIPT,
+            0xffff_ffff,
+            0x00,
+            None,
+        )
+        .expect("sighash");
+        let msg = Message::from_digest_slice(&sighash).expect("digest");
+        let sig = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
+        let witness = vec![sig.as_ref().to_vec(), tapscript, control];
+        let accepted = verify_script_with_context_full(
+            &tx.inputs[0].script_sig,
+            &script_pubkey,
+            Some(&witness),
+            flags::SCRIPT_VERIFY_WITNESS | flags::SCRIPT_VERIFY_TAPROOT,
+            &tx,
+            0,
+            &[prevout_value],
+            &[script_pubkey.as_slice()],
+            Some(crate::constants::TAPROOT_ACTIVATION_MAINNET),
+            None,
+            Network::Mainnet,
+            SigVersion::Base,
+            None,
+        );
+        assert_eq!(accepted.unwrap(), true);
     }
 
     #[test]

@@ -279,6 +279,7 @@ impl ScriptCheckQueue {
                 #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
                 ecdsa_collect,
             )
+            .or_else(crate::script_err_as_false)
             .map_err(|e| {
                 ConsensusError::BlockValidation(
                     format!(
