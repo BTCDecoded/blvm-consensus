@@ -139,6 +139,9 @@ jobs:
       - name: Run tests
         env:
           BLVM_REQUIRE_GOLDEN_FIXTURES: "1"
+          # rustc 1.88 ICEs in the incremental dep graph on this runner's
+          # restored cache (try_mark_previous_green). A clean compile does not.
+          CARGO_INCREMENTAL: "0"
         run: |
           # Run tests only (no coverage) for fast PR feedback
           # Coverage runs separately in coverage.yml workflow
