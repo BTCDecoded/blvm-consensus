@@ -422,7 +422,7 @@ pub fn check_bip66(
 /// - Format: `0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]`
 /// - No leading zeros in R or S (unless needed to prevent negative interpretation)
 /// - Minimal length encoding
-fn is_strict_der(signature: &[u8]) -> Result<bool> {
+pub(crate) fn is_strict_der(signature: &[u8]) -> Result<bool> {
     // Format: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S] [sighash]
     // * total-length: 1-byte length descriptor of everything that follows,
     //   excluding the sighash byte.

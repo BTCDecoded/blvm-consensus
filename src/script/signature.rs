@@ -69,6 +69,7 @@ pub(crate) fn verify_signature(
     network: crate::types::Network,
     sigversion: SigVersion,
 ) -> Result<bool> {
+    let _ = (height, network);
     if signature_bytes.is_empty() {
         return Ok(false);
     }
@@ -76,9 +77,10 @@ pub(crate) fn verify_signature(
     let sighash_byte = signature_bytes[sig_len - 1];
     let der_sig = &signature_bytes[..sig_len - 1];
 
-    if flags & 0x04 != 0
-        && !crate::bip_validation::check_bip66_network(signature_bytes, height, network)?
-    {
+    // The flag is the decision. BIP66's height gate belongs to the caller that
+    // sets SCRIPT_VERIFY_DERSIG. Checking the height again drops the flag at
+    // regtest height 0, where the buried deployment has not started.
+    if flags & 0x04 != 0 && !crate::bip_validation::is_strict_der(signature_bytes)? {
         return Err(crate::error::ConsensusError::ScriptErrorWithCode {
             code: crate::error::ScriptErrorCode::SigDer,
             message: "non-DER signature".into(),
