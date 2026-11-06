@@ -161,7 +161,7 @@ pub fn connect_block(
     let block_arc = None;
     let (result, new_utxo_set, _tx_ids, undo_log, _delta) = connect::connect_block_inner(
         block, witnesses, utxo_set, None, height, context, None, None, block_arc, false, true,
-        None, None,
+        None, None, false,
     )?;
     Ok((result, new_utxo_set, undo_log))
 }
@@ -205,6 +205,7 @@ pub fn connect_block_with_chainwork(
         true,
         best_header_chainwork,
         None,
+        false,
     )?;
     Ok((result, new_utxo_set, undo_log))
 }
@@ -255,6 +256,7 @@ pub fn connect_block_ibd<'a>(
         false,
         best_header_chainwork,
         None,
+        false,
     )?;
     Ok((result, new_utxo_set, tx_ids, utxo_delta))
 }
@@ -273,6 +275,7 @@ pub fn connect_block_ibd_with_undo<'a>(
     witnesses_arc: Option<&std::sync::Arc<Vec<Vec<Witness>>>>,
     best_header_chainwork: Option<crate::pow::U256>,
     ibd_utxo_lookup: Option<&dyn crate::utxo_overlay::UtxoLookup>,
+    assume_valid_pin_connected: bool,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -294,6 +297,7 @@ pub fn connect_block_ibd_with_undo<'a>(
         true,
         best_header_chainwork,
         ibd_utxo_lookup,
+        assume_valid_pin_connected,
     )?;
     Ok((result, new_utxo_set, tx_ids, utxo_delta, undo_log))
 }
@@ -1549,6 +1553,7 @@ fn every_network_genesis_leaves_the_utxo_set_and_delta_empty() {
             None,
             None,
             None,
+            false,
         )
         .unwrap();
         assert!(utxo_set.is_empty(), "{network:?}");

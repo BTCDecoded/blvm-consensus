@@ -186,6 +186,7 @@ fn connect_ibd_with_lookup(
         None,
         None,
         lookup,
+        false,
     )
     .expect("ibd connect");
     assert!(matches!(result, ValidationResult::Valid), "{result:?}");

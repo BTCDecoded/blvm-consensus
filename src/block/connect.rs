@@ -32,14 +32,19 @@ use super::{
 };
 
 /// Script checks skip only below the assume-valid height, with chainwork high enough,
-/// and a hash set. Height alone does not skip. The hash is compared at that height, not at genesis.
+/// a hash set, and that hash present at the pin height. The helper does not store the flag.
+/// Height alone does not skip. A block below the pin does not prove it is on that chain.
 pub(crate) fn assume_valid_skips_signatures(
     height: u64,
     assume_valid_height: u64,
     chainwork_ok: bool,
     assume_valid_hash_set: bool,
+    assume_valid_pin_connected: bool,
 ) -> bool {
-    height < assume_valid_height && chainwork_ok && assume_valid_hash_set
+    height < assume_valid_height
+        && chainwork_ok
+        && assume_valid_hash_set
+        && assume_valid_pin_connected
 }
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -3233,6 +3238,7 @@ pub(crate) fn connect_block_inner<'a>(
     collect_undo: bool,
     best_header_chainwork: Option<crate::pow::U256>,
     ibd_utxo_lookup: Option<&dyn crate::utxo_overlay::UtxoLookup>,
+    assume_valid_pin_connected: bool,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -3606,10 +3612,14 @@ pub(crate) fn connect_block_inner<'a>(
         crate::block::get_assume_valid_height(),
         chainwork_ok,
         crate::config::get_assume_valid_hash().is_some(),
+        assume_valid_pin_connected,
     );
 
     #[cfg(not(feature = "production"))]
-    let skip_signatures = false;
+    let skip_signatures = {
+        let _ = assume_valid_pin_connected;
+        false
+    };
 
     // BLVM_DEBUG_ASSUMEVALID=1: log when the chainwork gate blocks the skip (requires `profile`).
     #[cfg(all(feature = "production", feature = "profile"))]
@@ -4540,12 +4550,19 @@ mod assume_valid_skip_tests {
 
     #[test]
     fn height_without_hash_does_not_skip() {
-        assert!(!assume_valid_skips_signatures(100, 912_683, true, false));
+        assert!(!assume_valid_skips_signatures(
+            100, 912_683, true, false, false
+        ));
     }
 
     #[test]
-    fn height_and_hash_below_the_point_skips() {
-        assert!(assume_valid_skips_signatures(100, 912_683, true, true));
+    fn height_and_hash_below_the_point_skips_only_when_the_pin_is_connected() {
+        assert!(!assume_valid_skips_signatures(
+            100, 912_683, true, true, false
+        ));
+        assert!(assume_valid_skips_signatures(
+            100, 912_683, true, true, true
+        ));
     }
 
     #[test]
@@ -4556,6 +4573,7 @@ mod assume_valid_skip_tests {
             0,
             assume_valid_height,
             true,
+            false,
             false
         ));
     }
