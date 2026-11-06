@@ -2,12 +2,16 @@
 //! BIP9-style version-bits activation height from a 2016-header window.
 use blvm_consensus::serialization::block::deserialize_block_header;
 use blvm_consensus::types::BlockHeader;
-use blvm_consensus::version_bits::{activation_height_from_headers, bip54_deployment_mainnet};
+use blvm_consensus::version_bits::{
+    VERSIONBITS_TOP_BITS, activation_height_from_headers, bip54_deployment_mainnet,
+};
 use libfuzzer_sys::fuzz_target;
 
 fn synthetic_header(seed: &[u8]) -> BlockHeader {
     BlockHeader {
-        version: i64::from_le_bytes(seed.get(0..8).unwrap_or(&[0; 8]).try_into().unwrap())
+        version: i64::from(
+            u32::from_le_bytes(seed.get(0..4).unwrap_or(&[0; 4]).try_into().unwrap()) & 0x1fff_ffff,
+        ) | i64::from(VERSIONBITS_TOP_BITS)
             | (1i64 << 15),
         prev_block_hash: seed
             .get(8..40)

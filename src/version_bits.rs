@@ -13,6 +13,11 @@ pub const LOCK_IN_PERIOD: u32 = 2016;
 /// BIP9 activation threshold (95% of LOCK_IN_PERIOD).
 pub const ACTIVATION_THRESHOLD: u32 = 1916;
 
+/// BIP9 requires the top three version bits to be `001`.
+/// Core: `VERSIONBITS_TOP_MASK` / `VERSIONBITS_TOP_BITS` in `versionbits.h`.
+pub const VERSIONBITS_TOP_MASK: u32 = 0xE000_0000;
+pub const VERSIONBITS_TOP_BITS: u32 = 0x2000_0000;
+
 /// BIP9 deployment parameters (bit index and time window).
 #[derive(Debug, Clone, Copy)]
 pub struct Bip9Deployment {
@@ -93,8 +98,10 @@ pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Depl
 /// * `deployment` – BIP9 deployment (bit, start_time, timeout).
 ///
 /// Returns `Some(activation_height)` when the last `LOCK_IN_PERIOD` headers (the retarget
-/// window ending at `current_height - 1`) show ≥[`ACTIVATION_THRESHOLD`] signalling for
-/// `deployment.bit`. Then `activation_height = (period_index + 2) * 2016` where
+/// window ending at `current_height - 1`) show ≥[`ACTIVATION_THRESHOLD`] BIP9 signals for
+/// `deployment.bit`. A header signals only when `bit` is in 0..29 and
+/// `(version & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS` and that bit is set.
+/// Then `activation_height = (period_index + 2) * 2016` where
 /// `period_index = (current_height - 1) / 2016` (BIP9: ACTIVE at start of period `period_index + 2`).
 ///
 /// This does **not** mean rules are active at `current_height` yet; use
@@ -122,8 +129,13 @@ pub fn activation_height_from_headers<H: AsRef<BlockHeader>>(
 
     let mut count = 0u32;
     for h in headers.iter().take(LOCK_IN_PERIOD as usize) {
+        // Low 32 bits are the wire version. BIP9 ignores a set deployment bit
+        // unless the top three bits are 001. Bits 29..31 are the prefix, not signals.
         let v = h.as_ref().version as u32;
-        if ((v >> deployment.bit) & 1) != 0 {
+        if deployment.bit < 29
+            && (v & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS
+            && ((v >> deployment.bit) & 1) != 0
+        {
             count += 1;
         }
     }
@@ -174,6 +186,11 @@ mod tests {
         }
     }
 
+    /// BIP9 signaling version: prefix `001` plus deployment `bit`.
+    fn signaling_version(bit: u8) -> i64 {
+        i64::from(VERSIONBITS_TOP_BITS | (1u32 << bit))
+    }
+
     #[test]
     fn disabled_deployment_returns_none() {
         let dep = Bip9Deployment {
@@ -192,8 +209,8 @@ mod tests {
             start_time: 0,
             timeout: u64::MAX,
         };
-        // 2016 headers all with bit 0 set (period ending at current_height-1)
-        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1)).collect();
+        // 2016 headers with the BIP9 prefix and bit 0 set.
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(signaling_version(0))).collect();
         // Period 1 ends at 4031: lock-in → ACTIVE from height 6048 onward.
         assert_eq!(
             activation_height_from_headers(&headers, 4032, 1, &dep),
@@ -220,7 +237,7 @@ mod tests {
             start_time: 0,
             timeout: u64::MAX,
         };
-        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1)).collect();
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(signaling_version(0))).collect();
         let act = activation_height_from_headers(&headers, 4031, 1, &dep);
         assert_eq!(act, Some(6048));
         assert!(
@@ -236,7 +253,36 @@ mod tests {
             start_time: 0,
             timeout: u64::MAX,
         };
-        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1)).collect();
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(signaling_version(0))).collect();
         assert!(activation_height_from_headers(&headers, u64::MAX, 1, &dep).is_none());
+    }
+
+    #[test]
+    fn version_one_does_not_signal() {
+        let dep = Bip9Deployment {
+            bit: 0,
+            start_time: 0,
+            timeout: u64::MAX,
+        };
+        // Version 1 has bit 0 set and top bits 000. BIP9 does not count it.
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1)).collect();
+        assert!(activation_height_from_headers(&headers, 4032, 1, &dep).is_none());
+    }
+
+    #[test]
+    fn bip54_bit_without_prefix_does_not_lock_in() {
+        let dep = bip54_deployment_mainnet();
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(1i64 << 15)).collect();
+        assert!(activation_height_from_headers(&headers, 4032, 1, &dep).is_none());
+    }
+
+    #[test]
+    fn bip54_prefix_and_bit_locks_in() {
+        let dep = bip54_deployment_mainnet();
+        let headers: Vec<BlockHeader> = (0..2016).map(|_| header(signaling_version(15))).collect();
+        assert_eq!(
+            activation_height_from_headers(&headers, 4032, 1, &dep),
+            Some(6048)
+        );
     }
 }

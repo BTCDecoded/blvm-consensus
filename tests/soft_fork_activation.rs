@@ -10,12 +10,9 @@
 use blvm_consensus::types::BlockHeader;
 use blvm_consensus::{SEGWIT_ACTIVATION_MAINNET, TAPROOT_ACTIVATION_MAINNET};
 
-/// BIP9 version bits constants
-///
-/// Version bits are bits 0-28 in the block version field.
-/// Bit 29 is used for testnet, bit 30 is used for CSV, bit 31 is used for SegWit.
-pub const VERSIONBITS_TOP_BITS: u32 = 0xE0000000;
-pub const VERSIONBITS_TOP_MASK: u32 = 0xE0000000;
+/// BIP9 version prefix. Signaling versions use bits 0–28 and top bits `001`.
+pub const VERSIONBITS_TOP_BITS: u32 = 0x2000_0000;
+pub const VERSIONBITS_TOP_MASK: u32 = 0xE000_0000;
 
 /// BIP9 deployment states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,8 +69,11 @@ pub fn calculate_bip9_state(
     let check_period = deployment.lock_in_period.min(headers.len() as u32);
 
     for header in headers.iter().take(check_period as usize) {
-        let version_bit = (header.version >> deployment.bit) & 1;
-        if version_bit == 1 {
+        let version = header.version as u32;
+        let signals = deployment.bit < 29
+            && (version & VERSIONBITS_TOP_MASK) == VERSIONBITS_TOP_BITS
+            && ((version >> deployment.bit) & 1) == 1;
+        if signals {
             bit_set_count += 1;
         }
     }
@@ -180,7 +180,7 @@ fn test_bip9_lock_in_period() {
     // Create headers with bit set (above threshold)
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = if i < 1916 { 0x00000001 } else { 0x00000000 }; // Bit 0 set for first 1916 blocks
+        let version = if i < 1916 { 0x20000001 } else { 0x00000000 }; // Bit 0 set for first 1916 blocks
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
@@ -218,7 +218,7 @@ fn test_bip9_activation_height() {
     // Create headers with bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = if i < 1916 { 0x00000001 } else { 0x00000000 };
+        let version = if i < 1916 { 0x20000001 } else { 0x00000000 };
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
@@ -265,7 +265,7 @@ fn test_multiple_concurrent_soft_forks() {
     // Create headers with both bits set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = 0x00000003; // Bits 0 and 1 set
+        let version = 0x20000003; // Bits 0 and 1 set
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
@@ -302,7 +302,7 @@ fn test_blocks_at_exact_activation_heights() {
     // Create headers with bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = if i < 1916 { 0x00000001 } else { 0x00000000 };
+        let version = if i < 1916 { 0x20000001 } else { 0x00000000 };
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
@@ -425,7 +425,7 @@ fn test_taproot_activation() {
     // Create headers with Taproot bit set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = 0x00000004; // Taproot bit set
+        let version = 0x20000004; // BIP9 prefix plus Taproot bit 2
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
@@ -503,7 +503,7 @@ fn test_version_bits_thresholds() {
     // Create headers with both bits set
     let mut headers = Vec::new();
     for i in 0..2016 {
-        let version = 0x00000003; // Both bits set
+        let version = 0x20000003; // Both bits set
         headers.push(BlockHeader {
             version,
             prev_block_hash: [i as u8; 32],
