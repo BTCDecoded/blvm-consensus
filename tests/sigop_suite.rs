@@ -362,13 +362,8 @@ fn test_sigop_flags_off_skip_witness_and_p2sh() {
         height: 0,
         is_coinbase: false,
     };
-    let p2sh_off = get_transaction_sigop_cost_with_utxos(
-        &p2sh_tx,
-        &[Some(&p2sh_utxo)],
-        None,
-        0,
-    )
-    .unwrap();
+    let p2sh_off =
+        get_transaction_sigop_cost_with_utxos(&p2sh_tx, &[Some(&p2sh_utxo)], None, 0).unwrap();
     let p2sh_on = get_transaction_sigop_cost_with_utxos(
         &p2sh_tx,
         &[Some(&p2sh_utxo)],
