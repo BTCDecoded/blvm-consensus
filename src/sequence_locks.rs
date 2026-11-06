@@ -22,11 +22,11 @@ const SEQUENCE_LOCKTIME_GRANULARITY: u32 = 9; // 2^9 = 512 seconds
 /// Must be set in script verification flags to enforce sequence locks.
 pub const LOCKTIME_VERIFY_SEQUENCE: u32 = 0x01;
 
-/// Bitcoin stores `nVersion` as a signed 32-bit value. The high bit makes
-/// `0xffffffff` into −1, which does not enable BIP68 or `OP_CHECKSEQUENCEVERIFY`.
+/// The wire version is a `uint32_t`. BIP68 and `OP_CHECKSEQUENCEVERIFY` use
+/// that unsigned word, so `0xffffffff` and `0x80000000` both enable the lock.
 #[inline]
 pub fn version_enforces_relative_lock(version: u64) -> bool {
-    (version as u32) as i32 >= 2
+    (version as u32) >= 2
 }
 
 /// Calculate sequence locks for a transaction (BIP68)
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn high_bit_version_does_not_enforce_sequence_locks() {
+    fn high_bit_version_enforces_sequence_locks() {
         fn locks(version: u64) -> (i64, i64) {
             let tx = Transaction {
                 version,
@@ -327,13 +327,16 @@ mod tests {
             calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[1000], None).unwrap()
         }
 
-        // The wire word is a signed int32. 0xffffffff is −1 and 0x80000000 is
-        // i32::MIN, so neither enables BIP68.
-        assert_eq!(locks(0xffff_ffff), (-1, -1));
-        assert_eq!(locks(0x8000_0000), (-1, -1));
+        // The low 32 bits are unsigned. 0xffffffff and 0x80000000 are both >= 2.
+        assert_eq!(locks(0xffff_ffff), (1099, -1));
+        assert_eq!(locks(0x8000_0000), (1099, -1));
         assert_eq!(locks(2), (1099, -1));
         assert_eq!(locks(1), (-1, -1));
         assert_eq!(locks(0), (-1, -1));
+        assert!(version_enforces_relative_lock(0xffff_ffff));
+        assert!(version_enforces_relative_lock(0x8000_0000));
+        assert!(version_enforces_relative_lock((1u64 << 32) | 0xffff_ffff));
+        assert!(!version_enforces_relative_lock(1u64 << 32));
     }
 
     #[test]
@@ -381,12 +384,15 @@ mod tests {
             .expect("version 2");
         assert_ne!(locked, (-1, -1));
 
-        // Wire version 0xffffffff is stored as u64 4294967295 and compares as i32 -1.
-        tx.version = 0xffff_ffff;
+        tx.version = 1;
         let unlocked = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[100], None)
-            .expect("0xffffffff");
+            .expect("version 1");
         assert_eq!(unlocked, (-1, -1));
-        assert!(!version_enforces_relative_lock(0x8000_0000));
+        tx.version = 0;
+        let zero = calculate_sequence_locks(&tx, LOCKTIME_VERIFY_SEQUENCE, &[100], None)
+            .expect("version 0");
+        assert_eq!(zero, (-1, -1));
+        assert!(!version_enforces_relative_lock(1));
         assert!(version_enforces_relative_lock(2));
     }
 

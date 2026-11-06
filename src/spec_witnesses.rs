@@ -1693,6 +1693,18 @@ pub(crate) fn _verify_f_csv_version_below_two_fails(version: i64, disable_bit: i
     disable_bit != 0 || version >= 2
 }
 
+/// Witness for **F_RelativeLockUnsignedVersion** (PROTOCOL.md §5.5).
+///
+/// A version word in `0..=2^32-1` enables BIP68 and CSV exactly when it is at least 2.
+/// Wire `0xffffffff` is 4294967295 and enables both.
+#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_RelativeLockUnsignedVersion"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(version >= 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(version <= 4294967295))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == (version >= 2)))]
+pub(crate) fn _verify_f_relative_lock_unsigned_version(version: i64) -> bool {
+    version >= 2
+}
+
 /// Witness for **F_CsvDisableBitSkipsVersion** (PROTOCOL.md §5.5).
 ///
 /// A set stack disable bit succeeds even when the transaction version is below 2.
