@@ -1,5 +1,6 @@
 //! Control flow structures for script execution (OP_IF, OP_NOTIF, OP_ENDIF).
 
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,8 +21,8 @@ pub(crate) fn in_false_branch(control_stack: &[ControlBlock]) -> bool {
 }
 
 /// Minimal IF/NOTIF argument. Core accepts only the empty vector or exactly `[0x01]`.
-#[spec_locked("5.2.4", "IsMinimalIfCondition")]
-#[blvm_spec_lock::ensures(result == false || bytes.len() <= 1)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.4", "IsMinimalIfCondition"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || bytes.len() <= 1))]
 pub(crate) fn is_minimal_if_condition(bytes: &[u8]) -> bool {
     match bytes.len() {
         0 => true,

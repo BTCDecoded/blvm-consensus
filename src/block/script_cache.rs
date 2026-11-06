@@ -10,6 +10,7 @@ use crate::segwit::{Witness, is_segwit_transaction};
 use crate::transaction::is_coinbase;
 use crate::types::*;
 use crate::witness::is_witness_empty;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -23,7 +24,7 @@ use super::BlockValidationContext;
 
 /// Base script flags for a block from activation context.
 /// Call once per block, then use `calculate_script_flags_for_block` or `add_per_tx_script_flags`.
-#[spec_locked("5.2.5", "CalculateScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "CalculateScriptFlags"))]
 #[inline]
 pub(crate) fn calculate_base_script_flags_for_block(
     height: u64,
@@ -73,7 +74,7 @@ pub fn calculate_base_script_flags_for_block_network(
 ///
 /// Witness-serialized blocks attach a witness vector per input even for legacy spends;
 /// those empty stacks must not alone trigger witness script rules (sort-merge step6 regression).
-#[spec_locked("5.2.5", "HasNonEmptyInputWitness")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "HasNonEmptyInputWitness"))]
 pub fn tx_has_nonempty_input_witness(per_input_witnesses: Option<&[Witness]>) -> bool {
     per_input_witnesses
         .map(|ws| ws.iter().any(|w| !is_witness_empty(w)))
@@ -86,7 +87,7 @@ pub fn tx_requires_witness_script_flags(tx: &Transaction, has_witness: bool) -> 
 }
 
 /// Per-tx script flags (SegWit + Taproot). Add to base flags from `calculate_base_script_flags_for_block`.
-#[spec_locked("5.2.5", "CalculateScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "CalculateScriptFlags"))]
 #[inline]
 fn add_per_tx_script_flags(
     base_flags: u32,
@@ -105,7 +106,7 @@ fn add_per_tx_script_flags(
 }
 
 /// Calculate script verification flags for a transaction in a block (with activation context).
-#[spec_locked("5.2.5", "CalculateScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "CalculateScriptFlags"))]
 pub(crate) fn calculate_script_flags_for_block(
     tx: &Transaction,
     has_witness: bool,
@@ -117,7 +118,7 @@ pub(crate) fn calculate_script_flags_for_block(
 }
 
 /// Convenience: script flags from (height, network) when no context is available (e.g. mempool, bench tools).
-#[spec_locked("5.2.5", "CalculateScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "CalculateScriptFlags"))]
 pub fn calculate_script_flags_for_block_network(
     tx: &Transaction,
     has_witness: bool,
@@ -129,7 +130,7 @@ pub fn calculate_script_flags_for_block_network(
 }
 
 /// Calculate script verification flags for a transaction in a block (with precomputed base flags).
-#[spec_locked("5.2.5", "CalculateScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.5", "CalculateScriptFlags"))]
 #[inline]
 #[allow(dead_code)]
 pub(crate) fn calculate_script_flags_for_block_with_base(
@@ -168,7 +169,7 @@ static TESTNET_SCRIPT_FLAG_EXCEPTION_BIP16: LazyLock<Hash> = LazyLock::new(|| {
 });
 
 /// Consensus script-flag override for `block_hash` on `network`, if any (Orange Paper §5.2.6 table).
-#[spec_locked("5.2.6", "ScriptFlagExceptions")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.6", "ScriptFlagExceptions"))]
 pub fn script_flag_exceptions_lookup(block_hash: &Hash, network: Network) -> Option<u32> {
     match network {
         Network::Mainnet => {
@@ -234,7 +235,7 @@ pub fn get_block_script_verify_flags_core(
 ///
 /// **`connect_block`** uses [`get_block_script_verify_flags_core`] for the block-level mask;
 /// this function is the Orange Paper §5.2.6 piecewise spec.
-#[spec_locked("5.2.6", "GetBlockScriptFlags")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.6", "GetBlockScriptFlags"))]
 pub fn get_block_script_flags(
     block_hash: &Hash,
     tx: &Transaction,

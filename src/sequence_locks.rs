@@ -11,6 +11,7 @@ use crate::locktime::{
     extract_sequence_locktime_value, extract_sequence_type_flag, is_sequence_disabled,
 };
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// Sequence locktime granularity (for time-based locks)
@@ -47,11 +48,11 @@ pub fn version_enforces_relative_lock(version: u64) -> bool {
 /// Pair (min_height, min_time) that must be satisfied:
 /// - min_height: Minimum block height (or -1 if no height constraint)
 /// - min_time: Minimum block time (or -1 if no time constraint)
-#[spec_locked("5.5", "CalculateSequenceLocks")]
-#[blvm_spec_lock::axiom(result_0 >= -1)]
-#[blvm_spec_lock::axiom(result_1 >= -1)]
-#[blvm_spec_lock::ensures(result_0 >= -1)]
-#[blvm_spec_lock::ensures(result_1 >= -1)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "CalculateSequenceLocks"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result_0 >= -1))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result_1 >= -1))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result_0 >= -1))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result_1 >= -1))]
 pub fn calculate_sequence_locks(
     tx: &Transaction,
     flags: u32,
@@ -196,7 +197,7 @@ pub fn calculate_sequence_locks(
 ///
 /// # Returns
 /// true if locks are satisfied, false otherwise
-#[spec_locked("5.5", "EvaluateSequenceLocks")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "EvaluateSequenceLocks"))]
 pub fn evaluate_sequence_locks(block_height: u64, block_time: u64, lock_pair: (i64, i64)) -> bool {
     let (min_height, min_time) = lock_pair;
 

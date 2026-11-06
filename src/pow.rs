@@ -3,6 +3,7 @@
 use crate::constants::*;
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 use sha2::{Digest, Sha256};
 
@@ -30,7 +31,7 @@ use sha2::{Digest, Sha256};
 /// - prev[prev.len()-1] is the last block before the adjustment (use its bits)
 ///
 /// Note: `current_header` parameter is kept for API compatibility but not used in calculation
-#[spec_locked("7.1", "GetNextWorkRequired")]
+#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "GetNextWorkRequired"))]
 pub fn get_next_work_required(
     _current_header: &BlockHeader,
     prev_headers: &[BlockHeader],
@@ -377,7 +378,7 @@ fn retarget_bits(
 ///
 /// Check if the block header satisfies the proof of work requirement.
 /// Formula: SHA256(SHA256(header)) <= ExpandTarget(header.bits)
-#[spec_locked("7.2", "CheckProofOfWork")]
+#[cfg_attr(feature = "spec-lock", spec_locked("7.2", "CheckProofOfWork"))]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn check_proof_of_work(header: &BlockHeader) -> Result<bool> {
@@ -426,7 +427,7 @@ pub fn meet_regtest_proof_of_work(header: &mut BlockHeader) {
 /// # Returns
 /// Vector of tuples (is_valid, computed_hash) for each header. Hash is None for invalid headers.
 /// Order matches input headers.
-#[spec_locked("7.2", "CheckProofOfWork")]
+#[cfg_attr(feature = "spec-lock", spec_locked("7.2", "CheckProofOfWork"))]
 #[cfg(feature = "production")]
 pub fn batch_check_proof_of_work(headers: &[BlockHeader]) -> Result<Vec<(bool, Option<Hash>)>> {
     use crate::optimizations::simd_vectorization;
@@ -977,7 +978,7 @@ pub fn difficulty_from_bits(bits: Natural) -> Result<f64> {
 ///
 /// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-#[spec_locked("7.1", "ExpandTarget")]
+#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "ExpandTarget"))]
 pub fn expand_target(bits: Natural) -> Result<U256> {
     // SetCompact implementation:
     // int nSize = nCompact >> 24;
@@ -1034,7 +1035,7 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
 ///
 /// For compact `bits`, let `target = expand_target(bits)`. When `target == 0`, returns zero;
 /// otherwise `(~target / (target + 1)) + 1` in 256-bit arithmetic.
-#[spec_locked("11.3", "GetBlockProof")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3", "GetBlockProof"))]
 pub fn get_block_proof(bits: Natural) -> Result<U256> {
     let target = expand_target(bits)?;
     if target.is_zero() {
@@ -1077,7 +1078,7 @@ pub fn get_block_proof(bits: Natural) -> Result<U256> {
 ///
 /// The round-trip property is formally verified by `_target_expand_compress_round_trip()`
 /// which proves the mathematical specification holds for all valid target values.
-#[spec_locked("7.1", "CompressTarget")]
+#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "CompressTarget"))]
 pub(crate) fn compress_target(target: &U256) -> Result<Natural> {
     // Handle zero target
     if target.is_zero() {

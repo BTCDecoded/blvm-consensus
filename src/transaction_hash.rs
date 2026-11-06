@@ -9,6 +9,7 @@
 use crate::crypto::OptimizedSha256;
 use crate::error::Result;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 // OPTIMIZATION: Inline varint encoding helper to avoid Vec allocations in hot path
@@ -32,7 +33,7 @@ fn write_varint_to_vec(vec: &mut Vec<u8>, value: u64) {
 ///
 /// Legacy sighash scriptCode serialization: remove each OP_CODESEPARATOR (0xab) opcode
 /// from the byte stream (not bytes inside push-data payloads). Orange Paper §5.1.1.
-#[spec_locked("5.1.1", "SerializeScriptCode")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "SerializeScriptCode"))]
 pub fn serialize_script_code_for_legacy_sighash(script: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(script.len());
     append_stripped_codeseparators(&mut out, script);
@@ -40,7 +41,7 @@ pub fn serialize_script_code_for_legacy_sighash(script: &[u8]) -> Vec<u8> {
 }
 
 /// BIP143 scriptCode for P2WPKH: P2PKH expansion of the 20-byte pubkey hash (BIP143 §4.3).
-#[spec_locked("11.1.9.1", "DeriveWitnessScriptCode")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9.1", "DeriveWitnessScriptCode"))]
 pub fn derive_bip143_script_code_p2wpkh(pubkey_hash: &[u8; 20]) -> [u8; 25] {
     use crate::opcodes::{OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES};
     let mut script_code = [0u8; 25];
@@ -57,7 +58,7 @@ pub fn derive_bip143_script_code_p2wpkh(pubkey_hash: &[u8; 20]) -> [u8; 25] {
 ///
 /// - P2WPKH program (`OP_0 PUSH_20`): P2PKH expansion via [`derive_bip143_script_code_p2wpkh`].
 /// - P2WSH program (`OP_0 PUSH_32`): full witness script (last witness stack element).
-#[spec_locked("11.1.9.1", "DeriveWitnessScriptCode")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9.1", "DeriveWitnessScriptCode"))]
 pub fn derive_bip143_script_code(
     witness_program: &[u8],
     witness_script: Option<&[u8]>,
@@ -449,7 +450,7 @@ fn sighash_with_cache(preimage: &[u8]) -> Hash {
 /// Note: plain-ALL specialized nocache (+ bucket WILLNEED default-on) REVERT S10
 /// 187.9 vs champ 197.9 (2026-07-31); keep unified path.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 #[inline]
 pub fn compute_legacy_sighash_nocache(
     tx: &Transaction,
@@ -549,7 +550,7 @@ fn update_varint(hasher: &mut sha2::Sha256, value: u64) {
 /// Compute legacy sighash by pre-serializing the full preimage into a thread-local buffer,
 /// then hashing in one pass. Reduces function call overhead vs streaming h.update() calls.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 #[inline]
 pub fn compute_legacy_sighash_buffered(
     tx: &Transaction,
@@ -643,7 +644,7 @@ pub fn compute_legacy_sighash_buffered(
 ///
 /// Falls back to per-input compute for ANYONECANPAY/SINGLE/NONE hash types.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn compute_sighashes_batch(
     tx: &Transaction,
     script_codes: &[&[u8]],
@@ -746,7 +747,7 @@ pub fn compute_sighashes_batch(
 ///
 /// # Returns
 /// 32-byte hash to be signed with ECDSA
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn calculate_transaction_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -780,7 +781,7 @@ pub fn calculate_transaction_sighash(
 /// Takes only (script_for_signing, prevout_value) for the current input. Non-signing inputs
 /// use empty script internally. Eliminates need for workers to build full refs per tx.
 /// script_for_signing is the script that goes into the preimage (scriptPubKey or redeem script).
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn calculate_transaction_sighash_single_input(
     tx: &Transaction,
     input_index: usize,
@@ -834,7 +835,7 @@ pub fn calculate_transaction_sighash_single_input(
 /// For P2SH transactions, script_code should be the redeem script (not the scriptPubKey).
 /// For non-P2SH, script_code should be None (uses scriptPubKey from prevout).
 /// When sighash_cache is provided (parallel script-check path), caches the hash for reuse on this same transaction.
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn calculate_transaction_sighash_with_script_code(
     tx: &Transaction,
     input_index: usize,
@@ -1483,7 +1484,7 @@ pub fn legacy_sighash_for_vector(
 ///
 /// # Returns
 /// Vector of 32-byte hashes, one per input (in same order)
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn batch_compute_sighashes(
     tx: &Transaction,
     prevouts: &[TransactionOutput],
@@ -1599,7 +1600,7 @@ fn build_legacy_sighash_preimage_into(
 /// Each spec is (input_index, sighash_byte, script_code). Returns hashes in spec order.
 /// Uses thread-local reusable buffers; no per-spec Vec allocs.
 #[cfg(feature = "production")]
-#[spec_locked("5.1.1", "CalculateSighash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "CalculateSighash"))]
 pub fn batch_compute_legacy_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],
@@ -1813,7 +1814,7 @@ fn double_sha256(data: &[u8]) -> [u8; 32] {
 ///
 /// # Returns
 /// 32-byte sighash for signature verification
-#[spec_locked("11.1.9", "ComputeWitnessSignatureHash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9", "ComputeWitnessSignatureHash"))]
 pub fn calculate_bip143_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -1982,7 +1983,7 @@ fn build_bip143_preimage(
 ///
 /// N7: when `sighash_type` is plain SIGHASH_ALL and `n ≥ 2`, share a SHA256 midstate after
 /// `version‖hashPrevouts‖hashSequence` (mirrors legacy `compute_sighashes_batch`).
-#[spec_locked("11.1.9", "ComputeWitnessSignatureHash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9", "ComputeWitnessSignatureHash"))]
 pub fn batch_compute_bip143_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],

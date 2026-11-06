@@ -40,6 +40,7 @@ use crate::types::{
     BlockHeader, Hash, Network, OutPoint, TimeContext, Transaction, TransactionInput,
     TransactionOutput,
 };
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// Validate block header structural and time rules (H01, H03–H06 of §5.3.1).
@@ -60,7 +61,7 @@ use blvm_spec_lock::spec_locked;
 ///   If `Some`, also enforces H04 (timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME)
 ///   and H05 (timestamp > median_time_past).
 #[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
-#[spec_locked("5.3.1", "ValidBlockHeader")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3.1", "ValidBlockHeader"))]
 #[inline]
 pub(crate) fn validate_block_header(
     header: &BlockHeader,
@@ -101,7 +102,7 @@ pub(crate) fn validate_block_header(
 }
 
 /// Double-SHA256 hash of an 80-byte serialized block header (Bitcoin block id).
-#[spec_locked("5.3.1", "BlockHeaderHash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3.1", "BlockHeaderHash"))]
 #[inline]
 pub fn block_header_hash(header: &BlockHeader) -> crate::types::Hash {
     use blvm_primitives::crypto::hash256;
@@ -202,8 +203,8 @@ pub(crate) fn header_for_genesis_coinbase(network: Network, coinbase: &Transacti
 ///
 /// Pure predicate for spec-lock binding. The node layer calls this before `connect_block` when
 /// the parent header is known; IBD/header sync enforces the same invariant while walking the chain.
-#[spec_locked("5.3.1", "ValidatePrevBlockHash")]
-#[blvm_spec_lock::ensures(result == true || result == false)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3.1", "ValidatePrevBlockHash"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
 #[inline]
 pub fn validate_prev_block_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
     child.prev_block_hash == block_header_hash(parent)

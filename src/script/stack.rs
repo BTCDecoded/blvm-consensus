@@ -3,6 +3,7 @@
 //! StackElement, to_stack_element, and cast_to_bool are used by both
 //! production and non-production script execution paths.
 
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 use crate::types::*;
@@ -27,8 +28,8 @@ pub fn to_stack_element(data: &[u8]) -> StackElement {
 
 /// CastToBool: truthiness check for stack elements (BIP62/consensus).
 /// Returns true if ANY byte is non-zero, except for "negative zero" (0x80 in last byte, rest zeros).
-#[spec_locked("5.2.4", "CastToBool")]
-#[blvm_spec_lock::ensures(result == false || v.len() > 0)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.4", "CastToBool"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || v.len() > 0))]
 #[cfg(feature = "production")]
 #[inline(always)]
 pub fn cast_to_bool(v: &[u8]) -> bool {
@@ -44,8 +45,8 @@ pub fn cast_to_bool(v: &[u8]) -> bool {
     false
 }
 
-#[spec_locked("5.2.4", "CastToBool")]
-#[blvm_spec_lock::ensures(result == false || v.len() > 0)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.4", "CastToBool"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || v.len() > 0))]
 #[cfg(not(feature = "production"))]
 #[inline]
 pub fn cast_to_bool(v: &[u8]) -> bool {

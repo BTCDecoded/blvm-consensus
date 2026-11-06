@@ -37,6 +37,7 @@ use crate::crypto::OptimizedSha256;
 use crate::error::{ConsensusError, Result, ScriptErrorCode};
 use crate::opcodes::*;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 use digest::Digest;
 use ripemd::Ripemd160;
@@ -321,7 +322,7 @@ pub enum SigVersion {
 ///
 /// In production mode, stacks should be obtained from pool using get_pooled_stack()
 /// for optimal performance. This function works with any Vec<StackElement>.
-#[spec_locked("5.2", "EvalScript")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2", "EvalScript"))]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn eval_script(
@@ -838,7 +839,7 @@ fn apply_p2sh_redeem(
     since = "0.1.33",
     note = "Use verify_script_with_context for witness-aware script verification"
 )]
-#[spec_locked("5.2", "VerifyScript")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2", "VerifyScript"))]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 pub fn verify_script(
@@ -984,7 +985,7 @@ pub fn verify_script(
 ///
 /// For callers that also need to supply a pre-computed sighash or a specific
 /// `SigVersion`, use [`verify_script_with_context_full`] directly.
-#[spec_locked("5.2", "VerifyScript")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2", "VerifyScript"))]
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
 #[allow(clippy::too_many_arguments)]
@@ -3378,7 +3379,7 @@ fn try_verify_p2tr_keypath_fast_path(
     ))
 }
 
-#[spec_locked("5.2", "VerifyScript")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2", "VerifyScript"))]
 pub fn verify_script_with_context_full(
     script_sig: &ByteString,
     script_pubkey: &[u8],
@@ -5077,9 +5078,9 @@ pub(crate) fn script_num_is_minimally_encoded(data: &[u8]) -> bool {
 /// Decode a CScriptNum from byte representation.
 /// Bitcoin's variable-length signed integer encoding (little-endian, sign bit in MSB of last byte).
 /// CScriptNum::set_vch() — BIP62 numeric encoding.
-#[spec_locked("5.4.5", "DecodeCScriptNum")]
-#[blvm_spec_lock::axiom(result >= -549755813887)]
-#[blvm_spec_lock::ensures(result >= -549755813887)]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.5", "DecodeCScriptNum"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result >= -549755813887))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= -549755813887))]
 #[cfg(feature = "production")]
 #[inline(always)]
 pub(crate) fn script_num_decode(data: &[u8], max_num_size: usize) -> Result<i64> {
@@ -6236,7 +6237,7 @@ fn parse_one_data_push(script: &[u8], i: usize) -> Option<(usize, usize, usize)>
 
 /// P2SH Push-Only Validation (Orange Paper 5.2.1).
 /// Returns true if script_sig contains only push opcodes (valid), false otherwise (invalid).
-#[spec_locked("5.2.1", "P2SHPushOnlyCheck")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.2.1", "P2SHPushOnlyCheck"))]
 pub fn p2sh_push_only_check(script_sig: &[u8]) -> bool {
     let mut i = 0;
     while i < script_sig.len() {
@@ -6788,7 +6789,7 @@ fn multisig_script_code<'a, S: AsRef<[u8]>>(
 /// Do/while loop: flush `[pc2, pc)`, delete consecutive raw occurrences of `pattern` from `pc`,
 /// then advance `pc` one opcode via GetOp-style sizing. The inner delete loop can leave `pc`
 /// misaligned; the next "opcode" is parsed from that byte (same behavior as the reference impl).
-#[spec_locked("5.1.1", "FindAndDelete")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1.1", "FindAndDelete"))]
 #[inline]
 pub(crate) fn find_and_delete<'a>(script: &'a [u8], pattern: &[u8]) -> std::borrow::Cow<'a, [u8]> {
     if pattern.is_empty() {

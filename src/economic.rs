@@ -3,6 +3,7 @@
 use crate::constants::*;
 use crate::error::{ConsensusError, Result};
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 use std::borrow::Cow;
 
@@ -14,10 +15,10 @@ use std::borrow::Cow;
 /// (`floor(5_000_000_000 / 2^33) = 0`, height ≥ 6,930,000). The `>= 64`
 /// guard is for undefined 64-bit shifts. The real-valued form
 /// `50 * C * 2^(-⌊h/H⌋)` is not the protocol.
-#[spec_locked("6.1", "GetBlockSubsidy")]
-#[blvm_spec_lock::requires(height >= 0)]
-#[blvm_spec_lock::ensures(result >= 0)]
-#[blvm_spec_lock::ensures(result <= INITIAL_SUBSIDY)]
+#[cfg_attr(feature = "spec-lock", spec_locked("6.1", "GetBlockSubsidy"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height >= 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result <= INITIAL_SUBSIDY))]
 pub fn get_block_subsidy(height: Natural) -> Integer {
     let halving_period = height / HALVING_INTERVAL;
 
@@ -86,7 +87,7 @@ pub fn block_subsidy_at_interval(height: Natural, interval: u64, initial: Intege
 /// CheckCoinbaseSubsidy: 𝒯𝒳 × ℤ × ℤ → {true, false}
 ///
 /// Coinbase output sum must not exceed block subsidy plus aggregated fees.
-#[spec_locked("5.3", "CheckCoinbaseSubsidy")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3", "CheckCoinbaseSubsidy"))]
 pub fn check_coinbase_subsidy(
     coinbase: &Transaction,
     subsidy: Integer,
@@ -118,7 +119,7 @@ pub fn check_coinbase_subsidy(
 /// VerifyUtxoSupply: 𝒰𝒮 × ℕ → {true, false}
 ///
 /// Theorem 8.1: sum of UTXO values equals total money supply at height h.
-#[spec_locked("8.1", "VerifyUtxoSupply")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.1", "VerifyUtxoSupply"))]
 pub fn verify_utxo_supply(utxo_set: &UtxoSet, height: Natural) -> bool {
     let expected = total_supply(height);
     if !(0..=MAX_MONEY).contains(&expected) {
@@ -156,11 +157,11 @@ pub fn verify_utxo_supply(utxo_set: &UtxoSet, height: Natural) -> bool {
 /// The Z3 translator cannot fully evaluate the 64-epoch for loop, so both bounds are
 /// declared as `#[axiom]` (trusted from the spec_witness proof) in addition to the
 /// `#[ensures]` postconditions that callee-axiom propagation can discharge for callers.
-#[spec_locked("6.2", "TotalSupply")]
-#[blvm_spec_lock::axiom(result >= 0)]
-#[blvm_spec_lock::axiom(result <= 2100000000000000)]
-#[blvm_spec_lock::ensures(result >= 0)]
-#[blvm_spec_lock::ensures(result <= 2100000000000000)]
+#[cfg_attr(feature = "spec-lock", spec_locked("6.2", "TotalSupply"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result >= 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result <= 2100000000000000))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result <= 2100000000000000))]
 pub fn total_supply(height: Natural) -> Integer {
     let end = height;
     let h = HALVING_INTERVAL;
@@ -214,8 +215,8 @@ pub fn total_supply(height: Natural) -> Integer {
 /// Calculate transaction fee
 ///
 /// Fee = sum of input values - sum of output values
-#[spec_locked("6.5", "CalculateFee")]
-#[blvm_spec_lock::ensures(result >= 0)]
+#[cfg_attr(feature = "spec-lock", spec_locked("6.5", "CalculateFee"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
 pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
     if is_coinbase(tx) {
         return Ok(0);

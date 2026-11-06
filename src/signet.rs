@@ -13,6 +13,7 @@ use crate::types::{
     Block, ByteString, Hash, Network, OutPoint, Transaction, TransactionInput, TransactionOutput,
 };
 use blvm_primitives::serialization::varint::decode_varint;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// BIP325 signet magic prefix embedded in witness commitment pushdata.
@@ -46,7 +47,7 @@ pub fn signet_challenge(network: Network, override_script: Option<&[u8]>) -> Opt
 }
 
 /// CheckSignetBlockSolution: valid when challenge is empty, or witness commitment satisfies challenge.
-#[spec_locked("11.5", "CheckSignetBlockSolution")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.5", "CheckSignetBlockSolution"))]
 pub fn check_signet_block_solution(block: &Block, challenge: &[u8], height: u64) -> Result<bool> {
     if height == 0 {
         return Ok(true);

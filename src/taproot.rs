@@ -6,6 +6,7 @@ use crate::error::Result;
 use crate::types::*;
 use crate::types::{ByteString, Hash};
 use crate::witness;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// BIP 341 default tapscript leaf version.
@@ -32,7 +33,7 @@ use crate::opcodes::{OP_1, PUSH_32_BYTES};
 pub const TAPROOT_SCRIPT_PREFIX: u8 = OP_1;
 
 /// Validate Taproot output script
-#[spec_locked("11.2.1", "ValidateTaprootScript")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.1", "ValidateTaprootScript"))]
 pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
     use crate::constants::TAPROOT_SCRIPT_LENGTH;
 
@@ -54,7 +55,7 @@ pub fn validate_taproot_script(script: &ByteString) -> Result<bool> {
 }
 
 /// Extract Taproot output key from script
-#[spec_locked("11.2.1", "ExtractTaprootOutputKey")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.1", "ExtractTaprootOutputKey"))]
 pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]>> {
     if !validate_taproot_script(script)? {
         return Ok(None);
@@ -70,7 +71,7 @@ pub fn extract_taproot_output_key(script: &ByteString) -> Result<Option<[u8; 32]
 ///
 /// With `blvm-secp256k1` feature: uses BIP 341 tagged hash (correct).
 /// Without: uses libsecp256k1 with plain SHA256 (legacy, non-BIP341).
-#[spec_locked("11.2.2", "ComputeTaprootTweak")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.2", "ComputeTaprootTweak"))]
 pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> Result<[u8; 32]> {
     crate::secp256k1_backend::taproot_output_key(internal_pubkey, merkle_root)
 }
@@ -79,7 +80,7 @@ pub fn compute_taproot_tweak(internal_pubkey: &[u8; 32], merkle_root: &Hash) -> 
 ///
 /// Per BIP341: verifies that `output_key.x == tweaked_internal_key.x` AND that
 /// `tweaked_internal_key.y_parity == expected_parity` (from `control_block[0] & 0x01`).
-#[spec_locked("11.2.2", "ValidateTaprootKeyAggregation")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.2", "ValidateTaprootKeyAggregation"))]
 pub fn validate_taproot_key_aggregation(
     internal_pubkey: &[u8; 32],
     merkle_root: &Hash,
@@ -92,7 +93,7 @@ pub fn validate_taproot_key_aggregation(
 }
 
 /// Validate Taproot script path spending
-#[spec_locked("11.2.3", "ValidateTaprootScriptPath")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.3", "ValidateTaprootScriptPath"))]
 pub fn validate_taproot_script_path(
     script: &ByteString,
     merkle_proof: &[Hash],
@@ -107,7 +108,7 @@ pub fn validate_taproot_script_path(
 }
 
 /// Validate Taproot script path spending with explicit leaf version.
-#[spec_locked("11.2.3", "ValidateTaprootScriptPath")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.3", "ValidateTaprootScriptPath"))]
 pub fn validate_taproot_script_path_with_leaf_version(
     script: &ByteString,
     merkle_proof: &[Hash],
@@ -119,7 +120,7 @@ pub fn validate_taproot_script_path_with_leaf_version(
 }
 
 /// Compute merkle root for script path using BIP 341 TapLeaf/TapBranch tagged hashes.
-#[spec_locked("11.2.3", "ComputeScriptMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.3", "ComputeScriptMerkleRoot"))]
 pub fn compute_script_merkle_root(
     script: &ByteString,
     proof: &[Hash],
@@ -148,7 +149,7 @@ pub const TAPROOT_ANNEX_TAG: u8 = 0x50;
 /// last begins with `0x50`, it is an annex and removed before key/script path dispatch.
 /// Returns the stripped witness and the annex sighash hash when present.
 /// Borrows the stack when no annex is present (avoids cloning the full witness).
-#[spec_locked("11.2.4", "StripTaprootAnnex")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.4", "StripTaprootAnnex"))]
 pub fn strip_taproot_annex(witness: &Witness) -> (Cow<'_, Witness>, Option<Hash>) {
     if witness.len() >= 2
         && witness
@@ -198,7 +199,7 @@ pub struct TaprootControlBlock {
 /// Witness format after `strip_taproot_annex`: [stack_items..., script, control_block].
 /// Annex is the original last element when it starts with 0x50, and is not parsed here.
 /// Control block: leaf_version (1) + internal_pubkey (32) + merkle_proof (32*n).
-#[spec_locked("11.2.4", "ParseTaprootScriptPathWitness")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.4", "ParseTaprootScriptPathWitness"))]
 pub fn parse_taproot_script_path_witness(
     witness: &Witness,
     output_key: &[u8; 32],
@@ -270,14 +271,14 @@ pub fn parse_taproot_script_path_witness(
 /// Check if transaction output is Taproot
 /// BIP341 invariant: a Taproot output has a P2TR scriptPubKey of exactly 34 bytes
 /// (OP_1 + 0x20 push + 32-byte x-only pubkey).  If this returns true, the length is 34.
-#[spec_locked("11.2.1", "IsTaprootOutput")]
-#[blvm_spec_lock::ensures(result == false || output.script_pubkey.len() == 34)]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.1", "IsTaprootOutput"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || output.script_pubkey.len() == 34))]
 pub fn is_taproot_output(output: &TransactionOutput) -> bool {
     validate_taproot_script(&output.script_pubkey).unwrap_or(false)
 }
 
 /// Validate Taproot transaction
-#[spec_locked("11.2.5", "ValidateTaprootTransaction")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.5", "ValidateTaprootTransaction"))]
 pub fn validate_taproot_transaction(tx: &Transaction, witness: Option<&Witness>) -> Result<bool> {
     // Check if any output is Taproot
     for output in &tx.outputs {
@@ -513,7 +514,7 @@ fn append_bip341_sigmsg(
 ///
 /// Only SIGHASH_DEFAULT (0x00 = treated as ALL) and SIGHASH_ALL (0x01) are handled here;
 /// ANYONECANPAY and SIGHASH_SINGLE paths use the same base but are not yet exercised.
-#[spec_locked("11.2.6", "ComputeTaprootSignatureHash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.6", "ComputeTaprootSignatureHash"))]
 pub fn compute_taproot_signature_hash(
     tx: &Transaction,
     input_index: usize,
@@ -560,7 +561,7 @@ pub fn compute_taproot_signature_hash(
 ///
 /// Same base SigMsg as key-path (spend_type bit 0 set = 0x01 or 0x03 depending on annex),
 /// with extension: tapleaf_hash(32) || key_version(1=0x00) || codesep_pos(4).
-#[spec_locked("11.2.7", "ComputeTapscriptSignatureHash")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.7", "ComputeTapscriptSignatureHash"))]
 pub fn compute_tapscript_signature_hash(
     tx: &Transaction,
     input_index: usize,

@@ -4,6 +4,7 @@ use crate::block::connect_block;
 use crate::error::Result;
 use crate::segwit::Witness;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 use std::collections::HashMap;
 
@@ -16,7 +17,7 @@ use std::collections::HashMap;
     since = "0.1.33",
     note = "Use reorganize_chain_with_witnesses with explicit witness data for SegWit chains"
 )]
-#[spec_locked("11.3")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3"))]
 pub fn reorganize_chain(
     new_chain: &[Block],
     current_chain: &[Block],
@@ -110,7 +111,7 @@ pub fn reorganize_chain(
 /// * `network_time` - Adjusted network time from the node layer (not the block under validation)
 /// * `network` - Consensus network (mainnet / testnet / regtest)
 #[allow(clippy::too_many_arguments)]
-#[spec_locked("11.3")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3"))]
 pub fn reorganize_chain_with_witnesses(
     new_chain: &[Block],
     new_chain_witnesses: &[Vec<Vec<Witness>>], // CRITICAL FIX: Changed from &[Vec<Witness>] to &[Vec<Vec<Witness>>]
@@ -652,7 +653,7 @@ fn find_common_ancestor(
 /// * `undo_log` - The undo log created when this block was connected
 /// * `utxo_set` - Current UTXO set (will be modified)
 /// * `_height` - Block height (for potential future use)
-#[spec_locked("11.3.1", "DisconnectBlock")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3.1", "DisconnectBlock"))]
 fn disconnect_block(
     _block: &Block,
     undo_log: &BlockUndoLog,
@@ -746,7 +747,7 @@ pub fn undo_log_from_connected_block(
 /// Check if reorganization is beneficial
 #[track_caller] // Better error messages showing caller location
 #[allow(clippy::redundant_comparisons)] // Intentional assertions for formal verification
-#[spec_locked("11.3", "ShouldReorganize")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3", "ShouldReorganize"))]
 pub fn should_reorganize(new_chain: &[Block], current_chain: &[Block]) -> Result<bool> {
     // Reorganize when new chain has strictly more cumulative work.
     let new_work = calculate_chain_work(new_chain)?;
@@ -766,7 +767,7 @@ pub fn work_for_bits(bits: Natural) -> Result<crate::pow::U256> {
 /// - Work is always non-negative
 /// - Work increases monotonically with chain length
 /// - Work calculation is deterministic
-#[spec_locked("11.3", "CalculateChainWork")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.3", "CalculateChainWork"))]
 pub fn calculate_chain_work(chain: &[Block]) -> Result<crate::pow::U256> {
     let mut total_work = crate::pow::U256::zero();
 

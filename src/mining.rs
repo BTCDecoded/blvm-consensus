@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::pow::{check_proof_of_work, next_required_bits};
 use crate::transaction::check_transaction;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 #[cfg(test)]
@@ -796,7 +797,7 @@ pub fn append_witness_commitment_from_nested(
 #[track_caller] // Better error messages showing caller location
 #[cfg_attr(feature = "production", inline(always))]
 #[cfg_attr(not(feature = "production"), inline)]
-#[spec_locked("8.4.1", "ComputeMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "ComputeMerkleRoot"))]
 pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     if transactions.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -926,7 +927,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
 /// Returns `Err` if `tx_ids` is empty **or** if a CVE-2012-2459 mutation is detected
 /// (duplicate adjacent hashes at any merkle level). Use [`compute_merkle_root_and_mutated`]
 /// when you need the root regardless of mutation (Orange Paper §8.4.1 merkle root).
-#[spec_locked("8.4.1", "ComputeMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "ComputeMerkleRoot"))]
 pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
     let (root, mutated) = compute_merkle_root_and_mutated(tx_ids)?;
     if mutated {
@@ -941,7 +942,7 @@ pub fn calculate_merkle_root_from_tx_ids(tx_ids: &[Hash]) -> Result<Hash> {
 /// Computes merkle root from leaves with optional mutation detection — always returns a root.
 /// Callers decide policy: `CheckBlock` rejects mutated blocks; `ConnectBlock` may skip
 /// the check for already-accepted blocks.
-#[spec_locked("8.4.1", "ComputeMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "ComputeMerkleRoot"))]
 pub fn compute_merkle_root_and_mutated(tx_ids: &[Hash]) -> Result<(Hash, bool)> {
     if tx_ids.is_empty() {
         return Err(crate::error::ConsensusError::InvalidProofOfWork(
@@ -956,7 +957,7 @@ pub fn compute_merkle_root_and_mutated(tx_ids: &[Hash]) -> Result<(Hash, bool)> 
 /// Stack-allocates the 64-byte pair buffer to avoid heap allocation per node.
 /// Orange Paper 8.4.1: ComputeMerkleRoot pair-and-hash construction.
 /// Returns `(root, mutated)` — caller decides policy on mutation.
-#[spec_locked("8.4.1", "ComputeMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "ComputeMerkleRoot"))]
 fn merkle_tree_from_hashes(hashes: &mut Vec<Hash>) -> Result<(Hash, bool)> {
     let mut mutated = false;
 

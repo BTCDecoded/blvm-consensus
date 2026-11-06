@@ -13,6 +13,7 @@ use crate::opcodes::{
 };
 use crate::transaction::is_coinbase;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// BIP30 index: maps coinbase txid → count of unspent outputs.
@@ -128,7 +129,7 @@ pub fn bip30_lookup_skippable(network: Network, height: u64, bip34_hash_matches:
 /// **Optimization**: When `bip30_index` is `Some`, uses O(1) lookup instead of O(n) iteration
 /// over the UTXO set. Caller must maintain the index in sync with UTXO changes.
 /// **#2**: When `coinbase_txid` is `Some`, skips `calculate_tx_id(coinbase)` — caller precomputed.
-#[spec_locked("5.4.1", "BIP30Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.1", "BIP30Check"))]
 pub fn check_bip30(
     block: &Block,
     utxo_set: &UtxoSet,
@@ -193,7 +194,7 @@ pub fn check_bip30(
 /// - Mainnet: `BIP34_ACTIVATION_MAINNET` (227,931)
 /// - Testnet: Block 211,111
 /// - Regtest: Block 0 (always active)
-#[spec_locked("5.4.2", "BIP34Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.2", "BIP34Check"))]
 pub fn check_bip34(block: &Block, height: Natural, activation: &impl IsForkActive) -> Result<bool> {
     if !activation.is_fork_active(ForkId::Bip34, height) {
         return Ok(true);
@@ -282,7 +283,7 @@ fn script_sig_starts_with_height(script_sig: &[u8], height: u64) -> bool {
 /// (caller-derived activation, e.g. from BIP9 version bits). When `None`, uses per-network constants
 /// (`BIP54_ACTIVATION_*`). This allows the node to run BIP54 when miners are signalling
 /// without configuring a fixed activation height.
-#[spec_locked("5.4.9", "IsBip54ActiveAt")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "IsBip54ActiveAt"))]
 pub fn is_bip54_active_at(
     height: Natural,
     network: crate::types::Network,
@@ -307,13 +308,13 @@ pub fn is_bip54_active_at(
 /// BIP54 activation height. For activation derived from miner signalling (version bits),
 /// use `connect_block_ibd` with `bip54_activation_override` set from
 /// `blvm_consensus::version_bits::activation_height_from_headers` (e.g. with `version_bits::bip54_deployment_mainnet()`).
-#[spec_locked("5.4.9", "IsBip54Active")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "IsBip54Active"))]
 pub fn is_bip54_active(height: Natural, network: crate::types::Network) -> bool {
     is_bip54_active_at(height, network, None)
 }
 
 /// BIP54 timewarp mitigation at difficulty period boundaries (Orange Paper §5.4.9).
-#[spec_locked("5.4.9", "BIP54TimewarpCheck")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "BIP54TimewarpCheck"))]
 pub fn check_bip54_timewarp(
     header: &BlockHeader,
     height: Natural,
@@ -342,13 +343,13 @@ pub fn check_bip54_timewarp(
 }
 
 /// BIP54: reject non-coinbase txs with witness-stripped size exactly 64 bytes.
-#[spec_locked("5.4.9", "CheckBip54TxStrippedSize")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "CheckBip54TxStrippedSize"))]
 pub fn check_bip54_tx_stripped_size(tx: &Transaction) -> bool {
     is_coinbase(tx) || crate::transaction::calculate_transaction_size(tx) != 64
 }
 
 /// BIP54 per-transaction sigop cap (≤ 2,500 for non-coinbase when active).
-#[spec_locked("5.4.9", "CheckBip54SigOpLimit")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "CheckBip54SigOpLimit"))]
 pub fn check_bip54_sigop_limit<U: crate::utxo_overlay::UtxoLookup>(
     bip54_active: bool,
     tx: &Transaction,
@@ -371,7 +372,7 @@ pub fn check_bip54_sigop_limit<U: crate::utxo_overlay::UtxoLookup>(
 ///
 /// BIP54: coinbase nLockTime is the block height minus 1 (the last height at which
 /// the coinbase is invalid). nSequence must not be 0xffff_ffff.
-#[spec_locked("5.4.9", "CheckBip54Coinbase")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "CheckBip54Coinbase"))]
 pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
     let required_lock_time = height.saturating_sub(1);
     if coinbase.lock_time != required_lock_time {
@@ -399,7 +400,7 @@ pub fn check_bip54_coinbase(coinbase: &Transaction, height: Natural) -> bool {
 /// - Mainnet: `BIP66_ACTIVATION_MAINNET` (363,725)
 /// - Testnet: Block 330,776
 /// - Regtest: Block 0 (always active)
-#[spec_locked("5.4.3", "BIP66Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.3", "BIP66Check"))]
 pub fn check_bip66(
     signature: &[u8],
     height: Natural,
@@ -528,7 +529,7 @@ pub(crate) fn is_strict_der(signature: &[u8]) -> Result<bool> {
 /// - BIP34: Mainnet 227,931 (requires version >= 2)
 /// - BIP66: Mainnet 363,725 (requires version >= 3)
 /// - BIP65: Mainnet 388,381 (requires version >= 4)
-#[spec_locked("5.4.4", "BIP90Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.4", "BIP90Check"))]
 pub fn check_bip90(
     block_version: i64,
     height: Natural,
@@ -674,7 +675,7 @@ fn script_has_checkmultisig(script_pubkey: &[u8]) -> bool {
 /// - Mainnet: Block 481,824 (SegWit activation)
 /// - Testnet: Block 834,624
 /// - Regtest: Block 0 (always active)
-#[spec_locked("5.4.5", "BIP147Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.5", "BIP147Check"))]
 pub fn check_bip147(
     script_sig: &[u8],
     script_pubkey: &[u8],

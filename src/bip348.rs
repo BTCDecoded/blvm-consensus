@@ -29,6 +29,7 @@
 
 use crate::crypto::OptimizedSha256;
 use crate::error::{ConsensusError, Result};
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 #[cfg(all(feature = "secp256k1-fallback", not(feature = "blvm-secp256k1")))]
 use secp256k1::{Message, XOnlyPublicKey, schnorr::Signature};
@@ -337,7 +338,7 @@ impl SchnorrSignatureCollector {
 /// BIP 340 uses tagged hashes. For CSFS, we hash the message with SHA256 to create
 /// a 32-byte digest, which is then used for BIP 340 verification.
 /// This matches the reference implementation in BIP348 reference implementation.
-#[spec_locked("5.4.8", "BIP348Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.8", "BIP348Check"))]
 pub fn verify_signature_from_stack(
     message: &[u8],
     pubkey: &[u8],
@@ -438,7 +439,7 @@ pub fn verify_signature_from_stack(
 /// Uses true batch verification via `libsecp256k1`'s multi-scalar multiplication,
 /// providing 2-3x speedup compared to individual verification.
 #[cfg(feature = "production")]
-#[spec_locked("5.4.8", "BIP348Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.8", "BIP348Check"))]
 pub fn batch_verify_signatures_from_stack(
     verification_tasks: &[(&[u8], &[u8], &[u8])],
 ) -> Result<Vec<bool>> {
@@ -545,7 +546,7 @@ pub fn batch_verify_signatures_from_stack(
 ///
 /// BIP340 Schnorr check: 64-byte signatures use `SIGHASH_DEFAULT` (`0x00`).
 /// 65 bytes → last byte is sighash type (explicit `SIGHASH_DEFAULT` is invalid).
-#[spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig")]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig"))]
 pub fn try_parse_taproot_schnorr_witness_sig(sig_bytes: &[u8]) -> Option<([u8; 64], u8)> {
     match sig_bytes.len() {
         64 => {
@@ -582,7 +583,7 @@ pub fn try_parse_taproot_schnorr_witness_sig(sig_bytes: &[u8]) -> Option<([u8; 6
 ///
 /// `true` if signature is valid or collected, `false` otherwise
 #[cfg(feature = "production")]
-#[spec_locked("5.4.8", "BIP348Check")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.4.8", "BIP348Check"))]
 pub fn verify_tapscript_schnorr_signature(
     sighash: &[u8; 32],
     pubkey: &[u8],

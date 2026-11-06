@@ -7,6 +7,7 @@ use crate::script::{SigVersion, verify_script_with_context_full};
 use crate::segwit::Witness;
 use crate::transaction::{check_transaction, check_tx_inputs};
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 use std::collections::{HashMap, HashSet};
 
@@ -904,7 +905,7 @@ fn input_allowed_for_replacement(
 /// * `tx` - Transaction to check
 /// * `height` - Current block height
 /// * `block_time` - Median time-past of chain tip (BIP113) for timestamp locktime validation
-#[spec_locked("9.1.1", "CheckFinalTxAtTip")]
+#[cfg_attr(feature = "spec-lock", spec_locked("9.1.1", "CheckFinalTxAtTip"))]
 pub fn is_final_tx(tx: &Transaction, height: Natural, block_time: Natural) -> bool {
     use crate::constants::SEQUENCE_FINAL;
 
@@ -1208,7 +1209,7 @@ pub(crate) fn is_standard_script(script: &ByteString) -> Result<bool> {
 /// This function is kept for backward compatibility but delegates to the
 /// standard implementation in block.rs.
 #[deprecated(note = "Use crate::block::calculate_tx_id instead")]
-#[spec_locked("5.1", "CalculateTxId")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1", "CalculateTxId"))]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     crate::block::calculate_tx_id(tx)
 }

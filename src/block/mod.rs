@@ -31,6 +31,7 @@ use crate::bip113::get_median_time_past;
 use crate::error::Result;
 use crate::segwit::Witness;
 use crate::types::*;
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 #[cfg(feature = "production")]
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -143,7 +144,7 @@ pub fn get_assume_valid_height() -> u64 {
 ///   `BlockValidationContext::from_connect_block_ibd_args`, `from_time_context_and_network`, or `for_network`.
 #[track_caller]
 /// ConnectBlock: Validate and apply a block to the UTXO set.
-#[spec_locked("5.3", "ConnectBlock")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
 pub fn connect_block(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -224,7 +225,7 @@ pub fn connect_block_with_chainwork(
 ///   where `chainwork_ok = chainwork >= n_minimum_chain_work`. Pass cumulative header chainwork
 ///   from the node (IBD validation loop tracks this incrementally). Pass `None` in tests that
 ///   require full script verification regardless of assume-valid.
-#[spec_locked("5.3", "ConnectBlock")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
 pub fn connect_block_ibd<'a>(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -262,7 +263,7 @@ pub fn connect_block_ibd<'a>(
 }
 
 /// Like [`connect_block_ibd`] but also returns the undo log for reorg support after IBD.
-#[spec_locked("5.3", "ConnectBlock")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
 pub fn connect_block_ibd_with_undo<'a>(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -473,7 +474,7 @@ mod tx_id_pool {
 /// **Spec reference:** sequential `calculate_tx_id` only (no `rayon`, no `&mut Vec`, no `cfg` in the
 /// body). blvm-spec-lock Z3 translates this for determinism/`ensures`. Optimized paths in
 /// [`compute_block_tx_ids_into`] are tested to match this result.
-#[spec_locked("8.4.1", "ComputeMerkleRoot")]
+#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "ComputeMerkleRoot"))]
 pub fn compute_block_tx_ids_spec(block: &Block) -> Vec<Hash> {
     block.transactions.iter().map(calculate_tx_id).collect()
 }

@@ -4,6 +4,7 @@
 //! (built by the node from constants, version-bits, and config overrides)
 //! without passing per-BIP parameters.
 
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 use crate::constants::*;
@@ -192,8 +193,8 @@ pub fn taproot_active_at_height(block_height: Option<u64>, network: Network) -> 
 }
 
 /// Taproot (BIP341) activation height for `network` (mainnet vs testnet3).
-#[spec_locked("11.2", "TaprootActivationHeight")]
-#[blvm_spec_lock::ensures(result == 0 || result == 1 || result == 709632 || result == 2011968)]
+#[cfg_attr(feature = "spec-lock", spec_locked("11.2", "TaprootActivationHeight"))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0 || result == 1 || result == 709632 || result == 2011968))]
 #[inline]
 pub fn taproot_activation_height(network: Network) -> u64 {
     // if/else (not enum match) so spec-lock Z3 can model control flow with Signet.

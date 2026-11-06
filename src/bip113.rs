@@ -10,6 +10,7 @@
 
 use crate::types::BlockHeader;
 
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// Number of blocks to consider for median time-past calculation
@@ -44,7 +45,7 @@ pub const MEDIAN_TIME_BLOCKS: usize = 11;
 /// ];
 /// let median = get_median_time_past(&headers);
 /// ```
-#[spec_locked("5.5", "GetMedianTimePast")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "GetMedianTimePast"))]
 pub fn get_median_time_past<H: AsRef<BlockHeader>>(headers: &[H]) -> u64 {
     if headers.is_empty() {
         return 0;
@@ -83,7 +84,7 @@ pub fn get_median_time_past<H: AsRef<BlockHeader>>(headers: &[H]) -> u64 {
 /// # Returns
 ///
 /// Median timestamp (Unix time) of the last 11 blocks
-#[spec_locked("5.5", "GetMedianTimePast")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "GetMedianTimePast"))]
 pub fn get_median_time_past_reversed(recent_headers: &[BlockHeader]) -> u64 {
     if recent_headers.is_empty() {
         return 0;

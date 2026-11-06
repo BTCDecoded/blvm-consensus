@@ -8,6 +8,7 @@ use crate::error::Result;
 use crate::reorganization::UndoEntry;
 use crate::transaction::is_coinbase;
 use crate::types::{Hash, Natural, OutPoint, Transaction, UTXO, UtxoSet};
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
 /// Remove every output of `txid` before a BIP30 exception coinbase is inserted.
@@ -52,7 +53,7 @@ pub(crate) fn take_outputs_for_txid(
 /// For batch operations, use `apply_transaction_with_id` instead.
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
-#[spec_locked("5.3.2", "ApplyTransaction")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3.2", "ApplyTransaction"))]
 #[track_caller]
 pub fn apply_transaction(
     tx: &Transaction,
@@ -71,7 +72,7 @@ pub fn apply_transaction(
 ///
 /// Returns both the new UTXO set and undo entries for all UTXO changes.
 /// When `bip30_index` is Some, updates it for coinbase add/remove (O(1) BIP30 checks).
-#[spec_locked("5.3.2", "ApplyTransaction")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.3.2", "ApplyTransaction"))]
 pub(crate) fn apply_transaction_with_id(
     tx: &Transaction,
     tx_id: Hash,
@@ -336,7 +337,7 @@ mod tests {
 ///
 /// For batch operations, use serialize_transaction + batch_double_sha256 instead.
 #[inline(always)]
-#[spec_locked("5.1", "CalculateTxId")]
+#[cfg_attr(feature = "spec-lock", spec_locked("5.1", "CalculateTxId"))]
 pub fn calculate_tx_id(tx: &Transaction) -> Hash {
     use crate::crypto::OptimizedSha256;
     use crate::serialization::transaction::serialize_transaction;

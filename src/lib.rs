@@ -52,6 +52,7 @@ pub mod script;
 pub mod transaction;
 pub mod transaction_hash;
 
+#[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 #[cfg(all(feature = "production", feature = "benchmarking"))]
 pub use config::{reset_assume_valid_height, set_assume_valid_height};
@@ -157,8 +158,8 @@ impl ConsensusProof {
     }
 
     /// Validate a transaction according to consensus rules
-    #[spec_locked("5.1", "CheckTransaction")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("5.1", "CheckTransaction"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn validate_transaction(
         &self,
         tx: &types::Transaction,
@@ -167,8 +168,8 @@ impl ConsensusProof {
     }
 
     /// Validate transaction inputs against UTXO set
-    #[spec_locked("5.1", "CheckTxInputs")]
-    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("5.1", "CheckTxInputs"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result_0 == true || result_0 == false))]
     pub fn validate_tx_inputs(
         &self,
         tx: &types::Transaction,
@@ -187,8 +188,8 @@ impl ConsensusProof {
         since = "0.1.33",
         note = "Use validate_block_with_time_context with explicit witnesses, network, and TimeContext"
     )]
-    #[spec_locked("5.3", "ConnectBlock")]
-    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result_0 == true || result_0 == false))]
     pub fn validate_block(
         &self,
         block: &types::Block,
@@ -216,8 +217,8 @@ impl ConsensusProof {
     }
 
     /// Validate a complete block with witness data and time context
-    #[spec_locked("5.3", "ConnectBlock")]
-    #[blvm_spec_lock::ensures(result_0 == true || result_0 == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result_0 == true || result_0 == false))]
     pub fn validate_block_with_time_context(
         &self,
         block: &types::Block,
@@ -242,8 +243,8 @@ impl ConsensusProof {
         since = "0.1.33",
         note = "Use verify_script_with_context via script module for witness-aware verification"
     )]
-    #[spec_locked("5.2", "VerifyScript")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("5.2", "VerifyScript"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn verify_script(
         &self,
         script_sig: &types::ByteString,
@@ -258,16 +259,16 @@ impl ConsensusProof {
     }
 
     /// Check proof of work
-    #[spec_locked("7.2", "CheckProofOfWork")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("7.2", "CheckProofOfWork"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn check_proof_of_work(&self, header: &types::BlockHeader) -> error::Result<bool> {
         pow::check_proof_of_work(header)
     }
 
     /// Get block subsidy for height
-    #[spec_locked("6.1", "GetBlockSubsidy")]
-    #[blvm_spec_lock::ensures(result >= 0)]
-    #[blvm_spec_lock::axiom(result <= INITIAL_SUBSIDY)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("6.1", "GetBlockSubsidy"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::axiom(result <= INITIAL_SUBSIDY))]
     pub fn get_block_subsidy(&self, height: types::Natural) -> types::Integer {
         economic::get_block_subsidy(height)
     }
@@ -282,15 +283,15 @@ impl ConsensusProof {
     }
 
     /// Calculate total supply at height
-    #[spec_locked("6.2", "TotalSupply")]
-    #[blvm_spec_lock::ensures(result >= 0)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("6.2", "TotalSupply"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
     pub fn total_supply(&self, height: types::Natural) -> types::Integer {
         economic::total_supply(height)
     }
 
     /// Get next work required for difficulty adjustment
-    #[spec_locked("7.1", "GetNextWorkRequired")]
-    #[blvm_spec_lock::ensures(result >= 0)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("7.1", "GetNextWorkRequired"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
     pub fn get_next_work_required(
         &self,
         current_header: &types::BlockHeader,
@@ -509,8 +510,8 @@ impl ConsensusProof {
         since = "0.1.33",
         note = "Use reorganize_chain_with_witnesses with explicit witness data for SegWit chains"
     )]
-    #[spec_locked("11.3")]
-    #[blvm_spec_lock::ensures(result >= 0)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.3"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
     pub fn reorganize_chain(
         &self,
         new_chain: &[types::Block],
@@ -568,7 +569,7 @@ impl ConsensusProof {
     }
 
     /// Reorganize chain with explicit witness data (preferred API).
-    #[spec_locked("11.3")]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.3"))]
     pub fn reorganize_chain_with_witnesses(
         &self,
         new_chain: &[types::Block],
@@ -598,8 +599,8 @@ impl ConsensusProof {
     }
 
     /// Check if reorganization is beneficial
-    #[spec_locked("11.3", "ShouldReorganize")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.3", "ShouldReorganize"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn should_reorganize(
         &self,
         new_chain: &[types::Block],
@@ -609,8 +610,8 @@ impl ConsensusProof {
     }
 
     /// Calculate transaction weight for SegWit
-    #[spec_locked("11.1.1", "CalculateTransactionWeight")]
-    #[blvm_spec_lock::ensures(result >= 0)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.1.1", "CalculateTransactionWeight"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
     pub fn calculate_transaction_weight(
         &self,
         tx: &types::Transaction,
@@ -620,8 +621,8 @@ impl ConsensusProof {
     }
 
     /// Validate SegWit block
-    #[spec_locked("11.1.7", "ValidateSegWitBlock")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.1.7", "ValidateSegWitBlock"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn validate_segwit_block(
         &self,
         block: &types::Block,
@@ -632,8 +633,8 @@ impl ConsensusProof {
     }
 
     /// Validate Taproot transaction
-    #[spec_locked("11.2.5", "ValidateTaprootTransaction")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.2.5", "ValidateTaprootTransaction"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn validate_taproot_transaction(
         &self,
         tx: &types::Transaction,
@@ -643,8 +644,8 @@ impl ConsensusProof {
     }
 
     /// Check if transaction output is Taproot
-    #[spec_locked("11.2.1", "IsTaprootOutput")]
-    #[blvm_spec_lock::ensures(result == true || result == false)]
+    #[cfg_attr(feature = "spec-lock", spec_locked("11.2.1", "IsTaprootOutput"))]
+    #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn is_taproot_output(&self, output: &types::TransactionOutput) -> bool {
         taproot::is_taproot_output(output)
     }
