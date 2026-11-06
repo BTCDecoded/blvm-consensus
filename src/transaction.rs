@@ -484,7 +484,16 @@ pub fn check_tx_inputs_with_utxos<U: UtxoLookup>(
 
     // OPTIMIZATION: Use pre-collected UTXOs if provided, otherwise collect them
     let input_utxos: Vec<(usize, Option<&UTXO>)> = if let Some(pre_utxos) = pre_collected_utxos {
-        // Pre-collected UTXOs provided - use them directly (no redundant lookups)
+        if pre_utxos.len() != tx.inputs.len() {
+            return Ok((
+                ValidationResult::Invalid(format!(
+                    "pre-collected UTXO count {} does not match input count {}",
+                    pre_utxos.len(),
+                    tx.inputs.len()
+                )),
+                0,
+            ));
+        }
         pre_utxos
             .iter()
             .enumerate()

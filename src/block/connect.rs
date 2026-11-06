@@ -841,6 +841,15 @@ fn validate_production_transactions<'a, 'b>(
                                         break;
                                     }
                                 };
+                                if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                                    early_return = Some(Ok(ConnectQueueEarlyExit::Invalid(
+                                        format!(
+                                            "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                                            crate::constants::MAX_BLOCK_SIGOPS_COST
+                                        ),
+                                    )));
+                                    break;
+                                }
                             }
                             Err(e) => {
                                 early_return = Some(Err(e));
@@ -863,6 +872,15 @@ fn validate_production_transactions<'a, 'b>(
                                         break;
                                     }
                                 };
+                                if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                                    early_return = Some(Ok(ConnectQueueEarlyExit::Invalid(
+                                        format!(
+                                            "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                                            crate::constants::MAX_BLOCK_SIGOPS_COST
+                                        ),
+                                    )));
+                                    break;
+                                }
                             }
                             Err(e) => {
                                 early_return = Some(Err(e));
@@ -976,6 +994,15 @@ fn validate_production_transactions<'a, 'b>(
                                         break;
                                     }
                                 };
+                                if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                                    early_return = Some(Ok(ConnectQueueEarlyExit::Invalid(
+                                        format!(
+                                            "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                                            crate::constants::MAX_BLOCK_SIGOPS_COST
+                                        ),
+                                    )));
+                                    break;
+                                }
                             }
                             Err(e) => {
                                 early_return = Some(Err(e));
@@ -2947,6 +2974,16 @@ fn validate_production_transactions<'a, 'b>(
                     tx_flags,
                 )?)
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
+            if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                return Ok(ProductionTxFlow::Stop(invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!(
+                        "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                        crate::constants::MAX_BLOCK_SIGOPS_COST
+                    ),
+                )));
+            }
 
             if !matches!(input_valid, ValidationResult::Valid) {
                 #[cfg(debug_assertions)]
@@ -3129,6 +3166,16 @@ fn validate_production_transactions<'a, 'b>(
                     )?,
                 )
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
+            if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                return Ok(ProductionTxFlow::Stop(invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!(
+                        "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                        crate::constants::MAX_BLOCK_SIGOPS_COST
+                    ),
+                )));
+            }
             if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
                 bip54_active,
                 tx_j,
@@ -3695,6 +3742,16 @@ pub(crate) fn connect_block_inner<'a>(
                     )?,
                 )
                 .ok_or_else(|| ConsensusError::BlockValidation("Sigop cost overflow".into()))?;
+            if total_sigop_cost > crate::constants::MAX_BLOCK_SIGOPS_COST {
+                return invalid_block_result(
+                    utxo_set,
+                    tx_ids,
+                    format!(
+                        "Block sigop cost {total_sigop_cost} exceeds maximum {}",
+                        crate::constants::MAX_BLOCK_SIGOPS_COST
+                    ),
+                );
+            }
 
             if let Some(msg) = crate::bip_validation::check_bip54_sigop_limit(
                 bip54_active,

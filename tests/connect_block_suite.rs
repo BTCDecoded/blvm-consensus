@@ -581,6 +581,19 @@ fn test_connect_valid_coinbase_height_1() {
 }
 
 #[test]
+fn test_connect_rejects_pre_segwit_nonempty_witness() {
+    let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    let witnesses = vec![vec![vec![vec![0x01]]]];
+    let (result, _, _) =
+        connect_with_witnesses(&mut block, &witnesses, UtxoSet::default(), 1).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("unexpected witness")),
+        "{result:?}"
+    );
+}
+
+#[test]
 fn test_connect_rejects_empty_block() {
     let mut block = Block {
         header: BlockHeader {

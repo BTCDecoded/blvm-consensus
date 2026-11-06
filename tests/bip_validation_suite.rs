@@ -307,7 +307,8 @@ fn test_is_bip54_active_mainnet_activation_height() {
         BIP54_ACTIVATION_MAINNET - 1,
         Network::Mainnet
     ));
-    assert!(is_bip54_active(BIP54_ACTIVATION_MAINNET, Network::Mainnet));
+    assert!(!is_bip54_active(BIP54_ACTIVATION_MAINNET, Network::Mainnet));
+    assert!(is_bip54_active_at(100, Network::Mainnet, Some(100)));
 }
 
 #[test]
@@ -571,7 +572,7 @@ fn test_is_bip54_active_at_uses_network_constant_without_override() {
         Network::Mainnet,
         None
     ));
-    assert!(is_bip54_active_at(
+    assert!(!is_bip54_active_at(
         BIP54_ACTIVATION_MAINNET,
         Network::Mainnet,
         None

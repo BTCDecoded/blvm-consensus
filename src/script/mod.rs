@@ -116,105 +116,6 @@ use std::thread_local;
 #[cfg(feature = "production")]
 static SCRIPT_CACHE: OnceLock<RwLock<lru::LruCache<u64, bool>>> = OnceLock::new();
 
-/// Signature verification cache (sighash, pubkey, sig, flags) -> valid.
-/// Reserved for future IBD/mempool warm-cache integration.
-#[cfg(feature = "production")]
-mod sig_cache {
-    #![allow(dead_code)]
-
-    use lru::LruCache;
-    use siphasher::sip::SipHasher24;
-    use std::hash::{Hash, Hasher};
-    use std::num::NonZeroUsize;
-    use std::sync::{OnceLock, RwLock};
-
-    const SIG_CACHE_SHARDS: usize = 32;
-    const SIG_CACHE_SHARD: OnceLock<RwLock<LruCache<[u8; 32], bool>>> = OnceLock::new();
-
-    static SIG_CACHE: [OnceLock<RwLock<LruCache<[u8; 32], bool>>>; SIG_CACHE_SHARDS] =
-        [SIG_CACHE_SHARD; SIG_CACHE_SHARDS];
-
-    fn sig_cache_size() -> usize {
-        std::env::var("BLVM_SIG_CACHE_ENTRIES")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .filter(|&n: &usize| n > 0 && n <= 1_000_000)
-            .unwrap_or(500_000)
-    }
-
-    fn sig_cache_shard_index(key: &[u8; 32]) -> usize {
-        let h = (key[0] as usize) | ((key[1] as usize) << 8) | ((key[2] as usize) << 16);
-        h % SIG_CACHE_SHARDS
-    }
-
-    fn get_sig_cache_shard(key: &[u8; 32]) -> &'static RwLock<LruCache<[u8; 32], bool>> {
-        let idx = sig_cache_shard_index(key);
-        SIG_CACHE[idx].get_or_init(|| {
-            let cap = (sig_cache_size() / SIG_CACHE_SHARDS).max(1);
-            RwLock::new(LruCache::new(NonZeroUsize::new(cap).unwrap()))
-        })
-    }
-
-    thread_local! {
-        static BATCH_PUT_SIG_CACHE_BY_SHARD: std::cell::RefCell<[Vec<([u8; 32], bool)>; SIG_CACHE_SHARDS]> =
-            std::cell::RefCell::new(std::array::from_fn(|_| Vec::new()));
-    }
-
-    fn batch_put_sig_cache(keys: &[[u8; 32]], results: &[bool]) {
-        BATCH_PUT_SIG_CACHE_BY_SHARD.with(|cell| {
-            let mut by_shard = cell.borrow_mut();
-            for v in by_shard.iter_mut() {
-                v.clear();
-            }
-            for (i, key) in keys.iter().enumerate() {
-                let result = results.get(i).copied().unwrap_or(false);
-                let idx = sig_cache_shard_index(key);
-                by_shard[idx].push((*key, result));
-            }
-            for shard_entries in by_shard.iter() {
-                if shard_entries.is_empty() {
-                    continue;
-                }
-                let first_key = &shard_entries[0].0;
-                if let Ok(mut guard) = get_sig_cache_shard(first_key).write() {
-                    for (k, v) in shard_entries.iter() {
-                        guard.put(*k, *v);
-                    }
-                }
-            }
-        });
-    }
-
-    fn sig_cache_at_collect_enabled() -> bool {
-        static CACHE: OnceLock<bool> = OnceLock::new();
-        *CACHE.get_or_init(|| {
-            std::env::var("BLVM_SIG_CACHE_AT_COLLECT")
-                .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
-                .unwrap_or(false)
-        })
-    }
-
-    #[inline(always)]
-    fn ecdsa_cache_key(
-        msg: &[u8; 32],
-        pk: &[u8; 33],
-        sig_compact: &[u8; 64],
-        flags: u32,
-    ) -> [u8; 32] {
-        let mut key_input = [0u8; 133];
-        key_input[..32].copy_from_slice(msg);
-        key_input[32..65].copy_from_slice(pk);
-        key_input[65..129].copy_from_slice(sig_compact);
-        key_input[129..133].copy_from_slice(&flags.to_le_bytes());
-        let mut hasher = SipHasher24::new();
-        key_input.hash(&mut hasher);
-        let h = hasher.finish();
-        let mut out = [0u8; 32];
-        out[..8].copy_from_slice(&h.to_le_bytes());
-        out
-    }
-}
-
 /// Thread-local buffers for verify_soa_batch; reused to avoid per-batch allocs.
 #[cfg(feature = "production")]
 thread_local! {
@@ -378,10 +279,15 @@ fn compute_script_cache_key(
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
+    hasher.update((script_sig.len() as u64).to_le_bytes());
     hasher.update(&script_sig[..]);
+    hasher.update((script_pubkey.len() as u64).to_le_bytes());
     hasher.update(script_pubkey);
     if let Some(w) = witness {
+        hasher.update((w.len() as u64).to_le_bytes());
         hasher.update(&w[..]);
+    } else {
+        hasher.update(0u64.to_le_bytes());
     }
     hasher.update(flags.to_le_bytes());
     let digest = hasher.finalize();

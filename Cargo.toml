@@ -49,9 +49,6 @@ hex = "=0.4.3"
 # Fast hash map for UTXO lookups (2-3x faster than std HashMap for fixed-size keys)
 # Must match blvm-node (=2.1.1) so monorepo graphs (e.g. blvm-sdk) resolve one version.
 rustc-hash = { version = "=2.1.1", optional = true }
-# SipHash for sig cache keys (Bitcoin Core uses SipHash; ~10x faster than SHA-256 for 133-byte input)
-siphasher = { version = "0.3", optional = true }
-
 # Foundational types, serialization, crypto, config (shared with blvm-protocol)
 # crates.io: allow any 0.x >=0.1 without editing Cargo.toml for each patch/minor
 blvm-primitives = { version = ">=0.1, <1", default-features = false }
@@ -111,7 +108,7 @@ local-spec-lock = []
 # Production performance optimizations
 # This feature enables runtime optimizations like caching and context reuse
 # blvm-secp256k1: pure Rust crypto backend (ECDSA, Schnorr, Taproot) — default for profile/production
-production = ["lru", "rayon", "smallvec", "rustc-hash", "crossbeam-queue", "siphasher", "blvm-secp256k1", "blvm-primitives/production"]
+production = ["lru", "rayon", "smallvec", "rustc-hash", "crossbeam-queue", "blvm-secp256k1", "blvm-primitives/production"]
 
 # Enable rayon for parallelization (optional, can be enabled independently)
 rayon = ["dep:rayon"]

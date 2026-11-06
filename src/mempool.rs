@@ -1003,11 +1003,11 @@ pub fn relative_lock_unsatisfied(
 
 /// Check if transaction signals RBF.
 ///
-/// BIP125 opts in when any input sequence is below `0xfffffffe`.
-/// Sequence `0xfffffffe` enables locktime and does not opt in.
+/// Conservative mode opts in when any input sequence is below `SEQUENCE_FINAL`.
+/// `0xfffffffe` is below that value, so it is a signal.
 pub fn signals_rbf(tx: &Transaction) -> bool {
     for input in &tx.inputs {
-        if (input.sequence as u32) < SEQUENCE_RBF {
+        if (input.sequence as u32) < SEQUENCE_FINAL {
             return true;
         }
     }
@@ -1806,11 +1806,11 @@ mod tests {
     }
 
     #[test]
-    fn test_signals_rbf_locktime_sequence_does_not_opt_in() {
+    fn test_signals_rbf_locktime_sequence_opts_in() {
         let mut tx = create_valid_transaction();
         tx.inputs[0].sequence = 0xfffffffe;
 
-        assert!(!signals_rbf(&tx));
+        assert!(signals_rbf(&tx));
     }
 
     #[test]

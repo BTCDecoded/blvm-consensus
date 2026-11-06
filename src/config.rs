@@ -62,27 +62,6 @@ impl ConsensusConfig {
             }
         }
 
-        if let Ok(val) = std::env::var("BLVM_MTP_HEADERS") {
-            if let Ok(count) = val.parse::<usize>() {
-                config.block_validation.median_time_past_headers = count;
-            }
-        }
-        if let Ok(val) = std::env::var("BLVM_PARALLEL_VALIDATION") {
-            if let Ok(enabled) = val.parse::<bool>() {
-                config.block_validation.enable_parallel_validation = enabled;
-            }
-        }
-        if let Ok(val) = std::env::var("BLVM_COINBASE_MATURITY") {
-            if let Ok(maturity) = val.parse::<u64>() {
-                config.block_validation.coinbase_maturity_override = maturity;
-            }
-        }
-        if let Ok(val) = std::env::var("BLVM_MAX_SIGOPS_COST") {
-            if let Ok(cost) = val.parse::<u64>() {
-                config.block_validation.max_block_sigops_cost_override = cost;
-            }
-        }
-
         if let Ok(val) = std::env::var("BLVM_MAX_ADDR_ADDRESSES") {
             if let Ok(limit) = val.parse::<usize>() {
                 config.network_limits.max_addr_addresses = limit;

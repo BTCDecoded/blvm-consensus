@@ -5,7 +5,7 @@ use blvm_consensus::opcodes::{
     OP_0, OP_1, OP_3, OP_CHECKMULTISIG, OP_CHECKSIG, OP_CHECKSIGADD, OP_EQUAL, OP_HASH160,
     PUSH_20_BYTES, PUSH_32_BYTES,
 };
-use blvm_consensus::script::flags::SCRIPT_VERIFY_WITNESS;
+use blvm_consensus::script::flags::{SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_WITNESS};
 use blvm_consensus::segwit::Witness;
 use blvm_consensus::sigop::{
     count_sigops_in_script, count_tapscript_sigops, get_legacy_sigop_count,
@@ -297,4 +297,85 @@ fn test_get_p2sh_sigop_count_pushdata2_redeem_script() {
     );
 
     assert_eq!(get_p2sh_sigop_count(&tx, &utxo_set).unwrap(), 2);
+}
+
+#[test]
+fn test_sigop_flags_off_skip_witness_and_p2sh() {
+    let mut spk = vec![OP_0, 0x14];
+    spk.extend_from_slice(&[0xcd; 20]);
+    let witness_tx = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x03; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let witness_utxo = UTXO {
+        value: 10_000,
+        script_pubkey: spk.into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    let witnesses: Vec<Witness> = vec![vec![vec![0x30; 72], vec![0x21; 33]]];
+    let witness_off = get_transaction_sigop_cost_with_utxos(
+        &witness_tx,
+        &[Some(&witness_utxo)],
+        Some(&witnesses),
+        0,
+    )
+    .unwrap();
+    assert_eq!(witness_off, 0);
+
+    let p2sh_tx = Transaction {
+        version: 1,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x44; 32],
+                index: 0,
+            },
+            script_sig: vec![0x01, OP_CHECKSIG].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 1_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let redeem = vec![OP_CHECKSIG];
+    let p2sh_utxo = UTXO {
+        value: 10_000,
+        script_pubkey: p2sh_scriptpubkey(&redeem).into(),
+        height: 0,
+        is_coinbase: false,
+    };
+    let p2sh_off = get_transaction_sigop_cost_with_utxos(
+        &p2sh_tx,
+        &[Some(&p2sh_utxo)],
+        None,
+        0,
+    )
+    .unwrap();
+    let p2sh_on = get_transaction_sigop_cost_with_utxos(
+        &p2sh_tx,
+        &[Some(&p2sh_utxo)],
+        None,
+        SCRIPT_VERIFY_P2SH,
+    )
+    .unwrap();
+    assert_eq!(p2sh_off, 0);
+    assert!(p2sh_on > p2sh_off);
 }

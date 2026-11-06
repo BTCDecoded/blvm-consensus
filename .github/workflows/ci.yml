@@ -149,6 +149,7 @@ jobs:
           # Hash this log. Do not re-run the suite for the attestation.
           set -o pipefail
           cargo test --all-features 2>&1 | tee test_output.txt
+          cargo test --no-default-features --features blvm-secp256k1 --lib nonproduction_tapscript_schnorr_spend_is_accepted
       
       - name: Capture test output hash
         if: github.ref == 'refs/heads/main'

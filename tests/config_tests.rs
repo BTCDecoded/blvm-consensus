@@ -30,9 +30,7 @@ fn test_block_validation_config_default() {
     let config = BlockValidationConfig::default();
 
     assert_eq!(config.assume_valid_height, 938343);
-    assert_eq!(config.median_time_past_headers, 11);
-    assert_eq!(config.coinbase_maturity_override, 0);
-    assert_eq!(config.max_block_sigops_cost_override, 0);
+    assert!(config.assume_valid_hash.is_none());
 }
 
 #[test]
@@ -125,7 +123,6 @@ fn test_get_consensus_config_returns_defaults() {
 fn test_consensus_config_from_env_parses_values() {
     let keys = [
         "BLVM_ASSUME_VALID_HEIGHT",
-        "BLVM_MTP_HEADERS",
         "BLVM_MEMPOOL_MB",
         "BLVM_STRICT_MODE",
         "BLVM_MAX_REORG_DEPTH",
@@ -135,14 +132,12 @@ fn test_consensus_config_from_env_parses_values() {
     }
 
     env_set("BLVM_ASSUME_VALID_HEIGHT", "424242");
-    env_set("BLVM_MTP_HEADERS", "15");
     env_set("BLVM_MEMPOOL_MB", "128");
     env_set("BLVM_STRICT_MODE", "true");
     env_set("BLVM_MAX_REORG_DEPTH", "144");
 
     let config = ConsensusConfig::from_env();
     assert_eq!(config.block_validation.assume_valid_height, 424_242);
-    assert_eq!(config.block_validation.median_time_past_headers, 15);
     assert_eq!(config.mempool.max_mempool_mb, 128);
     assert!(config.advanced.strict_mode);
     assert_eq!(config.advanced.max_reorg_depth, 144);
@@ -224,11 +219,13 @@ fn test_consensus_config_from_env_parses_advanced_overrides() {
 }
 
 #[test]
-fn test_consensus_config_from_env_parses_block_validation_overrides() {
+fn test_block_validation_override_env_vars_are_not_parsed() {
     let keys = [
         "BLVM_COINBASE_MATURITY",
         "BLVM_MAX_SIGOPS_COST",
         "BLVM_PARALLEL_VALIDATION",
+        "BLVM_MTP_HEADERS",
+        "BLVM_ASSUME_VALID_HEIGHT",
     ];
     for key in keys {
         env_remove(key);
@@ -236,15 +233,11 @@ fn test_consensus_config_from_env_parses_block_validation_overrides() {
 
     env_set("BLVM_COINBASE_MATURITY", "50");
     env_set("BLVM_MAX_SIGOPS_COST", "12000");
-    env_set("BLVM_PARALLEL_VALIDATION", "true");
+    env_set("BLVM_PARALLEL_VALIDATION", "false");
+    env_set("BLVM_MTP_HEADERS", "15");
 
     let config = ConsensusConfig::from_env();
-    assert_eq!(config.block_validation.coinbase_maturity_override, 50);
-    assert_eq!(
-        config.block_validation.max_block_sigops_cost_override,
-        12_000
-    );
-    assert!(config.block_validation.enable_parallel_validation);
+    assert_eq!(config.block_validation.assume_valid_height, 938343);
 
     for key in keys {
         env_remove(key);

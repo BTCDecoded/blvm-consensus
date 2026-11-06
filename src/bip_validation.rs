@@ -298,7 +298,7 @@ pub fn is_bip54_active_at(
             | crate::types::Network::Testnet4 => crate::constants::BIP54_ACTIVATION_REGTEST,
         },
     };
-    height >= activation
+    activation != u64::MAX && height >= activation
 }
 
 /// BIP54: Consensus Cleanup activation (constant-only).

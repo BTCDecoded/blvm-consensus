@@ -58,7 +58,7 @@ impl IsForkActive for ForkActivationTable {
             ForkId::Taproot => height >= self.taproot,
             ForkId::Ctv => self.ctv != u64::MAX && height >= self.ctv,
             ForkId::Csfs => self.csfs != u64::MAX && height >= self.csfs,
-            ForkId::Bip54 => height >= self.bip54,
+            ForkId::Bip54 => self.bip54 != u64::MAX && height >= self.bip54,
         }
     }
 }
