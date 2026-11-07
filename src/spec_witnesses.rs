@@ -1016,19 +1016,14 @@ pub(crate) fn _verify_f_eval_seq_locks_both_met(
 
 /// Witness for **F_HeaderVersionFloor** (PROTOCOL.md §5.3.1).
 ///
-/// Proof obligation: when `block_version == 0`, header validation always returns false.
-///
-/// The production `validate_block_header` function checks `if header.version < 1 { return Ok(false) }`.
-/// Under `requires(block_version == 0)`, `block_version >= 1` evaluates to `0 >= 1 = false`,
-/// so the body takes the `else` branch returning `0` (encodes `false`).
-///
-/// Proves H01 (version floor): block version 0 has never been valid in Bitcoin.
-/// Z3 proves this via linear arithmetic: `0 >= 1` is `false`.
+/// Before BIP34 there is no version floor. Version 0 passes. After BIP34,
+/// version < 2 fails. `check_bip90` is the production check.
 #[cfg_attr(feature = "spec-lock", spec_locked("5.3.1", "F_HeaderVersionFloor"))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(block_version == 0))]
-#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
-pub(crate) fn _verify_f_header_version_floor(block_version: i64) -> i64 {
-    if block_version >= 1 { 1 } else { 0 }
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(bip34_active == 0))]
+#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 1))]
+pub(crate) fn _verify_f_header_version_floor(block_version: i64, bip34_active: i64) -> i64 {
+    if bip34_active != 0 && block_version < 2 { 0 } else { 1 }
 }
 
 /// Witness for **F_HeaderBitsFloor** (PROTOCOL.md §5.3.1).

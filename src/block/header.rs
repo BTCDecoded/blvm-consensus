@@ -2,9 +2,8 @@
 //!
 //! Single place for structural and time header rules. Part of a larger validation pipeline.
 //!
-//! ## What this module checks (H01, H03–H06 of §5.3.1)
+//! ## What this module checks (H03–H06 of §5.3.1)
 //!
-//! - **H01** — version ≥ 1 (floor; version 0 is rejected unconditionally)
 //! - **H03** — timestamp ≠ 0
 //! - **H04** — timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME (requires [`TimeContext`])
 //! - **H05** — timestamp > median_time_past / BIP113 MTP (requires [`TimeContext`])
@@ -13,15 +12,16 @@
 //!
 //! ## What this module does NOT check
 //!
-//! - **H02** — height-dependent version minimums (version ≥ 2/3/4 after BIP34/66/65): see
-//!   [`crate::bip_validation::check_bip90`], called by `connect_block_inner`.
+//! - **H01 / H02** — header version. There is no unconditional floor. Version 0 is valid
+//!   before BIP34. [`crate::bip_validation::check_bip90`] rejects version < 2 after BIP34,
+//!   version < 3 after BIP66, and version < 4 after BIP65.
 //! - **H07** — proof of work (hash vs compact target): see [`crate::pow::check_proof_of_work`].
 //!   The header's compact bits must also equal [`crate::pow::next_required_bits`] when connect
 //!   is given ancestor headers. That comparison is not done here.
 //! - **H08** — parent hash linkage: pure predicate [`validate_prev_block_hash`]; the node chain
 //!   layer supplies the parent header/hash and rejects blocks that fail H08 before `connect_block`.
 //!
-//! Callers connecting a block must invoke H02, H07, and H08 (via the predicate) in addition to
+//! Callers connecting a block must invoke H01/H02, H07, and H08 (via the predicate) in addition to
 //! [`validate_block_header`] to satisfy `ValidBlockHeader` in full.
 //!
 //! ## Refactor / audit notes (coordinate with `blvm-spec-lock` before changing shape)
@@ -30,8 +30,8 @@
 //!   with `assert!` below — that only adds panic risk if someone reorders code.
 //! - The tautological `assert!(result || !result)` (below) is **on purpose**: formal verification /
 //!   spec-lock tooling hooks here. Do not delete without verifier sign-off.
-//! - **Version `0`** is rejected by `version < 1` (H01). Version 1 is valid before BIP34 and
-//!   invalid after it — that boundary is enforced by `check_bip90` (H02), not here.
+//! - **Version `0`** is not rejected here. `check_bip90` accepts it before BIP34 and rejects
+//!   it once BIP34 is active.
 //! - **Merkle root** field is checked for all-zeros only (structural guard). Cryptographic
 //!   verification of the merkle root against block transactions happens in `connect_block_inner`.
 
@@ -43,12 +43,12 @@ use crate::types::{
 #[cfg(feature = "spec-lock")]
 use blvm_spec_lock::spec_locked;
 
-/// Validate block header structural and time rules (H01, H03–H06 of §5.3.1).
+/// Validate block header structural and time rules (H03–H06 of §5.3.1).
 ///
 /// Returns `Ok(true)` if all checks pass, `Ok(false)` if any check fails.
 ///
 /// This is one component of `ValidBlockHeader`. Callers connecting a block must also invoke:
-/// - [`crate::bip_validation::check_bip90`] — H02: height-dependent version minimums
+/// - [`crate::bip_validation::check_bip90`] — H01/H02: no floor before BIP34; then version ≥ 2/3/4
 /// - [`crate::pow::check_proof_of_work`] — H07: hash vs compact target
 ///
 /// Parent hash linkage (H08): [`validate_prev_block_hash`]; orchestration is in the node layer.
@@ -57,7 +57,7 @@ use blvm_spec_lock::spec_locked;
 ///
 /// * `header` - Block header to validate
 /// * `time_context` - Optional time context for timestamp validation (BIP113).
-///   If `None`, only H01/H03/H06 (version, non-zero timestamp, bits) are enforced.
+///   If `None`, only H03/H06 (non-zero timestamp, bits) are enforced.
 ///   If `Some`, also enforces H04 (timestamp ≤ network_time + MAX_FUTURE_BLOCK_TIME)
 ///   and H05 (timestamp > median_time_past).
 #[allow(clippy::overly_complex_bool_expr, clippy::redundant_comparisons)] // Intentional tautological assertions for formal verification
@@ -67,9 +67,6 @@ pub(crate) fn validate_block_header(
     header: &BlockHeader,
     time_context: Option<&TimeContext>,
 ) -> Result<bool> {
-    if header.version < 1 {
-        return Ok(false);
-    }
     if header.timestamp == 0 {
         return Ok(false);
     }

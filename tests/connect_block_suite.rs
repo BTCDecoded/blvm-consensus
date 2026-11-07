@@ -1600,14 +1600,27 @@ fn test_connect_rejects_invalid_header_timestamp_zero() {
 }
 
 #[test]
-fn test_connect_rejects_header_version_zero() {
+fn test_connect_accepts_header_version_zero_before_bip34() {
     let coinbase = coinbase_at_height(1, coinbase_value(1, 0));
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
     block.header.version = 0;
     let (result, _, _) = connect(&mut block, UtxoSet::default(), 1).unwrap();
     assert!(
-        matches!(result, ValidationResult::Invalid(_)),
-        "version=0 header must not connect: {result:?}"
+        matches!(result, ValidationResult::Valid),
+        "version=0 header before BIP34 must connect: {result:?}"
+    );
+}
+
+#[test]
+fn test_connect_rejects_header_version_zero_at_bip34() {
+    let height = BIP34_ACTIVATION_MAINNET;
+    let coinbase = coinbase_at_height(height, coinbase_value(height, 0));
+    let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
+    block.header.version = 0;
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref r) if r.contains("BIP90")),
+        "version=0 header at BIP34 must fail the version floor: {result:?}"
     );
 }
 

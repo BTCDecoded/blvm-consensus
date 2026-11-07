@@ -899,18 +899,18 @@ fn test_validate_block_header_valid() {
 }
 
 #[test]
-fn test_validate_block_header_invalid_version() {
+fn test_validate_block_header_accepts_version_zero() {
     let header = BlockHeader {
-        version: 0, // Invalid version
+        version: 0,
         prev_block_hash: [0; 32],
-        merkle_root: [0; 32],
+        merkle_root: [1; 32],
         timestamp: 1231006505,
         bits: 0x1d00ffff,
         nonce: 0,
     };
 
     let result = header::validate_block_header(&header, None).unwrap();
-    assert!(!result);
+    assert!(result);
 }
 
 #[test]

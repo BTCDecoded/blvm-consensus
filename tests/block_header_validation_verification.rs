@@ -4,7 +4,6 @@
 //! Block header validation is consensus-critical - differences = chain split.
 //!
 //! Consensus checks:
-//! - Version >= 1
 //! - Timestamp != 0 (and not too far in future)
 //! - Bits != 0
 //! - Merkle root != 0
@@ -43,16 +42,12 @@ fn test_block_header_valid() {
     );
 }
 
-/// Test block header validation: invalid version (0)
-///
-/// Consensus rejects: version < 1
+/// Version 0 is a legal header field. The version floor is BIP90, not this struct.
 #[test]
-fn test_block_header_invalid_version_zero() {
+fn test_block_header_version_zero_is_a_legal_field() {
     let mut header = create_valid_header();
     header.version = 0;
-
-    // Version 0 should be invalid
-    assert_eq!(header.version, 0, "Version should be 0");
+    assert_eq!(header.version, 0);
 }
 
 /// Test block header validation: invalid timestamp (0)

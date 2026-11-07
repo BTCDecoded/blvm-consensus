@@ -3426,18 +3426,8 @@ pub(crate) fn connect_block_inner<'a>(
         );
     }
 
-    // BIP90: Block version enforcement (check header version)
+    // BIP90: height-dependent version floors. Version 0 is valid before BIP34.
     // CRITICAL: This check MUST be called - see tests/integration/bip_enforcement_tests.rs
-    if block.header.version < 1 {
-        return invalid_block_result(
-            utxo_set,
-            &[],
-            format!(
-                "Block header version {} must be >= 1 for BIP90 check",
-                block.header.version
-            ),
-        );
-    }
     let bip90_result = crate::bip_validation::check_bip90(block.header.version, height, context)?;
     if !bip90_result {
         return invalid_block_result(
