@@ -60,7 +60,7 @@ pub fn check_signet_block_solution(block: &Block, challenge: &[u8], height: u64)
     };
     let prevout_value = pair.to_spend.outputs[0].value;
     let prevout_script = pair.to_spend.outputs[0].script_pubkey.as_ref();
-    verify_script_with_context_full(
+    match verify_script_with_context_full(
         &pair.to_sign.inputs[0].script_sig,
         prevout_script,
         Some(&pair.witness),
@@ -84,7 +84,10 @@ pub fn check_signet_block_solution(block: &Block, challenge: &[u8], height: u64)
         None,
         #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
         None,
-    )
+    ) {
+        Ok(valid) => Ok(valid),
+        Err(error) => crate::script_err_as_false(error),
+    }
 }
 
 struct SignetTxPair {
@@ -466,6 +469,13 @@ mod tests {
     fn check_signet_op_true_header_only_passes() {
         let block = signet_test_block(&SIGNET_HEADER);
         assert!(check_signet_block_solution(&block, &[0x51], 1).unwrap());
+    }
+
+    #[test]
+    fn check_signet_disabled_opcode_is_false() {
+        let block = signet_test_block(&SIGNET_HEADER);
+        assert!(!check_signet_block_solution(&block, &[0x95], 1).unwrap());
+        assert!(!check_signet_block_solution(&block, &[0x93], 1).unwrap());
     }
 
     #[test]

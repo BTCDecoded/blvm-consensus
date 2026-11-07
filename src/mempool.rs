@@ -811,7 +811,7 @@ fn verify_mempool_scripts(
             continue;
         };
         let witness = witnesses.and_then(|wits| wits.get(i));
-        let is_valid = verify_script_with_context_full(
+        let is_valid = match verify_script_with_context_full(
             &input.script_sig,
             utxo.script_pubkey.as_ref(),
             witness,
@@ -835,7 +835,10 @@ fn verify_mempool_scripts(
             None,
             #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
             None,
-        )?;
+        ) {
+            Ok(valid) => valid,
+            Err(error) => crate::script_err_as_false(error)?,
+        };
         if !is_valid {
             return Ok(Some(format!("Invalid script at input {i}")));
         }
@@ -1285,6 +1288,54 @@ mod tests {
         // Default multiplier is 20 weight units per sigop (5 vbytes).
         assert_eq!(DEFAULT_BYTES_PER_SIGOP, 20);
         assert_eq!(MAX_STANDARD_TX_SIGOPS_COST, 16_000);
+    }
+
+    #[test]
+    fn test_disabled_opcode_spend_is_rejected() {
+        let prevout = OutPoint {
+            hash: [1; 32],
+            index: 0,
+        };
+        let mut utxo_set = UtxoSet::default();
+        utxo_set.insert(
+            prevout,
+            std::sync::Arc::new(UTXO {
+                value: 10_000,
+                script_pubkey: vec![OP_MUL].into(),
+                height: 0,
+                is_coinbase: false,
+            }),
+        );
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout,
+                script_sig: vec![],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: vec![TransactionOutput {
+                value: 0,
+                script_pubkey: vec![OP_1],
+            }]
+            .into(),
+            lock_time: 0,
+        };
+        let result = accept_to_memory_pool(
+            &tx,
+            None,
+            &utxo_set,
+            &Mempool::new(),
+            200,
+            Some(TimeContext {
+                network_time: 1_700_000_000,
+                median_time_past: 0,
+            }),
+            Network::Mainnet,
+            None,
+        )
+        .expect("a disabled opcode is a rejection");
+        assert!(matches!(result, MempoolResult::Rejected(_)));
     }
 
     #[test]

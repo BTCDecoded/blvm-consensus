@@ -11,7 +11,6 @@ use bitcoinconsensus::{
     Error, Utxo, VERIFY_DERSIG, VERIFY_NULLDUMMY, VERIFY_P2SH, VERIFY_WITNESS, verify_with_flags,
 };
 use blvm_consensus::block::calculate_tx_id;
-use blvm_consensus::error::{ConsensusError, ScriptErrorCode};
 use blvm_consensus::mining::compute_merkle_root_and_mutated;
 use blvm_consensus::opcodes::{OP_0, OP_CHECKSIG, OP_PUSHDATA1, OP_RETURN};
 use blvm_consensus::script::flags::{
@@ -265,10 +264,7 @@ fn signet_solution_matches_libbitcoinconsensus() {
         "bad signet solution: libbitcoinconsensus={library} blvm={ours}"
     );
     match check_signet_block_solution(&solution_block(&bad), &challenge, 1) {
-        Err(ConsensusError::ScriptErrorWithCode {
-            code: ScriptErrorCode::SigDer,
-            ..
-        }) => {}
-        other => panic!("a flipped signature byte must be SigDer, got {other:?}"),
+        Ok(false) => {}
+        other => panic!("a flipped signature byte must reject the signet block, got {other:?}"),
     }
 }

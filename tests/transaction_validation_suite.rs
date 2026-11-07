@@ -212,10 +212,10 @@ fn test_check_transaction_rejects_i64_output_sum_overflow() {
         outputs: outputs.into(),
         lock_time: 0,
     };
-    let err = check_transaction(&tx).expect_err("i64 output sum must be Err, not Invalid");
+    let result = check_transaction(&tx).expect("i64 output sum is an invalid transaction");
     assert!(
-        err.to_string().contains("overflow"),
-        "expected output-sum overflow, got {err}"
+        matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow")),
+        "expected output-sum overflow, got {result:?}"
     );
 }
 

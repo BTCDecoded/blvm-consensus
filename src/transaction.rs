@@ -27,11 +27,6 @@ pub fn check_coinbase_maturity(
 
 // Cold error construction helpers - these paths are rarely taken
 #[cold]
-fn make_output_sum_overflow_error() -> ConsensusError {
-    ConsensusError::TransactionValidation("Output value sum overflow".into())
-}
-
-#[cold]
 fn make_fee_calculation_underflow_error() -> ConsensusError {
     ConsensusError::TransactionValidation("Fee calculation underflow".into())
 }
@@ -52,9 +47,14 @@ fn sum_output_values(
                 output.value
             ))));
         }
-        total = total
-            .checked_add(output.value)
-            .ok_or_else(|| ConsensusError::TransactionValidation("Output value overflow".into()))?;
+        total = match total.checked_add(output.value) {
+            Some(sum) => sum,
+            None => {
+                return Ok(Err(ValidationResult::Invalid(
+                    "Output value sum overflow".to_string(),
+                )));
+            }
+        };
     }
     Ok(Ok(total))
 }
@@ -169,6 +169,7 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
 /// 6. |tx| ≤ M_max_tx_size
 /// 7. ∀i,j ∈ ins: i ≠ j ⟹ i.prevout ≠ j.prevout (no duplicate inputs)
 /// 8. If tx is coinbase: 2 ≤ |ins[0].scriptSig| ≤ 100
+/// 9. If tx is not coinbase: no input prevout is null
 ///
 /// Uses fast-path checks before full validation.
 #[cfg_attr(feature = "spec-lock", spec_locked("5.1", "CheckTransaction"))]
@@ -245,9 +246,14 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
                     output.value,
                     i
                 );
-                total_output_value = total_output_value
-                    .checked_add(output.value)
-                    .ok_or_else(make_output_sum_overflow_error)?;
+                total_output_value = match total_output_value.checked_add(output.value) {
+                    Some(sum) => sum,
+                    None => {
+                        return Ok(ValidationResult::Invalid(
+                            "Output value sum overflow".to_string(),
+                        ));
+                    }
+                };
                 // Invariant assertion: Total output value must remain non-negative after addition
                 assert!(
                     total_output_value >= 0,
@@ -272,9 +278,14 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
                 )));
             }
             // Accumulate sum with overflow check
-            total_output_value = total_output_value
-                .checked_add(output.value)
-                .ok_or_else(make_output_sum_overflow_error)?;
+            total_output_value = match total_output_value.checked_add(output.value) {
+                Some(sum) => sum,
+                None => {
+                    return Ok(ValidationResult::Invalid(
+                        "Output value sum overflow".to_string(),
+                    ));
+                }
+            };
             // Invariant assertion: Total output value must remain non-negative after addition
             assert!(
                 total_output_value >= 0,
@@ -385,6 +396,14 @@ pub fn check_transaction(tx: &Transaction) -> Result<ValidationResult> {
             return Ok(ValidationResult::Invalid(format!(
                 "Coinbase scriptSig length {script_sig_len} must be between 2 and 100 bytes"
             )));
+        }
+    } else {
+        for (i, input) in tx.inputs.iter().enumerate() {
+            if input.prevout.hash == [0u8; 32] && input.prevout.index == 0xffffffff {
+                return Ok(ValidationResult::Invalid(format!(
+                    "Non-coinbase input {i} has null prevout"
+                )));
+            }
         }
     }
 
@@ -771,7 +790,7 @@ pub fn calculate_transaction_size(tx: &Transaction) -> usize {
 /// - Transaction size respects limits
 /// - No duplicate prevouts in inputs (rule 4)
 /// - Coinbase transactions have scriptSig length [2, 100] bytes (rule 5)
-/// - Non-coinbase inputs must not have null prevouts (rule 6, checked in check_tx_inputs)
+/// - Non-coinbase inputs must not have null prevouts (rule 6, checked here and in check_tx_inputs)
 
 /// Proptest strategies for transaction-shaped values (no `Arbitrary` impl — orphan rules).
 #[cfg(test)]
@@ -1559,5 +1578,140 @@ mod tests {
             lock_time: 12345,
         };
         assert_eq!(calculate_transaction_size(&tx), 122);
+    }
+
+    fn coinbase_with_script(script_sig: Vec<u8>, outputs: Vec<TransactionOutput>) -> Transaction {
+        Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout: OutPoint {
+                    hash: [0; 32],
+                    index: 0xffffffff,
+                },
+                script_sig,
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: outputs.into(),
+            lock_time: 0,
+        }
+    }
+
+    #[test]
+    fn test_output_sum_just_below_overflow_is_invalid() {
+        let tx = coinbase_with_script(vec![0x51, 0xff], make_n_outputs(4_392, MAX_MONEY));
+        assert!(matches!(
+            check_transaction(&tx).unwrap(),
+            ValidationResult::Invalid(_)
+        ));
+    }
+
+    #[test]
+    fn test_output_sum_overflow_is_invalid() {
+        let tx = coinbase_with_script(vec![0x51, 0xff], make_n_outputs(4_393, MAX_MONEY));
+        assert!(matches!(
+            check_transaction(&tx).unwrap(),
+            ValidationResult::Invalid(ref reason) if reason.contains("overflow")
+        ));
+    }
+
+    #[test]
+    fn test_output_sum_overflow_input_path_is_invalid() {
+        let prevout = OutPoint {
+            hash: [1; 32],
+            index: 0,
+        };
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![TransactionInput {
+                prevout,
+                script_sig: vec![0x51, 0x51],
+                sequence: 0xffffffff,
+            }]
+            .into(),
+            outputs: make_n_outputs(4_393, MAX_MONEY).into(),
+            lock_time: 0,
+        };
+        let mut set = UtxoSet::default();
+        set.insert(
+            prevout,
+            std::sync::Arc::new(UTXO {
+                value: MAX_MONEY,
+                script_pubkey: vec![0x51].into(),
+                height: 0,
+                is_coinbase: false,
+            }),
+        );
+        let (result, fee) = check_tx_inputs(&tx, &set, 200).unwrap();
+        assert_eq!(fee, 0);
+        assert!(matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow")));
+    }
+
+    #[test]
+    fn test_output_sum_overflow_connects_as_invalid() {
+        let tx = coinbase_with_script(vec![0x51, 0xff], make_n_outputs(4_393, MAX_MONEY));
+        let block = Block {
+            header: BlockHeader {
+                version: 4,
+                prev_block_hash: [0; 32],
+                merkle_root: [1; 32],
+                timestamp: 1_000,
+                bits: 0x207fffff,
+                nonce: 0,
+            },
+            transactions: vec![tx].into(),
+        };
+        let result = crate::ConsensusProof::new().validate_block_with_time_context(
+            &block,
+            &[],
+            UtxoSet::default(),
+            1,
+            Some(TimeContext {
+                network_time: 1_700_000_000,
+                median_time_past: 0,
+            }),
+            Network::Regtest,
+        );
+        match result {
+            Ok((ValidationResult::Invalid(_), _)) => {}
+            other => panic!("overflow must be an invalid block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_non_coinbase_null_prevout_is_invalid() {
+        let tx = Transaction {
+            version: 1,
+            inputs: vec![
+                TransactionInput {
+                    prevout: OutPoint {
+                        hash: [0; 32],
+                        index: 0xffffffff,
+                    },
+                    script_sig: vec![0x51, 0x51, 0x51, 0x51],
+                    sequence: 0xffffffff,
+                },
+                make_input([1; 32], 0),
+            ]
+            .into(),
+            outputs: vec![make_output(0)].into(),
+            lock_time: 0,
+        };
+        assert!(!is_coinbase(&tx));
+        assert!(matches!(
+            check_transaction(&tx).unwrap(),
+            ValidationResult::Invalid(ref reason) if reason.contains("null prevout")
+        ));
+        let not_null = make_simple_tx(0);
+        assert_eq!(check_transaction(&not_null).unwrap(), ValidationResult::Valid);
+    }
+
+    #[test]
+    fn test_coinbase_scriptsig_length_bounds() {
+        for (len, valid) in [(0, false), (1, false), (2, true), (100, true), (101, false)] {
+            let tx = coinbase_with_script(vec![0x51; len], vec![make_output(0)]);
+            let result = check_transaction(&tx).unwrap();
+            assert_eq!(matches!(result, ValidationResult::Valid), valid, "len {len}");
+        }
     }
 }
