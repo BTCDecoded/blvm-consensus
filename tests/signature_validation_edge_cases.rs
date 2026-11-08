@@ -224,9 +224,10 @@ fn test_strictenc_enforcement() {
         verify_signed(&low_s_der(), 0x01, SCRIPT_VERIFY_STRICTENC).unwrap(),
         true
     );
-    assert_eq!(
-        verify_signed(&low_s_der(), 0x00, SCRIPT_VERIFY_STRICTENC).unwrap(),
-        false
+    let undefined = verify_signed(&low_s_der(), 0x00, SCRIPT_VERIFY_STRICTENC);
+    assert!(
+        undefined.is_err(),
+        "STRICTENC must fail an undefined hashtype before OP_NOT can invert it: {undefined:?}"
     );
     assert_eq!(verify_signed(&low_s_der(), 0x00, 0).unwrap(), true);
 }

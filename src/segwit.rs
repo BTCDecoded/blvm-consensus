@@ -445,6 +445,16 @@ pub fn transaction_weight_from_stacks(
 ) -> Result<Natural> {
     let base_size = stripped_transaction_size(tx)?;
     let total_size = match stacks {
+        Some(stacks) if stacks.len() != tx.inputs.len() => {
+            return Err(crate::error::ConsensusError::BlockValidation(
+                format!(
+                    "witness stack count {} does not match input count {}",
+                    stacks.len(),
+                    tx.inputs.len()
+                )
+                .into(),
+            ));
+        }
         Some(stacks)
             if stacks.len() == tx.inputs.len() && stacks.iter().any(|stack| !stack.is_empty()) =>
         {
@@ -459,16 +469,6 @@ pub fn transaction_weight_from_stacks(
                 }
             }
             add_size(base_size, extra)?
-        }
-        Some(stacks) if stacks.iter().any(|stack| !stack.is_empty()) => {
-            return Err(crate::error::ConsensusError::BlockValidation(
-                format!(
-                    "witness stack count {} does not match input count {}",
-                    stacks.len(),
-                    tx.inputs.len()
-                )
-                .into(),
-            ));
         }
         _ => base_size,
     };
@@ -545,6 +545,17 @@ mod tests {
 
         let weight = calculate_transaction_weight(&tx, Some(&witness)).unwrap();
         assert!(weight > 0);
+    }
+
+    #[test]
+    fn empty_mismatched_witness_row_is_invalid() {
+        let tx = create_test_transaction();
+        let err = transaction_weight_from_stacks(&tx, Some(&[])).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("witness stack count 0"),
+            "{message}"
+        );
     }
 
     #[test]

@@ -1415,18 +1415,7 @@ pub fn verify_p2pkh_inline_parsed(
         return Ok(false);
     }
 
-    if flags & 0x02 != 0 {
-        let sighash_base = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
+    crate::script::signature::reject_strictenc(flags, sighash_byte, pubkey_bytes)?;
 
     #[cfg(feature = "profile")]
     let _t_secp = std::time::Instant::now();
@@ -1527,18 +1516,7 @@ pub fn verify_p2pk_inline(
         return Ok(false);
     }
 
-    if flags & 0x02 != 0 {
-        let sighash_base = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
+    crate::script::signature::reject_strictenc(flags, sighash_byte, pubkey_bytes)?;
 
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     if let Some((collector, global_idx)) = ecdsa_collect {
@@ -2010,20 +1988,11 @@ fn verify_p2sh_p2pkh_redeem(
     {
         return Ok(false);
     }
-    if flags & 0x02 != 0 {
-        let sighash_base = signature_bytes[signature_bytes.len() - 1] & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => {
-                return Ok(false);
-            }
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
+    crate::script::signature::reject_strictenc(
+        flags,
+        signature_bytes[signature_bytes.len() - 1],
+        pubkey_bytes,
+    )?;
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     if let Some((collector, global_idx)) = ecdsa_collect {
         // Default-on; set BLVM_P2SH_P2PKH_SOA=0 to disable.
@@ -2372,18 +2341,7 @@ fn finish_p2wpkh_ecdsa(
         return Ok(false);
     }
 
-    if flags & 0x02 != 0 {
-        let sighash_base = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Ok(false);
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Ok(false),
-            65 if pubkey_bytes[0] != 0x04 => return Ok(false),
-            33 | 65 => {}
-            _ => return Ok(false),
-        }
-    }
+    crate::script::signature::reject_strictenc(flags, sighash_byte, pubkey_bytes)?;
 
     #[cfg(all(feature = "production", feature = "blvm-secp256k1"))]
     if let Some((collector, global_idx)) = ecdsa_collect {
@@ -2729,17 +2687,12 @@ fn try_collect_witness_ecdsa(
     {
         return Some(Ok(false));
     }
-    if flags & 0x02 != 0 {
-        let sighash_base = signature_bytes[signature_bytes.len() - 1] & !0x80;
-        if !(0x01..=0x03).contains(&sighash_base) {
-            return Some(Ok(false));
-        }
-        match pubkey_bytes.len() {
-            33 if pubkey_bytes[0] != 0x02 && pubkey_bytes[0] != 0x03 => return Some(Ok(false)),
-            65 if pubkey_bytes[0] != 0x04 => return Some(Ok(false)),
-            33 | 65 => {}
-            _ => return Some(Ok(false)),
-        }
+    if let Err(err) = crate::script::signature::reject_strictenc(
+        flags,
+        signature_bytes[signature_bytes.len() - 1],
+        pubkey_bytes,
+    ) {
+        return Some(Err(err));
     }
     let compact =
         match blvm_secp256k1::ecdsa::ecdsa_der_to_compact(der_sig, strict_der, enforce_low_s) {
@@ -5244,6 +5197,37 @@ fn upgradable_nop(flags: u32) -> Result<bool> {
     Ok(true)
 }
 
+/// Encoding is checked before the no-context multisig pushes a false result.
+/// `OP_NOT` must not turn a STRICTENC failure into success.
+fn strictenc_nocheck_multisig(stack: &[StackElement], flags: u32) -> Result<()> {
+    if flags & 0x02 == 0 || stack.is_empty() {
+        return Ok(());
+    }
+    let n = match script_num_decode(stack.last().unwrap(), 4) {
+        Ok(v) if (0..=20).contains(&v) => v as usize,
+        _ => return Ok(()),
+    };
+    if stack.len() < n + 2 {
+        return Ok(());
+    }
+    let n_at = stack.len() - 1;
+    for pubkey in &stack[n_at - n..n_at] {
+        crate::script::signature::reject_strictenc_pubkey(flags, pubkey)?;
+    }
+    let m_at = n_at - n - 1;
+    let m = match script_num_decode(&stack[m_at], 4) {
+        Ok(v) if v >= 0 && v as usize <= n => v as usize,
+        _ => return Ok(()),
+    };
+    if m_at < m {
+        return Ok(());
+    }
+    for signature in &stack[m_at - m..m_at] {
+        crate::script::signature::reject_strictenc_signature(flags, signature)?;
+    }
+    Ok(())
+}
+
 /// Pop the CHECKMULTISIG stack (n pubkeys, m signatures, dummy) without verifying.
 /// `None` is a script failure. The caller decides the 0-of-n result.
 fn pop_nocheck_multisig(stack: &mut Vec<StackElement>) -> Option<usize> {
@@ -6066,6 +6050,7 @@ fn execute_opcode(
         // (no signatures to verify). Vectors requiring real ECDSA verification need
         // verify_script_with_context_full.
         OP_CHECKMULTISIG => {
+            strictenc_nocheck_multisig(stack, flags)?;
             let Some(m) = pop_nocheck_multisig(stack) else {
                 return Ok(false);
             };
@@ -6076,6 +6061,7 @@ fn execute_opcode(
 
         // OP_CHECKMULTISIGVERIFY - CHECKMULTISIG then VERIFY
         OP_CHECKMULTISIGVERIFY => {
+            strictenc_nocheck_multisig(stack, flags)?;
             let Some(m) = pop_nocheck_multisig(stack) else {
                 return Ok(false);
             };
@@ -7324,6 +7310,14 @@ fn execute_opcode_with_context_full(
             // Verify signatures against public keys
             // CHECKMULTISIG algorithm: iterate pubkeys, try to match sigs in order
             let height = block_height.unwrap_or(0);
+            if flags & 0x02 != 0 {
+                for pubkey in &pubkeys {
+                    crate::script::signature::reject_strictenc_pubkey(flags, pubkey)?;
+                }
+                for sig_bytes in &signatures {
+                    crate::script::signature::reject_strictenc_signature(flags, sig_bytes)?;
+                }
+            }
 
             // FindAndDelete: Remove ALL signatures from scriptCode BEFORE any sighash computation
             // Consensus rule for OP_CHECKMULTISIG (legacy only, not SegWit)

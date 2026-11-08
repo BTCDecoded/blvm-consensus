@@ -289,8 +289,8 @@ pub(super) fn insert_script_exec_cache_for_block(
 /// Merge overlay changes into the UTXO set and update BIP30 index / undo log.
 ///
 /// `skip_utxo_set_mutation`: when `true` (IBD path), the `utxo_set` is a per-block
-/// scratch view that is discarded after this call. Skip all HashMap inserts/removes —
-/// only BIP30 coinbase deletion accounting is performed (via a non-mutating `get`).
+/// scratch view that is discarded after this call. Skip all HashMap inserts/removes.
+/// BIP30 still counts new coinbase outputs and decrements spent ones.
 /// The non-IBD path (`false`) performs the full remove/insert cycle and builds the
 /// undo log entry. `undo_log` must be `None` when `skip_utxo_set_mutation` is `true`.
 #[cfg(feature = "production")]
@@ -349,8 +349,13 @@ pub(super) fn merge_overlay_changes_to_cache(
         }
     }
 
-    if !skip_utxo_set_mutation {
-        for (outpoint, arc) in additions {
+    for (outpoint, arc) in additions {
+        if let Some(idx) = bip30_index.as_deref_mut() {
+            if arc.is_coinbase {
+                *idx.entry(outpoint.hash).or_insert(0) += 1;
+            }
+        }
+        if !skip_utxo_set_mutation {
             if let Some(ref mut log) = undo_log {
                 log.entries.push(UndoEntry {
                     outpoint: *outpoint,
@@ -673,7 +678,7 @@ mod script_flag_exceptions_tests {
 
 #[cfg(all(test, feature = "production"))]
 mod replaced_output_undo_tests {
-    use super::undo_log_from_overlay;
+    use super::{merge_overlay_changes_to_cache, undo_log_from_overlay};
     use crate::types::{OutPoint, UTXO, UtxoSet};
     use rustc_hash::{FxHashMap, FxHashSet};
     use std::sync::Arc;
@@ -722,5 +727,34 @@ mod replaced_output_undo_tests {
         after.remove(&outpoint);
         after.insert(outpoint, Arc::clone(previous));
         assert_eq!(after.get(&outpoint).unwrap().height, 1);
+    }
+
+    #[test]
+    fn ibd_merge_counts_a_new_coinbase_output() {
+        let txid = [0x11u8; 32];
+        let outpoint = OutPoint { hash: txid, index: 0 };
+        let mut additions = FxHashMap::default();
+        additions.insert(
+            outpoint,
+            Arc::new(UTXO {
+                value: 50,
+                script_pubkey: vec![0x51].into(),
+                height: 1,
+                is_coinbase: true,
+            }),
+        );
+        let deletions = FxHashSet::default();
+        let mut index = crate::bip_validation::Bip30Index::default();
+        let mut utxo_set = UtxoSet::default();
+        merge_overlay_changes_to_cache(
+            &additions,
+            &deletions,
+            &mut utxo_set,
+            Some(&mut index),
+            None,
+            true,
+        );
+        assert!(utxo_set.is_empty(), "the IBD scratch set stays unchanged");
+        assert_eq!(index.get(&txid).copied(), Some(1));
     }
 }

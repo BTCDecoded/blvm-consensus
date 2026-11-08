@@ -281,13 +281,23 @@ impl SchnorrSignatureCollector {
     pub fn clear(&self) {
         while self.tasks.pop().is_some() {}
         self.next_idx.store(0, Ordering::Relaxed);
+        if let Some(ref soa) = self.soa {
+            soa.next_slot.store(0, Ordering::Relaxed);
+        }
         #[cfg(all(feature = "production", feature = "rayon"))]
         while self.streaming_results.pop().is_some() {}
     }
 
-    /// Check if collector is empty
+    /// Check if collector is empty.
+    ///
+    /// Signatures that fit the SoA are stored there and never enter `tasks`.
     pub fn is_empty(&self) -> bool {
-        self.tasks.is_empty()
+        let soa_occupied = self
+            .soa
+            .as_ref()
+            .map(|soa| soa.next_slot.load(Ordering::Relaxed) > 0)
+            .unwrap_or(false);
+        !soa_occupied && self.tasks.is_empty()
     }
 
     /// Merge tasks from another collector (for per-thread collection merge).

@@ -366,6 +366,13 @@ fn test_check_tx_inputs_with_pre_collected_utxos() {
     let (result, fee) = check_tx_inputs_with_utxos(&tx, &base, 200, Some(&pre)).unwrap();
     assert!(matches!(result, ValidationResult::Valid));
     assert_eq!(fee, 1_000);
+
+    let short: Vec<Option<&UTXO>> = vec![];
+    let (short_result, _) = check_tx_inputs_with_utxos(&tx, &base, 200, Some(&short)).unwrap();
+    assert!(
+        matches!(short_result, ValidationResult::Invalid(ref reason) if reason.contains("pre-collected UTXO count")),
+        "{short_result:?}"
+    );
 }
 
 #[test]

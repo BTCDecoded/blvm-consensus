@@ -91,6 +91,42 @@ fn test_score_all_core_script_vectors() {
 }
 
 #[test]
+fn test_score_strictenc_fail_rows() {
+    let vectors = load_default_script_vectors().expect("load");
+    let flags = parse_flag_string("STRICTENC");
+    let fail_vectors: Vec<_> = vectors
+        .iter()
+        .filter(|v| !v.expected_ok && v.flags == flags)
+        .cloned()
+        .collect();
+    assert!(
+        !fail_vectors.is_empty(),
+        "STRICTENC expected-fail rows must load"
+    );
+    let mut missed = Vec::new();
+    for vector in &fail_vectors {
+        let result = verify_script(
+            &vector.script_sig,
+            &vector.script_pubkey,
+            None,
+            vector.flags,
+        );
+        let ok = matches!(result, Ok(true));
+        if ok == vector.expected_ok {
+            continue;
+        }
+        missed.push(format!(
+            "{} sig={:02x?} spk={:02x?} => {result:?}",
+            vector.description, vector.script_sig, vector.script_pubkey
+        ));
+    }
+    assert!(
+        missed.is_empty(),
+        "STRICTENC expected-fail rows still succeed: {missed:?}"
+    );
+}
+
+#[test]
 fn test_execute_minimaldata_vectors() {
     let vectors = load_default_script_vectors().expect("load");
     assert!(!vectors.is_empty(), "script_tests.json must load");

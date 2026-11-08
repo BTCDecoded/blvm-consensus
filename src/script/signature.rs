@@ -54,6 +54,60 @@ where
 
 // ---------- core verifier ----------
 
+pub(crate) fn reject_strictenc(flags: u32, sighash_byte: u8, pubkey_bytes: &[u8]) -> Result<()> {
+    if flags & 0x02 == 0 {
+        return Ok(());
+    }
+    let base_sighash = sighash_byte & !0x80;
+    if !(0x01..=0x03).contains(&base_sighash) {
+        return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+            code: crate::error::ScriptErrorCode::SigHashType,
+            message: "undefined sighash type under STRICTENC".into(),
+        });
+    }
+    reject_strictenc_pubkey(flags, pubkey_bytes)?;
+    Ok(())
+}
+
+pub(crate) fn reject_strictenc_pubkey(flags: u32, pubkey_bytes: &[u8]) -> Result<()> {
+    if flags & 0x02 == 0 {
+        return Ok(());
+    }
+    let compressed =
+        pubkey_bytes.len() == 33 && (pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03);
+    let uncompressed = pubkey_bytes.len() == 65 && pubkey_bytes[0] == 0x04;
+    if !compressed && !uncompressed {
+        return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+            code: crate::error::ScriptErrorCode::PubkeyType,
+            message: "public key is not compressed or uncompressed under STRICTENC".into(),
+        });
+    }
+    Ok(())
+}
+
+/// STRICTENC requires a DER signature and a defined hashtype. An empty signature
+/// is a failed check, not an encoding error.
+pub(crate) fn reject_strictenc_signature(flags: u32, signature_bytes: &[u8]) -> Result<()> {
+    if flags & 0x02 == 0 || signature_bytes.is_empty() {
+        return Ok(());
+    }
+    if !crate::bip_validation::is_strict_der(signature_bytes)? {
+        return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+            code: crate::error::ScriptErrorCode::SigDer,
+            message: "non-DER signature under STRICTENC".into(),
+        });
+    }
+    let sighash_byte = signature_bytes[signature_bytes.len() - 1];
+    let base_sighash = sighash_byte & !0x80;
+    if !(0x01..=0x03).contains(&base_sighash) {
+        return Err(crate::error::ConsensusError::ScriptErrorWithCode {
+            code: crate::error::ScriptErrorCode::SigHashType,
+            message: "undefined sighash type under STRICTENC".into(),
+        });
+    }
+    Ok(())
+}
+
 /// Verify ECDSA signature.
 /// BIP66: strict DER. BIP62: LOW_S, STRICTENC.
 /// The `_secp` parameter is accepted for call-site uniformity but is ignored when
@@ -70,9 +124,11 @@ pub(crate) fn verify_signature(
     sigversion: SigVersion,
 ) -> Result<bool> {
     let _ = (height, network);
+    reject_strictenc_pubkey(flags, pubkey_bytes)?;
     if signature_bytes.is_empty() {
         return Ok(false);
     }
+    reject_strictenc_signature(flags, signature_bytes)?;
     let sig_len = signature_bytes.len();
     let sighash_byte = signature_bytes[sig_len - 1];
     let der_sig = &signature_bytes[..sig_len - 1];
@@ -87,29 +143,7 @@ pub(crate) fn verify_signature(
         });
     }
 
-    if flags & 0x02 != 0 {
-        let base_sighash = sighash_byte & !0x80;
-        if !(0x01..=0x03).contains(&base_sighash) {
-            return Ok(false);
-        }
-    }
-
-    if flags & 0x02 != 0 {
-        if pubkey_bytes.len() < 33 {
-            return Ok(false);
-        }
-        if pubkey_bytes[0] == 0x04 {
-            if pubkey_bytes.len() != 65 {
-                return Ok(false);
-            }
-        } else if pubkey_bytes[0] == 0x02 || pubkey_bytes[0] == 0x03 {
-            if pubkey_bytes.len() != 33 {
-                return Ok(false);
-            }
-        } else {
-            return Ok(false);
-        }
-    }
+    reject_strictenc(flags, sighash_byte, pubkey_bytes)?;
 
     if (flags & super::flags::SCRIPT_VERIFY_WITNESS_PUBKEYTYPE) != 0
         && sigversion == SigVersion::WitnessV0

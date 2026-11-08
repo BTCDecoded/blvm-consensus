@@ -1460,6 +1460,79 @@ fn test_connect_rejects_tx_without_outputs() {
     );
 }
 
+fn build_taproot_key_path_zero_sig_block() -> (Block, Vec<Vec<Witness>>, UtxoSet) {
+    let height = TAPROOT_ACTIVATION_MAINNET;
+    let output_key = valid_taproot_internal_key();
+    let mut prevout_spk = vec![OP_1, PUSH_32_BYTES];
+    prevout_spk.extend_from_slice(&output_key);
+    let nonce = [0x44u8; 32];
+    let timestamp = 1_500_353_985;
+    let mut utxo_set = UtxoSet::default();
+    utxo_set.insert(
+        OutPoint {
+            hash: [0x79; 32],
+            index: 0,
+        },
+        Arc::new(UTXO {
+            value: 10_000,
+            script_pubkey: prevout_spk.into(),
+            height: 0,
+            is_coinbase: false,
+        }),
+    );
+    let fee = 1_000i64;
+    let spend = Transaction {
+        version: 2,
+        inputs: vec![TransactionInput {
+            prevout: OutPoint {
+                hash: [0x79; 32],
+                index: 0,
+            },
+            script_sig: vec![].into(),
+            sequence: 0xffffffff,
+        }]
+        .into(),
+        outputs: vec![TransactionOutput {
+            value: 9_000,
+            script_pubkey: vec![OP_1].into(),
+        }]
+        .into(),
+        lock_time: 0,
+    };
+    let subsidy = coinbase_value(height, fee);
+    let witnesses = vec![vec![vec![nonce.to_vec()]], vec![vec![vec![0u8; 64]]]];
+    let temp_coinbase = coinbase_at_height(height, subsidy);
+    let temp_block = block_with_txs_at(vec![temp_coinbase, spend.clone()], timestamp, 4);
+    let witness_root = compute_witness_merkle_root_from_nested(&temp_block, &witnesses, None)
+        .expect("witness root");
+    let mut coinbase = coinbase_at_height(height, subsidy);
+    coinbase.outputs = vec![
+        TransactionOutput {
+            value: subsidy,
+            script_pubkey: vec![OP_1].into(),
+        },
+        TransactionOutput {
+            value: 0,
+            script_pubkey: witness_commitment_script(&witness_root, &nonce).into(),
+        },
+    ]
+    .into();
+    let block = block_with_txs_at(vec![coinbase, spend], timestamp, 4);
+    (block, witnesses, utxo_set)
+}
+
+#[test]
+fn test_connect_rejects_taproot_key_path_zero_signature() {
+    let height = TAPROOT_ACTIVATION_MAINNET;
+    let (mut block, witnesses, utxo_set) = build_taproot_key_path_zero_sig_block();
+    let (result, _, _) =
+        connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("Schnorr")),
+        "a 64-byte zero key-path signature must fail the Schnorr batch: {result:?}"
+    );
+}
+
 #[test]
 fn test_connect_valid_taproot_script_path_spend() {
     let height = TAPROOT_ACTIVATION_MAINNET;

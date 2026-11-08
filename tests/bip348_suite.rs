@@ -154,11 +154,25 @@ fn test_collector_soa_capacity_and_verify_batch() {
     let (pk, msg, sig) = bip340_vector();
     collector.collect_with_index(2, msg.as_slice(), pk.as_slice(), sig.as_slice());
     collector.collect_with_index(0, msg.as_slice(), pk.as_slice(), sig.as_slice());
+    assert!(
+        !collector.is_empty(),
+        "a signature stored in the SoA must not look empty"
+    );
     let results = collector.verify_batch().unwrap();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|&v| v));
     collector.clear();
     assert!(collector.is_empty());
+}
+
+#[test]
+fn test_collector_soa_zero_signature_is_not_empty() {
+    let collector = SchnorrSignatureCollector::new_with_capacity(4);
+    let (pk, msg, _) = bip340_vector();
+    collector.collect_with_index(0, msg.as_slice(), pk.as_slice(), &[0u8; 64]);
+    assert!(!collector.is_empty());
+    let results = collector.verify_batch().unwrap();
+    assert_eq!(results, vec![false]);
 }
 
 #[test]
