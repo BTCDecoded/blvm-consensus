@@ -110,19 +110,13 @@ fn test_output_value_overflow() {
         lock_time: 0,
     };
 
-    // Should detect overflow and return error
-    let result = check_tx_inputs(&tx, &utxo_set, 0);
-    assert!(result.is_err());
-
-    // Check that error is about overflow
-    if let Err(ConsensusError::TransactionValidation(msg)) = result {
-        assert!(
-            msg.contains("overflow"),
-            "Error message should mention overflow"
-        );
-    } else {
-        panic!("Expected TransactionValidation error for overflow");
-    }
+    // A wrapping output sum is an invalid transaction, not an internal error.
+    let (result, _) = check_tx_inputs(&tx, &utxo_set, 0)
+        .expect("output-sum overflow is an invalid transaction, not an internal error");
+    assert!(
+        matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow")),
+        "wrapping output sum must be rejected: {result:?}"
+    );
 }
 
 #[test]
