@@ -3277,12 +3277,19 @@ pub(crate) fn connect_block_inner<'a>(
     }
 
     // Empty `witnesses` means "no witness stacks" from legacy/non-witness callers.
-    // Expand to one empty stack per transaction so weight, script checks, and witness
+    // Expand to one empty stack per input so weight, script checks, and witness
     // commitment logic all use `witnesses.len() == block.transactions.len()`.
+    // An empty row (zero stacks) is a mismatched witness and fails the weight check.
     // Drop `witnesses_arc` when expanding: callers may pass a shared empty Arc (wrong length).
     let witness_row_fallback: Option<Vec<Vec<Witness>>> =
         if witnesses.is_empty() && !block.transactions.is_empty() {
-            Some(vec![Vec::new(); block.transactions.len()])
+            Some(
+                block
+                    .transactions
+                    .iter()
+                    .map(|tx| vec![Witness::new(); tx.inputs.len()])
+                    .collect(),
+            )
         } else {
             None
         };

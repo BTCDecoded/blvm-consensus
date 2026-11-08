@@ -552,10 +552,7 @@ mod tests {
         let tx = create_test_transaction();
         let err = transaction_weight_from_stacks(&tx, Some(&[])).unwrap_err();
         let message = err.to_string();
-        assert!(
-            message.contains("witness stack count 0"),
-            "{message}"
-        );
+        assert!(message.contains("witness stack count 0"), "{message}");
     }
 
     #[test]

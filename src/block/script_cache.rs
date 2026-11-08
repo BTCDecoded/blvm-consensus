@@ -732,7 +732,10 @@ mod replaced_output_undo_tests {
     #[test]
     fn ibd_merge_counts_a_new_coinbase_output() {
         let txid = [0x11u8; 32];
-        let outpoint = OutPoint { hash: txid, index: 0 };
+        let outpoint = OutPoint {
+            hash: txid,
+            index: 0,
+        };
         let mut additions = FxHashMap::default();
         additions.insert(
             outpoint,

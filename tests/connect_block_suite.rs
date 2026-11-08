@@ -1525,8 +1525,7 @@ fn build_taproot_key_path_zero_sig_block() -> (Block, Vec<Vec<Witness>>, UtxoSet
 fn test_connect_rejects_taproot_key_path_zero_signature() {
     let height = TAPROOT_ACTIVATION_MAINNET;
     let (mut block, witnesses, utxo_set) = build_taproot_key_path_zero_sig_block();
-    let (result, _, _) =
-        connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
+    let (result, _, _) = connect_with_witnesses(&mut block, &witnesses, utxo_set, height).unwrap();
     assert!(
         matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("Schnorr")),
         "a 64-byte zero key-path signature must fail the Schnorr batch: {result:?}"
