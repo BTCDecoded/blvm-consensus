@@ -999,7 +999,8 @@ fn test_connect_rejects_commitment_without_reserved_value() {
     let height = SEGWIT_ACTIVATION_MAINNET;
     let subsidy = coinbase_value(height, 0);
     let bare = coinbase_at_height(height, subsidy);
-    let witnesses: Vec<Vec<Witness>> = vec![vec![]];
+    // One empty stack for the coinbase input. Zero stacks is a mismatched row.
+    let witnesses: Vec<Vec<Witness>> = vec![vec![vec![]]];
     let temp = block_with_txs_at(vec![bare.clone()], 1_500_353_985, 4);
     let witness_root =
         compute_witness_merkle_root_from_nested(&temp, &witnesses, None).expect("witness root");
