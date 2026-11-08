@@ -142,7 +142,10 @@ pub(crate) fn _verify_f_stack_combined_fail(stack: i64, alt: i64) -> i64 {
 /// word is zero. The expanded target formula is `mantissa × 2^(8*(exp-3)) = 0 × ... = 0`.
 /// Z3 proves: `if mantissa == 0 { 0 } else { 1 }` returns `0` under the precondition
 /// (same `if/else with unreachable branch` pattern as F_SubsidyZeroAfter64).
-#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "F_ExpandTargetZeroMantissa"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("7.1", "F_ExpandTargetZeroMantissa")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((bits & 0x007fffff) == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
 pub(crate) fn _verify_f_expand_target_zero_mantissa(bits: u64) -> i64 {
@@ -174,7 +177,10 @@ pub(crate) fn _verify_f_expand_target_exponent(bits: i64) -> i64 {
 ///
 /// Z3 proves: `mantissa != 0` (from requires) + `if mantissa == 0 { 0 } else { 1 }`
 /// ⊨ `result == 1` ⊨ `result != 0`.
-#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "F_ExpandTargetNonZeroMantissa"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("7.1", "F_ExpandTargetNonZeroMantissa")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((bits & 0x007fffff) != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result != 0))]
 pub(crate) fn _verify_f_expand_target_non_zero_mantissa(bits: u64) -> i64 {
@@ -673,7 +679,10 @@ pub(crate) fn _verify_f_locktime_type_is_height(lt: i64) -> i64 {
 /// `lt - 500_000_000 ≥ 0` whenever `lt ≥ 500_000_000` (timestamp locktime range).
 /// Z3 proves via linear arithmetic from `requires(lt >= 500_000_000)`.
 /// Formalises: a locktime at or above the threshold is unambiguously in the timestamp range.
-#[cfg_attr(feature = "spec-lock", spec_locked("13.3.5", "F_LocktimeTypeIsTimestamp"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("13.3.5", "F_LocktimeTypeIsTimestamp")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(lt >= 500000000))]
 pub(crate) fn _verify_f_locktime_type_is_timestamp(lt: i64) -> i64 {
     lt - 500_000_000
@@ -692,7 +701,10 @@ pub(crate) fn _verify_f_locktime_type_is_timestamp(lt: i64) -> i64 {
 ///
 /// Proves the height-not-met invariant: a CSV-relative-height-locked transaction cannot
 /// be finalized in a block at the lock height or below.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_EvalSeqLocksHeightNotMet"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_EvalSeqLocksHeightNotMet")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(min_height >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(block_height <= min_height))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
@@ -765,7 +777,10 @@ pub(crate) fn _verify_f_bip65_passes_zero_zero(tx_locktime: u32, stack_locktime:
 ///
 /// Proves the cross-type incompatibility invariant: a timestamp-CLTV script cannot
 /// be satisfied by a transaction using a block-height nLockTime, and vice versa.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_BIP65RejectsTypeMismatch"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_BIP65RejectsTypeMismatch")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime < LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(stack_locktime >= LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
@@ -786,7 +801,10 @@ pub(crate) fn _verify_f_bip65_rejects_type_mismatch(tx_locktime: u32, stack_lock
 /// The conjunction includes `false`, so result = `false`.
 ///
 /// Proves that a timestamp-type transaction cannot satisfy a block-height CLTV script.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_BIP65RejectsTypeMismatchReverse"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_BIP65RejectsTypeMismatchReverse")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime >= LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(stack_locktime < LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
@@ -810,7 +828,10 @@ pub(crate) fn _verify_f_bip65_rejects_type_mismatch_reverse(
 ///
 /// Proves that even type-matching locktimes are rejected when the transaction locktime
 /// fails to meet the script-specified minimum.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_BIP65RejectsValueTooLow"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_BIP65RejectsValueTooLow")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime > 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime < LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(stack_locktime < LOCKTIME_THRESHOLD))]
@@ -834,7 +855,10 @@ pub(crate) fn _verify_f_bip65_rejects_value_too_low(tx_locktime: u32, stack_lock
 ///
 /// Completes the BIP65 case analysis: every logically distinct input combination is now
 /// covered by a formally verified witness — rejection and acceptance for both domains.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_BIP65RejectsTimestampValueTooLow"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_BIP65RejectsTimestampValueTooLow")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime >= LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(stack_locktime >= LOCKTIME_THRESHOLD))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(tx_locktime < stack_locktime))]
@@ -861,6 +885,7 @@ pub(crate) fn _verify_f_bip65_rejects_timestamp_value_too_low(
 /// - `sk_is_height = stack_locktime < LOCKTIME_THRESHOLD` → true
 /// - `tx_is_height == sk_is_height` → `true == true` → true
 /// - `tx_locktime >= stack_locktime` → true
+///
 /// So the conjunction is `true && true && true = true`.
 ///
 /// Proves the CLTV success condition: a block-height-type transaction locktime meeting the
@@ -888,6 +913,7 @@ pub(crate) fn _verify_f_bip65_passes(tx_locktime: u32, stack_locktime: u32) -> b
 /// - `sk_is_height = stack_locktime < LOCKTIME_THRESHOLD` → false
 /// - `tx_is_height == sk_is_height` → `false == false` → true
 /// - `tx_locktime >= stack_locktime` → true
+///
 /// So the conjunction is `true && true && true = true`.
 ///
 /// Proves the timestamp-domain CLTV success case: a timestamp-type transaction locktime
@@ -1023,7 +1049,11 @@ pub(crate) fn _verify_f_eval_seq_locks_both_met(
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(bip34_active == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 1))]
 pub(crate) fn _verify_f_header_version_floor(block_version: i64, bip34_active: i64) -> i64 {
-    if bip34_active != 0 && block_version < 2 { 0 } else { 1 }
+    if bip34_active != 0 && block_version < 2 {
+        0
+    } else {
+        1
+    }
 }
 
 /// Witness for **F_HeaderBitsFloor** (PROTOCOL.md §5.3.1).
@@ -1047,7 +1077,10 @@ pub(crate) fn _verify_f_header_bits_floor(bits: i64) -> i64 {
 ///
 /// Proof obligation: a header timestamp is later than the median time past
 /// exactly when `timestamp > mtp`. Equality is not later.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.3.1", "F_HeaderTimestampAfterMtp"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.3.1", "F_HeaderTimestampAfterMtp")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(timestamp >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(mtp >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures((timestamp > mtp) == result))]
@@ -1061,7 +1094,10 @@ pub(crate) fn _verify_f_header_timestamp_after_mtp(timestamp: i64, mtp: i64) -> 
 ///
 /// A duplicate coinbase that is not one of the two exempt blocks is invalid.
 /// `duplicate == 1` and `exception == 0` yield result 0.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.1", "F_BIP30DuplicateRejected"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.1", "F_BIP30DuplicateRejected")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(duplicate == 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(exception == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
@@ -1086,7 +1122,10 @@ pub(crate) fn _verify_f_bip30_duplicate_rejected(duplicate: i64, exception: i64)
 ///
 /// Proves the pre-activation-pass invariant: any block before BIP34 activation
 /// cannot be rejected by the coinbase-height rule.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.2", "F_BIP34PreActivationPass"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.2", "F_BIP34PreActivationPass")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(bip34_active == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 1))]
 pub(crate) fn _verify_f_bip34_pre_activation_pass(bip34_active: i64) -> i64 {
@@ -1118,7 +1157,10 @@ pub(crate) fn _verify_f_csfs_zero_pubkey_invalid(pk_len: u64) -> bool {
 /// Body: 3-way if/else. Under `requires(pk_len > 0 && pk_len != 32)`,
 /// both first branches are false → else branch → true.
 /// Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.8", "F_CSFSUnknownPubkeyValid"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.8", "F_CSFSUnknownPubkeyValid")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(pk_len > 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(pk_len != 32))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
@@ -1222,7 +1264,10 @@ pub(crate) fn _verify_f_output_sum_bounded(value: i64, overflow: i64) -> i64 {
 /// Witness for **F_MerkleMutationRejected** (PROTOCOL.md §8.4.1).
 ///
 /// `unpadded_equal != 0` is an equal adjacent pair before odd-padding. Result 0 is the mutation.
-#[cfg_attr(feature = "spec-lock", spec_locked("8.4.1", "F_MerkleMutationRejected"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("8.4.1", "F_MerkleMutationRejected")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(unpadded_equal != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
 pub(crate) fn _verify_f_merkle_mutation_rejected(unpadded_equal: i64) -> i64 {
@@ -1238,7 +1283,10 @@ pub(crate) fn _verify_f_merkle_mutation_rejected(unpadded_equal: i64) -> i64 {
 /// Encoded as `bip90_active == 0` (integer flag, 0 = inactive). Under
 /// `requires(bip90_active == 0)`, result = 1 (pass).
 /// Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.4", "F_BIP90PreActivationPass"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.4", "F_BIP90PreActivationPass")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(bip90_active == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 1))]
 pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
@@ -1255,7 +1303,10 @@ pub(crate) fn _verify_f_bip90_pre_activation_pass(bip90_active: i64) -> i64 {
 /// Encoded as `bip147_active == 0` (integer flag, 0 = inactive). Under
 /// `requires(bip147_active == 0)`, result = 1 (pass).
 /// Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.5", "F_BIP147PreActivationPass"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.5", "F_BIP147PreActivationPass")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(bip147_active == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 1))]
 pub(crate) fn _verify_f_bip147_pre_activation_pass(bip147_active: i64) -> i64 {
@@ -1274,7 +1325,10 @@ pub(crate) fn _verify_f_bip147_pre_activation_pass(bip147_active: i64) -> i64 {
 /// This is the activation-monotone property: once active at height `a`, BIP54
 /// remains active for all heights ≥ `a`.  The `_verify_f_bip54_activation_threshold`
 /// witness function is referenced explicitly in the Orange Paper §5.4.9.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "F_BIP54ActivationThreshold"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.9", "F_BIP54ActivationThreshold")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height >= threshold))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 pub(crate) fn _verify_f_bip54_activation_threshold(height: u64, threshold: u64) -> bool {
@@ -1292,7 +1346,10 @@ pub(crate) fn _verify_f_bip54_activation_threshold(height: u64, threshold: u64) 
 ///
 /// Proves the disabled case: a sequence number with the BIP68 disable flag (bit 31)
 /// set is always treated as non-relative-locktime.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_SequenceDisabledWhenBit31Set"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_SequenceDisabledWhenBit31Set")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((sequence & 0x80000000) != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 pub(crate) fn _verify_f_sequence_disabled_when_bit31_set(sequence: u32) -> bool {
@@ -1308,7 +1365,10 @@ pub(crate) fn _verify_f_sequence_disabled_when_bit31_set(sequence: u32) -> bool 
 ///
 /// Proves the enabled case: a sequence number without the disable flag is treated as
 /// a relative locktime constraint (BIP68 applies).
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_SequenceEnabledWhenBit31Clear"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_SequenceEnabledWhenBit31Clear")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((sequence & 0x80000000) == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_sequence_enabled_when_bit31_clear(sequence: u32) -> bool {
@@ -1324,7 +1384,10 @@ pub(crate) fn _verify_f_sequence_enabled_when_bit31_clear(sequence: u32) -> bool
 ///
 /// Proves the time-based case: a sequence number with the BIP68 type flag (bit 22)
 /// set encodes a time-based relative locktime.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_SequenceTypeTimeWhenBit22Set"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_SequenceTypeTimeWhenBit22Set")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((sequence & 0x00400000) != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 pub(crate) fn _verify_f_sequence_type_time_when_bit22_set(sequence: u32) -> bool {
@@ -1340,7 +1403,10 @@ pub(crate) fn _verify_f_sequence_type_time_when_bit22_set(sequence: u32) -> bool
 ///
 /// Proves the block-height case: a sequence number without the type flag encodes a
 /// block-height relative locktime.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_SequenceTypeHeightWhenBit22Clear"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_SequenceTypeHeightWhenBit22Clear")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires((sequence & 0x00400000) == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_sequence_type_height_when_bit22_clear(sequence: u32) -> bool {
@@ -1389,7 +1455,10 @@ pub(crate) fn _verify_f_weight_equiv(base: i64, wit: i64, total: i64) -> i64 {
 ///
 /// The stripped-size lower bound includes every script byte. Omitting those bytes and keeping
 /// only a length placeholder undercounts block weight.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.1", "F_StrippedSizeCountsScripts"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.1", "F_StrippedSizeCountsScripts")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(script_sig >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(script_pubkey >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= script_sig + script_pubkey))]
@@ -1423,7 +1492,10 @@ pub(crate) fn _verify_f_witness_empty_by_length(len: u64) -> bool {
 ///
 /// Body: `program_len == 20 || program_len == 32`. Under `requires(program_len == 20)`,
 /// first disjunct is true, so result is true. Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_WitnessProgramLength20Valid"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_WitnessProgramLength20Valid")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(program_len == 20))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 pub(crate) fn _verify_f_witness_program_length_20_valid(program_len: u64) -> bool {
@@ -1437,7 +1509,10 @@ pub(crate) fn _verify_f_witness_program_length_20_valid(program_len: u64) -> boo
 ///
 /// Body: `program_len == 20 || program_len == 32`. Under `requires(program_len == 32)`,
 /// second disjunct is true, so result is true. Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_WitnessProgramLength32Valid"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_WitnessProgramLength32Valid")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(program_len == 32))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 pub(crate) fn _verify_f_witness_program_length_32_valid(program_len: u64) -> bool {
@@ -1452,7 +1527,10 @@ pub(crate) fn _verify_f_witness_program_length_32_valid(program_len: u64) -> boo
 /// Body: `program_len == 20 || program_len == 32`. Under
 /// `requires(program_len != 20 && program_len != 32)`, both disjuncts are false,
 /// so result is false. Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_WitnessProgramLengthInvalid"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_WitnessProgramLengthInvalid")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(program_len != 20))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(program_len != 32))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
@@ -1463,7 +1541,10 @@ pub(crate) fn _verify_f_witness_program_length_invalid(program_len: u64) -> bool
 /// Witness for **F_WitnessVersionRejected** (PROTOCOL.md §11.1.3).
 ///
 /// `OP_1NEGATE` (79) and `OP_RESERVED` (80) are not witness versions.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_WitnessVersionRejected"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_WitnessVersionRejected")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(op == 79 || op == 80))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 #[allow(clippy::manual_range_contains)]
@@ -1474,7 +1555,10 @@ pub(crate) fn _verify_f_witness_version_rejected(op: i64) -> bool {
 /// Witness for **F_WitnessVersionAccepted** (PROTOCOL.md §11.1.3).
 ///
 /// `OP_0` (0), `OP_1` (81), and `OP_16` (96) are witness versions.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_WitnessVersionAccepted"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_WitnessVersionAccepted")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(op == 0 || op == 81 || op == 96))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
 #[allow(clippy::manual_range_contains)]
@@ -1526,7 +1610,10 @@ pub(crate) fn _verify_f_minimal_if_long_false(len: u64) -> bool {
 /// `requires(script_len != 34)`, the expression is false. A P2TR script must be
 /// exactly 34 bytes (`OP_1 <push32> <32-byte-key>`); all other lengths are
 /// rejected. Z3 proves via linear arithmetic.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.1", "F_TaprootOutputScriptLengthInvalid"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.1", "F_TaprootOutputScriptLengthInvalid")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(script_len != 34))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_taproot_output_script_length_invalid(script_len: u64) -> bool {
@@ -1569,7 +1656,10 @@ pub(crate) fn _verify_f_bip54_start_time_zero() -> u64 {
 /// Uses an if/else on the integer network ID (instead of enum match) so the Z3
 /// translator can model the control flow. Under `requires(network == 0)`, the
 /// first branch is taken → TAPROOT_ACTIVATION_MAINNET.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2", "F_TaprootActivationMainnet"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2", "F_TaprootActivationMainnet")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(network == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == TAPROOT_ACTIVATION_MAINNET))]
 pub(crate) fn _verify_f_taproot_activation_mainnet(network: u64) -> u64 {
@@ -1589,7 +1679,10 @@ pub(crate) fn _verify_f_taproot_activation_mainnet(network: u64) -> u64 {
 ///
 /// Under `requires(network == 1)`, the second branch is taken →
 /// TAPROOT_ACTIVATION_TESTNET.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2", "F_TaprootActivationTestnet"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2", "F_TaprootActivationTestnet")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(network == 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == TAPROOT_ACTIVATION_TESTNET))]
 pub(crate) fn _verify_f_taproot_activation_testnet(network: u64) -> u64 {
@@ -1609,7 +1702,10 @@ pub(crate) fn _verify_f_taproot_activation_testnet(network: u64) -> u64 {
 ///
 /// Under `requires(network != 0 && network != 1)`, both branches are skipped
 /// → else branch → 0.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2", "F_TaprootActivationRegtest"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2", "F_TaprootActivationRegtest")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(network != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(network != 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
@@ -1626,7 +1722,10 @@ pub(crate) fn _verify_f_taproot_activation_regtest(network: u64) -> u64 {
 /// Witness for **F_DecodeLocktimeNegativeZero** (PROTOCOL.md §5.4.7).
 ///
 /// A one-byte element 0x80 is negative zero and decodes to 0.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_DecodeLocktimeNegativeZero"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_DecodeLocktimeNegativeZero")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(byte == 128))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
 pub(crate) fn _verify_f_decode_locktime_negative_zero(byte: i64) -> i64 {
@@ -1636,7 +1735,10 @@ pub(crate) fn _verify_f_decode_locktime_negative_zero(byte: i64) -> i64 {
 /// Witness for **F_DecodeLocktimeNegativeOne** (PROTOCOL.md §5.4.7).
 ///
 /// A one-byte element 0x81 has the sign bit set and magnitude 1.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.7", "F_DecodeLocktimeNegativeOne"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.7", "F_DecodeLocktimeNegativeOne")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(byte == 129))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == -1))]
 pub(crate) fn _verify_f_decode_locktime_negative_one(byte: i64) -> i64 {
@@ -1692,7 +1794,10 @@ pub(crate) fn _verify_f_csv_version_below_two_fails(version: i64, disable_bit: i
 ///
 /// A version word in `0..=2^32-1` enables BIP68 and CSV exactly when it is at least 2.
 /// Wire `0xffffffff` is 4294967295 and enables both.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_RelativeLockUnsignedVersion"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_RelativeLockUnsignedVersion")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(version >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(version <= 4294967295))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == (version >= 2)))]
@@ -1703,7 +1808,10 @@ pub(crate) fn _verify_f_relative_lock_unsigned_version(version: i64) -> bool {
 /// Witness for **F_CsvDisableBitSkipsVersion** (PROTOCOL.md §5.5).
 ///
 /// A set stack disable bit succeeds even when the transaction version is below 2.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "F_CsvDisableBitSkipsVersion"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "F_CsvDisableBitSkipsVersion")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(disable_bit != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(version < 2))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
@@ -1714,7 +1822,10 @@ pub(crate) fn _verify_f_csv_disable_bit_skips_version(version: i64, disable_bit:
 /// Witness for **F_TaprootSighashSingleMissingOutput** (PROTOCOL.md §11.2.6).
 ///
 /// SIGHASH_SINGLE with no output at the input index produces no hash.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.6", "F_TaprootSighashSingleMissingOutput"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.6", "F_TaprootSighashSingleMissingOutput")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(output_type == 3))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(n_outputs >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(input_index >= n_outputs))]
@@ -1730,7 +1841,10 @@ pub(crate) fn _verify_f_taproot_sighash_single_missing_output(
 /// Witness for **F_TapscriptSighashSingleMissingOutput** (PROTOCOL.md §11.2.7).
 ///
 /// Tapscript SIGHASH_SINGLE with no output at the input index produces no hash.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.7", "F_TapscriptSighashSingleMissingOutput"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.7", "F_TapscriptSighashSingleMissingOutput")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(output_type == 3))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(n_outputs >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(input_index >= n_outputs))]
@@ -1757,7 +1871,10 @@ pub(crate) fn _verify_f_input_sum_within_max_money(sum: i64) -> i64 {
 ///
 /// `header_fits == 0` means the push header or payload does not fit in the script.
 /// The success scan does not accept that script.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.8", "F_TapscriptTruncatedPushNotSuccess"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.8", "F_TapscriptTruncatedPushNotSuccess")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(header_fits == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_tapscript_truncated_push_not_success(header_fits: i64) -> bool {
@@ -1767,7 +1884,10 @@ pub(crate) fn _verify_f_tapscript_truncated_push_not_success(header_fits: i64) -
 /// Witness for **F_CheckMultisigCountsPubkeys** (PROTOCOL.md §5.2).
 ///
 /// `n_keys` is in range and the running opcode count plus that key count is past 201.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.2", "F_CheckMultisigCountsPubkeys"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.2", "F_CheckMultisigCountsPubkeys")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(n_keys >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(n_keys <= 20))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(op_count + n_keys > 201))]
@@ -1794,7 +1914,10 @@ pub(crate) fn _verify_f_false_result_empty(is_true: i64) -> i64 {
 /// Witness for **F_Bip30RepeatRetiresPriorOutputs** (PROTOCOL.md §5.4.1).
 ///
 /// `exception == 1` is one of the two historical repeats. Prior outputs of that txid are gone.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.1", "F_Bip30RepeatRetiresPriorOutputs"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.1", "F_Bip30RepeatRetiresPriorOutputs")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(exception == 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == 0))]
 pub(crate) fn _verify_f_bip30_repeat_retires_prior_outputs(exception: i64) -> i64 {
@@ -1815,7 +1938,10 @@ pub(crate) fn _verify_f_non_der_aborts_script(sig_len: i64, strict_der: i64) -> 
 /// Witness for **F_NestedRedeemPushCanonical** (PROTOCOL.md §11.1.8).
 ///
 /// `canonical == 0` means the scriptSig is not the direct push of the redeem.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.8", "F_NestedRedeemPushCanonical"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.8", "F_NestedRedeemPushCanonical")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(canonical == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_nested_redeem_push_canonical(canonical: i64) -> bool {
@@ -1825,7 +1951,10 @@ pub(crate) fn _verify_f_nested_redeem_push_canonical(canonical: i64) -> bool {
 /// Witness for **F_P2shUnknownWitnessSucceeds** (PROTOCOL.md §11.1.8).
 ///
 /// Discourage is off and the redeem push is canonical.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.8", "F_P2shUnknownWitnessSucceeds"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.8", "F_P2shUnknownWitnessSucceeds")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(discourage == 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(canonical == 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true))]
@@ -1836,7 +1965,10 @@ pub(crate) fn _verify_f_p2sh_unknown_witness_succeeds(discourage: i64, canonical
 /// Witness for **F_ProofNegativeCompactRejected** (PROTOCOL.md §7.2).
 ///
 /// `negative == 1` means compact bit `0x00800000` is set.
-#[cfg_attr(feature = "spec-lock", spec_locked("7.2", "F_ProofNegativeCompactRejected"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("7.2", "F_ProofNegativeCompactRejected")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(negative == 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false))]
 pub(crate) fn _verify_f_proof_negative_compact_rejected(negative: i64) -> bool {
@@ -1862,7 +1994,10 @@ pub(crate) fn _verify_f_proof_equal_hash_accepted(
 /// Witness for **F_BIP34SmallHeightOpcode** (PROTOCOL.md §5.4.2).
 ///
 /// Heights 1 through 16 are the single opcode `0x50 + height`.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.2", "F_BIP34SmallHeightOpcode"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.2", "F_BIP34SmallHeightOpcode")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height >= 1))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height <= 16))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == (80 + height)))]
@@ -1963,7 +2098,10 @@ pub(crate) fn _verify_f_bip94_timewarp(timestamp: i64, parent_time: i64) -> bool
 /// Witness for **F_Bip94TimewarpOffBoundary** (PROTOCOL.md §7.1).
 ///
 /// Off a 2016-block boundary the time check accepts. The boundary arm is the 600-second comparison.
-#[cfg_attr(feature = "spec-lock", spec_locked("7.1", "F_Bip94TimewarpOffBoundary"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("7.1", "F_Bip94TimewarpOffBoundary")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(height % 2016 != 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(parent_time >= 600))]
@@ -1999,7 +2137,10 @@ pub(crate) fn _verify_f_header_bits_match_required(header_bits: i64, required_bi
 }
 
 /// Witness for **F_WitnessStackNullByLength** (PROTOCOL.md §11.1.2).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.2", "F_WitnessStackNullByLength"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.2", "F_WitnessStackNullByLength")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(len >= 0))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures((len == 0) == result))]
 pub(crate) fn _verify_f_witness_stack_null_by_length(len: i64) -> bool {
@@ -2044,7 +2185,10 @@ pub(crate) fn _verify_f_cast_to_bool_summary(len: i64, prefix_nonzero: i64, last
 }
 
 /// Witness for **F_UpgradableProgramShape** (PROTOCOL.md §11.1.3).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "F_UpgradableProgramShape"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "F_UpgradableProgramShape")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(
     result
         == (script_sig_len == 0
@@ -2073,7 +2217,10 @@ pub(crate) fn _verify_f_upgradable_program_shape(
 /// No commitment output is valid only with no witness data. A commitment output
 /// is valid only when the reserved item is 32 bytes and the stored word equals
 /// the implied digest of the root and the nonce.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.5", "F_WitnessCommitmentShape"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.5", "F_WitnessCommitmentShape")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(
     result
         == ((has_commitment == 0 && any_witness == 0)

@@ -1147,11 +1147,11 @@ fn test_connect_rejects_i64_output_sum_overflow() {
         .collect::<Vec<_>>()
         .into();
     let mut block = block_with_txs(vec![coinbase], 1_231_006_505);
-    let err = connect(&mut block, UtxoSet::default(), 1)
-        .expect_err("wrapping output sum must surface as Err");
+    let (result, _, _) = connect(&mut block, UtxoSet::default(), 1)
+        .expect("output-sum overflow is an invalid block, not an internal error");
     assert!(
-        err.to_string().contains("overflow"),
-        "expected output-sum overflow from connect_block, got {err}"
+        matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow")),
+        "wrapping output sum must be rejected: {result:?}"
     );
 }
 

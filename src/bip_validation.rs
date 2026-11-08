@@ -343,7 +343,10 @@ pub fn check_bip54_timewarp(
 }
 
 /// BIP54: reject non-coinbase txs with witness-stripped size exactly 64 bytes.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "CheckBip54TxStrippedSize"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.9", "CheckBip54TxStrippedSize")
+)]
 pub fn check_bip54_tx_stripped_size(tx: &Transaction) -> bool {
     is_coinbase(tx) || crate::transaction::calculate_transaction_size(tx) != 64
 }

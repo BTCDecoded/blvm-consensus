@@ -142,8 +142,9 @@ pub fn get_assume_valid_height() -> u64 {
 /// * `height` - Current block height
 /// * `context` - Block validation context (time, network, fork activation, BIP54 boundary). Build with
 ///   `BlockValidationContext::from_connect_block_ibd_args`, `from_time_context_and_network`, or `for_network`.
-#[track_caller]
+///
 /// ConnectBlock: Validate and apply a block to the UTXO set.
+#[track_caller]
 #[cfg_attr(feature = "spec-lock", spec_locked("5.3", "ConnectBlock"))]
 pub fn connect_block(
     block: &Block,

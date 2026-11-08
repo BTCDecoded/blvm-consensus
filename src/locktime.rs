@@ -170,7 +170,10 @@ pub fn extract_sequence_type_flag(sequence: u32) -> bool {
 ///
 /// Masks out flags (bits 31, 22) and returns only the locktime value (bits 0-15).
 #[inline]
-#[cfg_attr(feature = "spec-lock", spec_locked("5.5", "ExtractSequenceLocktimeValue"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.5", "ExtractSequenceLocktimeValue")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result <= 65535))]
 pub fn extract_sequence_locktime_value(sequence: u32) -> u16 {
     (sequence & 0x0000ffff) as u16

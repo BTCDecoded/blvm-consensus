@@ -610,7 +610,10 @@ impl ConsensusProof {
     }
 
     /// Calculate transaction weight for SegWit
-    #[cfg_attr(feature = "spec-lock", spec_locked("11.1.1", "CalculateTransactionWeight"))]
+    #[cfg_attr(
+        feature = "spec-lock",
+        spec_locked("11.1.1", "CalculateTransactionWeight")
+    )]
     #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 0))]
     pub fn calculate_transaction_weight(
         &self,
@@ -633,7 +636,10 @@ impl ConsensusProof {
     }
 
     /// Validate Taproot transaction
-    #[cfg_attr(feature = "spec-lock", spec_locked("11.2.5", "ValidateTaprootTransaction"))]
+    #[cfg_attr(
+        feature = "spec-lock",
+        spec_locked("11.2.5", "ValidateTaprootTransaction")
+    )]
     #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == true || result == false))]
     pub fn validate_taproot_transaction(
         &self,

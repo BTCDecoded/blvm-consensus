@@ -546,7 +546,10 @@ pub fn batch_verify_signatures_from_stack(
 ///
 /// BIP340 Schnorr check: 64-byte signatures use `SIGHASH_DEFAULT` (`0x00`).
 /// 65 bytes → last byte is sighash type (explicit `SIGHASH_DEFAULT` is invalid).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.6", "TryParseTaprootSchnorrWitnessSig")
+)]
 pub fn try_parse_taproot_schnorr_witness_sig(sig_bytes: &[u8]) -> Option<([u8; 64], u8)> {
     match sig_bytes.len() {
         64 => {

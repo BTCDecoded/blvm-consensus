@@ -77,7 +77,10 @@ pub fn bip54_deployment_regtest() -> Bip9Deployment {
 ///
 /// Prefer this over the network-specific variants so that parallel-IBD and block
 /// processing automatically use the right deployment table.
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "Bip54DeploymentForNetwork"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.9", "Bip54DeploymentForNetwork")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result.bit == 15))]
 pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Deployment {
     // if/else (not enum match) so spec-lock Z3 can model control flow with Signet.
@@ -111,7 +114,10 @@ pub fn bip54_deployment_for_network(network: &crate::types::Network) -> Bip9Depl
 /// When scanning the chain sequentially, merge multiple `Some(h)` values with `h.min(...)` so
 /// an earlier period’s lock-in (smaller activation height) is not overwritten by a later window’s
 /// larger computed height (see `merge_bip54_activation_candidate`).
-#[cfg_attr(feature = "spec-lock", spec_locked("5.4.9", "ActivationHeightFromVersionBits"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("5.4.9", "ActivationHeightFromVersionBits")
+)]
 pub fn activation_height_from_headers<H: AsRef<BlockHeader>>(
     headers: &[H],
     current_height: u64,

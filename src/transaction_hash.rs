@@ -41,7 +41,10 @@ pub fn serialize_script_code_for_legacy_sighash(script: &[u8]) -> Vec<u8> {
 }
 
 /// BIP143 scriptCode for P2WPKH: P2PKH expansion of the 20-byte pubkey hash (BIP143 §4.3).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9.1", "DeriveWitnessScriptCode"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.9.1", "DeriveWitnessScriptCode")
+)]
 pub fn derive_bip143_script_code_p2wpkh(pubkey_hash: &[u8; 20]) -> [u8; 25] {
     use crate::opcodes::{OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES};
     let mut script_code = [0u8; 25];
@@ -58,7 +61,10 @@ pub fn derive_bip143_script_code_p2wpkh(pubkey_hash: &[u8; 20]) -> [u8; 25] {
 ///
 /// - P2WPKH program (`OP_0 PUSH_20`): P2PKH expansion via [`derive_bip143_script_code_p2wpkh`].
 /// - P2WSH program (`OP_0 PUSH_32`): full witness script (last witness stack element).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9.1", "DeriveWitnessScriptCode"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.9.1", "DeriveWitnessScriptCode")
+)]
 pub fn derive_bip143_script_code(
     witness_program: &[u8],
     witness_script: Option<&[u8]>,
@@ -1814,7 +1820,10 @@ fn double_sha256(data: &[u8]) -> [u8; 32] {
 ///
 /// # Returns
 /// 32-byte sighash for signature verification
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9", "ComputeWitnessSignatureHash"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.9", "ComputeWitnessSignatureHash")
+)]
 pub fn calculate_bip143_sighash(
     tx: &Transaction,
     input_index: usize,
@@ -1983,7 +1992,10 @@ fn build_bip143_preimage(
 ///
 /// N7: when `sighash_type` is plain SIGHASH_ALL and `n ≥ 2`, share a SHA256 midstate after
 /// `version‖hashPrevouts‖hashSequence` (mirrors legacy `compute_sighashes_batch`).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.9", "ComputeWitnessSignatureHash"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.9", "ComputeWitnessSignatureHash")
+)]
 pub fn batch_compute_bip143_sighashes(
     tx: &Transaction,
     prevout_values: &[i64],

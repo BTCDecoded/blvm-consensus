@@ -23,7 +23,10 @@ pub use crate::witness::Witness;
 
 /// Calculate transaction weight for SegWit
 /// BIP141: Weight(tx) = 3 × BaseSize(tx) + TotalSize(tx)
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.1", "CalculateTransactionWeight"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.1", "CalculateTransactionWeight")
+)]
 pub fn calculate_transaction_weight(
     tx: &Transaction,
     witness: Option<&Witness>,
@@ -120,7 +123,10 @@ fn flat_witness_to_per_input(tx: &Transaction, witness: &Witness) -> Vec<Witness
 /// blocks use [`compute_witness_merkle_root_from_nested`] (production connect path).
 ///
 /// Delegates to BIP141 wtxid merkle logic (txid for non-witness txs, full segwit hash otherwise).
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.4", "ComputeWitnessMerkleRoot"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.4", "ComputeWitnessMerkleRoot")
+)]
 pub fn compute_witness_merkle_root(block: &Block, witnesses: &[Witness]) -> Result<Hash> {
     let nested: Vec<Vec<Witness>> = block
         .transactions
@@ -179,7 +185,10 @@ fn hash_witness(witness: &Witness) -> Hash {
 /// non-SegWit transactions, causing every non-SegWit tx to map to the same hash.
 /// In a block with many non-SegWit txs (e.g. block 481824), adjacent pairs of these
 /// identical hashes trigger the CVE-2012-2459 mutation check and abort falsely.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.4", "ComputeWitnessMerkleRoot"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.4", "ComputeWitnessMerkleRoot")
+)]
 pub fn compute_witness_merkle_root_from_nested(
     block: &Block,
     witnesses: &[Vec<Witness>],
@@ -262,7 +271,10 @@ fn compute_merkle_root(hashes: &[Hash]) -> Result<Hash> {
 ///   OP_RETURN 0x24 0xaa21a9ed <commitment_hash:32>
 ///
 /// No commitment output returns true. Block connection rejects witness data in that case.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.5", "ValidateWitnessCommitment"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.5", "ValidateWitnessCommitment")
+)]
 pub fn validate_witness_commitment(
     coinbase_tx: &Transaction,
     witness_merkle_root: &Hash,

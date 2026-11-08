@@ -28,7 +28,10 @@ pub enum WitnessVersion {
 ///
 /// BIP141: Witness must be a vector of byte strings (stack elements).
 /// Each element can be up to MAX_SCRIPT_ELEMENT_SIZE bytes.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.2", "ValidateSegWitWitnessStructure"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.2", "ValidateSegWitWitnessStructure")
+)]
 pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
     // Check each witness element size
     // BIP141: Each witness element can be up to 520 bytes (MAX_SCRIPT_ELEMENT_SIZE)
@@ -47,7 +50,10 @@ pub fn validate_segwit_witness_structure(witness: &Witness) -> Result<bool> {
 /// BIP341: Taproot witness structure depends on spending path:
 /// - Key path: single signature (64 bytes)
 /// - Script path: script, control block (33 + 32n bytes), and witness items
-#[cfg_attr(feature = "spec-lock", spec_locked("11.2.4", "ValidateTaprootWitnessStructure"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.2.4", "ValidateTaprootWitnessStructure")
+)]
 pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: bool) -> Result<bool> {
     if witness.is_empty() {
         return Ok(false);
@@ -94,7 +100,10 @@ pub fn validate_taproot_witness_structure(witness: &Witness, is_script_path: boo
 ///
 /// BIP141: weight = base_size * 3 + total_size; result is always ≥ total_size
 /// because the base_size term adds non-negative weight.
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.1", "CalculateTransactionWeight"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.1", "CalculateTransactionWeight")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::requires(total_size >= base_size))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= total_size))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result >= 4 * base_size))]
@@ -290,7 +299,10 @@ pub fn extract_witness_program(
 ///
 /// Length invariant: when the function returns true, the program is exactly 20 or 32 bytes.
 /// (P2WPKH = 20, P2WSH = P2TR = 32; no other lengths are valid.)
-#[cfg_attr(feature = "spec-lock", spec_locked("11.1.3", "ValidateWitnessProgramLength"))]
+#[cfg_attr(
+    feature = "spec-lock",
+    spec_locked("11.1.3", "ValidateWitnessProgramLength")
+)]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || program.len() == 20 || program.len() == 32))]
 pub fn validate_witness_program_length(program: &ByteString, version: WitnessVersion) -> bool {
     use crate::constants::{SEGWIT_P2WPKH_LENGTH, SEGWIT_P2WSH_LENGTH, TAPROOT_PROGRAM_LENGTH};

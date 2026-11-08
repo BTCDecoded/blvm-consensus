@@ -1644,7 +1644,9 @@ mod tests {
         );
         let (result, fee) = check_tx_inputs(&tx, &set, 200).unwrap();
         assert_eq!(fee, 0);
-        assert!(matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow")));
+        assert!(
+            matches!(result, ValidationResult::Invalid(ref reason) if reason.contains("overflow"))
+        );
     }
 
     #[test]
@@ -1703,7 +1705,10 @@ mod tests {
             ValidationResult::Invalid(ref reason) if reason.contains("null prevout")
         ));
         let not_null = make_simple_tx(0);
-        assert_eq!(check_transaction(&not_null).unwrap(), ValidationResult::Valid);
+        assert_eq!(
+            check_transaction(&not_null).unwrap(),
+            ValidationResult::Valid
+        );
     }
 
     #[test]
@@ -1711,7 +1716,11 @@ mod tests {
         for (len, valid) in [(0, false), (1, false), (2, true), (100, true), (101, false)] {
             let tx = coinbase_with_script(vec![0x51; len], vec![make_output(0)]);
             let result = check_transaction(&tx).unwrap();
-            assert_eq!(matches!(result, ValidationResult::Valid), valid, "len {len}");
+            assert_eq!(
+                matches!(result, ValidationResult::Valid),
+                valid,
+                "len {len}"
+            );
         }
     }
 }
