@@ -261,9 +261,10 @@ fn test_combined_signature_flags() {
         verify_signed(&high, 0x01, SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC).unwrap(),
         false
     );
-    assert_eq!(
-        verify_signed(&low, 0x00, SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC).unwrap(),
-        false
+    let undefined = verify_signed(&low, 0x00, SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC);
+    assert!(
+        undefined.is_err(),
+        "STRICTENC must fail an undefined hashtype: {undefined:?}"
     );
 
     let mut script_pubkey = push_data(&zero_hash_pubkey());
