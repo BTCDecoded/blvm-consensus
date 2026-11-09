@@ -46,7 +46,7 @@ Consumer CI runs **`check-drift`** then **`cargo-spec-lock verify`** with **`--s
 
 **Depends on resolutions (non-fatal):** When **`--spec-path`** merges shards, **`Depends on`** may cite **`F_*`** not in the merged registry or **`C_*`** not defined in any merged **`4.*`** **`$CONST = …$`** line. **`verify`**, **`check-formulas`**, **`check-drift`**, **`coverage`**, **`summary`**, **`extract-constants`**, **`extract-formulas`**, and **`extract-property-tests`** print stderr **`formula_id → missing_dep`** lines; **`list-formulas`** shows **`missing_f_refs`** and **`missing_c_refs`**. See **`blvm-spec-lock`** **`SPEC_WORDING.md`**.
 
-**`SPEC_LOCK_STRICT`:** When set to `1` / `true` / `yes`, verification **also** fails on **Partial** (same effect as **`--strict`** on the CLI). **Failed** and **NoContracts** outcomes fail the process **regardless** of strict. Without strict, a run may exit **0** even when **`summary.partial > 0`** — use **`--strict`** or gate on **`jq '.summary.partial'`** if CI must not accept incomplete Z3 coverage.
+**`SPEC_LOCK_STRICT`:** Accepted, and it does not change the exit for a **Partial** result. **Failed** and **NoContracts** still exit 1. A CI script that must reject Partial checks **`jq '.summary.partial'`**.
 
 **`SPEC_LOCK_FORMULAS`:** Set to **`0`**, **`false`**, **`no`**, or **`off`** so the Orange Paper parser skips **`Formula` (`F_*`)** blocks (**`cargo spec-lock list-formulas`** is empty; **`F_*`** anchors fail as missing). **Unset** (omit **`SPEC_LOCK_FORMULAS`**) keeps formulas **on** (**default**), which CI expects for **`F_SpecLockWitness`** in **`PROTOCOL.md`** §13.3.6. See **`blvm-spec-lock`** **`docs/VERIFY_JSON.md`**.
 

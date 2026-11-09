@@ -140,7 +140,7 @@ blvm-consensus = "0.1"
 
 **Dependency constraints** follow the canonical [`Cargo.toml`](https://github.com/BTCDecoded/blvm-consensus/blob/main/Cargo.toml): many **blvm-*** crates use **pre-1.0 ranges** on crates.io; **third-party** crates use **`=`** pins only where the manifest does. Do not treat this README as a second copy of the lockfile—open the manifest (and lockfile if your checkout has one) for the exact graph.
 
-**Requirements**: satisfy **`rust-version`** in **`Cargo.toml`** (currently **1.83+**).
+**Requirements**: satisfy **`rust-version`** in **`Cargo.toml`** (`1.85`).
 
 ## Performance Optimizations
 

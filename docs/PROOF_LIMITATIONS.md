@@ -14,7 +14,7 @@ Functions with `#[spec_locked("section")]` are verified against the Orange Paper
 
 ### Transaction Bounds
 
-- **Actual Bitcoin Limits**: 1000 inputs, 1000 outputs
+- **Consensus limits**: block weight is `MAX_BLOCK_WEIGHT` (4,000,000). A transaction whose stripped size, times the witness scale, exceeds that weight is invalid. There is no 1,000-input consensus cap. A smaller input count in a test is a test bound.
 - **Coverage**: Transaction validation logic verified via spec-lock where applicable. Edge cases covered by:
   - Property-based tests (proptest)
   - Integration tests with real Bitcoin transactions
