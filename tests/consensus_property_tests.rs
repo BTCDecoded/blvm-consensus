@@ -2061,7 +2061,12 @@ proptest! {
         let mut flipped = script;
         flipped[0] ^= 0xff;
         let bad = one_tx_block(coinbase_tx(flipped, 0, 0xffff_ffff));
-        prop_assert!(!check_bip34(&bad, height, &regtest).unwrap());
+        // Regtest BIP34 starts at height 1 so the version-1 genesis stays valid.
+        if height >= BIP34_ACTIVATION_REGTEST {
+            prop_assert!(!check_bip34(&bad, height, &regtest).unwrap());
+        } else {
+            prop_assert!(check_bip34(&bad, height, &regtest).unwrap());
+        }
         let mainnet = ForkActivationTable::from_network(Network::Mainnet);
         prop_assert!(check_bip34(&bad, BIP34_ACTIVATION_MAINNET - 1, &mainnet).unwrap());
     }
