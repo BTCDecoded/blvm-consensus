@@ -5199,6 +5199,7 @@ fn upgradable_nop(flags: u32) -> Result<bool> {
 
 /// Encoding is checked before the no-context multisig pushes a false result.
 /// `OP_NOT` must not turn a STRICTENC failure into success.
+/// A 0-of-n result is success and Core does not encoding-check those keys.
 fn strictenc_nocheck_multisig(stack: &[StackElement], flags: u32) -> Result<()> {
     if flags & 0x02 == 0 || stack.is_empty() {
         return Ok(());
@@ -5211,14 +5212,19 @@ fn strictenc_nocheck_multisig(stack: &[StackElement], flags: u32) -> Result<()> 
         return Ok(());
     }
     let n_at = stack.len() - 1;
-    for pubkey in &stack[n_at - n..n_at] {
-        crate::script::signature::reject_strictenc_pubkey(flags, pubkey)?;
-    }
     let m_at = n_at - n - 1;
     let m = match script_num_decode(&stack[m_at], 4) {
         Ok(v) if v >= 0 && v as usize <= n => v as usize,
         _ => return Ok(()),
     };
+    // Core checks encoding only for keys a signature is tested against.
+    // A 0-of-n multisig tests none, so an unused pubkey stays valid.
+    if m == 0 {
+        return Ok(());
+    }
+    for pubkey in &stack[n_at - n..n_at] {
+        crate::script::signature::reject_strictenc_pubkey(flags, pubkey)?;
+    }
     if m_at < m {
         return Ok(());
     }
