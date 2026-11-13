@@ -106,7 +106,7 @@ This pass proves **13** functions from the function body. Two edits of each body
 
 `validate_supply_limit` returns `total_supply(height) <= MAX_MONEY`. A body that only returns `true` is not a proof.
 
-Older counts, not this pass: **93** of **224** in [docs/VERIFICATION.md](docs/VERIFICATION.md), **34** of **34** in `blvm-spec-lock` `docs/MUTATION_COVERAGE.md`, and **274** Orange Paper sentences. Of those sentences, the subsidy theorem (6.1.2) is proved in Rust and in Lean, 16 are Lean only, and 257 are not proved. Lean does not check the Rust.  
+Older counts, not this pass: **93** of **224** in [docs/VERIFICATION.md](docs/VERIFICATION.md), **34** of **34** in `blvm-spec-lock` `docs/MUTATION_COVERAGE.md`, and **275** Orange Paper sentences in `blvm-spec-lock` `docs/sentence-inventory.tsv`. Of those sentences, the subsidy theorem (6.1.2) is proved in Rust and in Lean, 15 are Lean only, and 259 are not proved. One of those 259 is `spec_disputed` (theorem 6.2.3 real series) and is not a Lean proof. Lean does not check the Rust.  
 
 ## BIP Implementation Status
 
