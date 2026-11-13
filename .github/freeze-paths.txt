@@ -1,0 +1,2 @@
+# Consensus implementation. See docs/stability/FREEZE.md in the workspace.
+src/
