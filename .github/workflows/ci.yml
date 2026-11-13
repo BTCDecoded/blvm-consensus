@@ -3,8 +3,16 @@ name: CI
 on:
   push:
     branches: [ main, develop ]
+    paths-ignore:
+      - ".github/**"
+      - "docs/**"
+      - "**/*.md"
   pull_request:
     branches: [ main, develop ]
+    paths-ignore:
+      - ".github/**"
+      - "docs/**"
+      - "**/*.md"
   release:
     types: [published]
   repository_dispatch:
@@ -27,12 +35,17 @@ env:
   RUST_BACKTRACE: '1'
   CARGO_INCREMENTAL: '1'
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   setup:
     name: Setup
     runs-on: [self-hosted, Linux, X64, builds]
 
     if: |
+      (github.event_name != 'pull_request' || (!contains(github.event.pull_request.title, '[skip ci]') && !contains(github.event.pull_request.title, '[ci skip]') && !contains(github.event.pull_request.title, '[no ci]'))) &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
@@ -90,6 +103,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, builds]
 
     if: |
+      (github.event_name != 'pull_request') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
@@ -224,6 +238,7 @@ jobs:
 
     timeout-minutes: 60
     if: |
+      (github.event_name != 'pull_request') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
@@ -548,7 +563,7 @@ jobs:
   fmt:
     name: Format
     needs: setup
-    runs-on: [self-hosted, Linux, X64, builds]
+    runs-on: ubuntu-latest
 
     if: |
       (github.event_name != 'push' || github.event.head_commit == null || 
@@ -582,6 +597,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, builds]
 
     if: |
+      (github.event_name != 'pull_request') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
@@ -625,6 +641,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, builds]
 
     if: |
+      (github.event_name != 'pull_request') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
@@ -655,6 +672,7 @@ jobs:
 
     timeout-minutes: 30
     if: |
+      (github.event_name != 'pull_request') &&
       (github.event_name != 'push' || github.event.head_commit == null || 
        (!contains(github.event.head_commit.message, '[skip ci]') &&
         !contains(github.event.head_commit.message, '[ci skip]') &&
