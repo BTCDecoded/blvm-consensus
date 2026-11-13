@@ -566,17 +566,15 @@ impl U256 {
 
     fn sub(self, other: Self) -> Self {
         let mut result = [0u64; 4];
-        let mut borrow = 0u8;
-        for (i, word) in result.iter_mut().enumerate() {
-            let mut minuend = self.0[i] as u128;
-            if borrow != 0 {
-                minuend += 1u128 << 64;
+        let mut borrow = 0u128;
+        for i in 0..4 {
+            let minuend = self.0[i] as u128;
+            let subtrahend = other.0[i] as u128 + borrow;
+            if minuend >= subtrahend {
+                result[i] = (minuend - subtrahend) as u64;
                 borrow = 0;
-            }
-            if minuend >= other.0[i] as u128 {
-                *word = (minuend - other.0[i] as u128) as u64;
             } else {
-                *word = (minuend + (1u128 << 64) - other.0[i] as u128) as u64;
+                result[i] = (minuend + (1u128 << 64) - subtrahend) as u64;
                 borrow = 1;
             }
         }
@@ -605,13 +603,17 @@ impl U256 {
         let mut quotient = U256::zero();
         let mut remainder = U256::zero();
         for bit in (0..256).rev() {
+            // shl drops bit 255. That bit is the 2^256 place of the shifted remainder.
+            let carry = remainder.bit(255);
             remainder = remainder.shl(1);
             if self.bit(bit) {
                 remainder = remainder
                     .checked_add(U256::one())
                     .unwrap_or(U256([u64::MAX; 4]));
             }
-            if remainder >= divisor {
+            // A carry means the full remainder is 2^256 + low, so it exceeds any divisor.
+            // sub drops the final borrow, which is that 2^256 place.
+            if carry || remainder >= divisor {
                 remainder = remainder.sub(divisor);
                 quotient = quotient.with_bit_set(bit);
             }
