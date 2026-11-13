@@ -18,7 +18,7 @@ fn test_sighash_type_parsing() {
     assert_eq!(SighashType::ALL_ANYONECANPAY.as_u32(), 0x81);
     assert_eq!(SighashType::NONE_ANYONECANPAY.as_u32(), 0x82);
     assert_eq!(SighashType::SINGLE_ANYONECANPAY.as_u32(), 0x83);
-    // Non-standard types are accepted (pre-STRICTENC) with raw byte preserved
+    // Every byte is accepted. The raw byte is what the preimage stores.
     let st = SighashType::from_byte(0x04);
     assert!(st.is_all()); // base_type 0x04 acts as ALL
     assert_eq!(st.as_u32(), 0x04); // raw byte preserved in preimage

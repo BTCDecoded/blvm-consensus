@@ -28,6 +28,9 @@ pub enum WitnessVersion {
 ///
 /// BIP141: Witness must be a vector of byte strings (stack elements).
 /// Each element can be up to MAX_SCRIPT_ELEMENT_SIZE bytes.
+///
+/// This is not the P2WSH spend rule. Connect applies 520 bytes to every witness
+/// element except the witness script. SPEC_CORE_DELTA.md D-12.
 #[cfg_attr(
     feature = "spec-lock",
     spec_locked("11.1.2", "ValidateSegWitWitnessStructure")

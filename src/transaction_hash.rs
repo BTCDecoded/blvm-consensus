@@ -371,12 +371,11 @@ thread_local! {
 
 /// SIGHASH types for transaction signature verification
 ///
-/// IMPORTANT: The enum values match the canonical sighash bytes used in sighash computation.
-/// Early Bitcoin allowed sighash type 0x00 (treated as SIGHASH_ALL behavior), which we
-/// Wraps the raw sighash byte from the signature, preserving its exact value for
-/// preimage serialization. consensus uses the raw byte directly in the sighash
-/// preimage — before STRICTENC activation (BIP66), ANY sighash byte was accepted.
-/// The base type is determined by masking with 0x1f: NONE=2, SINGLE=3, else ALL.
+/// Wraps the raw sighash byte from the signature. The preimage stores that byte.
+/// A block accepts every byte at every height. The base type is `byte & 0x1f`:
+/// NONE is 2, SINGLE is 3, and every other base has ALL behavior. ANYONECANPAY
+/// is bit 7. STRICTENC, which rejects an undefined type, is relay policy.
+/// BIP66 adds DERSIG. It does not add STRICTENC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SighashType(pub u8);
 
@@ -390,8 +389,7 @@ impl SighashType {
     pub const NONE_ANYONECANPAY: Self = SighashType(0x82);
     pub const SINGLE_ANYONECANPAY: Self = SighashType(0x83);
 
-    /// Create from raw sighash byte — accepts ANY value (pre-STRICTENC compatibility).
-    /// consensus determines behavior from `byte & 0x1f` and uses the raw byte in the preimage.
+    /// Keep the raw sighash byte. Behavior comes from `byte & 0x1f`. The preimage stores `byte`.
     pub fn from_byte(byte: u8) -> Self {
         SighashType(byte)
     }
@@ -2054,6 +2052,9 @@ fn batch_bip143_sighash_all_midstate(
     let mut suffix = [0u8; 40];
     suffix[..32].copy_from_slice(&hashes.hash_outputs);
     suffix[32..36].copy_from_slice(&(tx.lock_time as u32).to_le_bytes());
+    // Plain SIGHASH_ALL. A base type of 1 without ANYONECANPAY (0x21, 0x41, 0x61)
+    // is stored as 0x01 here. Callers are tests. SPEC_CORE_DELTA.md D-13.
+    // `build_bip143_preimage` stores the raw byte.
     suffix[36..40].copy_from_slice(&0x01u32.to_le_bytes());
 
     let mut results = Vec::with_capacity(n);
