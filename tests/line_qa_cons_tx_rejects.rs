@@ -1,7 +1,9 @@
 //! Rejects `check_transaction` already returns before script or UTXO work.
 
 use blvm_consensus::transaction::check_transaction;
-use blvm_consensus::{OutPoint, Transaction, TransactionInput, TransactionOutput, ValidationResult};
+use blvm_consensus::{
+    OutPoint, Transaction, TransactionInput, TransactionOutput, ValidationResult,
+};
 
 fn one_input() -> TransactionInput {
     TransactionInput {
