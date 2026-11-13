@@ -17,16 +17,50 @@ runs:
     - name: Setup blvm-spec (for #[spec_locked] proc-macro)
       uses: BTCDecoded/rust-ci/setup-blvm-spec@main
 
-    - name: Force-refresh blvm-spec to HEAD on persistent runners
+    - name: Pin blvm-spec to the dispatched commit, or refresh main
       shell: bash
+      env:
+        SPEC_SHA: ${{ github.event.client_payload.source_sha }}
+        SPEC_CONTENT_SHA256: ${{ github.event.client_payload.content_sha256 }}
       run: |
-        # Self-hosted runners persist the workspace between jobs/runs.
-        # setup-blvm-spec@main may clone once and not update the working tree on
-        # subsequent runs, leaving the proc-macro with a stale spec (missing new
-        # sections like §5.3.2).  Force a fetch+checkout so the working tree always
-        # matches origin/main before any cargo compilation step.
-        if [ -d "../blvm-spec/.git" ]; then
-          git -C ../blvm-spec fetch --depth=1 origin main 2>&1 || true
-          git -C ../blvm-spec checkout FETCH_HEAD 2>&1 || true
+        # A spec push dispatches source_sha and the content hash of
+        # PROTOCOL.md, ARCHITECTURE.md, and THE_ORANGE_PAPER.md. Check
+        # that commit out and fail if the bytes do not match. Any other
+        # run refreshes origin/main. Runners persist this checkout.
+        set -euo pipefail
+        if [ ! -d "../blvm-spec/.git" ]; then
+          echo "blvm-spec checkout is missing"
+          exit 1
+        fi
+        if [ -n "${SPEC_SHA:-}" ]; then
+          git -C ../blvm-spec fetch --depth=1 origin "$SPEC_SHA"
+          git -C ../blvm-spec checkout -f --detach FETCH_HEAD
+          HEAD_SHA="$(git -C ../blvm-spec rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$SPEC_SHA" ]; then
+            echo "blvm-spec HEAD ${HEAD_SHA} is not the dispatched commit ${SPEC_SHA}"
+            exit 1
+          fi
+          echo "blvm-spec pinned to ${HEAD_SHA}"
+        else
+          git -C ../blvm-spec fetch --depth=1 origin main
+          git -C ../blvm-spec checkout -f --detach FETCH_HEAD
           echo "blvm-spec HEAD: $(git -C ../blvm-spec rev-parse --short HEAD)"
+        fi
+        if [ -n "${SPEC_CONTENT_SHA256:-}" ]; then
+          python3 -c 'import hashlib, os, pathlib, sys
+root = pathlib.Path("../blvm-spec")
+h = hashlib.sha256()
+found = False
+for name in ("PROTOCOL.md", "ARCHITECTURE.md", "THE_ORANGE_PAPER.md"):
+    p = root / name
+    if p.is_file():
+        h.update(p.read_bytes())
+        found = True
+if not found:
+    sys.exit("no canonical spec files")
+got = h.hexdigest()
+want = os.environ["SPEC_CONTENT_SHA256"]
+if got != want:
+    sys.exit("spec content hash %s != dispatched %s" % (got, want))
+print("spec content hash matches %s" % got)'
         fi
