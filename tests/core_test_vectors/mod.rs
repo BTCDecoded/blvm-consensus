@@ -6,6 +6,7 @@
 //!
 //! Source: consensus test data (`bitcoin/src/test/data/*.json`)
 
+mod full_column;
 mod script_tests;
 mod transaction_tests;
 

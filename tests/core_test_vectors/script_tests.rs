@@ -7,6 +7,17 @@ mod script_asm;
 
 use blvm_consensus::block::calculate_tx_id;
 use blvm_consensus::opcodes::OP_0;
+use blvm_consensus::script::flags::{
+    SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY, SCRIPT_VERIFY_CLEANSTACK,
+    SCRIPT_VERIFY_CONST_SCRIPTCODE, SCRIPT_VERIFY_DERSIG,
+    SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS, SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS,
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE,
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION,
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, SCRIPT_VERIFY_LOW_S,
+    SCRIPT_VERIFY_MINIMALDATA, SCRIPT_VERIFY_MINIMALIF, SCRIPT_VERIFY_NULLDUMMY,
+    SCRIPT_VERIFY_NULLFAIL, SCRIPT_VERIFY_P2SH, SCRIPT_VERIFY_SIGPUSHONLY, SCRIPT_VERIFY_STRICTENC,
+    SCRIPT_VERIFY_TAPROOT, SCRIPT_VERIFY_WITNESS, SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+};
 use blvm_consensus::script::verify_script;
 use blvm_consensus::types::{Network, Witness};
 use blvm_consensus::{
@@ -28,32 +39,49 @@ pub struct ScriptTestVector {
     pub description: String,
 }
 
-pub fn parse_flag_string(flags_str: &str) -> u32 {
+/// Script flags named in the committed JSON. An unknown name is an error so a
+/// new flag cannot disappear into a zero bit.
+pub fn parse_flag_string_strict(flags_str: &str) -> Result<u32, String> {
     let mut flags = 0u32;
     for flag_name in flags_str.split(',') {
         let flag_name = flag_name.trim();
         match flag_name {
-            "P2SH" => flags |= 0x01,
-            "STRICTENC" => flags |= 0x02,
-            "DERSIG" => flags |= 0x04,
-            "LOW_S" => flags |= 0x08,
-            "NULLDUMMY" => flags |= 0x10,
-            "SIGPUSHONLY" => flags |= 0x20,
-            "MINIMALDATA" => flags |= 0x40,
-            "DISCOURAGE_UPGRADABLE_NOPS" => flags |= 0x80,
-            "CLEANSTACK" => flags |= 0x100,
-            "CHECKLOCKTIMEVERIFY" => flags |= 0x200,
-            "CHECKSEQUENCEVERIFY" => flags |= 0x400,
-            "WITNESS" => flags |= 0x800,
-            "DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM" => flags |= 0x1000,
-            "MINIMALIF" => flags |= 0x2000,
-            "WITNESS_PUBKEYTYPE" => flags |= 0x8000,
-            "TAPROOT" => flags |= 0x20000,
+            "P2SH" => flags |= SCRIPT_VERIFY_P2SH,
+            "STRICTENC" => flags |= SCRIPT_VERIFY_STRICTENC,
+            "DERSIG" => flags |= SCRIPT_VERIFY_DERSIG,
+            "LOW_S" => flags |= SCRIPT_VERIFY_LOW_S,
+            "NULLDUMMY" => flags |= SCRIPT_VERIFY_NULLDUMMY,
+            "SIGPUSHONLY" => flags |= SCRIPT_VERIFY_SIGPUSHONLY,
+            "MINIMALDATA" => flags |= SCRIPT_VERIFY_MINIMALDATA,
+            "DISCOURAGE_UPGRADABLE_NOPS" => flags |= SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS,
+            "CLEANSTACK" => flags |= SCRIPT_VERIFY_CLEANSTACK,
+            "CHECKLOCKTIMEVERIFY" => flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+            "CHECKSEQUENCEVERIFY" => flags |= SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,
+            "WITNESS" => flags |= SCRIPT_VERIFY_WITNESS,
+            "DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM" => {
+                flags |= SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
+            }
+            "MINIMALIF" => flags |= SCRIPT_VERIFY_MINIMALIF,
+            "NULLFAIL" => flags |= SCRIPT_VERIFY_NULLFAIL,
+            "WITNESS_PUBKEYTYPE" => flags |= SCRIPT_VERIFY_WITNESS_PUBKEYTYPE,
+            "CONST_SCRIPTCODE" => flags |= SCRIPT_VERIFY_CONST_SCRIPTCODE,
+            "TAPROOT" => flags |= SCRIPT_VERIFY_TAPROOT,
+            "DISCOURAGE_UPGRADABLE_TAPROOT_VERSION" => {
+                flags |= SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION
+            }
+            "DISCOURAGE_OP_SUCCESS" => flags |= SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS,
+            "DISCOURAGE_UPGRADABLE_PUBKEYTYPE" => {
+                flags |= SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE
+            }
             "NONE" | "" => {}
-            _ => {}
+            other => return Err(format!("unknown script flag `{other}`")),
         }
     }
-    flags
+    Ok(flags)
+}
+
+pub fn parse_flag_string(flags_str: &str) -> u32 {
+    parse_flag_string_strict(flags_str).unwrap_or(0)
 }
 
 fn parse_flags(value: &Value) -> u32 {
@@ -166,10 +194,11 @@ pub fn run_core_script_tests(
 }
 
 /// Run vectors and return `(passed, failed)` without failing early.
+/// The cache switch is process-global. Two scorers in one binary otherwise
+/// turn it back on in the middle of the other scorer's loop.
+pub(crate) static SCORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn score_core_script_tests(vectors: &[ScriptTestVector]) -> (usize, usize) {
-    // The cache switch is process-global. Two scorers in one binary otherwise
-    // turn it back on in the middle of the other scorer's loop.
-    static SCORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = SCORE_LOCK
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
@@ -256,7 +285,7 @@ fn parse_witness_stack(value: &Value) -> Option<(Witness, i64)> {
 /// Credit and spend transactions from Core's `script_tests` harness.
 /// The JSON signatures are for this pair: version 1, locktime 0, one input,
 /// one empty output of the same value, and the credit txid as the prevout.
-fn witness_sample_tx(
+pub(crate) fn witness_sample_tx(
     script_sig: Vec<u8>,
     script_pubkey: Vec<u8>,
     amount: i64,
