@@ -1,0 +1,55 @@
+name: Spec content hash
+
+on:
+  repository_dispatch:
+    types: [build-chain]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: blvm-spec commit
+        required: true
+        type: string
+      content_sha256:
+        description: SHA-256 of PROTOCOL.md, ARCHITECTURE.md, and THE_ORANGE_PAPER.md
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  spec-content-hash:
+    name: Spec content hash
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout blvm-consensus
+        uses: actions/checkout@v6
+        with:
+          path: consensus
+
+      - name: Checkout the dispatched spec commit
+        uses: actions/checkout@v6
+        with:
+          repository: BTCDecoded/blvm-spec
+          ref: ${{ github.event.client_payload.source_sha || inputs.source_sha }}
+          path: blvm-spec
+          fetch-depth: 1
+
+      - name: Fail unless the commit and content hash match
+        working-directory: consensus
+        env:
+          SPEC_SHA: ${{ github.event.client_payload.source_sha || inputs.source_sha }}
+          SPEC_CONTENT_SHA256: ${{ github.event.client_payload.content_sha256 || inputs.content_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPEC_SHA:-}" ] || [ -z "${SPEC_CONTENT_SHA256:-}" ]; then
+            echo "missing source_sha or content_sha256"
+            exit 1
+          fi
+          HEAD_SHA="$(git -C ../blvm-spec rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$SPEC_SHA" ]; then
+            echo "blvm-spec HEAD ${HEAD_SHA} is not ${SPEC_SHA}"
+            exit 1
+          fi
+          echo "blvm-spec pinned to ${HEAD_SHA}"
+          python3 scripts/check-spec-content-hash.py
