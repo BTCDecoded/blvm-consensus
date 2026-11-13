@@ -82,7 +82,8 @@ fn get_next_work_required_internal(
     let first_timestamp = prev_headers[0].timestamp;
     let last_timestamp = last_header.timestamp;
 
-    // Timespan should be positive (last block comes after first)
+    // Core and `retarget_bits` clamp an inverted period. This function errors.
+    // SPEC_CORE_DELTA.md D-11. Connect uses `retarget_bits`.
     if last_timestamp < first_timestamp {
         return Err(ConsensusError::InvalidProofOfWork(
             "Invalid timestamp order in difficulty adjustment".into(),
@@ -142,6 +143,7 @@ fn get_next_work_required_internal(
     // Regtest minimum-difficulty nBits (0x207fffff) expands to a very large U256; multiplying
     // by the clamped timespan can exceed U256::MAX. Bitcoin keeps prior difficulty in
     // pathological cases — here we preserve `previous_bits` when no exact product fits.
+    // Connect's `retarget_bits` returns an error instead. SPEC_CORE_DELTA.md D-10.
     let multiplied_target = match old_target.checked_mul_u64(clamped_timespan) {
         Some(t) => t,
         None => {
@@ -361,6 +363,8 @@ fn retarget_bits(
         return Ok(0);
     }
     let limit = expand_target(limit_bits)?;
+    // Core wraps this product. `get_next_work_required` returns the previous bits.
+    // Connect fails closed. Unreachable on a supported network. SPEC_CORE_DELTA.md D-10.
     let product = old.checked_mul_u64(span).ok_or_else(|| {
         ConsensusError::InvalidProofOfWork("difficulty adjustment overflow".into())
     })?;
@@ -998,7 +1002,8 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
     let mantissa = bits & 0x007fffff;
 
     // Exponent in [3, 32] covers mainnet-style compact targets and regtest minimum-difficulty
-    // (e.g. nBits 0x207fffff, exponent 32).
+    // (e.g. nBits 0x207fffff, exponent 32). Core's SetCompact still assigns a value
+    // outside that range. No supported network produces those bits. SPEC_CORE_DELTA.md D-09.
     if !(3..=32).contains(&exponent) {
         return Err(ConsensusError::InvalidProofOfWork(
             "Invalid target exponent".into(),
