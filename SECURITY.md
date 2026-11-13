@@ -1,138 +1,60 @@
-# Security Policy
+# Security policy
 
-This document covers repo-specific security boundaries. See the [BTCDecoded Security Policy](https://github.com/BTCDecoded/.github/blob/main/SECURITY.md) for organization-wide policy.
+BLVM validates Bitcoin. A consensus bug, a remote crash, and a memory-safety bug are the reports we want first.
 
-## Dependency Version Pinning Strategy
+## Report in private
 
-All consensus-critical cryptographic dependencies are pinned to exact versions for supply chain security:
+Do not open a public GitHub issue for a vulnerability.
 
-- **Consensus-critical cryptography**: Exact versions (`=`) for `secp256k1`, `ripemd`, `bitcoin_hashes`
-- **Non-consensus utilities**: Exact versions for supply chain security (`serde`, `hex`); test-only tools (`bincode`, `serde_json`, etc.) use matching pins under `[dev-dependencies]`
-- **Formal verification tools**: Exact versions for reproducibility (`proptest`, `blvm-spec-lock`)
+1. GitHub private vulnerability reporting on the repository that contains the bug: `https://github.com/BTCDecoded/<repo>/security/advisories/new`.
+2. Email `security@thebitcoincommons.org`.
 
-**Rationale**: Consensus-critical code must be deterministic and reproducible. Exact version pinning prevents:
-- Supply chain attacks through dependency updates
-- Non-deterministic behavior from dependency changes
-- Consensus divergence from dependency updates
+The encrypted channel is that mailbox. A published key is **not on file yet**. Until a maintainer publishes a fingerprint in this file, email is unencrypted and GitHub private reporting is the channel that keeps the report off the public issue tracker. Do not send a live mainnet exploit to a public list while the key is missing.
 
-See `Cargo.toml` for complete dependency list with exact versions.
+Include what you can: the crate, the commit, the network, whether you think it splits the chain or only crashes one process, and a minimal reproduction. A patch is welcome and not required.
 
-## Supported Versions
+## Scope
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+In scope:
 
-## Reporting a Vulnerability
+- Consensus and validation in `blvm-consensus`, `blvm-spec`, `blvm-spec-lock`, and the frozen paths in `blvm-protocol` and `blvm-node`.
+- Remote crash, denial of service, and memory safety in the node, the RPC server, and the P2P stack.
+- Authentication bypass on RPC.
+- Chainstate corruption after a crash or a reorg.
 
-**This is consensus-critical software handling Bitcoin's core validation rules. Security vulnerabilities could have severe consequences for the Bitcoin network.**
+Out of scope:
 
-### Critical Security Issues
+- A third-party module you installed yourself, unless the node failed to confine it.
+- Social engineering of operators.
+- Issues that require a local account and do not cross into chainstate or keys, unless they are memory safety.
 
-If you discover a security vulnerability in blvm-consensus, please report it immediately:
+The node does not custody keys in the default build. Wallet-key bugs in a separate module are in scope for that module's repository and out of scope for consensus.
 
-1. **DO NOT** create a public GitHub issue
-2. **DO NOT** discuss the vulnerability publicly
-3. **DO NOT** post on social media or forums
+## Response targets
 
-### How to Report
+These are targets, not a claim about past performance. The advisory record is the evidence.
 
-**Email:** security@thebitcoincommons.org  
-**Subject:** [SECURITY] blvm-consensus vulnerability
+| Step | Target |
+| --- | --- |
+| Acknowledgement | 2 days |
+| Triage, including a severity label from `docs/security/SEVERITY.md` | 7 days |
+| Fix for consensus, remote crash, or memory safety | 14 days after triage |
+| Fix for resource exhaustion | 30 days after triage |
+| Fix for local-only and informational | 90 days after triage |
+| Disclosure | When the fix is in a release, or sooner if the bug is being exploited. The default embargo after a fix is released is none: the release is the disclosure. A reporter can ask for a coordinated date up to 90 days after the fix. |
 
-Include the following information:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
-- Your contact information
+## Embargo and credit
 
-### Response Timeline
+We keep the report private until the fix is released, unless the bug is already public or actively exploited. We credit the reporter in the advisory when they agree in writing. Silence is not consent. The reconstructed November entries leave the reporter blank and set `reporter_consent` to `pending`.
 
-- **Acknowledgment:** Within 24 hours
-- **Initial Assessment:** Within 72 hours
-- **Fix Development:** 1-2 weeks (depending on severity)
-- **Public Disclosure:** Coordinated with fix release
+## Advisories
 
-### Vulnerability Types
+The append-only record is `docs/security/advisories/`. One OSV JSON file per id. A correction is a new id that references the old one. Do not edit a published file. The index is `INDEX.md`. The public counts are `docs/security/METRICS.md`.
 
-#### Critical (P0)
-- Consensus rule bypasses
-- Cryptographic vulnerabilities
-- Memory safety issues
-- Integer overflow/underflow
-- Double-spending vulnerabilities
+Advisory files are signed the same way release tags are signed, once a signing key exists. They are unsigned in this tree. `scripts/release/sign-release.sh` exits 2 until `user.signingkey` is set.
 
-#### High (P1)
-- Denial of service vulnerabilities
-- Resource exhaustion
-- Input validation bypasses
-- Logic errors in validation
+Dependency advisories that affect a shipped build get an entry in the same directory. `cargo audit` and `cargo deny` run in CI. Ignore entries belong in `.cargo/audit.toml` with a reason, not only in a workflow flag.
 
-#### Medium (P2)
-- Information disclosure
-- Performance issues
-- Documentation errors
+## Supported versions
 
-### Responsible Disclosure
-
-We follow responsible disclosure practices:
-
-1. **Private reporting** - Report privately first
-2. **Coordinated disclosure** - We'll work with you on timing
-3. **Credit** - We'll credit you (unless you prefer anonymity)
-4. **No legal action** - We won't pursue legal action for good-faith research
-
-### Security Considerations
-
-#### Consensus Rules
-- All consensus rules must be implemented exactly as specified
-- No undocumented deviations from the Orange Paper and mainnet consensus rules
-- All edge cases must be handled correctly
-- Integer arithmetic must be precise
-
-#### Cryptographic Operations
-- All cryptographic operations use exact versions of libraries
-- No custom cryptographic implementations
-- All hash functions must match Bitcoin specifications
-- Signature verification must be exact
-
-#### Memory Safety
-- All code must be memory-safe
-- No unsafe blocks without justification
-- All array access must be bounds-checked
-- No use-after-free or double-free
-
-### Testing Requirements
-
-Before reporting, please verify:
-- [ ] The issue reproduces consistently
-- [ ] The issue affects consensus validation
-- [ ] The issue is not already known
-- [ ] The issue is not a feature request
-
-### Bug Bounty
-
-We may offer bug bounties for critical vulnerabilities. Contact us for details.
-
-### Security Updates
-
-Security updates will be:
-- Released as patch versions (0.1.x)
-- Clearly marked as security fixes
-- Backported to all supported versions
-- Announced on our security mailing list
-
-### Contact Information
-
-- **Security Team:** security@thebitcoincommons.org
-- **General Inquiries:** info@btcdecoded.org
-- **Website:** https://btcdecoded.org
-
-### Acknowledgments
-
-We thank the security researchers who help keep Bitcoin secure through responsible disclosure.
-
----
-
-**Remember:** This software handles real Bitcoin consensus rules. Any bugs could affect the entire Bitcoin network. Please report responsibly.
+Security fixes target the current beta line once `0.2.0-beta.1` is published. Until that tag exists, the supported line is the highest published `0.1.x` tag of the affected crate. Older `0.1` tags are not maintained as a second line.
