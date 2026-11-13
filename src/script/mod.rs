@@ -2205,6 +2205,12 @@ fn try_verify_p2sh_fast_path(
         return None;
     }
 
+    // scriptPubKey still pushes the 20-byte hash onto the scriptSig stack.
+    // 1,000 pushes overflow that step. The interpreter reports it.
+    if pushes.len() >= crate::constants::MAX_STACK_SIZE {
+        return Some(Err(make_stack_overflow_error()));
+    }
+
     // HASH160(redeem) == expected hash
     let sha256_hash = OptimizedSha256::new().hash(redeem.as_ref());
     let redeem_hash = Ripemd160::digest(sha256_hash);
@@ -3360,6 +3366,13 @@ pub fn verify_script_with_context_full(
         usize,
     )>,
 ) -> Result<bool> {
+    if flags & flags::SCRIPT_VERIFY_SIGPUSHONLY != 0 && !p2sh_push_only_check(script_sig) {
+        return Err(ConsensusError::ScriptErrorWithCode {
+            code: ScriptErrorCode::SigPushOnly,
+            message: "scriptSig is not push-only".into(),
+        });
+    }
+
     // libbitcoin-consensus check (multi-input verify_script): prevouts length must match vin size
     if prevout_values.len() != tx.inputs.len() || prevout_script_pubkeys.len() != tx.inputs.len() {
         return Err(ConsensusError::ScriptErrorWithCode {
@@ -7313,17 +7326,10 @@ fn execute_opcode_with_context_full(
                 });
             }
 
-            // Verify signatures against public keys
-            // CHECKMULTISIG algorithm: iterate pubkeys, try to match sigs in order
+            // Encoding is checked on each signature/key pair that the match loop
+            // actually tries. A 0-of-n script never tries a pair, so an empty
+            // pubkey is not a PUBKEYTYPE failure.
             let height = block_height.unwrap_or(0);
-            if flags & 0x02 != 0 {
-                for pubkey in &pubkeys {
-                    crate::script::signature::reject_strictenc_pubkey(flags, pubkey)?;
-                }
-                for sig_bytes in &signatures {
-                    crate::script::signature::reject_strictenc_signature(flags, sig_bytes)?;
-                }
-            }
 
             // FindAndDelete: Remove ALL signatures from scriptCode BEFORE any sighash computation
             // Consensus rule for OP_CHECKMULTISIG (legacy only, not SegWit)
@@ -7431,16 +7437,40 @@ fn execute_opcode_with_context_full(
                     }
                 }
 
-                let results = if tasks.is_empty() {
-                    vec![]
+                // Encoding errors stay on the pair the match actually tries.
+                // A later invalid key must not fail the script when too few keys
+                // remain for the signatures still left.
+                let results: Vec<Result<bool>> = if tasks.is_empty() {
+                    Vec::new()
                 } else {
-                    batch_verify_signatures(&tasks, flags, height, network, sigversion)?
+                    signature::with_secp_context(|secp| {
+                        tasks
+                            .iter()
+                            .map(|(pubkey_bytes, signature_bytes, sighash)| {
+                                signature::verify_signature(
+                                    secp,
+                                    pubkey_bytes,
+                                    signature_bytes,
+                                    sighash,
+                                    flags,
+                                    height,
+                                    network,
+                                    sigversion,
+                                )
+                            })
+                            .collect()
+                    })
                 };
 
                 // Matching: for each pubkey in order, if current sig verifies with this pubkey, advance
                 let mut sig_index = 0;
                 let mut valid_sigs = 0usize;
                 for (i, pubkey_bytes) in pubkeys.iter().enumerate() {
+                    let sigs_left = signatures.len().saturating_sub(sig_index);
+                    let keys_left = pubkeys.len() - i;
+                    if sigs_left > keys_left {
+                        break;
+                    }
                     if sig_index >= signatures.len() {
                         break;
                     }
@@ -7454,19 +7484,15 @@ fn execute_opcode_with_context_full(
                             message: "witness v0 public key must be compressed".into(),
                         });
                     }
-                    // Skip empty sigs without advancing (same as original)
-                    while sig_index < signatures.len() && signatures[sig_index].is_empty() {
-                        sig_index += 1;
-                    }
-                    if sig_index >= signatures.len() {
-                        break;
-                    }
                     let sh_idx = sig_idx_to_sighash_idx[sig_index];
+                    // An empty signature is a failed match. It still consumes this
+                    // key, and the next iteration can stop before a later signature
+                    // is decoded.
                     if sh_idx == usize::MAX {
                         continue;
                     }
                     let task_idx = sh_idx * pubkeys.len() + i;
-                    if task_idx < results.len() && results[task_idx] {
+                    if task_idx < results.len() && results[task_idx].clone()? {
                         valid_sigs += 1;
                         sig_index += 1;
                     }
@@ -7478,13 +7504,20 @@ fn execute_opcode_with_context_full(
                 let mut valid_sigs = 0;
                 let amount = prevout_values.get(input_index).copied().unwrap_or(0);
 
-                for pubkey_bytes in &pubkeys {
+                for (key_index, pubkey_bytes) in pubkeys.iter().enumerate() {
+                    let sigs_left = signatures.len().saturating_sub(sig_index);
+                    let keys_left = pubkeys.len() - key_index;
+                    if sigs_left > keys_left {
+                        break;
+                    }
                     if sig_index >= signatures.len() {
                         break;
                     }
 
                     let signature_bytes = &signatures[sig_index];
 
+                    // An empty signature fails this key. The next key can stop
+                    // before a later signature is decoded.
                     if signature_bytes.is_empty() {
                         continue;
                     }
@@ -7572,7 +7605,12 @@ fn execute_opcode_with_context_full(
                 let mut valid_sigs = 0;
                 let amount = prevout_values.get(input_index).copied().unwrap_or(0);
 
-                for pubkey_bytes in &pubkeys {
+                for (key_index, pubkey_bytes) in pubkeys.iter().enumerate() {
+                    let sigs_left = signatures.len().saturating_sub(sig_index);
+                    let keys_left = pubkeys.len() - key_index;
+                    if sigs_left > keys_left {
+                        break;
+                    }
                     if sig_index >= signatures.len() {
                         break;
                     }
