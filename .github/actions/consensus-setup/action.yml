@@ -47,20 +47,5 @@ runs:
           echo "blvm-spec HEAD: $(git -C ../blvm-spec rev-parse --short HEAD)"
         fi
         if [ -n "${SPEC_CONTENT_SHA256:-}" ]; then
-          python3 -c 'import hashlib, os, pathlib, sys
-root = pathlib.Path("../blvm-spec")
-h = hashlib.sha256()
-found = False
-for name in ("PROTOCOL.md", "ARCHITECTURE.md", "THE_ORANGE_PAPER.md"):
-    p = root / name
-    if p.is_file():
-        h.update(p.read_bytes())
-        found = True
-if not found:
-    sys.exit("no canonical spec files")
-got = h.hexdigest()
-want = os.environ["SPEC_CONTENT_SHA256"]
-if got != want:
-    sys.exit("spec content hash %s != dispatched %s" % (got, want))
-print("spec content hash matches %s" % got)'
+          python3 scripts/check-spec-content-hash.py
         fi
