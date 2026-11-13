@@ -110,7 +110,7 @@ The list the tool writes is `blvm-spec-lock/docs/MUTATION_COVERAGE.md`: 34 funct
 
 This pass proves 13 functions from the function body. The check passes on the code as written, and two edits of the body make it fail: `sigop_count_push_opcode`, `is_pay_to_script_hash`, `validate_supply_limit`, `is_witness_empty`, `is_witness_version_opcode`, `validate_taproot_script`, `validate_segwit_witness_structure`, `tx_has_nonempty_input_witness`, `script_bool_bytes`, `is_version_zero_witness_program`, `validate_taproot_script_path_with_leaf_version`, `locktime_types_match`, and `tx_requires_witness_script_flags`. `validate_supply_limit` returns `total_supply(height) <= MAX_MONEY`. A body that only returns `true` is not a proof.
 
-The Orange Paper inventory is `blvm-spec-lock/docs/sentence-inventory.tsv`: 274 sentences. The subsidy theorem (6.1.2) is proved in Rust for the heights the tool checks and proved in Lean for every natural number. Sixteen sentences are Lean proofs of the specification only. Lean does not check the Rust code. The other 257 sentences are not proved yet.
+The Orange Paper inventory is `blvm-spec-lock/docs/sentence-inventory.tsv`: 275 sentences. The subsidy theorem (6.1.2) is proved in Rust for the heights the tool checks and proved in Lean for every natural number. Fifteen sentences are Lean proofs of the specification only. Lean does not check the Rust code. The other 259 sentences are not proved yet. One of those 259 is `spec_disputed` (theorem 6.2.3 real series) and is not a Lean proof.
 
 ## Overview
 
@@ -127,7 +127,7 @@ Verification approach follows: **"Rust + Tests + Math Specs = Source of Truth"**
 
 ### Layer 2: Symbolic Verification (CI verify job)
 - **blvm-spec-lock**: Z3 on `#[spec_locked]` functions against the Orange Paper. A passing verify job is not the mutation gate above.
-- **Lean**: the spec-lock `lean-evidence` workflow checks that an Orange Paper sentence is a theorem of `blvm-spec/lean/`. It does not check the Rust. The subsidy theorem (6.1.2) is checked by both. Sixteen sentences are Lean proofs of the specification only.
+- **Lean**: the spec-lock `lean-evidence` workflow checks that an Orange Paper sentence is a theorem of `blvm-spec/lean/`. It does not check the Rust. The subsidy theorem (6.1.2) is checked by both. Fifteen sentences are Lean proofs of the specification only. One further Lean sentence is `spec_disputed` (theorem 6.2.3 real series) and is not a proof.
 - **Mathematical specifications**: Orange Paper sections named on those attributes
 - **Traceability**: Annotated functions name an Orange Paper section. Witnesses in `spec_witnesses.rs` are not the production functions.
 
