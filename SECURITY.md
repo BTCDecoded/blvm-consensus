@@ -37,11 +37,13 @@ These are targets, not a claim about past performance. The advisory record is th
 | Step | Target |
 | --- | --- |
 | Acknowledgement | 2 days |
-| Triage, including a severity label from `docs/security/SEVERITY.md` | 7 days |
+| Triage, with a severity label | 7 days |
 | Fix for consensus, remote crash, or memory safety | 14 days after triage |
 | Fix for resource exhaustion | 30 days after triage |
 | Fix for local-only and informational | 90 days after triage |
 | Disclosure | When the fix is in a release, or sooner if the bug is being exploited. The default embargo after a fix is released is none: the release is the disclosure. A reporter can ask for a coordinated date up to 90 days after the fix. |
+
+Severity labels, tied to node impact: chain split or consensus divergence, remote crash, resource exhaustion, local-only, and informational.
 
 ## Embargo and credit
 
@@ -49,12 +51,64 @@ We keep the report private until the fix is released, unless the bug is already 
 
 ## Advisories
 
-The append-only record is `docs/security/advisories/`. One OSV JSON file per id. A correction is a new id that references the old one. Do not edit a published file. The index is `INDEX.md`. The public counts are `docs/security/METRICS.md`.
+The append-only record is one OSV JSON file per advisory id, plus a generated index. A correction is a new id that references the old one. Do not edit a published file. Public counts are generated from that record.
 
-Advisory files are signed the same way release tags are signed, once a signing key exists. They are unsigned in this tree. `scripts/release/sign-release.sh` exits 2 until `user.signingkey` is set.
+Advisory files are signed with the same key as release tags, once a signing key exists. They are unsigned until that key is configured.
 
-Dependency advisories that affect a shipped build get an entry in the same directory. `cargo audit` and `cargo deny` run in CI. Ignore entries belong in `.cargo/audit.toml` with a reason, not only in a workflow flag.
+Dependency advisories that affect a shipped build get an entry in the same record. `cargo audit` and `cargo deny` run in CI. Ignore entries belong in `.cargo/audit.toml` with a reason, not only in a workflow flag.
 
 ## Supported versions
 
 Security fixes target the current beta line once `0.2.0-beta.1` is published. Until that tag exists, the supported line is the highest published `0.1.x` tag of the affected crate. Older `0.1` tags are not maintained as a second line.
+
+The reporting policy above is the one in force. Older timelines, bounty language, and an "all 0.1.x supported" table are not restored. The notes below are this repository's existing boundary text.
+
+## Dependency Version Pinning Strategy
+
+All consensus-critical cryptographic dependencies are pinned to exact versions for supply chain security:
+
+- **Consensus-critical cryptography**: Exact versions (`=`) for `secp256k1`, `ripemd`, `bitcoin_hashes`
+- **Non-consensus utilities**: Exact versions for supply chain security (`serde`, `hex`); test-only tools (`bincode`, `serde_json`, etc.) use matching pins under `[dev-dependencies]`
+- **Formal verification tools**: Exact versions for reproducibility (`proptest`, `blvm-spec-lock`)
+
+**Rationale**: Consensus-critical code must be deterministic and reproducible. Exact version pinning prevents:
+- Supply chain attacks through dependency updates
+- Non-deterministic behavior from dependency changes
+- Consensus divergence from dependency updates
+
+See `Cargo.toml` for complete dependency list with exact versions.
+
+### Critical (P0)
+- Consensus rule bypasses
+- Cryptographic vulnerabilities
+- Memory safety issues
+- Integer overflow/underflow
+- Double-spending vulnerabilities
+
+#### High (P1)
+- Denial of service vulnerabilities
+- Resource exhaustion
+- Input validation bypasses
+- Logic errors in validation
+
+#
+
+### Security Considerations
+
+#### Consensus Rules
+- All consensus rules must be implemented exactly as specified
+- No undocumented deviations from the Orange Paper and mainnet consensus rules
+- All edge cases must be handled correctly
+- Integer arithmetic must be precise
+
+#### Cryptographic Operations
+- All cryptographic operations use exact versions of libraries
+- No custom cryptographic implementations
+- All hash functions must match Bitcoin specifications
+- Signature verification must be exact
+
+#### Memory Safety
+- All code must be memory-safe
+- No unsafe blocks without justification
+- All array access must be bounds-checked
+- No use-after-free or double-free
