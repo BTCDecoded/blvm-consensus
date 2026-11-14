@@ -484,12 +484,8 @@ pub fn validate_segwit_block(
     witnesses: &[Witness],
     max_block_weight: Natural,
 ) -> Result<bool> {
-    // Validate witness structure for all transactions using unified framework
-    for (i, _tx) in block.transactions.iter().enumerate() {
-        if i < witnesses.len() && !witness::validate_segwit_witness_structure(&witnesses[i])? {
-            return Ok(false);
-        }
-    }
+    // Element bounds are the spend rule. This check is weight and the commitment.
+    // A P2WSH witness script may exceed 520 bytes and still be a valid block.
 
     // Check block weight limit
     let block_weight = calculate_block_weight(block, witnesses)?;

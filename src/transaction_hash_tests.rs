@@ -528,6 +528,21 @@ fn test_bip143_sighash() {
     .unwrap();
     assert_eq!(batched[0], sighash0);
     assert_eq!(batched[1], sighash1);
+
+    // Base type 1 without ANYONECANPAY still stores the raw byte.
+    let raw = 0x21u8;
+    let sighash0_raw =
+        calculate_bip143_sighash(&tx, 0, &script_code, prevouts[0].value, raw, None).unwrap();
+    let batched_raw = batch_compute_bip143_sighashes(
+        &tx,
+        &prevout_values,
+        &prevout_script_pubkeys,
+        &script_codes,
+        raw,
+    )
+    .unwrap();
+    assert_eq!(batched_raw[0], sighash0_raw);
+    assert_ne!(batched_raw[0], sighash0);
 }
 
 #[test]

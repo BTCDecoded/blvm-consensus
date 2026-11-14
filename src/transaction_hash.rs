@@ -2014,9 +2014,9 @@ pub fn batch_compute_bip143_sighashes(
     // Compute precomputed hashes ONCE
     let precomputed = Bip143PrecomputedHashes::compute(tx, prevout_values, prevout_script_pubkeys);
 
-    let base = sighash_type & 0x1f;
-    let acp = sighash_type & 0x80;
-    if base == 0x01 && acp == 0 && tx.inputs.len() >= 2 {
+    // Only a literal 0x01 shares this midstate. 0x21, 0x41, and 0x61 have the
+    // same base type and must keep the raw byte, which the per-input path stores.
+    if sighash_type == 0x01 && tx.inputs.len() >= 2 {
         return Ok(batch_bip143_sighash_all_midstate(
             tx,
             prevout_values,
@@ -2052,9 +2052,7 @@ fn batch_bip143_sighash_all_midstate(
     let mut suffix = [0u8; 40];
     suffix[..32].copy_from_slice(&hashes.hash_outputs);
     suffix[32..36].copy_from_slice(&(tx.lock_time as u32).to_le_bytes());
-    // Plain SIGHASH_ALL. A base type of 1 without ANYONECANPAY (0x21, 0x41, 0x61)
-    // is stored as 0x01 here. Callers are tests. SPEC_CORE_DELTA.md D-13.
-    // `build_bip143_preimage` stores the raw byte.
+    // Caller has already required sighash type 0x01.
     suffix[36..40].copy_from_slice(&0x01u32.to_le_bytes());
 
     let mut results = Vec::with_capacity(n);
