@@ -95,44 +95,36 @@ fn test_check_proof_of_work_genesis() {
 
 #[test]
 fn test_expand_target_invalid() {
-    // Exponent must be in 3..=32. Exponent 33 (0x21) is out of range → invalid.
-    let result = expand_target(0x2100ffff); // exponent = 33
-    assert!(
-        result.is_err(),
-        "expand_target with exponent > 32 should fail"
-    );
-    // Exponent 2 is also invalid (below minimum).
-    let result2 = expand_target(0x0200ffff); // exponent = 2
-    assert!(
-        result2.is_err(),
-        "expand_target with exponent < 3 should fail"
-    );
+    // Exponent 33 with mantissa 0xffff fits. A larger mantissa overflows.
+    assert!(expand_target(0x2100ffff).is_ok());
+    assert!(expand_target(0x2101_0000).is_err());
+    // Exponent 2 shifts right.
+    assert!(expand_target(0x0200ffff).is_ok());
 }
 
 #[test]
 fn test_check_proof_of_work_invalid_target() {
-    // Exponent 33 is out of the valid 3..=32 range → bits are malformed.
+    // Exponent 35 overflows, so proof-of-work cannot expand the target.
     let header = BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
-        bits: 0x2100ffff, // exponent = 33, invalid
+        bits: 0x2300_0001,
         nonce: 0,
     };
 
     let result = check_proof_of_work(&header);
     assert!(
         result.is_err(),
-        "check_proof_of_work with invalid exponent should fail"
+        "check_proof_of_work with an overflowing target should fail"
     );
 }
 
 #[test]
 fn test_expand_target_edge_cases() {
     // Test edge cases for target expansion.
-    // expand_target requires exponent in 3..=32 (values < 3 are invalid per BIP).
-    let target3 = expand_target(0x0300ffff).unwrap(); // exponent = 3 (minimum valid)
+    let target3 = expand_target(0x0300ffff).unwrap(); // exponent = 3
     let target5 = expand_target(0x0500ffff).unwrap(); // exponent = 5
     let target7 = expand_target(0x0700ffff).unwrap(); // exponent = 7
 
@@ -144,9 +136,9 @@ fn test_expand_target_edge_cases() {
     assert!(target7 >= target5);
     assert!(target5 >= target3);
 
-    // Exponents < 3 are invalid
-    assert!(expand_target(0x0100ffff).is_err()); // exponent = 1
-    assert!(expand_target(0x0200ffff).is_err()); // exponent = 2
+    // Exponents below 3 shift right.
+    assert!(expand_target(0x0100ffff).is_ok());
+    assert!(expand_target(0x0200ffff).is_ok());
 }
 
 #[test]

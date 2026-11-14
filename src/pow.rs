@@ -82,15 +82,12 @@ fn get_next_work_required_internal(
     let first_timestamp = prev_headers[0].timestamp;
     let last_timestamp = last_header.timestamp;
 
-    // Core and `retarget_bits` clamp an inverted period. This function errors.
-    // SPEC_CORE_DELTA.md D-11. Connect uses `retarget_bits`.
-    if last_timestamp < first_timestamp {
-        return Err(ConsensusError::InvalidProofOfWork(
-            "Invalid timestamp order in difficulty adjustment".into(),
-        ));
-    }
-
-    let time_span = last_timestamp - first_timestamp;
+    // An inverted period is negative. ClampTime floors it, as Core and `retarget_bits` do.
+    let time_span = if last_timestamp >= first_timestamp {
+        last_timestamp - first_timestamp
+    } else {
+        0
+    };
 
     // Calculate expected_time based on whether we're using corrected version
     // When we have n blocks (indices 0 to n-1), we measure (n-1) intervals
@@ -139,17 +136,9 @@ fn get_next_work_required_internal(
         ));
     }
 
-    // Multiply target by clamped_timespan (integer multiplication).
-    // Regtest minimum-difficulty nBits (0x207fffff) expands to a very large U256; multiplying
-    // by the clamped timespan can exceed U256::MAX. Bitcoin keeps prior difficulty in
-    // pathological cases — here we preserve `previous_bits` when no exact product fits.
-    // Connect's `retarget_bits` returns an error instead. SPEC_CORE_DELTA.md D-10.
-    let multiplied_target = match old_target.checked_mul_u64(clamped_timespan) {
-        Some(t) => t,
-        None => {
-            return Ok(previous_bits);
-        }
-    };
+    // Core's 256-bit product drops the high bits. The quotient is that wrapped product
+    // divided by the expected timespan.
+    let multiplied_target = old_target.wrapping_mul_u64(clamped_timespan);
 
     // Runtime assertion: Multiplied target must be >= old target (timespan >= expected_time/4)
     debug_assert!(
@@ -363,11 +352,8 @@ fn retarget_bits(
         return Ok(0);
     }
     let limit = expand_target(limit_bits)?;
-    // Core wraps this product. `get_next_work_required` returns the previous bits.
-    // Connect fails closed. Unreachable on a supported network. SPEC_CORE_DELTA.md D-10.
-    let product = old.checked_mul_u64(span).ok_or_else(|| {
-        ConsensusError::InvalidProofOfWork("difficulty adjustment overflow".into())
-    })?;
+    // Same 256-bit wrap as `get_next_work_required` and Core.
+    let product = old.wrapping_mul_u64(span);
     let new_target = product.div_u64(timespan);
     if new_target.is_zero() {
         return Ok(0);
@@ -726,6 +712,8 @@ impl U256 {
 
     /// Multiply U256 by u64 with overflow checking
     /// Returns None if overflow occurs
+    // The retarget mul/div identity still reads this body. Callers use `wrapping_mul_u64`.
+    #[allow(dead_code)]
     fn checked_mul_u64(&self, rhs: u64) -> Option<Self> {
         // Use u128 for intermediate calculations to avoid overflow
         let mut carry = 0u128;
@@ -777,6 +765,18 @@ impl U256 {
         }
 
         Some(result)
+    }
+
+    /// Multiply by `u64` and keep the low 256 bits. Core's `arith_uint256` product wraps.
+    fn wrapping_mul_u64(&self, rhs: u64) -> Self {
+        let mut carry = 0u128;
+        let mut result = U256::zero();
+        for i in 0..4 {
+            let product = (self.0[i] as u128) * (rhs as u128) + carry;
+            result.0[i] = product as u64;
+            carry = product >> 64;
+        }
+        result
     }
 
     /// Divide U256 by u64 (integer division)
@@ -1001,12 +1001,14 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
     // SetCompact uses a 23-bit mantissa (Orange Paper §11.3).
     let mantissa = bits & 0x007fffff;
 
-    // Exponent in [3, 32] covers mainnet-style compact targets and regtest minimum-difficulty
-    // (e.g. nBits 0x207fffff, exponent 32). Core's SetCompact still assigns a value
-    // outside that range. No supported network produces those bits. SPEC_CORE_DELTA.md D-09.
-    if !(3..=32).contains(&exponent) {
+    // Core overflow: the shifted mantissa does not fit in 256 bits.
+    if mantissa != 0
+        && (exponent > 34
+            || ((mantissa > 0xff) && (exponent > 33))
+            || ((mantissa > 0xffff) && (exponent > 32)))
+    {
         return Err(ConsensusError::InvalidProofOfWork(
-            "Invalid target exponent".into(),
+            "compact target overflow".into(),
         ));
     }
 
@@ -1018,8 +1020,8 @@ pub fn expand_target(bits: Natural) -> Result<U256> {
     if exponent <= 3 {
         // Target is mantissa >> (8 * (3 - exponent))
         // When exponent = 3: no shift (mantissa as-is)
-        // When exponent = 2: shift right by 8 bits (shouldn't happen, but handle it)
-        // When exponent = 1: shift right by 16 bits (shouldn't happen, but handle it)
+        // When exponent = 2: shift right by 8 bits
+        // When exponent = 1: shift right by 16 bits
         let shift = 8 * (3 - exponent);
         let mantissa_u256 = U256::from_u32(mantissa as u32);
         Ok(mantissa_u256.shr(shift as u32))
@@ -1194,10 +1196,19 @@ mod property_tests {
 
     fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
         let mut out = [0u8; 32];
-        if mantissa == 0 || !(3..=32).contains(&exponent) {
+        if mantissa == 0
+            || (exponent > 34
+                || (mantissa > 0xff && exponent > 33)
+                || (mantissa > 0xffff && exponent > 32))
+        {
             return out;
         }
-        let shift = (exponent as usize).saturating_sub(3);
+        if exponent <= 3 {
+            let shifted = mantissa >> (8 * (3 - exponent));
+            out[..4].copy_from_slice(&shifted.to_le_bytes());
+            return out;
+        }
+        let shift = (exponent as usize) - 3;
         for (i, byte) in mantissa.to_le_bytes().iter().enumerate() {
             let pos = shift + i;
             if pos < 32 {
@@ -1237,7 +1248,11 @@ mod property_tests {
         ) {
             let bits = ((exponent as u64) << 24) | (mantissa as u64);
             let result = expand_target(bits);
-            if !(3..=32).contains(&exponent) {
+            let overflows = mantissa != 0
+                && (exponent > 34
+                    || (mantissa > 0xff && exponent > 33)
+                    || (mantissa > 0xffff && exponent > 32));
+            if overflows {
                 prop_assert!(result.is_err());
             } else {
                 let expected = compact_target_bytes(exponent, mantissa);

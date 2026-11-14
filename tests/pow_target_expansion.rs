@@ -57,11 +57,10 @@ fn test_minimum_exponent_expansion() {
 fn test_exponent_less_than_3() {
     // This case shouldn't happen in practice (exponent must be >= 3)
     // But we test the edge case
-    // bits = 0x020000ff (exponent = 2, mantissa = 0xff) - should be invalid
-    let bits = 0x020000ff;
+    // bits = 0x02000100 (exponent = 2, mantissa = 0x100) shifts right by 8.
+    let bits = 0x02000100;
     let result = expand_target(bits);
-    // Should fail validation (exponent < 3)
-    assert!(result.is_err(), "Exponent < 3 should be rejected");
+    assert!(result.is_ok(), "exponent 2 shifts the mantissa right");
 }
 
 /// Test zero mantissa (should return zero target)

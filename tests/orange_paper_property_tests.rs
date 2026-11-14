@@ -87,7 +87,16 @@ fn push_element(size: usize) -> Vec<u8> {
 /// Compact target as 32 little-endian bytes: the 23-bit mantissa shifted by `8 * (exponent - 3)`.
 fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
     let mut out = [0u8; 32];
-    if mantissa == 0 || !(3..=32).contains(&exponent) {
+    if mantissa == 0
+        || (exponent > 34
+            || (mantissa > 0xff && exponent > 33)
+            || (mantissa > 0xffff && exponent > 32))
+    {
+        return out;
+    }
+    if exponent <= 3 {
+        let shifted = mantissa >> (8 * (3 - exponent));
+        out[..4].copy_from_slice(&shifted.to_le_bytes());
         return out;
     }
     let shift = (exponent - 3) as usize;
@@ -1292,10 +1301,10 @@ proptest! {
 
         let bits = ((exponent as u64) << 24) | 0xffff;
         let result = pow::expand_target(bits);
-        if (3..=32).contains(&exponent) {
-            prop_assert!(result.is_ok());
-        } else {
+        if exponent > 33 {
             prop_assert!(result.is_err());
+        } else {
+            prop_assert!(result.is_ok());
         }
     }
 
@@ -1414,8 +1423,12 @@ proptest! {
 
         let bits = ((exponent as u64) << 24) | (mantissa as u64);
         let expanded = pow::expand_target(bits);
-        if !(3..=32).contains(&exponent) {
-            prop_assert!(expanded.is_err(), "exponent {exponent} is outside 3..=32");
+        let overflows = mantissa != 0
+            && (exponent > 34
+                || (mantissa > 0xff && exponent > 33)
+                || (mantissa > 0xffff && exponent > 32));
+        if overflows {
+            prop_assert!(expanded.is_err(), "exponent {exponent} overflows");
         } else {
             let bytes = expanded.unwrap().to_le_bytes();
             prop_assert_eq!(bytes, compact_target_bytes(exponent, mantissa));

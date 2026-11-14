@@ -89,8 +89,8 @@ fn test_difficulty_from_bits_genesis_near_one() {
 }
 
 #[test]
-fn test_expand_target_rejects_low_exponent() {
-    assert!(expand_target(0x020000ff).is_err());
+fn test_expand_target_shifts_low_exponent() {
+    assert!(expand_target(0x020000ff).is_ok());
 }
 
 #[test]

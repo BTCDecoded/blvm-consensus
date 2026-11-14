@@ -1648,13 +1648,11 @@ proptest! {
         // Expand target (bits is u32, but expand_target expects Natural which is u64)
         let exponent = (bits >> 24) as u8;
         let mantissa = bits & 0x007f_ffff;
-        let expanded = pow::expand_target(bits as u64);
-        if !(3..=32).contains(&exponent) {
-            prop_assert!(expanded.is_err(), "exponent {exponent} is outside 3..=32");
-        } else if mantissa == 0 {
-            prop_assert_eq!(expanded.unwrap(), pow::U256::zero());
-        } else {
-            prop_assert!(expanded.unwrap() != pow::U256::zero());
+        let expanded = pow::expand_target(bits as u64).unwrap();
+        if mantissa == 0 {
+            prop_assert_eq!(expanded, pow::U256::zero());
+        } else if exponent >= 3 {
+            prop_assert!(expanded != pow::U256::zero());
         }
     }
 

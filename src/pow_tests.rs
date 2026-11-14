@@ -115,6 +115,70 @@ fn test_expand_target() {
 }
 
 #[test]
+fn test_expand_target_matches_set_compact() {
+    // Exponent 2 shifts the mantissa right by 8.
+    assert_eq!(expand_target(0x0200_0100).unwrap(), U256::from_u32(1));
+    // Exponent 33, mantissa 1, fits: 1 << 240.
+    assert_eq!(
+        expand_target(0x2100_0001).unwrap(),
+        U256([0, 0, 0, 1 << 48])
+    );
+    // Exponent 35 does not fit.
+    assert!(expand_target(0x2300_0001).is_err());
+}
+
+#[test]
+fn test_get_next_work_required_inverted_period_clamps() {
+    let first = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: [0; 32],
+        timestamp: 1_000_000,
+        bits: 0x1d00ffff,
+        nonce: 0,
+    };
+    let fast = BlockHeader {
+        timestamp: 1_000_000 + (DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK / 14),
+        ..first
+    };
+    let inverted = BlockHeader {
+        timestamp: 999_999,
+        ..first
+    };
+    let floor = get_next_work_required(&fast, &[first.clone(), fast.clone()]).unwrap();
+    let clamped = get_next_work_required(&inverted, &[first, inverted.clone()]).unwrap();
+    assert_eq!(clamped, floor);
+}
+
+#[test]
+fn test_retarget_wraps_a_product_past_256_bits() {
+    let span = 4 * DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK;
+    let first = BlockHeader {
+        version: 1,
+        prev_block_hash: [0; 32],
+        merkle_root: [0; 32],
+        timestamp: 1_000_000,
+        bits: 0x207f_ffff,
+        nonce: 0,
+    };
+    let last = BlockHeader {
+        timestamp: first.timestamp + span,
+        ..first
+    };
+    assert!(get_next_work_required(&last, &[first.clone(), last.clone()]).is_ok());
+    assert!(
+        retarget_bits(
+            first.bits,
+            first.timestamp,
+            last.timestamp,
+            DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_TIME_PER_BLOCK,
+            MAX_TARGET as u64,
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn test_check_proof_of_work_genesis() {
     // Use a reasonable header with valid target
     let header = BlockHeader {
@@ -260,14 +324,14 @@ fn test_expand_target_zero_mantissa() {
 
 #[test]
 fn test_expand_target_invalid_exponent_too_small() {
-    let result = expand_target(0x0200ffff);
-    assert!(result.is_err());
+    // Exponent 2 is a right shift, not an error.
+    assert_eq!(expand_target(0x0200ffff).unwrap(), U256::from_u32(0xff));
 }
 
 #[test]
 fn test_expand_target_invalid_exponent_too_large() {
-    let result = expand_target(0x2100ffff);
-    assert!(result.is_err());
+    // Exponent 33 with mantissa above 0xffff does not fit.
+    assert!(expand_target(0x2101_0000).is_err());
 }
 
 #[test]
@@ -313,7 +377,7 @@ fn test_expand_target_exponent_29() {
 
 #[test]
 fn test_check_proof_of_work_invalid_target() {
-    // `expand_target` accepts exponent in 3..=32 (mainnet + regtest ceiling); exponent 31 is valid.
+    // Exponent 31 is a normal left shift. Regtest's easiest target uses exponent 32.
     // Exponent 2 is outside the allowed range and must error.
     let header = BlockHeader {
         version: 1,

@@ -933,10 +933,19 @@ mod property_tests {
 
     fn compact_target_bytes(exponent: u8, mantissa: u32) -> [u8; 32] {
         let mut out = [0u8; 32];
-        if mantissa == 0 || !(3..=32).contains(&exponent) {
+        if mantissa == 0
+            || (exponent > 34
+                || (mantissa > 0xff && exponent > 33)
+                || (mantissa > 0xffff && exponent > 32))
+        {
             return out;
         }
-        let shift = (exponent as usize).saturating_sub(3);
+        if exponent <= 3 {
+            let shifted = mantissa >> (8 * (3 - exponent));
+            out[..4].copy_from_slice(&shifted.to_le_bytes());
+            return out;
+        }
+        let shift = (exponent as usize) - 3;
         for (i, byte) in mantissa.to_le_bytes().iter().enumerate() {
             let pos = shift + i;
             if pos < 32 {
@@ -946,7 +955,7 @@ mod property_tests {
         out
     }
 
-    /// Header bits whose compact exponent is 3..=32, so `expand_target` succeeds.
+    /// Header bits in the range a supported network produces, so `expand_target` succeeds.
     fn arb_block() -> impl Strategy<Value = Block> {
         (3u8..=32, 0u32..=0x007f_ffff).prop_map(|(exponent, mantissa)| Block {
             header: BlockHeader {
@@ -996,7 +1005,11 @@ mod property_tests {
         ) {
             let bits = ((exponent as u64) << 24) | (mantissa as u64);
             let result = crate::pow::expand_target(bits);
-            if !(3..=32).contains(&exponent) {
+            let overflows = mantissa != 0
+                && (exponent > 34
+                    || (mantissa > 0xff && exponent > 33)
+                    || (mantissa > 0xffff && exponent > 32));
+            if overflows {
                 prop_assert!(result.is_err());
             } else {
                 let expected = compact_target_bytes(exponent, mantissa);

@@ -1,7 +1,7 @@
 //! Compact targets for every accepted exponent.
 //!
-//! Each row is `mantissa << (8 * (exponent - 3))` with a 23-bit mantissa,
-//! or zero when the mantissa is zero. Exponents outside 3..=32 are rejected.
+//! Each row is the SetCompact shift of a 23-bit mantissa,
+//! or zero when the mantissa is zero. A shift that does not fit in 256 bits is rejected.
 //! Block proof is `(~target / (target + 1)) + 1`.
 
 use blvm_consensus::pow::{expand_target, get_block_proof};
@@ -3626,20 +3626,12 @@ fn compact_targets_match_the_shift_rule() {
 }
 
 #[test]
-fn exponents_outside_3_to_32_are_rejected() {
-    let rejected = [
-        0x0000_0000u64,
-        0x0012_3456,
-        0x0100_3456,
-        0x0112_3456,
-        0x0200_0056,
-        0x0212_3456,
-        0x2100_0001,
-        0x2200_ffff,
-        0xff12_3456,
-    ];
+fn overflowing_compact_targets_are_rejected() {
+    let rejected = [0x2101_0000u64, 0x2200_ffff, 0xff12_3456];
     for bits in rejected {
         assert!(expand_target(bits).is_err(), "{bits:#x} expand");
         assert!(get_block_proof(bits).is_err(), "{bits:#x} proof");
     }
+    assert!(expand_target(0x0200_0056).is_ok());
+    assert!(expand_target(0x2100_0001).is_ok());
 }

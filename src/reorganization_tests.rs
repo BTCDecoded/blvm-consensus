@@ -603,8 +603,8 @@ fn test_expand_target_edge_cases() {
     let result = crate::pow::expand_target(0x03ffffff);
     assert!(result.is_ok());
 
-    // Exponent outside pow::expand_target range (3..=32)
-    let result = crate::pow::expand_target(0x2100ffff);
+    // Exponent 33 with a mantissa above 0xffff overflows.
+    let result = crate::pow::expand_target(0x2101_0000);
     assert!(result.is_err());
 }
 
