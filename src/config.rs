@@ -231,6 +231,8 @@ impl ConsensusConfig {
                 .filter_map(|s| s.trim().parse::<u64>().ok())
                 .collect();
         }
+        // Stored only. `reorganize_chain` does not read `max_reorg_depth`.
+        // A heavier valid chain is followed with no depth cap.
         if let Ok(val) = std::env::var("BLVM_MAX_REORG_DEPTH") {
             if let Ok(depth) = val.parse::<u64>() {
                 config.advanced.max_reorg_depth = depth;

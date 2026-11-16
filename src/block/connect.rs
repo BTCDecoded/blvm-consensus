@@ -31,20 +31,23 @@ use super::{
     script_cache::get_block_script_verify_flags_core,
 };
 
-/// Script checks skip only below the assume-valid height, with chainwork high enough,
-/// a hash set, and that hash present at the pin height. The helper does not store the flag.
-/// Height alone does not skip. A block below the pin does not prove it is on that chain.
+/// Script checks skip only below the assume-valid height, on that block's chain,
+/// with chainwork high enough, a hash set, and more than two weeks of
+/// proof-equivalent time behind the best header. The helper does not store the flag.
+/// Height alone does not skip.
 pub(crate) fn assume_valid_skips_signatures(
     height: u64,
     assume_valid_height: u64,
     chainwork_ok: bool,
     assume_valid_hash_set: bool,
     assume_valid_pin_connected: bool,
+    buried_past_two_weeks: bool,
 ) -> bool {
     height < assume_valid_height
         && chainwork_ok
         && assume_valid_hash_set
         && assume_valid_pin_connected
+        && buried_past_two_weeks
 }
 
 /// Shared empty witness matrix for blocks with no segwit data (avoids per-block `Arc::new(Vec::new())`).
@@ -3239,6 +3242,7 @@ pub(crate) fn connect_block_inner<'a>(
     best_header_chainwork: Option<crate::pow::U256>,
     ibd_utxo_lookup: Option<&dyn crate::utxo_overlay::UtxoLookup>,
     assume_valid_pin_connected: bool,
+    assume_valid_buried: bool,
 ) -> Result<(
     ValidationResult,
     UtxoSet,
@@ -3590,13 +3594,10 @@ pub(crate) fn connect_block_inner<'a>(
     }
 
     // Assume-valid: skip signature/script verification for blocks below the configured height
-    // only when a hash is set. Height alone does not skip.
-    // Assume-valid: skip deep signature checks when height is below the assumed
-    // block AND chain work is sufficient (nMinimumChainWork). BLVM does not apply a
-    // two-week age check; we dropped that guard to keep parity and avoid inconsistency with
-    // the per-signature short-circuit in script/signature.rs.
-    // Fail-closed: when chainwork is unknown we cannot confirm the chain meets
-    // the minimum-work threshold, so we must NOT skip signature verification.
+    // only when a hash is set, this block is on that chain, and the best header is more
+    // than two weeks of proof-equivalent time ahead (Core `GetBlockProofEquivalentTime`).
+    // Height alone does not skip. Fail-closed: unknown chainwork or an unknown best
+    // header does not skip. Witness commitment is checked later and is not skipped.
     #[cfg(feature = "production")]
     let min_chain_work = crate::pow::U256::from_u128(crate::config::get_n_minimum_chain_work());
     #[cfg(feature = "production")]
@@ -3610,11 +3611,13 @@ pub(crate) fn connect_block_inner<'a>(
         chainwork_ok,
         crate::config::get_assume_valid_hash().is_some(),
         assume_valid_pin_connected,
+        assume_valid_buried,
     );
 
     #[cfg(not(feature = "production"))]
     let skip_signatures = {
         let _ = assume_valid_pin_connected;
+        let _ = assume_valid_buried;
         false
     };
 
@@ -4548,17 +4551,20 @@ mod assume_valid_skip_tests {
     #[test]
     fn height_without_hash_does_not_skip() {
         assert!(!assume_valid_skips_signatures(
-            100, 912_683, true, false, false
+            100, 912_683, true, false, false, true
         ));
     }
 
     #[test]
     fn height_and_hash_below_the_point_skips_only_when_the_pin_is_connected() {
         assert!(!assume_valid_skips_signatures(
-            100, 912_683, true, true, false
+            100, 912_683, true, true, false, true
+        ));
+        assert!(!assume_valid_skips_signatures(
+            100, 912_683, true, true, true, false
         ));
         assert!(assume_valid_skips_signatures(
-            100, 912_683, true, true, true
+            100, 912_683, true, true, true, true
         ));
     }
 
@@ -4571,7 +4577,8 @@ mod assume_valid_skip_tests {
             assume_valid_height,
             true,
             false,
-            false
+            false,
+            true
         ));
     }
 }

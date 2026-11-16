@@ -139,6 +139,7 @@ fn sibling_below_the_pin_does_not_skip_scripts() {
         chainwork(),
         None,
         false,
+        true,
     )
     .expect("sibling connect");
     assert!(
@@ -146,6 +147,26 @@ fn sibling_below_the_pin_does_not_skip_scripts() {
         "a sibling below the pin must run scripts, got {sibling:?}"
     );
     let (on_pin_chain, _, _, _, _) = connect_block_ibd_with_undo(
+        &block,
+        &witnesses,
+        utxo_set.clone(),
+        height,
+        &ctx(),
+        None,
+        None,
+        Some(Arc::new(block.clone())),
+        None,
+        chainwork(),
+        None,
+        true,
+        false,
+    )
+    .expect("recent pin connect");
+    assert!(
+        matches!(on_pin_chain, ValidationResult::Invalid(ref r) if r.contains("Invalid script")),
+        "a block inside two weeks of the best header must run scripts, got {on_pin_chain:?}"
+    );
+    let (buried, _, _, _, _) = connect_block_ibd_with_undo(
         &block,
         &witnesses,
         utxo_set,
@@ -158,11 +179,12 @@ fn sibling_below_the_pin_does_not_skip_scripts() {
         chainwork(),
         None,
         true,
+        true,
     )
-    .expect("pin chain connect");
+    .expect("buried pin connect");
     assert!(
-        matches!(on_pin_chain, ValidationResult::Valid),
-        "the same block skips scripts once the pin hash is in the index, got {on_pin_chain:?}"
+        matches!(buried, ValidationResult::Valid),
+        "the same block skips scripts once it is buried and on the pin chain, got {buried:?}"
     );
 }
 

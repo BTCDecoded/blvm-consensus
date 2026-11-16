@@ -1059,6 +1059,49 @@ pub fn get_block_proof(bits: Natural) -> Result<U256> {
         .unwrap_or(U256([u64::MAX; 4])))
 }
 
+/// Two weeks. Core refuses the assume-valid script skip at or below this age.
+pub const TWO_WEEKS_IN_SECONDS: i64 = 60 * 60 * 24 * 14;
+
+/// Port of Bitcoin Core `GetBlockProofEquivalentTime(to, from, tip, params)`.
+///
+/// `tip_proof` is `GetBlockProof` of the tip header's bits, not cumulative work.
+/// `spacing` is `nPowTargetSpacing`. A zero tip proof returns 0 so the caller
+/// does not treat the block as buried.
+pub fn proof_equivalent_time(to_work: U256, from_work: U256, tip_proof: U256, spacing: u64) -> i64 {
+    if tip_proof.is_zero() || spacing == 0 || to_work == from_work {
+        return 0;
+    }
+    let (delta, sign) = if to_work > from_work {
+        (to_work.sub(from_work), 1i64)
+    } else {
+        (from_work.sub(to_work), -1i64)
+    };
+    let mut scaled = U256::zero();
+    for _ in 0..spacing {
+        scaled = scaled.saturating_add(delta);
+    }
+    let quotient = scaled.div(tip_proof);
+    if quotient.0[1] != 0
+        || quotient.0[2] != 0
+        || quotient.0[3] != 0
+        || quotient.0[0] > i64::MAX as u64
+    {
+        return sign.saturating_mul(i64::MAX);
+    }
+    sign * quotient.0[0] as i64
+}
+
+/// True when `from_work` is strictly more than two weeks of proof-equivalent time
+/// behind `to_work`, using the tip header's compact bits as `GetBlockProof`.
+/// Equal to two weeks is false: Core's check is `<= TWO_WEEKS`.
+pub fn buried_past_two_weeks(to_work: U256, from_work: U256, tip_bits: Natural) -> bool {
+    let Ok(tip_proof) = get_block_proof(tip_bits) else {
+        return false;
+    };
+    proof_equivalent_time(to_work, from_work, tip_proof, TARGET_TIME_PER_BLOCK)
+        > TWO_WEEKS_IN_SECONDS
+}
+
 /// Compress target to compact representation
 ///
 /// Reverse of expand_target: converts U256 target back to compact bits format.

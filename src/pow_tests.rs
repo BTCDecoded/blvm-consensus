@@ -866,6 +866,27 @@ fn mainnet_retarget_height_112896_matches_chain_bits() {
 }
 
 #[test]
+fn one_block_past_two_weeks_is_buried() {
+    let bits = 0x1d00ffff;
+    let proof = get_block_proof(bits).unwrap();
+    let mut work = U256::zero();
+    for _ in 0..2016 {
+        work = work.saturating_add(proof);
+    }
+    assert_eq!(
+        proof_equivalent_time(work, U256::zero(), proof, TARGET_TIME_PER_BLOCK),
+        TWO_WEEKS_IN_SECONDS
+    );
+    assert!(!buried_past_two_weeks(work, U256::zero(), bits));
+    work = work.saturating_add(proof);
+    assert!(buried_past_two_weeks(work, U256::zero(), bits));
+    assert_eq!(
+        proof_equivalent_time(U256::one(), U256::zero(), U256::zero(), 600),
+        0
+    );
+}
+
+#[test]
 fn genesis_has_no_required_bits() {
     assert!(
         next_required_bits(Network::Mainnet, 0, 1, &|_| None)
