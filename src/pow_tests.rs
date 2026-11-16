@@ -377,14 +377,13 @@ fn test_expand_target_exponent_29() {
 
 #[test]
 fn test_check_proof_of_work_invalid_target() {
-    // Exponent 31 is a normal left shift. Regtest's easiest target uses exponent 32.
-    // Exponent 2 is outside the allowed range and must error.
+    // Exponent 2 is a right shift of the mantissa. Exponent 35 does not fit in 256 bits.
     let header = BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
-        bits: 0x0200ffff, // exponent = 2 (invalid)
+        bits: 0x2300ffff, // exponent = 35 (overflow)
         nonce: 0,
     };
 

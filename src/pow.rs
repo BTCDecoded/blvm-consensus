@@ -83,11 +83,7 @@ fn get_next_work_required_internal(
     let last_timestamp = last_header.timestamp;
 
     // An inverted period is negative. ClampTime floors it, as Core and `retarget_bits` do.
-    let time_span = if last_timestamp >= first_timestamp {
-        last_timestamp - first_timestamp
-    } else {
-        0
-    };
+    let time_span = last_timestamp.saturating_sub(first_timestamp);
 
     // Calculate expected_time based on whether we're using corrected version
     // When we have n blocks (indices 0 to n-1), we measure (n-1) intervals
@@ -557,14 +553,14 @@ impl U256 {
     fn sub(self, other: Self) -> Self {
         let mut result = [0u64; 4];
         let mut borrow = 0u128;
-        for i in 0..4 {
+        for (i, word) in result.iter_mut().enumerate() {
             let minuend = self.0[i] as u128;
             let subtrahend = other.0[i] as u128 + borrow;
             if minuend >= subtrahend {
-                result[i] = (minuend - subtrahend) as u64;
+                *word = (minuend - subtrahend) as u64;
                 borrow = 0;
             } else {
-                result[i] = (minuend + (1u128 << 64) - subtrahend) as u64;
+                *word = (minuend + (1u128 << 64) - subtrahend) as u64;
                 borrow = 1;
             }
         }
@@ -1349,7 +1345,8 @@ mod property_tests {
                 nonce: 0,
             });
             let result = get_next_work_required(&current, &headers);
-            if n < 2 || !ordered {
+            // Fewer than two headers cannot retarget. An inverted span is clamped to zero.
+            if n < 2 {
                 prop_assert!(result.is_err());
             } else {
                 let bits = result.unwrap();

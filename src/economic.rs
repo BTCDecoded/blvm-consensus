@@ -278,9 +278,9 @@ pub fn calculate_fee(tx: &Transaction, utxo_set: &UtxoSet) -> Result<Integer> {
 /// Issued supply at `height` is at most `MAX_MONEY`.
 ///
 /// The cap is proved by `_verify_f_issued_supply_below_cap`. This function is the
-/// runtime comparison. spec-lock 0.1.45, which consensus CI runs, names
-/// `total_supply` apart from the spec function `TotalSupply`, so a
-/// `#[spec_locked]` row on this call is a partial rather than a proof.
+/// runtime comparison. The checker names `total_supply` apart from the spec
+/// function `TotalSupply`, so a `#[spec_locked]` row on this call is a partial
+/// rather than a proof.
 pub fn validate_supply_limit(height: Natural) -> bool {
     total_supply(height) <= MAX_MONEY
 }
