@@ -265,14 +265,14 @@ jobs:
 
       - name: Install blvm-spec-lock (with Z3 for full contract verification)
         # 0.1.45 rejects F_SighashBase, an unbounded forall, at the verify parse gate.
-        # 0.1.62 accepts that sentence as Lean-only.
+        # 0.1.63 is the published checker. 0.1.62 accepted that sentence as Lean-only.
         # Use `rustup run` so cargo install honours rust-toolchain.toml even when the default
         # override is stale on shared self-hosted runners.
         run: |
           set -euo pipefail
           CHANNEL=$(grep -E '^channel\s*=' rust-toolchain.toml | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/')
           test -n "$CHANNEL"
-          rustup run "$CHANNEL" cargo install --force blvm-spec-lock --version 0.1.62 --locked --features z3
+          rustup run "$CHANNEL" cargo install --force blvm-spec-lock --version 0.1.63 --locked --features z3
 
       # Single gate: drift → merged F_* verify → optional coverage rollup → attestation env (blocking parts use set -e).
       - name: Verify
