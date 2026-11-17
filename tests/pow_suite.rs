@@ -138,7 +138,7 @@ fn test_get_next_work_required_corrected_can_differ_from_legacy() {
 }
 
 #[test]
-fn test_get_next_work_required_preserves_bits_when_target_mul_overflows() {
+fn test_get_next_work_required_clamps_easier_target_to_mainnet_limit() {
     let current = BlockHeader {
         version: 1,
         prev_block_hash: [0; 32],
@@ -159,9 +159,11 @@ fn test_get_next_work_required_preserves_bits_when_target_mul_overflows() {
         })
         .collect();
     let next = get_next_work_required(&current, &prev_headers).unwrap();
+    // This function's ceiling is the mainnet compact limit. Regtest's 0x207fffff
+    // is a larger integer and an easier target, so the clamp does not keep it.
     assert_eq!(
-        next, 0x207fffff,
-        "regtest min-difficulty overflow should preserve prior bits"
+        next, 0x1d00ffff,
+        "an easier-than-limit retarget clamps to the mainnet compact ceiling"
     );
 }
 
@@ -184,7 +186,8 @@ fn test_batch_check_proof_of_work_marks_invalid_bits_as_false() {
 
 #[test]
 fn test_difficulty_from_bits_rejects_invalid_exponent() {
-    assert!(difficulty_from_bits(0x020000ff).is_err());
+    // Exponent 2 is a right shift. Exponent 35 does not fit in 256 bits.
+    assert!(difficulty_from_bits(0x2300ffff).is_err());
 }
 
 #[cfg(feature = "production")]
