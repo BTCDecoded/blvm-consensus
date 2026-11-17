@@ -871,7 +871,8 @@ fn test_reorganize_chain_rejects_unrelated_chains() {
 
 #[test]
 fn test_calculate_chain_work_rejects_target_too_large() {
-    let block = coinbase_block(0, 0x2100_ffff);
+    // Exponent 33 with mantissa 0xffff still fits. Exponent 35 does not.
+    let block = coinbase_block(0, 0x2300_ffff);
     assert!(calculate_chain_work(&[block]).is_err());
 }
 
