@@ -456,7 +456,11 @@ jobs:
           #        execution, PoW adjustment, mining internals). 0 failures. Ceiling = 25.
           #    0 → post-Sprint-12 closure (2026-05-31): callee postcond propagation,
           #        spec enrich fixes, PROTOCOL Properties refactor. Result: 213/0/0.
-          PARTIAL_BASELINE=0
+          #   79 → spec-lock 0.1.62 on consensus f0d96b5 (2026-11-16): 202 passed,
+          #        0 failed, 79 partial. Each partial is unsupported_translation,
+          #        "spec section has no parseable contract". Checker 0.1.45 exited
+          #        on F_SighashBase before this count. The ceiling is that count.
+          PARTIAL_BASELINE=79
           PARTIAL_COUNT=$(jq '[.results[] | select(.status == "partial")] | length' \
             spec_lock_verify.json 2>/dev/null || echo 0)
           echo "spec_lock_partial_count=$PARTIAL_COUNT" >> $GITHUB_ENV

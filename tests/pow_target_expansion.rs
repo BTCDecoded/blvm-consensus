@@ -99,14 +99,17 @@ fn test_exponent_30_accepted() {
     assert!(result.is_ok(), "Exponent 30 should be accepted");
 }
 
-/// Test exponent > 32 (should be rejected)
+/// Exponent 33 with mantissa 0xffff fits. A wider mantissa at that exponent overflows.
 #[test]
 fn test_exponent_exceeds_max() {
-    // bits = 0x2100ffff (exponent = 33, mantissa = 0x00ffff)
-    // Should be rejected (exponent > 32)
-    let bits = 0x2100ffff;
-    let result = expand_target(bits);
-    assert!(result.is_err(), "Exponent > 32 should be rejected");
+    assert!(
+        expand_target(0x2100ffff).is_ok(),
+        "exponent 33 with mantissa 0xffff fits in 256 bits"
+    );
+    assert!(
+        expand_target(0x2101_0000).is_err(),
+        "exponent 33 with mantissa 0x010000 overflows"
+    );
 }
 
 /// Test typical difficulty target (0x1b0404cb)

@@ -533,8 +533,8 @@ fn test_check_proof_of_work_invalid_target() {
         prev_block_hash: [0; 32],
         merkle_root: [0; 32],
         timestamp: 1231006505,
-        // Exponent 0x21 = 33 is outside expand_target's allowed [3, 32] (0x1f00ffff had exp 31, which is valid).
-        bits: 0x2100ffff,
+        // Exponent 33 with mantissa 0xffff fits. Exponent 35 does not fit in 256 bits.
+        bits: 0x2300ffff,
         nonce: 0,
     };
 
