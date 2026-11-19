@@ -1077,7 +1077,8 @@ pub fn try_verify_p2pk_fast_path(
         return Some(Ok(false));
     }
 
-    // Fast-path: P2PK script_pubkey is 35 or 67 bytes; signature push ≥71. Skip serialize+find_and_delete.
+    // The only push is the key (`0x21` or `0x41`). A DER signature push starts
+    // with its length and `0x30`, so FindAndDelete cannot match this template.
     use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
@@ -1496,7 +1497,8 @@ pub fn verify_p2pk_inline(
     }
 
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
-    let script_code: &[u8] = script_pubkey; // P2PK scriptPubKey < 71 bytes, no FindAndDelete
+    // Key push is not a DER signature push, so FindAndDelete is the identity.
+    let script_code: &[u8] = script_pubkey;
 
     let sighash = crate::transaction_hash::compute_legacy_sighash_nocache(
         tx,
@@ -2055,7 +2057,8 @@ fn verify_p2sh_p2pk_redeem(
     use crate::transaction_hash::{SighashType, calculate_transaction_sighash_single_input};
     let sighash_byte = signature_bytes[signature_bytes.len() - 1];
     let sighash_type = SighashType::from_byte(sighash_byte);
-    // Redeem is 35 or 67 bytes. A signature push is at least 71, so FindAndDelete cannot match.
+    // Redeem is the 35- or 67-byte pay-to-pubkey template. Its only push is the
+    // key, which is not a DER signature push, so FindAndDelete cannot match.
     let deleted_storage;
     let script_code: &[u8] = if redeem.len() < 71 {
         redeem

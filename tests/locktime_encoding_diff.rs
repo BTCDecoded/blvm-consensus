@@ -3,19 +3,26 @@
 //! The activation-height bits are locked in `height_script_differential`. These
 //! cases are the comparisons those bits turn on.
 
+use bitcoin_hashes::{Hash as _, hash160};
 use bitcoinconsensus::{Error, Utxo, verify_with_flags};
 use blvm_consensus::constants::{
     BIP65_ACTIVATION_MAINNET, BIP66_ACTIVATION_MAINNET, BIP112_CSV_ACTIVATION_MAINNET,
 };
-use blvm_consensus::opcodes::{OP_CHECKSIG, PUSH_33_BYTES};
+use blvm_consensus::opcodes::{
+    OP_0, OP_1, OP_CHECKMULTISIG, OP_CHECKSIG, OP_CODESEPARATOR, OP_DROP, OP_DUP, OP_EQUAL,
+    OP_EQUALVERIFY, OP_HASH160, PUSH_20_BYTES, PUSH_33_BYTES,
+};
 use blvm_consensus::script::flags::{
     SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, SCRIPT_VERIFY_CHECKSEQUENCEVERIFY, SCRIPT_VERIFY_DERSIG,
     SCRIPT_VERIFY_P2SH,
 };
 use blvm_consensus::script::{SigVersion, verify_script_with_context_full};
 use blvm_consensus::serialization::transaction::serialize_transaction;
-use blvm_consensus::transaction_hash::compute_legacy_sighash_nocache;
+use blvm_consensus::transaction_hash::{
+    SighashType, calculate_transaction_sighash_single_input, compute_legacy_sighash_nocache,
+};
 use blvm_consensus::types::{Network, OutPoint, Transaction, TransactionInput, TransactionOutput};
+use secp256k1::ecdsa::{RecoverableSignature, RecoveryId};
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 
 const N: [u8; 32] = [
@@ -246,6 +253,38 @@ fn csv_comparison_matches_libbitcoinconsensus() {
         ("version 1", drop_script(&one, 0xb2), flags, 1, 1, false),
         ("version 0", drop_script(&one, 0xb2), flags, 0, 1, false),
         (
+            "version 0xffffffff equal locks",
+            keep_script(&one, 0xb2),
+            flags,
+            0xffff_ffff,
+            1,
+            true,
+        ),
+        (
+            "version 0xffffffff stack greater",
+            drop_script(&two, 0xb2),
+            flags,
+            0xffff_ffff,
+            1,
+            false,
+        ),
+        (
+            "version 0x80000000 equal locks",
+            keep_script(&one, 0xb2),
+            flags,
+            0x8000_0000,
+            1,
+            true,
+        ),
+        (
+            "version 0x80000000 stack greater",
+            drop_script(&two, 0xb2),
+            flags,
+            0x8000_0000,
+            1,
+            false,
+        ),
+        (
             "input disable bit",
             drop_script(&one, 0xb2),
             flags,
@@ -395,4 +434,379 @@ fn dersig_encoding_matches_libbitcoinconsensus() {
         let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
         expect(name, &tx, &script_pubkey, flags, height, want);
     }
+}
+
+/// A longer push that contains the signature bytes is not the signature push.
+/// Deleting it changes the legacy sighash. The signature is recovered for the
+/// sighash of the script that still contains that push.
+#[test]
+fn find_and_delete_keeps_a_push_that_contains_the_signature() {
+    let dummy_sig = [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let mut contained = vec![0x00];
+    contained.extend_from_slice(&dummy_sig);
+    let mut script_code = vec![0xad, contained.len() as u8];
+    script_code.extend_from_slice(&contained);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &script_code,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let mut compact = [0u8; 64];
+    compact[31] = 0x01;
+    compact[63] = 0x01;
+    let secp = Secp256k1::new();
+    let message = Message::from_digest(sighash);
+    let pubkey = (0..4)
+        .find_map(|id| {
+            let rec = RecoverableSignature::from_compact(
+                &compact,
+                RecoveryId::from_i32(id).expect("recovery id"),
+            )
+            .ok()?;
+            secp.recover_ecdsa(&message, &rec).ok()
+        })
+        .expect("one recovery id yields a public key");
+    let pk = pubkey.serialize();
+
+    let mut script_sig = vec![dummy_sig.len() as u8];
+    script_sig.extend_from_slice(&dummy_sig);
+    script_sig.push(0x21);
+    script_sig.extend_from_slice(&pk);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG;
+    expect(
+        "containing push stays in the sighash",
+        &tx,
+        &script_code,
+        flags,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+/// Canonical pay-to-pubkey: one key push and `OP_CHECKSIG`. The fast path
+/// skips FindAndDelete. The signature is over that script, so both verifiers
+/// accept the same spend.
+#[test]
+fn p2pk_spend_matches_libbitcoinconsensus() {
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(&[1u8; 32]).expect("secret");
+    let public = PublicKey::from_secret_key(&secp, &secret);
+    let pk = public.serialize();
+    let mut script_pubkey = vec![PUSH_33_BYTES];
+    script_pubkey.extend_from_slice(&pk);
+    script_pubkey.push(OP_CHECKSIG);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &script_pubkey,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let der = secp
+        .sign_ecdsa(&Message::from_digest(sighash), &secret)
+        .serialize_der();
+    let mut script_sig = vec![der.len() as u8 + 1];
+    script_sig.extend_from_slice(&der);
+    script_sig.push(0x01);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    expect(
+        "canonical p2pk spend",
+        &tx,
+        &script_pubkey,
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+/// Pay-to-script-hash around the same pay-to-pubkey redeem. The script code is
+/// the redeem. The fast path skips FindAndDelete on that 35-byte script.
+#[test]
+fn p2sh_p2pk_spend_matches_libbitcoinconsensus() {
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(&[2u8; 32]).expect("secret");
+    let public = PublicKey::from_secret_key(&secp, &secret);
+    let pk = public.serialize();
+    let mut redeem = vec![PUSH_33_BYTES];
+    redeem.extend_from_slice(&pk);
+    redeem.push(OP_CHECKSIG);
+
+    let redeem_hash = hash160::Hash::hash(&redeem);
+    let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+    script_pubkey.extend_from_slice(redeem_hash.as_ref());
+    script_pubkey.push(OP_EQUAL);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &redeem,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let der = secp
+        .sign_ecdsa(&Message::from_digest(sighash), &secret)
+        .serialize_der();
+    let mut script_sig = vec![der.len() as u8 + 1];
+    script_sig.extend_from_slice(&der);
+    script_sig.push(0x01);
+    script_sig.push(redeem.len() as u8);
+    script_sig.extend_from_slice(&redeem);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    expect(
+        "p2sh p2pk redeem",
+        &tx,
+        &script_pubkey,
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+/// Pay-to-script-hash around a pay-to-pubkey-hash redeem. The redeem is 25
+/// bytes. The fast path skips FindAndDelete. The sighash is over the redeem.
+#[test]
+fn p2sh_p2pkh_spend_matches_libbitcoinconsensus() {
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(&[3u8; 32]).expect("secret");
+    let public = PublicKey::from_secret_key(&secp, &secret);
+    let pk = public.serialize();
+    let key_hash = hash160::Hash::hash(&pk);
+    let mut redeem = vec![OP_DUP, OP_HASH160, PUSH_20_BYTES];
+    redeem.extend_from_slice(key_hash.as_ref());
+    redeem.extend_from_slice(&[OP_EQUALVERIFY, OP_CHECKSIG]);
+
+    let redeem_hash = hash160::Hash::hash(&redeem);
+    let mut script_pubkey = vec![OP_HASH160, PUSH_20_BYTES];
+    script_pubkey.extend_from_slice(redeem_hash.as_ref());
+    script_pubkey.push(OP_EQUAL);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &redeem,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let der = secp
+        .sign_ecdsa(&Message::from_digest(sighash), &secret)
+        .serialize_der();
+    let mut script_sig = vec![der.len() as u8 + 1];
+    script_sig.extend_from_slice(&der);
+    script_sig.push(0x01);
+    script_sig.push(PUSH_33_BYTES);
+    script_sig.extend_from_slice(&pk);
+    script_sig.push(redeem.len() as u8);
+    script_sig.extend_from_slice(&redeem);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    expect(
+        "p2sh p2pkh redeem",
+        &tx,
+        &script_pubkey,
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+/// Bare pay-to-pubkey-hash. The fast path hashes with
+/// `compute_legacy_sighash_nocache` over the 25-byte script.
+#[test]
+fn p2pkh_spend_matches_libbitcoinconsensus() {
+    let secp = Secp256k1::new();
+    let secret = SecretKey::from_slice(&[4u8; 32]).expect("secret");
+    let public = PublicKey::from_secret_key(&secp, &secret);
+    let pk = public.serialize();
+    let key_hash = hash160::Hash::hash(&pk);
+    let mut script_pubkey = vec![OP_DUP, OP_HASH160, PUSH_20_BYTES];
+    script_pubkey.extend_from_slice(key_hash.as_ref());
+    script_pubkey.extend_from_slice(&[OP_EQUALVERIFY, OP_CHECKSIG]);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &script_pubkey,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let der = secp
+        .sign_ecdsa(&Message::from_digest(sighash), &secret)
+        .serialize_der();
+    let mut script_sig = vec![der.len() as u8 + 1];
+    script_sig.extend_from_slice(&der);
+    script_sig.push(0x01);
+    script_sig.push(PUSH_33_BYTES);
+    script_sig.extend_from_slice(&pk);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    expect(
+        "bare p2pkh spend",
+        &tx,
+        &script_pubkey,
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+/// `OP_CHECKMULTISIG` leaves a longer push that contains the signature. The
+/// pubkey sits before `OP_CODESEPARATOR`, so the sighash is the subscript that
+/// still contains that push.
+#[test]
+fn checkmultisig_keeps_a_push_that_contains_the_signature() {
+    let dummy_sig = [0x30u8, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let mut contained = vec![0x00];
+    contained.extend_from_slice(&dummy_sig);
+    let mut subscript = vec![contained.len() as u8];
+    subscript.extend_from_slice(&contained);
+    subscript.extend_from_slice(&[OP_DROP, OP_1, OP_CHECKMULTISIG]);
+
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let sighash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &subscript,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("sighash");
+    let mut compact = [0u8; 64];
+    compact[31] = 0x01;
+    compact[63] = 0x01;
+    let secp = Secp256k1::new();
+    let message = Message::from_digest(sighash);
+    let pubkey = (0..4)
+        .find_map(|id| {
+            let rec = RecoverableSignature::from_compact(
+                &compact,
+                RecoveryId::from_i32(id).expect("recovery id"),
+            )
+            .ok()?;
+            secp.recover_ecdsa(&message, &rec).ok()
+        })
+        .expect("one recovery id yields a public key");
+    let pk = pubkey.serialize();
+
+    let mut script_pubkey = vec![OP_1, PUSH_33_BYTES];
+    script_pubkey.extend_from_slice(&pk);
+    script_pubkey.push(OP_CODESEPARATOR);
+    script_pubkey.extend_from_slice(&subscript);
+
+    let mut script_sig = vec![OP_0, dummy_sig.len() as u8];
+    script_sig.extend_from_slice(&dummy_sig);
+    let tx = make_tx(1, 0xffff_ffff, 0, script_sig);
+    expect(
+        "multisig containing push stays in the sighash",
+        &tx,
+        &script_pubkey,
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG,
+        BIP66_ACTIVATION_MAINNET,
+        true,
+    );
+}
+
+fn recover_pubkey(sighash: [u8; 32]) -> secp256k1::PublicKey {
+    let mut compact = [0u8; 64];
+    compact[31] = 0x01;
+    compact[63] = 0x01;
+    let secp = Secp256k1::new();
+    let message = Message::from_digest(sighash);
+    (0..4)
+        .find_map(|id| {
+            let rec = RecoverableSignature::from_compact(
+                &compact,
+                RecoveryId::from_i32(id).expect("recovery id"),
+            )
+            .ok()?;
+            secp.recover_ecdsa(&message, &rec).ok()
+        })
+        .expect("one recovery id yields a public key")
+}
+
+fn multisig_with_exact_signature_push(pubkey: &[u8], signature: &[u8]) -> (Transaction, Vec<u8>) {
+    let mut subscript = vec![signature.len() as u8];
+    subscript.extend_from_slice(signature);
+    subscript.extend_from_slice(&[OP_DROP, OP_1, OP_CHECKMULTISIG]);
+    let mut script_pubkey = vec![OP_1, PUSH_33_BYTES];
+    script_pubkey.extend_from_slice(pubkey);
+    script_pubkey.push(OP_CODESEPARATOR);
+    script_pubkey.extend_from_slice(&subscript);
+    let mut script_sig = vec![OP_0, signature.len() as u8];
+    script_sig.extend_from_slice(signature);
+    (make_tx(1, 0xffff_ffff, 0, script_sig), script_pubkey)
+}
+
+/// `OP_CHECKMULTISIG` removes an exact copy of the signature push from the
+/// subscript before hashing. The same push left in the sighash does not verify.
+#[test]
+fn checkmultisig_removes_an_exact_signature_push() {
+    let signature = [0x30u8, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let cleaned = [OP_DROP, OP_1, OP_CHECKMULTISIG];
+    let mut uncleaned = vec![signature.len() as u8];
+    uncleaned.extend_from_slice(&signature);
+    uncleaned.extend_from_slice(&cleaned);
+    let tx_for_hash = make_tx(1, 0xffff_ffff, 0, Vec::new());
+    let flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG;
+    let height = BIP66_ACTIVATION_MAINNET;
+
+    let cleaned_hash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &cleaned,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("cleaned sighash");
+    let (cleaned_tx, cleaned_script) =
+        multisig_with_exact_signature_push(&recover_pubkey(cleaned_hash).serialize(), &signature);
+    expect(
+        "exact push removed before the sighash",
+        &cleaned_tx,
+        &cleaned_script,
+        flags,
+        height,
+        true,
+    );
+
+    let uncleaned_hash = calculate_transaction_sighash_single_input(
+        &tx_for_hash,
+        0,
+        &uncleaned,
+        0,
+        SighashType::from_byte(0x01),
+        None,
+    )
+    .expect("uncleaned sighash");
+    let (uncleaned_tx, uncleaned_script) = multisig_with_exact_signature_push(
+        &recover_pubkey(uncleaned_hash).serialize(),
+        &signature,
+    );
+    expect(
+        "exact push left in the sighash",
+        &uncleaned_tx,
+        &uncleaned_script,
+        flags,
+        height,
+        false,
+    );
 }

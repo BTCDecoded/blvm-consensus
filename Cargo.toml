@@ -84,7 +84,7 @@ tokio = { version = "1.35", features = ["rt", "macros"] }
 criterion = "0.5"
 # hash_operations bench: sequential ECDSA baseline uses crates.io secp256k1 even when the library
 # default backend is blvm-secp256k1 (optional `secp256k1` dep is off).
-secp256k1 = "0.28"
+secp256k1 = { version = "0.28", features = ["recovery"] }
 # Script verdict vs libbitcoinconsensus (activation heights and the off-chain
 # sweep). This crate does not link libbitcoinkernel.
 bitcoinconsensus = "0.106"

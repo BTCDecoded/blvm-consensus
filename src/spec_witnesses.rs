@@ -1793,7 +1793,7 @@ pub(crate) fn _verify_f_csv_version_below_two_fails(version: i64, disable_bit: i
 /// Witness for **F_RelativeLockUnsignedVersion** (PROTOCOL.md §5.5).
 ///
 /// A version word in `0..=2^32-1` enables BIP68 and CSV exactly when it is at least 2.
-/// Wire `0xffffffff` is 4294967295 and enables both.
+/// Wire `0xffffffff` is 4294967295 and wire `0x80000000` is 2147483648. Both enable the lock.
 #[cfg_attr(
     feature = "spec-lock",
     spec_locked("5.5", "F_RelativeLockUnsignedVersion")

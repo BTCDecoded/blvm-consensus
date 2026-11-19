@@ -2188,3 +2188,68 @@ fn test_p2wsh_multisig_fast_path() {
     assert!(result.is_ok());
     assert!(!result.unwrap());
 }
+
+/// A canonical pay-to-pubkey script's only push is the key. A DER signature
+/// push starts with its length and `0x30`, so FindAndDelete leaves the script.
+#[test]
+fn canonical_p2pk_find_and_delete_leaves_the_script() {
+    let sig = [0x30u8, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let mut pattern = vec![sig.len() as u8];
+    pattern.extend_from_slice(&sig);
+
+    let mut compressed = vec![0x21];
+    compressed.extend(std::iter::repeat(0x02).take(33));
+    compressed.push(OP_CHECKSIG);
+    assert_eq!(find_and_delete(&compressed, &pattern).as_ref(), compressed);
+
+    let mut uncompressed = vec![0x41];
+    uncompressed.extend(std::iter::repeat(0x04).take(65));
+    uncompressed.push(OP_CHECKSIG);
+    assert_eq!(
+        find_and_delete(&uncompressed, &pattern).as_ref(),
+        uncompressed
+    );
+
+    // The key bytes are the signature, repeated. The push opcode is still the
+    // key length, so the signature push is not an exact match.
+    let mut key_holds_sig = vec![0x21];
+    while key_holds_sig.len() < 34 {
+        key_holds_sig.extend_from_slice(&sig);
+    }
+    key_holds_sig.truncate(34);
+    key_holds_sig.push(OP_CHECKSIG);
+    assert_eq!(
+        find_and_delete(&key_holds_sig, &pattern).as_ref(),
+        key_holds_sig
+    );
+
+    let exact = compressed[..34].to_vec();
+    let deleted = find_and_delete(&compressed, &exact);
+    assert_eq!(deleted.as_ref(), &[OP_CHECKSIG]);
+}
+
+/// A pay-to-pubkey-hash script's only data push is 21 bytes. A DER signature
+/// push is a different length, so FindAndDelete leaves the script.
+#[test]
+fn p2pkh_find_and_delete_leaves_the_script() {
+    let sig = [0x30u8, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01];
+    let mut pattern = vec![sig.len() as u8];
+    pattern.extend_from_slice(&sig);
+
+    let mut hash = [0u8; 20];
+    for (i, byte) in hash.iter_mut().enumerate() {
+        *byte = sig[i % sig.len()];
+    }
+    let mut script = vec![OP_DUP, OP_HASH160, PUSH_20_BYTES];
+    script.extend_from_slice(&hash);
+    script.extend_from_slice(&[OP_EQUALVERIFY, OP_CHECKSIG]);
+    assert_eq!(script.len(), 25);
+    assert_eq!(find_and_delete(&script, &pattern).as_ref(), script);
+
+    let push = script[2..23].to_vec();
+    let deleted = find_and_delete(&script, &push);
+    assert_eq!(
+        deleted.as_ref(),
+        &[OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG]
+    );
+}
