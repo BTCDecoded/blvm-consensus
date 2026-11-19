@@ -797,10 +797,8 @@ fn checkmultisig_removes_an_exact_signature_push() {
         None,
     )
     .expect("uncleaned sighash");
-    let (uncleaned_tx, uncleaned_script) = multisig_with_exact_signature_push(
-        &recover_pubkey(uncleaned_hash).serialize(),
-        &signature,
-    );
+    let (uncleaned_tx, uncleaned_script) =
+        multisig_with_exact_signature_push(&recover_pubkey(uncleaned_hash).serialize(), &signature);
     expect(
         "exact push left in the sighash",
         &uncleaned_tx,
