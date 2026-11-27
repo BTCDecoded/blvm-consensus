@@ -108,9 +108,8 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
     }
 
     // Quick reject: obviously invalid value ranges (before expensive validation)
-    // Check if any output value is negative or exceeds MAX_MONEY
-    // Optimization: Use precomputed constant for u64 comparisons
-    #[cfg(feature = "production")]
+    // Output value must be non-negative and no greater than MAX_MONEY.
+    // This function is compiled only with `production`.
     {
         use crate::optimizations::precomputed_constants::MAX_MONEY_U64;
         for output in &tx.outputs {
@@ -124,26 +123,11 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
         }
     }
 
-    #[cfg(not(feature = "production"))]
-    for output in &tx.outputs {
-        if output.value < 0 || output.value > MAX_MONEY {
-            return Some(ValidationResult::Invalid(format!(
-                "Invalid output value: {}",
-                output.value
-            )));
-        }
-    }
-
-    // Quick reject: coinbase with invalid scriptSig length
-    // Optimization: Use constant folding for zero hash check
-    #[cfg(feature = "production")]
+    // Quick reject: coinbase with invalid scriptSig length.
     let is_coinbase_hash = {
         use crate::optimizations::constant_folding::is_zero_hash;
         is_zero_hash(&tx.inputs[0].prevout.hash)
     };
-
-    #[cfg(not(feature = "production"))]
-    let is_coinbase_hash = tx.inputs[0].prevout.hash == [0u8; 32];
 
     if tx.inputs.len() == 1 && is_coinbase_hash && tx.inputs[0].prevout.index == 0xffffffff {
         let script_sig_len = tx.inputs[0].script_sig.len();
