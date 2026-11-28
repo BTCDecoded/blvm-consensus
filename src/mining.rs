@@ -809,7 +809,7 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     // Uses SIMD vectorization + proven bounds for optimal performance
     // Use cache-aligned structures throughout merkle tree building
     #[cfg(feature = "production")]
-    let mut hashes: Vec<crate::optimizations::CacheAlignedHash> = {
+    let hashes: Vec<crate::optimizations::CacheAlignedHash> = {
         use crate::optimizations::simd_vectorization;
 
         // Serialize all transactions in parallel (if rayon available)
@@ -855,55 +855,14 @@ pub fn calculate_merkle_root(transactions: &[Transaction]) -> Result<Hash> {
     // Use cache-aligned structures in production mode for better cache locality
     #[cfg(feature = "production")]
     {
-        use crate::optimizations::CacheAlignedHash;
-
-        let mut mutated = false;
-
-        while hashes.len() > 1 {
-            // CVE-2012-2459: Detect mutations (duplicate hashes at same level)
-            let mut level_mutated = false;
-            let mut pos = 0;
-            while pos + 1 < hashes.len() {
-                if hashes[pos].as_bytes() == hashes[pos + 1].as_bytes() {
-                    level_mutated = true;
-                }
-                pos += 2;
-            }
-            if level_mutated {
-                mutated = true;
-            }
-
-            // Duplicate last hash if odd number of hashes (Bitcoin's special rule)
-            if hashes.len() & 1 != 0 {
-                let last = hashes[hashes.len() - 1].clone();
-                hashes.push(last);
-            }
-
-            // Stack-allocated 64-byte buffer, double SHA256 at each level
-            let next_level: Vec<CacheAlignedHash> = hashes
-                .chunks(2)
-                .map(|chunk| {
-                    let mut combined = [0u8; 64];
-                    combined[..32].copy_from_slice(chunk[0].as_bytes());
-                    combined[32..].copy_from_slice(if chunk.len() == 2 {
-                        chunk[1].as_bytes()
-                    } else {
-                        chunk[0].as_bytes()
-                    });
-                    CacheAlignedHash::new(double_sha256_hash(&combined))
-                })
-                .collect();
-
-            hashes = next_level;
-        }
-
+        let mut plain: Vec<Hash> = hashes.iter().map(|hash| *hash.as_bytes()).collect();
+        let (root, mutated) = merkle_tree_from_hashes(&mut plain)?;
         if mutated {
             return Err(crate::error::ConsensusError::InvalidProofOfWork(
                 "Merkle root mutation detected (CVE-2012-2459)".into(),
             ));
         }
-
-        Ok(*hashes[0].as_bytes())
+        Ok(root)
     }
 
     #[cfg(not(feature = "production"))]

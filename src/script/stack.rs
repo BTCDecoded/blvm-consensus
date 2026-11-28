@@ -30,25 +30,8 @@ pub fn to_stack_element(data: &[u8]) -> StackElement {
 /// Returns true if ANY byte is non-zero, except for "negative zero" (0x80 in last byte, rest zeros).
 #[cfg_attr(feature = "spec-lock", spec_locked("5.2.4", "CastToBool"))]
 #[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || v.len() > 0))]
-#[cfg(feature = "production")]
-#[inline(always)]
-pub fn cast_to_bool(v: &[u8]) -> bool {
-    for i in 0..v.len() {
-        if v[i] != 0 {
-            // Negative zero: all zeros except 0x80 in the last byte
-            if i == v.len() - 1 && v[i] == 0x80 {
-                return false;
-            }
-            return true;
-        }
-    }
-    false
-}
-
-#[cfg_attr(feature = "spec-lock", spec_locked("5.2.4", "CastToBool"))]
-#[cfg_attr(feature = "spec-lock", blvm_spec_lock::ensures(result == false || v.len() > 0))]
-#[cfg(not(feature = "production"))]
-#[inline]
+#[cfg_attr(feature = "production", inline(always))]
+#[cfg_attr(not(feature = "production"), inline)]
 pub fn cast_to_bool(v: &[u8]) -> bool {
     for i in 0..v.len() {
         if v[i] != 0 {

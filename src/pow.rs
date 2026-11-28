@@ -1361,5 +1361,32 @@ mod property_tests {
 }
 
 #[cfg(test)]
+mod header_wire_lock {
+    use super::serialize_header;
+    use crate::block::block_header_hash;
+    use crate::serialization::serialize_block_header;
+    use crate::types::BlockHeader;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn serialize_header_matches_the_primitives_header_and_block_header_hash() {
+        let header = BlockHeader {
+            version: -1,
+            prev_block_hash: [0x11; 32],
+            merkle_root: [0x22; 32],
+            timestamp: 1_700_000_000,
+            bits: 0x1d00ffff,
+            nonce: 7,
+        };
+        let local = serialize_header(&header);
+        let wire = serialize_block_header(&header);
+        assert_eq!(local.as_slice(), wire.as_slice());
+        let first = Sha256::digest(local);
+        let second = Sha256::digest(first);
+        assert_eq!(second.as_slice(), &block_header_hash(&header)[..]);
+    }
+}
+
+#[cfg(test)]
 #[path = "pow_tests.rs"]
 mod tests;
