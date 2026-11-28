@@ -93,20 +93,6 @@ fn check_transaction_fast_path(tx: &Transaction) -> Option<ValidationResult> {
         return Some(ValidationResult::Invalid("Empty inputs or outputs".into()));
     }
 
-    // Quick reject: obviously too many inputs/outputs (before expensive size calculation)
-    if tx.inputs.len() > MAX_INPUTS {
-        return Some(ValidationResult::Invalid(format!(
-            "Too many inputs: {}",
-            tx.inputs.len()
-        )));
-    }
-    if tx.outputs.len() > MAX_OUTPUTS {
-        return Some(ValidationResult::Invalid(format!(
-            "Too many outputs: {}",
-            tx.outputs.len()
-        )));
-    }
-
     // Quick reject: obviously invalid value ranges (before expensive validation)
     // Output value must be non-negative and no greater than MAX_MONEY.
     // This function is compiled only with `production`.

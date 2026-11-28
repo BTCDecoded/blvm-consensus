@@ -143,20 +143,7 @@ fn bip341_tagged_hash(tag: &[u8], data: &[u8]) -> [u8; 32] {
 }
 
 fn compact_size_encode(n: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(9);
-    if n < 0xfd {
-        out.push(n as u8);
-    } else if n <= 0xffff {
-        out.push(0xfd);
-        out.extend_from_slice(&(n as u16).to_le_bytes());
-    } else if n <= 0xffff_ffff {
-        out.push(0xfe);
-        out.extend_from_slice(&(n as u32).to_le_bytes());
-    } else {
-        out.push(0xff);
-        out.extend_from_slice(&(n as u64).to_le_bytes());
-    }
-    out
+    crate::serialization::encode_varint(n as u64)
 }
 
 pub fn tap_leaf_hash(leaf_version: u8, script: &[u8]) -> [u8; 32] {

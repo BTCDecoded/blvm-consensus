@@ -631,21 +631,7 @@ pub fn compute_tapscript_signature_hash(
 
 /// Encode a number as a Bitcoin varint
 fn encode_varint(value: u64) -> Vec<u8> {
-    if value < 0xfd {
-        vec![value as u8]
-    } else if value <= 0xffff {
-        let mut result = vec![0xfd];
-        result.extend_from_slice(&(value as u16).to_le_bytes());
-        result
-    } else if value <= 0xffffffff {
-        let mut result = vec![0xfe];
-        result.extend_from_slice(&(value as u32).to_le_bytes());
-        result
-    } else {
-        let mut result = vec![0xff];
-        result.extend_from_slice(&value.to_le_bytes());
-        result
-    }
+    crate::serialization::encode_varint(value)
 }
 
 #[cfg(test)]
